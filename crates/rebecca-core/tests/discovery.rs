@@ -233,6 +233,24 @@ fn steam_libraryfolders_parser_deduplicates_trailing_separator_variants() {
 }
 
 #[test]
+fn steam_libraryfolders_parser_ignores_relative_paths() {
+    let raw = r#"
+"libraryfolders"
+{
+    "0"
+    {
+        "path"      "SteamLibrary"
+    }
+    "1" "D:\\SteamLibrary"
+}
+"#;
+
+    let paths = parse_steam_libraryfolders(raw).unwrap();
+
+    assert_eq!(paths, vec![std::path::PathBuf::from(r"D:\SteamLibrary")]);
+}
+
+#[test]
 fn steam_library_template_expands_all_discovered_library_paths() {
     let temp = tempfile::tempdir().unwrap();
     let install_path = temp.path().join("Steam");
@@ -277,6 +295,19 @@ fn steam_relative_templates_reject_absolute_or_parent_paths() {
     let applications = StaticApplicationDiscovery::new().with_steam_installation(steam);
     let env = MapEnvironment::new();
     let target = RuleTargetSpec::steam_install_template("..\\userdata");
+
+    let err = resolve_rule_target_with_applications(&target, &env, &applications).unwrap_err();
+
+    assert!(err.to_string().contains("must be a safe relative path"));
+}
+
+#[test]
+fn steam_relative_templates_reject_current_directory_segments() {
+    let temp = tempfile::tempdir().unwrap();
+    let steam = SteamInstallation::new(temp.path().join("Steam"), Vec::<std::path::PathBuf>::new());
+    let applications = StaticApplicationDiscovery::new().with_steam_installation(steam);
+    let env = MapEnvironment::new();
+    let target = RuleTargetSpec::steam_library_template(".\\shadercache");
 
     let err = resolve_rule_target_with_applications(&target, &env, &applications).unwrap_err();
 

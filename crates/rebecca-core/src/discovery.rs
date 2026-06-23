@@ -134,7 +134,7 @@ fn ensure_safe_relative_steam_target(path: &Path) -> Result<()> {
     for component in path.components() {
         if matches!(
             component,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            Component::CurDir | Component::ParentDir | Component::RootDir | Component::Prefix(_)
         ) {
             return Err(unsafe_steam_relative_path_error(path));
         }

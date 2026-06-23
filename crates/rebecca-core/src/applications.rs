@@ -230,7 +230,12 @@ fn steam_library_path_value(key: &str, value: &str) -> Option<PathBuf> {
     if key.eq_ignore_ascii_case("path")
         || (is_legacy_library_key(key) && looks_like_path_value(value))
     {
-        Some(PathBuf::from(value))
+        let trimmed = value.trim();
+        if trimmed.is_empty() || !looks_like_windows_absolute_path(trimmed) {
+            return None;
+        }
+
+        Some(PathBuf::from(trimmed))
     } else {
         None
     }
@@ -265,4 +270,15 @@ fn path_key(path: &Path) -> String {
 
 fn same_path_ignore_case(left: &Path, right: &Path) -> bool {
     path_key(left) == path_key(right)
+}
+
+fn looks_like_windows_absolute_path(value: &str) -> bool {
+    let normalized = value.replace('/', "\\");
+
+    if normalized.starts_with("\\\\") {
+        return true;
+    }
+
+    let bytes = normalized.as_bytes();
+    bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\'
 }
