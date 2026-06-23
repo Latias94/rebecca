@@ -1,4 +1,6 @@
+#[path = "common/isolated.rs"]
 mod isolated;
+#[path = "common/support.rs"]
 mod support;
 
 #[test]

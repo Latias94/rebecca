@@ -1,6 +1,8 @@
 use std::fs;
 
+#[path = "common/isolated.rs"]
 mod isolated;
+#[path = "common/support.rs"]
 mod support;
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {

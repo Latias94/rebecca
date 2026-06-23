@@ -1,3 +1,4 @@
+#[path = "common/support.rs"]
 mod support;
 
 #[test]
