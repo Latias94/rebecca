@@ -60,6 +60,8 @@ The starter catalog intentionally stays small and lives in
 - `windows.firefox-profile-cache`
 - `windows.discord-cache`
 - `windows.steam-cache`
+- `windows.steam-install-cache`
+- `windows.steam-library-shader-cache`
 - `windows.directx-shader-cache`
 - `windows.thumbnail-cache`
 - `windows.pip-cache`
@@ -81,6 +83,8 @@ Steam support currently discovers the install root from the Windows registry
 and library roots from `steamapps\libraryfolders.vdf`, which lets future Steam
 rules target install-root-relative or library-root-relative paths without
 guessing the machine layout.
+The current catalog includes the Steam client web cache, a Steam install-root
+cache rule, and a Steam library shader-cache rule.
 
 ## Local State
 

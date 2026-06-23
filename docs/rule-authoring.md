@@ -40,6 +40,9 @@ files. Keep each rule small, explicit, and easy to audit.
   Windows registry and expand relative paths against each discovered library
   root. Keep those relative targets narrow and safe; do not allow `..` or
   absolute paths.
+- Current Steam discovery-backed rules are intentionally narrow: an install-root
+  cache rule may target `appcache\httpcache`, and a library-root cache rule may
+  target `steamapps\shadercache`.
 - Cargo cache rules should target cache subdirectories under `%CARGO_HOME%`
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or

@@ -2,9 +2,15 @@
 title: "feat: Build Windows Cleanup MVP"
 type: "feat"
 date: "2026-06-23"
+status: "complete"
+completed_at: "2026-06-24"
 ---
 
 # feat: Build Windows Cleanup MVP
+
+## Status
+
+Complete. The MVP has been implemented and verified; follow-up work belongs in separate plans.
 
 ## Summary
 
