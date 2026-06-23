@@ -182,6 +182,48 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
 }
 
 #[test]
+fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
+    let temp = tempfile::tempdir().unwrap();
+    let steam = temp.path().join("Steam");
+    let steamapps = steam.join("steamapps");
+    let httpcache = steam.join("appcache").join("httpcache");
+    std::fs::create_dir_all(steamapps.join("libraryfolders.vdf")).unwrap();
+    fs::create_dir_all(&httpcache).unwrap();
+    fs::write(httpcache.join("cache.bin"), b"abcd").unwrap();
+
+    let output = isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.steam-install-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["total_targets"], 1);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 4);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["rule_id"], "windows.steam-install-cache");
+    assert_eq!(targets[0]["status"], "allowed");
+    assert!(
+        targets[0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with(r"appcache\httpcache")
+    );
+}
+
+#[test]
 fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     let temp = tempfile::tempdir().unwrap();
     let roaming = temp.path().join("roaming");
