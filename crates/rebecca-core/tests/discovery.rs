@@ -150,6 +150,22 @@ fn steam_installation_reports_read_errors_for_libraryfolders_file() {
 }
 
 #[test]
+fn steam_installation_reports_malformed_libraryfolders_vdf() {
+    let temp = tempfile::tempdir().unwrap();
+    let install_path = temp.path().join("Steam");
+    let steamapps = install_path.join("steamapps");
+    fs::create_dir_all(&steamapps).unwrap();
+    fs::write(steamapps.join("libraryfolders.vdf"), "\"libraryfolders").unwrap();
+
+    let err = SteamInstallation::from_install_path(&install_path).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("unterminated string in Steam libraryfolders.vdf")
+    );
+}
+
+#[test]
 fn steam_installation_treats_missing_libraryfolders_as_empty_library_paths() {
     let temp = tempfile::tempdir().unwrap();
     let install_path = temp.path().join("Steam");

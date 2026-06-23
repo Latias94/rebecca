@@ -138,9 +138,7 @@ fn parse_steam_libraryfolders_object(
                         parse_steam_libraryfolders_object(tokens, index, paths)?;
                     }
                     Some(VdfToken::String(value)) => {
-                        if key.eq_ignore_ascii_case("path")
-                            || (is_legacy_library_key(&key) && looks_like_path_value(value))
-                        {
+                        if is_steam_library_path_key(&key, value) {
                             paths.push(PathBuf::from(value));
                         }
                         *index += 1;
@@ -226,6 +224,10 @@ fn is_legacy_library_key(value: &str) -> bool {
 
 fn looks_like_path_value(value: &str) -> bool {
     value.contains(':') || value.contains('\\') || value.contains('/')
+}
+
+fn is_steam_library_path_key(key: &str, value: &str) -> bool {
+    key.eq_ignore_ascii_case("path") || (is_legacy_library_key(key) && looks_like_path_value(value))
 }
 
 fn dedupe_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
