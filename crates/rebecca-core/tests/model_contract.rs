@@ -48,6 +48,26 @@ fn invalid_rule_catalog_rejects_duplicate_target_specs() {
 }
 
 #[test]
+fn rule_target_spec_exposes_placeholder_path_and_dedupe_key() {
+    let template = RuleTargetSpec::steam_library_template("steamapps\\shadercache");
+    let exact = RuleTargetSpec::ExactPath(PathBuf::from(r"C:\Temp\Cache"));
+
+    assert_eq!(
+        template.placeholder_path(),
+        PathBuf::from("steamapps\\shadercache")
+    );
+    assert_eq!(exact.placeholder_path(), PathBuf::from(r"C:\Temp\Cache"));
+    assert_eq!(
+        template.dedupe_key(Platform::Windows),
+        "Windows:steam-library-template:steamapps/shadercache"
+    );
+    assert_eq!(
+        exact.dedupe_key(Platform::Windows),
+        "Windows:exact-path:c:/temp/cache"
+    );
+}
+
+#[test]
 fn safety_level_exposes_label_and_opt_in_flag() {
     assert_eq!(SafetyLevel::Safe.label(), "safe");
     assert_eq!(SafetyLevel::Moderate.label(), "moderate");

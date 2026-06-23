@@ -101,6 +101,37 @@ impl RuleTargetSpec {
     pub fn steam_library_template(template: impl Into<String>) -> Self {
         Self::SteamLibraryTemplate(PathTemplate::new(template))
     }
+
+    pub fn placeholder_path(&self) -> PathBuf {
+        match self {
+            Self::Template(template)
+            | Self::GlobTemplate(template)
+            | Self::SteamInstallTemplate(template)
+            | Self::SteamLibraryTemplate(template) => PathBuf::from(template.raw()),
+            Self::ExactPath(path) => path.clone(),
+        }
+    }
+
+    pub fn dedupe_key(&self, platform: Platform) -> String {
+        let target = match self {
+            Self::Template(template) => format!("template:{}", template.raw()),
+            Self::ExactPath(path) => format!("exact-path:{}", path.display()),
+            Self::GlobTemplate(template) => format!("glob-template:{}", template.raw()),
+            Self::SteamInstallTemplate(template) => {
+                format!("steam-install-template:{}", template.raw())
+            }
+            Self::SteamLibraryTemplate(template) => {
+                format!("steam-library-template:{}", template.raw())
+            }
+        }
+        .replace('\\', "/");
+
+        if platform == Platform::Windows {
+            format!("{platform:?}:{}", target.to_ascii_lowercase())
+        } else {
+            format!("{platform:?}:{target}")
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

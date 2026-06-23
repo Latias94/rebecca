@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery};
 use crate::discovery::{TargetResolution, resolve_rule_target_with_applications};
 use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
-use crate::model::{PlanRequest, Platform, RuleDefinition, RuleTargetSpec};
+use crate::model::{PlanRequest, Platform, RuleDefinition};
 use crate::plan::{CleanupPlan, CleanupTarget};
 use crate::safety::{PathDisposition, assess_existing_path};
 use crate::scan::{ScanCancellationToken, ScanProgressEvent, measure_path_size_with_progress};
@@ -160,7 +160,7 @@ where
                 };
                 candidates.push(CleanupTarget::skipped(
                     rule.id.clone(),
-                    spec_placeholder(spec),
+                    spec.placeholder_path(),
                     request.mode,
                     reason,
                 ));
@@ -175,7 +175,7 @@ where
                     Ok(TargetResolution::Skipped(reason)) => {
                         candidates.push(CleanupTarget::skipped(
                             rule.id.clone(),
-                            spec_placeholder(spec),
+                            spec.placeholder_path(),
                             request.mode,
                             reason,
                         ));
@@ -184,7 +184,7 @@ where
                     Err(err) => {
                         candidates.push(CleanupTarget::blocked(
                             rule.id.clone(),
-                            spec_placeholder(spec),
+                            spec.placeholder_path(),
                             request.mode,
                             err.to_string(),
                         ));
@@ -324,16 +324,6 @@ fn validate_selected_rule_ids(request: &PlanRequest, rules: &[RuleDefinition]) -
     Ok(())
 }
 
-fn spec_placeholder(spec: &RuleTargetSpec) -> PathBuf {
-    match spec {
-        RuleTargetSpec::Template(template) => PathBuf::from(template.raw()),
-        RuleTargetSpec::ExactPath(path) => path.clone(),
-        RuleTargetSpec::GlobTemplate(template) => PathBuf::from(template.raw()),
-        RuleTargetSpec::SteamInstallTemplate(template) => PathBuf::from(template.raw()),
-        RuleTargetSpec::SteamLibraryTemplate(template) => PathBuf::from(template.raw()),
-    }
-}
-
 pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
     let mut ids = BTreeSet::new();
     let mut target_specs = BTreeMap::<String, String>::new();
@@ -374,7 +364,7 @@ pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
         }
 
         for spec in &rule.path_templates {
-            let key = target_spec_key(rule.platform, spec);
+            let key = spec.dedupe_key(rule.platform);
             if let Some(previous_rule) = target_specs.insert(key.clone(), rule.id.clone()) {
                 return Err(RebeccaError::RuleCatalogInvalid(format!(
                     "duplicate target spec {key} used by rules {previous_rule} and {}",
@@ -385,25 +375,4 @@ pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn target_spec_key(platform: Platform, spec: &RuleTargetSpec) -> String {
-    let target = match spec {
-        RuleTargetSpec::Template(template) => format!("template:{}", template.raw()),
-        RuleTargetSpec::ExactPath(path) => format!("exact-path:{}", path.display()),
-        RuleTargetSpec::GlobTemplate(template) => format!("glob-template:{}", template.raw()),
-        RuleTargetSpec::SteamInstallTemplate(template) => {
-            format!("steam-install-template:{}", template.raw())
-        }
-        RuleTargetSpec::SteamLibraryTemplate(template) => {
-            format!("steam-library-template:{}", template.raw())
-        }
-    }
-    .replace('\\', "/");
-
-    if platform == Platform::Windows {
-        format!("{platform:?}:{}", target.to_ascii_lowercase())
-    } else {
-        format!("{platform:?}:{target}")
-    }
 }
