@@ -35,7 +35,14 @@ impl ApplicationDiscovery for WindowsApplicationDiscovery {
 fn discover_steam_installation() -> Result<Option<SteamInstallation>> {
     match registry_install_path(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath")? {
         Some(path) => Ok(Some(steam_installation_from_path(path))),
-        None => discover_steam_installation_from_legacy_registry(),
+        None => match registry_executable_install_path(
+            HKEY_CURRENT_USER,
+            "Software\\Valve\\Steam",
+            "SteamExe",
+        )? {
+            Some(path) => Ok(Some(steam_installation_from_path(path))),
+            None => discover_steam_installation_from_legacy_registry(),
+        },
     }
 }
 
@@ -58,7 +65,7 @@ fn discover_steam_installation_from_legacy_registry() -> Result<Option<SteamInst
 }
 
 #[cfg(windows)]
-fn registry_install_path(root: HKEY, key_path: &str, value_name: &str) -> Result<Option<PathBuf>> {
+fn registry_string_value(root: HKEY, key_path: &str, value_name: &str) -> Result<Option<String>> {
     let key = match RegKey::predef(root).open_subkey_with_flags(key_path, KEY_READ) {
         Ok(key) => key,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -69,8 +76,8 @@ fn registry_install_path(root: HKEY, key_path: &str, value_name: &str) -> Result
         }
     };
 
-    let path: String = match key.get_value::<String, _>(value_name) {
-        Ok(path) if !path.trim().is_empty() => path,
+    let value: String = match key.get_value::<String, _>(value_name) {
+        Ok(value) if !value.trim().is_empty() => value,
         Ok(_) => return Ok(None),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => {
@@ -80,39 +87,44 @@ fn registry_install_path(root: HKEY, key_path: &str, value_name: &str) -> Result
         }
     };
 
-    Ok(Some(PathBuf::from(path)))
+    Ok(Some(value))
+}
+
+#[cfg(windows)]
+fn registry_install_path(root: HKEY, key_path: &str, value_name: &str) -> Result<Option<PathBuf>> {
+    Ok(registry_string_value(root, key_path, value_name)?.map(PathBuf::from))
+}
+
+#[cfg(windows)]
+fn registry_executable_install_path(
+    root: HKEY,
+    key_path: &str,
+    value_name: &str,
+) -> Result<Option<PathBuf>> {
+    Ok(registry_string_value(root, key_path, value_name)?
+        .as_deref()
+        .and_then(install_root_from_executable_path))
 }
 
 #[cfg(windows)]
 fn registry_command_install_path(root: HKEY, key_path: &str) -> Result<Option<PathBuf>> {
-    let key = match RegKey::predef(root).open_subkey_with_flags(key_path, KEY_READ) {
-        Ok(key) => key,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => {
-            return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
-                "could not open Steam registry key {key_path}: {err}"
-            )));
-        }
-    };
-
-    let command: String = match key.get_value::<String, _>("") {
-        Ok(command) if !command.trim().is_empty() => command,
-        Ok(_) => return Ok(None),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => {
-            return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
-                "could not read Steam command from {key_path}: {err}"
-            )));
-        }
+    let command = match registry_string_value(root, key_path, "")? {
+        Some(command) => command,
+        None => return Ok(None),
     };
 
     Ok(command_install_path_from_command(&command))
 }
 
 #[cfg(windows)]
+fn install_root_from_executable_path(executable: &str) -> Option<PathBuf> {
+    PathBuf::from(executable).parent().map(PathBuf::from)
+}
+
+#[cfg(windows)]
 fn command_install_path_from_command(command: &str) -> Option<PathBuf> {
     let executable = extract_command_executable(command)?;
-    PathBuf::from(executable).parent().map(PathBuf::from)
+    install_root_from_executable_path(&executable)
 }
 
 #[cfg(windows)]
@@ -161,7 +173,8 @@ mod tests {
     use std::fs;
 
     use super::{
-        command_install_path_from_command, extract_command_executable, steam_installation_from_path,
+        command_install_path_from_command, extract_command_executable,
+        install_root_from_executable_path, steam_installation_from_path,
     };
 
     #[test]
@@ -237,6 +250,17 @@ mod tests {
         let install_path = command_install_path_from_command(command);
 
         assert_eq!(install_path, None);
+    }
+
+    #[test]
+    fn install_root_from_executable_path_uses_parent_directory() {
+        let install_path =
+            install_root_from_executable_path(r"C:\Program Files (x86)\Steam\steam.exe");
+
+        assert_eq!(
+            install_path,
+            Some(std::path::PathBuf::from(r"C:\Program Files (x86)\Steam"))
+        );
     }
 
     #[test]
