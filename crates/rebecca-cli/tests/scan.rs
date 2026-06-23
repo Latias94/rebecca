@@ -115,3 +115,14 @@ fn scan_human_output_filters_by_category() {
     assert!(stdout.contains("- browser ("));
     assert!(!stdout.contains("- development ("));
 }
+
+#[test]
+fn scan_unknown_category_returns_clear_error() {
+    let output = common::command::rebecca()
+        .args(["scan", "--category", "missing"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(common::support::stderr(&output).contains("invalid category"));
+}

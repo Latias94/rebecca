@@ -150,6 +150,9 @@ pub enum RebeccaError {
     #[error("invalid rule id: {0}")]
     InvalidRuleId(String),
 
+    #[error("invalid category: {0}")]
+    InvalidCategory(String),
+
     #[error("invalid rule catalog: {0}")]
     RuleCatalogInvalid(String),
 

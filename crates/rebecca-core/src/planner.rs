@@ -135,7 +135,7 @@ where
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
     let selection = request.selection();
-    validate_selected_rule_ids(&selection, rules)?;
+    validate_rule_selection(&selection, rules)?;
 
     let mut candidates = Vec::new();
     let mut seen_paths = BTreeSet::new();
@@ -343,6 +343,30 @@ fn validate_selected_rule_ids(
             .any(|rule| rule.id.eq_ignore_ascii_case(selected));
         if !known {
             return Err(RebeccaError::InvalidRuleId(selected.clone()));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_rule_selection(
+    selection: &crate::RuleSelection,
+    rules: &[RuleDefinition],
+) -> Result<()> {
+    validate_selected_categories(selection, rules)?;
+    validate_selected_rule_ids(selection, rules)
+}
+
+fn validate_selected_categories(
+    selection: &crate::RuleSelection,
+    rules: &[RuleDefinition],
+) -> Result<()> {
+    for selected in &selection.categories {
+        let known = rules
+            .iter()
+            .any(|rule| rule.category.eq_ignore_ascii_case(selected));
+        if !known {
+            return Err(RebeccaError::InvalidCategory(selected.clone()));
         }
     }
 

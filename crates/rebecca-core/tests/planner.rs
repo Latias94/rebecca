@@ -814,6 +814,39 @@ fn unknown_rule_id_is_an_error() {
 }
 
 #[test]
+fn unknown_category_is_an_error() {
+    let fixture = PlannerFixture::new();
+    let rules = rebecca_rules::builtin_rules().unwrap();
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_categories = vec!["missing".to_string()];
+
+    let err = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap_err();
+
+    assert!(err.to_string().contains("invalid category"));
+}
+
+#[test]
+fn category_selection_is_case_insensitive() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/a.tmp", b"abc");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_categories = vec!["SYSTEM".to_string()];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert!(plan.summary.allowed_targets > 0);
+    assert!(plan.targets.iter().all(|target| matches!(
+        target.rule_id.as_str(),
+        "windows.user-temp"
+            | "windows.directx-shader-cache"
+            | "windows.thumbnail-cache"
+            | "windows.wer-reports"
+    )));
+}
+
+#[test]
 fn moderate_rule_is_skipped_without_opt_in() {
     let fixture = PlannerFixture::new();
     fixture.write("roaming/npm-cache/_cacache/index.bin", b"npm");

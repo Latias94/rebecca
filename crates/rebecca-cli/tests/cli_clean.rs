@@ -344,6 +344,18 @@ fn clean_unknown_rule_returns_clear_error() {
     assert!(common::support::stderr(&output).contains("invalid rule id"));
 }
 
+#[test]
+fn clean_unknown_category_returns_clear_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["clean", "--dry-run", "--json", "--category", "missing"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(common::support::stderr(&output).contains("invalid category"));
+}
+
 #[cfg(not(windows))]
 #[test]
 fn non_windows_execution_is_reported_as_unsupported() {
