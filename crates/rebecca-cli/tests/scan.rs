@@ -1,11 +1,8 @@
-#[path = "common/command.rs"]
-mod command;
-#[path = "common/support.rs"]
-mod support;
+mod common;
 
 #[test]
 fn scan_json_lists_builtin_rules() {
-    let output = command::rebecca()
+    let output = common::command::rebecca()
         .args(["scan", "--json"])
         .output()
         .unwrap();
@@ -13,7 +10,7 @@ fn scan_json_lists_builtin_rules() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let rules = value.as_array().expect("scan output should be an array");
@@ -53,7 +50,7 @@ fn scan_json_lists_builtin_rules() {
 
 #[test]
 fn scan_json_filters_by_category_and_rule() {
-    let output = command::rebecca()
+    let output = common::command::rebecca()
         .args([
             "scan",
             "--json",
@@ -68,7 +65,7 @@ fn scan_json_filters_by_category_and_rule() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -81,12 +78,12 @@ fn scan_json_filters_by_category_and_rule() {
 
 #[test]
 fn scan_human_output_groups_rules_by_category() {
-    let output = command::rebecca().args(["scan"]).output().unwrap();
+    let output = common::command::rebecca().args(["scan"]).output().unwrap();
 
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -99,7 +96,7 @@ fn scan_human_output_groups_rules_by_category() {
 
 #[test]
 fn scan_human_output_filters_by_category() {
-    let output = command::rebecca()
+    let output = common::command::rebecca()
         .args(["scan", "--category", "browser"])
         .output()
         .unwrap();
@@ -107,7 +104,7 @@ fn scan_human_output_filters_by_category() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);

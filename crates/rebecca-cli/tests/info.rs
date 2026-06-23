@@ -1,9 +1,6 @@
-#[path = "common/command.rs"]
-mod command;
+mod common;
 #[path = "common/isolated.rs"]
 mod isolated;
-#[path = "common/support.rs"]
-mod support;
 
 #[test]
 fn config_paths_json_is_parseable() {
@@ -16,7 +13,7 @@ fn config_paths_json_is_parseable() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
@@ -36,7 +33,7 @@ fn config_paths_json_is_parseable() {
 
 #[test]
 fn doctor_permissions_prints_permission_label() {
-    let output = command::rebecca()
+    let output = common::command::rebecca()
         .args(["doctor", "permissions"])
         .output()
         .unwrap();
@@ -44,7 +41,7 @@ fn doctor_permissions_prints_permission_label() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Privilege level:"));
@@ -61,7 +58,7 @@ fn doctor_steam_prints_discovery_status() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Steam install:"));
@@ -103,7 +100,7 @@ fn doctor_steam_prints_library_list_when_discovered() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Steam libraries:"));
@@ -128,7 +125,7 @@ fn doctor_steam_falls_back_when_libraryfolders_is_unreadable() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Steam install:"));

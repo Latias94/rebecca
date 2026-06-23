@@ -1,13 +1,10 @@
-#[path = "common/command.rs"]
-mod command;
+mod common;
 #[path = "common/isolated.rs"]
 mod isolated;
-#[path = "common/support.rs"]
-mod support;
 
 #[test]
 fn scan_human_output_uses_lowercase_safety_labels() {
-    let output = command::rebecca()
+    let output = common::command::rebecca()
         .args(["scan", "--category", "development"])
         .output()
         .unwrap();
@@ -15,7 +12,7 @@ fn scan_human_output_uses_lowercase_safety_labels() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -40,7 +37,7 @@ fn clean_human_output_uses_lowercase_status_labels() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);

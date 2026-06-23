@@ -1,9 +1,8 @@
 use std::fs;
 
+mod common;
 #[path = "common/isolated.rs"]
 mod isolated;
-#[path = "common/support.rs"]
-mod support;
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
@@ -24,7 +23,7 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     assert!(file.exists(), "dry-run must not delete files");
 
@@ -58,7 +57,7 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -99,7 +98,7 @@ fn clean_human_output_highlights_largest_targets_by_size() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -151,7 +150,7 @@ fn clean_dry_run_accepts_no_progress_flag() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -183,7 +182,7 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -229,7 +228,7 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -274,7 +273,7 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -313,7 +312,7 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -338,7 +337,7 @@ fn clean_unknown_rule_returns_clear_error() {
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(support::stderr(&output).contains("invalid rule id"));
+    assert!(common::support::stderr(&output).contains("invalid rule id"));
 }
 
 #[cfg(not(windows))]
@@ -352,5 +351,5 @@ fn non_windows_execution_is_reported_as_unsupported() {
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(support::stderr(&output).contains("Windows-only"));
+    assert!(common::support::stderr(&output).contains("Windows-only"));
 }

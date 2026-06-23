@@ -1,7 +1,6 @@
+mod common;
 #[path = "common/isolated.rs"]
 mod isolated;
-#[path = "common/support.rs"]
-mod support;
 
 #[test]
 fn history_json_is_empty_when_no_history_file_exists() {
@@ -14,7 +13,7 @@ fn history_json_is_empty_when_no_history_file_exists() {
     assert!(
         output.status.success(),
         "stderr: {}",
-        support::stderr(&output)
+        common::support::stderr(&output)
     );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
