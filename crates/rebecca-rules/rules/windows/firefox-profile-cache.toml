@@ -1,0 +1,20 @@
+id = "windows.firefox-profile-cache"
+platform = "windows"
+category = "browser"
+name = "Firefox profile cache"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+restore_hint = "Firefox profile caches will be regenerated."
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\startupCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

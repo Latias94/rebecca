@@ -7,7 +7,7 @@ files. Keep each rule small, explicit, and easy to audit.
 
 - One file per rule.
 - Stable env-variable templates only.
-- No globbing or profile discovery yet.
+- Use `glob-template` only for bounded profile or filename discovery.
 - Prefer paths that Windows users recognize immediately.
 
 ## Required Fields
@@ -25,7 +25,10 @@ files. Keep each rule small, explicit, and easy to audit.
 
 - Use `template` for stable cache directories.
 - Use `exact-path` only for fixed paths that do not vary by environment.
-- Avoid rules that depend on profile enumeration until glob support exists.
+- Use `glob-template` for one-segment wildcard discovery, such as Firefox
+  profile directories or `thumbcache_*.db` files.
+- Keep glob roots narrow. Do not start a glob at `%USERPROFILE%` or a drive
+  root.
 
 ## Safety Guidance
 

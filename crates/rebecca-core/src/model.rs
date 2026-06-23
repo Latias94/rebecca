@@ -61,11 +61,16 @@ impl DeleteMode {
 pub enum RuleTargetSpec {
     Template(PathTemplate),
     ExactPath(PathBuf),
+    GlobTemplate(PathTemplate),
 }
 
 impl RuleTargetSpec {
     pub fn template(template: impl Into<String>) -> Self {
         Self::Template(PathTemplate::new(template))
+    }
+
+    pub fn glob_template(template: impl Into<String>) -> Self {
+        Self::GlobTemplate(PathTemplate::new(template))
     }
 }
 

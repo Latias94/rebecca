@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::environment::Environment;
 use crate::error::{RebeccaError, Result};
-use crate::model::RuleTargetSpec;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathTemplate(pub String);
@@ -29,16 +28,6 @@ impl From<&str> for PathTemplate {
 impl From<String> for PathTemplate {
     fn from(value: String) -> Self {
         Self::new(value)
-    }
-}
-
-pub fn expand_rule_target(
-    target: &RuleTargetSpec,
-    env: &impl Environment,
-) -> Result<Option<PathBuf>> {
-    match target {
-        RuleTargetSpec::Template(template) => expand_template(template, env),
-        RuleTargetSpec::ExactPath(path) => Ok(Some(path.clone())),
     }
 }
 

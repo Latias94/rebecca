@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use crate::discovery::{TargetResolution, resolve_rule_target};
 use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
 use crate::model::{PlanRequest, Platform, RuleDefinition, RuleTargetSpec, SafetyLevel};
-use crate::path_template::expand_rule_target;
 use crate::plan::{CleanupPlan, CleanupTarget};
 use crate::safety::{PathDisposition, assess_existing_path};
 use crate::scan::measure_path_size;
@@ -48,14 +48,14 @@ pub fn build_cleanup_plan_with_environment(
         }
 
         for spec in &rule.path_templates {
-            let expanded = match expand_rule_target(spec, env) {
-                Ok(Some(path)) => path,
-                Ok(None) => {
+            let expanded_paths = match resolve_rule_target(spec, env) {
+                Ok(TargetResolution::Paths(paths)) => paths,
+                Ok(TargetResolution::Skipped(reason)) => {
                     candidates.push(CleanupTarget::skipped(
                         rule.id.clone(),
                         spec_placeholder(spec),
                         request.mode,
-                        "path template could not be resolved in the current environment",
+                        reason,
                     ));
                     continue;
                 }
@@ -70,45 +70,47 @@ pub fn build_cleanup_plan_with_environment(
                 }
             };
 
-            let path_key = dedupe_key(&expanded, request.platform);
-            if !seen_paths.insert(path_key) {
-                candidates.push(CleanupTarget::skipped(
-                    rule.id.clone(),
-                    expanded,
-                    request.mode,
-                    "duplicate target path already covered",
-                ));
-                continue;
-            }
+            for expanded in expanded_paths {
+                let path_key = dedupe_key(&expanded, request.platform);
+                if !seen_paths.insert(path_key) {
+                    candidates.push(CleanupTarget::skipped(
+                        rule.id.clone(),
+                        expanded,
+                        request.mode,
+                        "duplicate target path already covered",
+                    ));
+                    continue;
+                }
 
-            match assess_existing_path(&expanded) {
-                PathDisposition::Allowed => match measure_path_size(&expanded) {
-                    Ok(size) => candidates.push(CleanupTarget::allowed(
+                match assess_existing_path(&expanded) {
+                    PathDisposition::Allowed => match measure_path_size(&expanded) {
+                        Ok(size) => candidates.push(CleanupTarget::allowed(
+                            rule.id.clone(),
+                            expanded,
+                            size,
+                            request.mode,
+                        )),
+                        Err(err) => candidates.push(CleanupTarget::failed(
+                            rule.id.clone(),
+                            expanded,
+                            request.mode,
+                            0,
+                            err.to_string(),
+                        )),
+                    },
+                    PathDisposition::Skipped(reason) => candidates.push(CleanupTarget::skipped(
                         rule.id.clone(),
                         expanded,
-                        size,
                         request.mode,
+                        reason,
                     )),
-                    Err(err) => candidates.push(CleanupTarget::failed(
+                    PathDisposition::Blocked(reason) => candidates.push(CleanupTarget::blocked(
                         rule.id.clone(),
                         expanded,
                         request.mode,
-                        0,
-                        err.to_string(),
+                        reason,
                     )),
-                },
-                PathDisposition::Skipped(reason) => candidates.push(CleanupTarget::skipped(
-                    rule.id.clone(),
-                    expanded,
-                    request.mode,
-                    reason,
-                )),
-                PathDisposition::Blocked(reason) => candidates.push(CleanupTarget::blocked(
-                    rule.id.clone(),
-                    expanded,
-                    request.mode,
-                    reason,
-                )),
+                }
             }
         }
     }
@@ -189,6 +191,7 @@ fn spec_placeholder(spec: &RuleTargetSpec) -> PathBuf {
     match spec {
         RuleTargetSpec::Template(template) => PathBuf::from(template.raw()),
         RuleTargetSpec::ExactPath(path) => path.clone(),
+        RuleTargetSpec::GlobTemplate(template) => PathBuf::from(template.raw()),
     }
 }
 
@@ -249,6 +252,7 @@ fn target_spec_key(platform: Platform, spec: &RuleTargetSpec) -> String {
     let target = match spec {
         RuleTargetSpec::Template(template) => format!("template:{}", template.raw()),
         RuleTargetSpec::ExactPath(path) => format!("exact-path:{}", path.display()),
+        RuleTargetSpec::GlobTemplate(template) => format!("glob-template:{}", template.raw()),
     }
     .replace('\\', "/");
 

@@ -14,6 +14,11 @@ fn scan_json_lists_builtin_rules() {
             .iter()
             .any(|rule| rule["id"] == "windows.chrome-cache")
     );
+    assert!(
+        rules
+            .iter()
+            .any(|rule| rule["id"] == "windows.firefox-profile-cache")
+    );
 }
 
 fn rebecca() -> Command {

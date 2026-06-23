@@ -48,7 +48,9 @@ The starter catalog intentionally stays small and lives in
 - `windows.user-temp`
 - `windows.edge-cache`
 - `windows.chrome-cache`
+- `windows.firefox-profile-cache`
 - `windows.directx-shader-cache`
+- `windows.thumbnail-cache`
 - `windows.pip-cache`
 - `windows.npm-cache`
 - `windows.vscode-cache`

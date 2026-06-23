@@ -29,7 +29,10 @@ fn category_filter_includes_only_matching_rules() {
     assert!(plan.targets.iter().all(|target| {
         matches!(
             target.rule_id.as_str(),
-            "windows.user-temp" | "windows.directx-shader-cache" | "windows.wer-reports"
+            "windows.user-temp"
+                | "windows.directx-shader-cache"
+                | "windows.thumbnail-cache"
+                | "windows.wer-reports"
         )
     }));
     assert!(
@@ -59,6 +62,49 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
         plan.targets
             .iter()
             .any(|target| target.reason.as_deref() == Some("duplicate target path already covered"))
+    );
+}
+
+#[test]
+fn glob_rules_expand_profile_and_file_patterns() {
+    let fixture = PlannerFixture::new();
+    fixture.write("roaming/Mozilla/Firefox/Profiles/alice/cache2/a.bin", b"a");
+    fixture.write(
+        "roaming/Mozilla/Firefox/Profiles/alice/startupCache/startup.bin",
+        b"bc",
+    );
+    fixture.write("roaming/Mozilla/Firefox/Profiles/bob/cache2/b.bin", b"def");
+    fixture.write(
+        "local/Microsoft/Windows/Explorer/thumbcache_96.db",
+        b"thumb",
+    );
+    fixture.write("local/Microsoft/Windows/Explorer/iconcache_32.db", b"icon");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.firefox-profile-cache".to_string(),
+        "windows.thumbnail-cache".to_string(),
+    ];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 5);
+    assert_eq!(plan.summary.estimated_bytes, 15);
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.path.ends_with("alice/cache2"))
+    );
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.path.ends_with("bob/cache2"))
+    );
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.path.ends_with("thumbcache_96.db"))
     );
 }
 

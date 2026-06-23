@@ -22,6 +22,13 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "rules/windows/firefox-profile-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/firefox-profile-cache.toml"
+        )),
+    ),
+    (
         "rules/windows/chrome-cache.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -47,6 +54,13 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = &[
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/rules/windows/pip-cache.toml"
+        )),
+    ),
+    (
+        "rules/windows/thumbnail-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/thumbnail-cache.toml"
         )),
     ),
     (
@@ -127,6 +141,7 @@ impl CatalogRule {
 enum CatalogTarget {
     Template { value: String },
     ExactPath { value: PathBuf },
+    GlobTemplate { value: String },
 }
 
 impl CatalogTarget {
@@ -134,6 +149,7 @@ impl CatalogTarget {
         match self {
             Self::Template { value } => RuleTargetSpec::template(value),
             Self::ExactPath { value } => RuleTargetSpec::ExactPath(value),
+            Self::GlobTemplate { value } => RuleTargetSpec::glob_template(value),
         }
     }
 }
@@ -187,7 +203,9 @@ mod tests {
         for expected in [
             "windows.chrome-cache",
             "windows.directx-shader-cache",
+            "windows.firefox-profile-cache",
             "windows.pip-cache",
+            "windows.thumbnail-cache",
             "windows.vscode-cache",
             "windows.wer-reports",
         ] {
@@ -251,6 +269,36 @@ notes = "test"
         assert!(matches!(
             rule.path_templates[0],
             rebecca_core::RuleTargetSpec::ExactPath(_)
+        ));
+    }
+
+    #[test]
+    fn catalog_parser_supports_glob_template_targets() {
+        let rule = parse_rule_file(
+            "test.toml",
+            r#"
+id = "windows.glob"
+platform = "windows"
+category = "browser"
+name = "Glob"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "test"
+"#,
+        )
+        .expect("glob-template target should parse");
+
+        assert!(matches!(
+            rule.path_templates[0],
+            rebecca_core::RuleTargetSpec::GlobTemplate(_)
         ));
     }
 }
