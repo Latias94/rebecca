@@ -32,6 +32,10 @@ files. Keep each rule small, explicit, and easy to audit.
 - Electron app cache rules should keep `Cache`, `Code Cache`, and `GPUCache`
   targets explicit, and should not target `Local Storage`, `IndexedDB`, or the
   application data root.
+- Steam client cache rules should stay under `%LOCALAPPDATA%\Steam\htmlcache`
+  unless the rule also implements explicit Steam install/library discovery.
+  Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,
+  or download state from a static template rule.
 - Cargo cache rules should target cache subdirectories under `%CARGO_HOME%`
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or

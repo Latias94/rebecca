@@ -30,6 +30,7 @@ fn scan_json_lists_builtin_rules() {
             .iter()
             .any(|rule| rule["id"] == "windows.discord-cache")
     );
+    assert!(rules.iter().any(|rule| rule["id"] == "windows.steam-cache"));
 }
 
 #[test]
