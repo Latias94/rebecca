@@ -24,6 +24,8 @@ Rebecca is designed to preview before deleting.
 - Moderate and risky rules require explicit opt-in flags.
 - Dry-run human output highlights the largest estimated targets first and then
   groups the full target list by status.
+- Human `clean` commands show target-level scan progress by default; use
+  `--no-progress` for quiet terminal logs. JSON output never emits progress.
 
 ## Usage
 
@@ -35,6 +37,7 @@ cargo run -p rebecca-cli -- scan --rule windows.thumbnail-cache
 
 cargo run -p rebecca-cli -- clean --dry-run
 cargo run -p rebecca-cli -- clean --dry-run --json --category system
+cargo run -p rebecca-cli -- clean --dry-run --no-progress --rule windows.edge-cache
 cargo run -p rebecca-cli -- clean --yes --category system
 
 cargo run -p rebecca-cli -- history

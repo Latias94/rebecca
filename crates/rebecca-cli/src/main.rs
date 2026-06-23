@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use indicatif::ProgressBar;
 use rebecca_core::config::default_app_paths;
 use rebecca_core::executor::execute_cleanup_plan;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::{CleanupPlan, CleanupTarget};
-use rebecca_core::planner::build_cleanup_plan;
+use rebecca_core::planner::{PlanProgressEvent, build_cleanup_plan_with_progress};
 use rebecca_core::{
     DeleteMode, PlanRequest, Platform, RuleDefinition, RuleSelection, TargetStatus,
 };
@@ -45,6 +47,9 @@ enum Command {
         /// Execute without an interactive confirmation prompt.
         #[arg(long)]
         yes: bool,
+        /// Disable human progress output while building the cleanup plan.
+        #[arg(long)]
+        no_progress: bool,
         /// Include a category. Can be repeated.
         #[arg(long = "category")]
         categories: Vec<String>,
@@ -110,19 +115,21 @@ fn main() -> Result<()> {
             dry_run,
             json,
             yes,
+            no_progress,
             categories,
             rules,
             allow_moderate,
             allow_risky,
-        } => clean(
+        } => clean(CleanOptions {
             dry_run,
             json,
             yes,
+            no_progress,
             categories,
             rules,
             allow_moderate,
             allow_risky,
-        ),
+        }),
         Command::History { json } => history(json),
         Command::Config { command } => match command {
             ConfigCommand::Paths { json } => config_paths(json),
@@ -185,32 +192,39 @@ fn print_rule_catalog(rules: &[&RuleDefinition]) {
     }
 }
 
-fn clean(
+struct CleanOptions {
     dry_run: bool,
     json: bool,
     yes: bool,
+    no_progress: bool,
     categories: Vec<String>,
     rules: Vec<String>,
     allow_moderate: bool,
     allow_risky: bool,
-) -> Result<()> {
-    let mode = if dry_run {
+}
+
+fn clean(options: CleanOptions) -> Result<()> {
+    let mode = if options.dry_run {
         DeleteMode::DryRun
     } else {
         DeleteMode::RecycleBin
     };
 
     let mut request = PlanRequest::for_platform(Platform::Windows, mode);
-    request.selected_categories = categories;
-    request.selected_rule_ids = rules;
-    request.allow_moderate = allow_moderate;
-    request.allow_risky = allow_risky;
+    request.selected_categories = options.categories;
+    request.selected_rule_ids = options.rules;
+    request.allow_moderate = options.allow_moderate;
+    request.allow_risky = options.allow_risky;
 
-    let rules = rebecca_rules::builtin_rules()?;
-    let mut plan = build_cleanup_plan(&request, &rules)?;
+    let catalog = rebecca_rules::builtin_rules()?;
+    let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
+    let plan_result =
+        build_cleanup_plan_with_progress(&request, &catalog, |event| progress.on_event(event));
+    progress.finish();
+    let mut plan = plan_result?;
 
-    if dry_run {
-        return print_plan(&plan, json);
+    if options.dry_run {
+        return print_plan(&plan, options.json);
     }
 
     #[cfg(not(windows))]
@@ -224,10 +238,10 @@ fn clean(
     #[cfg(windows)]
     {
         if plan.summary.allowed_targets == 0 {
-            return print_plan(&plan, json);
+            return print_plan(&plan, options.json);
         }
 
-        if !yes && !confirm_cleanup(&plan)? {
+        if !options.yes && !confirm_cleanup(&plan)? {
             println!("Cleanup cancelled.");
             return Ok(());
         }
@@ -238,7 +252,58 @@ fn clean(
         let paths = default_app_paths()?;
         HistoryStore::new(paths.history_file).append_plan(&plan)?;
 
-        print_plan(&plan, json)
+        print_plan(&plan, options.json)
+    }
+}
+
+struct PlanProgressReporter {
+    bar: Option<ProgressBar>,
+    scanned_targets: u64,
+}
+
+impl PlanProgressReporter {
+    fn new(enabled: bool) -> Self {
+        let bar = enabled.then(|| {
+            let bar = ProgressBar::new_spinner();
+            bar.enable_steady_tick(Duration::from_millis(120));
+            bar.set_message("Building cleanup plan");
+            bar
+        });
+
+        Self {
+            bar,
+            scanned_targets: 0,
+        }
+    }
+
+    fn on_event(&mut self, event: PlanProgressEvent<'_>) {
+        let Some(bar) = &self.bar else {
+            return;
+        };
+
+        match event {
+            PlanProgressEvent::TargetScanning { rule_id, path } => {
+                bar.set_message(format!("Scanning {rule_id}: {}", path.display()));
+            }
+            PlanProgressEvent::TargetFinished {
+                status,
+                estimated_bytes,
+                ..
+            } => {
+                self.scanned_targets = self.scanned_targets.saturating_add(1);
+                bar.set_message(format!(
+                    "Scanned {} target(s); last {status:?}, {} bytes",
+                    self.scanned_targets, estimated_bytes
+                ));
+                bar.tick();
+            }
+        }
+    }
+
+    fn finish(&self) {
+        if let Some(bar) = &self.bar {
+            bar.finish_and_clear();
+        }
     }
 }
 

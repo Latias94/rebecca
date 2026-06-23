@@ -114,6 +114,32 @@ fn clean_human_output_highlights_largest_targets_by_size() {
 }
 
 #[test]
+fn clean_dry_run_accepts_no_progress_flag() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    fs::create_dir_all(&temp_cache).unwrap();
+    fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
+
+    let output = isolated_rebecca(&temp)
+        .env("TEMP", &temp_cache)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-progress",
+            "--rule",
+            "windows.user-temp",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Cleanup mode: DryRun"));
+    assert!(stdout.contains("Target details:"));
+}
+
+#[test]
 fn clean_unknown_rule_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated_rebecca(&temp)

@@ -9,8 +9,33 @@ use crate::plan::{CleanupPlan, CleanupTarget};
 use crate::safety::{PathDisposition, assess_existing_path};
 use crate::scan::measure_path_size;
 
+#[derive(Debug, Clone, Copy)]
+pub enum PlanProgressEvent<'a> {
+    TargetScanning {
+        rule_id: &'a str,
+        path: &'a Path,
+    },
+    TargetFinished {
+        rule_id: &'a str,
+        path: &'a Path,
+        status: crate::TargetStatus,
+        estimated_bytes: u64,
+    },
+}
+
 pub fn build_cleanup_plan(request: &PlanRequest, rules: &[RuleDefinition]) -> Result<CleanupPlan> {
-    build_cleanup_plan_with_environment(request, rules, &SystemEnvironment)
+    build_cleanup_plan_with_progress(request, rules, |_| {})
+}
+
+pub fn build_cleanup_plan_with_progress<F>(
+    request: &PlanRequest,
+    rules: &[RuleDefinition],
+    progress: F,
+) -> Result<CleanupPlan>
+where
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
+    build_cleanup_plan_with_environment_and_progress(request, rules, &SystemEnvironment, progress)
 }
 
 pub fn build_cleanup_plan_with_environment(
@@ -18,6 +43,19 @@ pub fn build_cleanup_plan_with_environment(
     rules: &[RuleDefinition],
     env: &impl Environment,
 ) -> Result<CleanupPlan> {
+    build_cleanup_plan_with_environment_and_progress(request, rules, env, |_| {})
+}
+
+pub fn build_cleanup_plan_with_environment_and_progress<E, F>(
+    request: &PlanRequest,
+    rules: &[RuleDefinition],
+    env: &E,
+    mut progress: F,
+) -> Result<CleanupPlan>
+where
+    E: Environment,
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
     validate_selected_rule_ids(request, rules)?;
 
     let mut candidates = Vec::new();
@@ -74,43 +112,58 @@ pub fn build_cleanup_plan_with_environment(
             for expanded in expanded_paths {
                 let path_key = dedupe_key(&expanded, request.platform);
                 if !seen_paths.insert(path_key) {
-                    candidates.push(CleanupTarget::skipped(
+                    let target = CleanupTarget::skipped(
                         rule.id.clone(),
                         expanded,
                         request.mode,
                         "duplicate target path already covered",
-                    ));
+                    );
+                    emit_target_finished(&mut progress, &target);
+                    candidates.push(target);
                     continue;
                 }
 
+                progress(PlanProgressEvent::TargetScanning {
+                    rule_id: &rule.id,
+                    path: &expanded,
+                });
+
                 match assess_existing_path(&expanded) {
                     PathDisposition::Allowed => match measure_path_size(&expanded) {
-                        Ok(size) => candidates.push(CleanupTarget::allowed(
-                            rule.id.clone(),
-                            expanded,
-                            size,
-                            request.mode,
-                        )),
-                        Err(err) => candidates.push(CleanupTarget::failed(
-                            rule.id.clone(),
-                            expanded,
-                            request.mode,
-                            0,
-                            err.to_string(),
-                        )),
+                        Ok(size) => {
+                            let target = CleanupTarget::allowed(
+                                rule.id.clone(),
+                                expanded,
+                                size,
+                                request.mode,
+                            );
+                            emit_target_finished(&mut progress, &target);
+                            candidates.push(target);
+                        }
+                        Err(err) => {
+                            let target = CleanupTarget::failed(
+                                rule.id.clone(),
+                                expanded,
+                                request.mode,
+                                0,
+                                err.to_string(),
+                            );
+                            emit_target_finished(&mut progress, &target);
+                            candidates.push(target);
+                        }
                     },
-                    PathDisposition::Skipped(reason) => candidates.push(CleanupTarget::skipped(
-                        rule.id.clone(),
-                        expanded,
-                        request.mode,
-                        reason,
-                    )),
-                    PathDisposition::Blocked(reason) => candidates.push(CleanupTarget::blocked(
-                        rule.id.clone(),
-                        expanded,
-                        request.mode,
-                        reason,
-                    )),
+                    PathDisposition::Skipped(reason) => {
+                        let target =
+                            CleanupTarget::skipped(rule.id.clone(), expanded, request.mode, reason);
+                        emit_target_finished(&mut progress, &target);
+                        candidates.push(target);
+                    }
+                    PathDisposition::Blocked(reason) => {
+                        let target =
+                            CleanupTarget::blocked(rule.id.clone(), expanded, request.mode, reason);
+                        emit_target_finished(&mut progress, &target);
+                        candidates.push(target);
+                    }
                 }
             }
         }
@@ -126,6 +179,18 @@ pub fn build_cleanup_plan_with_environment(
     plan.targets = candidates;
     plan.recompute_summary();
     Ok(plan)
+}
+
+fn emit_target_finished<F>(progress: &mut F, target: &CleanupTarget)
+where
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
+    progress(PlanProgressEvent::TargetFinished {
+        rule_id: &target.rule_id,
+        path: &target.path,
+        status: target.status,
+        estimated_bytes: target.estimated_bytes,
+    });
 }
 
 fn dedupe_key(path: &Path, platform: Platform) -> String {

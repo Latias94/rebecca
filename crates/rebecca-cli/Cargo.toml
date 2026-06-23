@@ -13,6 +13,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 dialoguer.workspace = true
+indicatif.workspace = true
 rebecca-core = { path = "../rebecca-core" }
 rebecca-rules = { path = "../rebecca-rules" }
 serde_json.workspace = true

@@ -2,7 +2,10 @@ use std::fs;
 use std::path::Path;
 
 use rebecca_core::environment::MapEnvironment;
-use rebecca_core::planner::build_cleanup_plan_with_environment;
+use rebecca_core::planner::{
+    PlanProgressEvent, build_cleanup_plan_with_environment,
+    build_cleanup_plan_with_environment_and_progress,
+};
 use rebecca_core::{DeleteMode, PlanRequest, Platform, TargetStatus};
 
 #[test]
@@ -62,6 +65,52 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
         plan.targets
             .iter()
             .any(|target| target.reason.as_deref() == Some("duplicate target path already covered"))
+    );
+}
+
+#[test]
+fn planner_reports_target_scan_progress() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/a.tmp", b"abc");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.user-temp".to_string()];
+
+    let mut events = Vec::new();
+    let plan =
+        build_cleanup_plan_with_environment_and_progress(&request, &rules, &fixture.env, |event| {
+            match event {
+                PlanProgressEvent::TargetScanning { rule_id, path } => {
+                    events.push(format!("scanning:{rule_id}:{}", path.display()));
+                }
+                PlanProgressEvent::TargetFinished {
+                    rule_id,
+                    status,
+                    estimated_bytes,
+                    ..
+                } => {
+                    events.push(format!("finished:{rule_id}:{status:?}:{estimated_bytes}"));
+                }
+            }
+        })
+        .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert!(
+        events
+            .iter()
+            .any(|event| event.starts_with("scanning:windows.user-temp:"))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event == "finished:windows.user-temp:Allowed:3")
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event == "finished:windows.user-temp:Skipped:0")
     );
 }
 
