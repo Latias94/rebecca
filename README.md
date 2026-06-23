@@ -64,6 +64,8 @@ Rule metadata includes platform, category, safety level, delete policy, restore
 hint, and provenance. The catalog is embedded from TOML files and validated
 before it reaches the CLI. Reference projects under `repo-ref/` are research
 inputs; their GPL code and cleaner definitions are not copied into Rebecca.
+Chromium-family browser cache rules cover `Default` and bounded `Profile *`
+directories when they exist.
 
 ## Local State
 

@@ -14,6 +14,22 @@ value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Cache"
 kind = "template"
 value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Code Cache"
 
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\GPUCache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\Code Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

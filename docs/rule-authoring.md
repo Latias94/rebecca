@@ -27,6 +27,8 @@ files. Keep each rule small, explicit, and easy to audit.
 - Use `exact-path` only for fixed paths that do not vary by environment.
 - Use `glob-template` for one-segment wildcard discovery, such as Firefox
   profile directories or `thumbcache_*.db` files.
+- Chromium-family browser caches may use bounded `Profile *` discovery under
+  `User Data`, but should keep `Default` paths explicit.
 - Keep glob roots narrow. Do not start a glob at `%USERPROFILE%` or a drive
   root.
 

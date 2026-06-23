@@ -109,6 +109,81 @@ fn glob_rules_expand_profile_and_file_patterns() {
 }
 
 #[test]
+fn chromium_rules_expand_profile_cache_patterns() {
+    let fixture = PlannerFixture::new();
+    fixture.write(
+        "local/Google/Chrome/User Data/Default/Cache/default.bin",
+        b"a",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Default/Code Cache/default-code.bin",
+        b"bb",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Default/GPUCache/default-gpu.bin",
+        b"ccc",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Profile 1/Cache/profile-cache.bin",
+        b"dddd",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Profile 1/Code Cache/profile-code.bin",
+        b"eeeee",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Profile 1/GPUCache/profile-gpu.bin",
+        b"ffffff",
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/Default/Cache/default.bin",
+        b"1234567",
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/Default/Code Cache/default-code.bin",
+        b"12345678",
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/Default/GPUCache/default-gpu.bin",
+        b"123456789",
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/Profile 2/Cache/profile-cache.bin",
+        b"1234567890",
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/Profile 2/Code Cache/profile-code.bin",
+        b"12345678901",
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/Profile 2/GPUCache/profile-gpu.bin",
+        b"123456789012",
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.chrome-cache".to_string(),
+        "windows.edge-cache".to_string(),
+    ];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 12);
+    assert_eq!(plan.summary.estimated_bytes, 78);
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("Profile 1").join("Code Cache"))
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("Profile 2").join("GPUCache"))
+    }));
+}
+
+#[test]
 fn unknown_rule_id_is_an_error() {
     let fixture = PlannerFixture::new();
     let rules = rebecca_rules::builtin_rules().unwrap();

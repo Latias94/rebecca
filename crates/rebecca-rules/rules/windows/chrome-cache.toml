@@ -18,6 +18,18 @@ value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Code Cache"
 kind = "template"
 value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\GPUCache"
 
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Code Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"
