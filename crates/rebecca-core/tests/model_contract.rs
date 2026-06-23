@@ -10,12 +10,15 @@ use rebecca_core::{
 fn cleanup_plan_serialization_preserves_target_contract() {
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     let mut plan = CleanupPlan::empty(request);
-    plan.targets.push(CleanupTarget::allowed(
-        "windows.user-temp",
-        PathBuf::from("C:/Users/Alice/AppData/Local/Temp"),
-        42,
-        DeleteMode::DryRun,
-    ));
+    plan.targets.push(
+        CleanupTarget::allowed(
+            "windows.user-temp",
+            PathBuf::from("C:/Users/Alice/AppData/Local/Temp"),
+            42,
+            DeleteMode::DryRun,
+        )
+        .with_restore_hint(Some("Temporary files can be recreated.".to_string())),
+    );
     plan.recompute_summary();
 
     let json = serde_json::to_string(&plan).expect("plan should serialize");
@@ -24,6 +27,10 @@ fn cleanup_plan_serialization_preserves_target_contract() {
     assert_eq!(decoded.summary.allowed_targets, 1);
     assert_eq!(decoded.summary.estimated_bytes, 42);
     assert_eq!(decoded.targets[0].rule_id, "windows.user-temp");
+    assert_eq!(
+        decoded.targets[0].restore_hint.as_deref(),
+        Some("Temporary files can be recreated.")
+    );
 }
 
 #[test]
