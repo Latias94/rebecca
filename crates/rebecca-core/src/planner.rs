@@ -158,15 +158,15 @@ where
                         rule.safety_level.label()
                     ),
                 };
-                candidates.push(
+                candidates.push(with_rule_restore_hint(
                     CleanupTarget::skipped(
                         rule.id.clone(),
                         spec.placeholder_path(),
                         request.mode,
                         reason,
-                    )
-                    .with_restore_hint(rule.restore_hint.clone()),
-                );
+                    ),
+                    rule,
+                ));
             }
             continue;
         }
@@ -176,27 +176,27 @@ where
                 match resolve_rule_target_with_applications(spec, env, applications) {
                     Ok(TargetResolution::Paths(paths)) => paths,
                     Ok(TargetResolution::Skipped(reason)) => {
-                        candidates.push(
+                        candidates.push(with_rule_restore_hint(
                             CleanupTarget::skipped(
                                 rule.id.clone(),
                                 spec.placeholder_path(),
                                 request.mode,
                                 reason,
-                            )
-                            .with_restore_hint(rule.restore_hint.clone()),
-                        );
+                            ),
+                            rule,
+                        ));
                         continue;
                     }
                     Err(err) => {
-                        candidates.push(
+                        candidates.push(with_rule_restore_hint(
                             CleanupTarget::blocked(
                                 rule.id.clone(),
                                 spec.placeholder_path(),
                                 request.mode,
                                 err.to_string(),
-                            )
-                            .with_restore_hint(rule.restore_hint.clone()),
-                        );
+                            ),
+                            rule,
+                        ));
                         continue;
                     }
                 };
@@ -204,11 +204,14 @@ where
             for expanded in expanded_paths {
                 let path_key = dedupe_key(&expanded, request.platform);
                 if !seen_paths.insert(path_key) {
-                    let target = CleanupTarget::skipped(
-                        rule.id.clone(),
-                        expanded,
-                        request.mode,
-                        "duplicate target path already covered",
+                    let target = with_rule_restore_hint(
+                        CleanupTarget::skipped(
+                            rule.id.clone(),
+                            expanded,
+                            request.mode,
+                            "duplicate target path already covered",
+                        ),
+                        rule,
                     );
                     emit_target_finished(&mut progress, &target);
                     candidates.push(target);
@@ -247,8 +250,8 @@ where
                                     expanded,
                                     size,
                                     request.mode,
-                                )
-                                .with_restore_hint(rule.restore_hint.clone());
+                                );
+                                let target = with_rule_restore_hint(target, rule);
                                 emit_target_finished(&mut progress, &target);
                                 candidates.push(target);
                             }
@@ -260,24 +263,26 @@ where
                                     request.mode,
                                     0,
                                     err.to_string(),
-                                )
-                                .with_restore_hint(rule.restore_hint.clone());
+                                );
+                                let target = with_rule_restore_hint(target, rule);
                                 emit_target_finished(&mut progress, &target);
                                 candidates.push(target);
                             }
                         }
                     }
                     PathDisposition::Skipped(reason) => {
-                        let target =
-                            CleanupTarget::skipped(rule.id.clone(), expanded, request.mode, reason)
-                                .with_restore_hint(rule.restore_hint.clone());
+                        let target = with_rule_restore_hint(
+                            CleanupTarget::skipped(rule.id.clone(), expanded, request.mode, reason),
+                            rule,
+                        );
                         emit_target_finished(&mut progress, &target);
                         candidates.push(target);
                     }
                     PathDisposition::Blocked(reason) => {
-                        let target =
-                            CleanupTarget::blocked(rule.id.clone(), expanded, request.mode, reason)
-                                .with_restore_hint(rule.restore_hint.clone());
+                        let target = with_rule_restore_hint(
+                            CleanupTarget::blocked(rule.id.clone(), expanded, request.mode, reason),
+                            rule,
+                        );
                         emit_target_finished(&mut progress, &target);
                         candidates.push(target);
                     }
@@ -322,6 +327,10 @@ fn dedupe_key(path: &Path, platform: Platform) -> String {
     } else {
         normalized
     }
+}
+
+fn with_rule_restore_hint(target: CleanupTarget, rule: &RuleDefinition) -> CleanupTarget {
+    target.with_restore_hint(rule.restore_hint.clone())
 }
 
 fn validate_selected_rule_ids(

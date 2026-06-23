@@ -100,6 +100,13 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
             .iter()
             .any(|target| target.reason.as_deref() == Some("duplicate target path already covered"))
     );
+    assert!(
+        plan.targets
+            .iter()
+            .find(|target| target.reason.as_deref() == Some("duplicate target path already covered"))
+            .and_then(|target| target.restore_hint.as_deref())
+            .is_some()
+    );
 }
 
 #[test]
