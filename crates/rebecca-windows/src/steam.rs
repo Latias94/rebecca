@@ -106,10 +106,13 @@ fn registry_command_install_path(root: HKEY, key_path: &str) -> Result<Option<Pa
         }
     };
 
-    let executable = extract_command_executable(&command);
-    Ok(executable
-        .map(PathBuf::from)
-        .and_then(|path| path.parent().map(PathBuf::from)))
+    Ok(command_install_path_from_command(&command))
+}
+
+#[cfg(windows)]
+fn command_install_path_from_command(command: &str) -> Option<PathBuf> {
+    let executable = extract_command_executable(command)?;
+    PathBuf::from(executable).parent().map(PathBuf::from)
 }
 
 #[cfg(windows)]
@@ -122,10 +125,21 @@ fn extract_command_executable(command: &str) -> Option<String> {
     if let Some(rest) = trimmed.strip_prefix('"') {
         rest.split_once('"').map(|(path, _)| path.to_string())
     } else {
-        trimmed
-            .split_once(' ')
-            .map(|(path, _)| path.to_string())
-            .or_else(|| Some(trimmed.to_string()))
+        let lower = trimmed.to_ascii_lowercase();
+        let mut search_start = 0;
+
+        while let Some(relative_end) = lower[search_start..].find(".exe") {
+            let exe_end = search_start + relative_end + 4;
+            let next_char = trimmed[exe_end..].chars().next();
+
+            if next_char.is_none() || next_char.is_some_and(|ch| ch.is_whitespace() || ch == '"') {
+                return Some(trimmed[..exe_end].trim().to_string());
+            }
+
+            search_start = exe_end;
+        }
+
+        None
     }
 }
 
@@ -146,7 +160,9 @@ pub fn steam_installation_from_path(steam_path: impl Into<PathBuf>) -> SteamInst
 mod tests {
     use std::fs;
 
-    use super::{extract_command_executable, steam_installation_from_path};
+    use super::{
+        command_install_path_from_command, extract_command_executable, steam_installation_from_path,
+    };
 
     #[test]
     fn steam_installation_falls_back_to_install_root_when_libraryfolders_is_unreadable() {
@@ -191,6 +207,39 @@ mod tests {
     }
 
     #[test]
+    fn command_install_path_from_command_handles_quoted_paths() {
+        let command = r#""C:\Program Files (x86)\Steam\steam.exe" -silent"#;
+
+        let install_path = command_install_path_from_command(command);
+
+        assert_eq!(
+            install_path,
+            Some(std::path::PathBuf::from(r"C:\Program Files (x86)\Steam"))
+        );
+    }
+
+    #[test]
+    fn command_install_path_from_command_handles_unquoted_paths_with_spaces() {
+        let command = r"C:\Program Files (x86)\Steam\steam.exe -silent";
+
+        let install_path = command_install_path_from_command(command);
+
+        assert_eq!(
+            install_path,
+            Some(std::path::PathBuf::from(r"C:\Program Files (x86)\Steam"))
+        );
+    }
+
+    #[test]
+    fn command_install_path_from_command_returns_none_without_executable_extension() {
+        let command = r#"steam://uninstall/123"#;
+
+        let install_path = command_install_path_from_command(command);
+
+        assert_eq!(install_path, None);
+    }
+
+    #[test]
     fn extract_command_executable_handles_quoted_paths() {
         let command = r#""C:\Program Files (x86)\Steam\steam.exe" -silent"#;
 
@@ -203,12 +252,15 @@ mod tests {
     }
 
     #[test]
-    fn extract_command_executable_handles_unquoted_paths() {
-        let command = r"C:\Steam\steam.exe -silent";
+    fn extract_command_executable_handles_unquoted_paths_with_spaces() {
+        let command = r"C:\Program Files (x86)\Steam\steam.exe -silent";
 
         let executable = extract_command_executable(command);
 
-        assert_eq!(executable, Some(r"C:\Steam\steam.exe".to_string()));
+        assert_eq!(
+            executable,
+            Some(r"C:\Program Files (x86)\Steam\steam.exe".to_string())
+        );
     }
 
     #[test]
