@@ -25,11 +25,17 @@ pub fn print_history(json: bool) -> Result<()> {
     println!("Cleanup history: {} run(s)", entries.len());
     for entry in entries {
         println!(
-            "- {}: {} completed, {} failed, {} pending bytes",
+            "- {}: {} completed, {} failed, {} pending bytes{}",
             entry.recorded_at_unix_seconds,
             entry.summary.completed_targets,
             entry.summary.failed_targets,
-            entry.summary.pending_reclaim_bytes
+            entry.summary.pending_reclaim_bytes,
+            entry
+                .targets
+                .iter()
+                .find_map(|target| target.restore_hint.as_ref())
+                .map(|hint| format!(" [restore: {hint}]"))
+                .unwrap_or_default()
         );
     }
 

@@ -19,6 +19,10 @@ fn append_and_load_history_entries_in_order() {
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].summary.completed_targets, 1);
     assert_eq!(entries[1].summary.completed_targets, 1);
+    assert_eq!(
+        entries[0].targets[0].restore_hint.as_deref(),
+        Some("Temporary files can be recreated.")
+    );
 }
 
 #[test]
