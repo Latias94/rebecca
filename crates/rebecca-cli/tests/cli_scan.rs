@@ -7,59 +7,37 @@ fn scan_json_lists_builtin_rules() {
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let rules = value.as_array().expect("scan output should be an array");
+    let ids = rules
+        .iter()
+        .map(|rule| rule["id"].as_str().expect("rule id should be a string"))
+        .collect::<std::collections::BTreeSet<_>>();
 
-    assert!(rules.iter().any(|rule| rule["id"] == "windows.user-temp"));
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.chrome-cache")
-    );
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.firefox-profile-cache")
-    );
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.jetbrains-cache")
-    );
-    assert!(rules.iter().any(|rule| rule["id"] == "windows.cargo-cache"));
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.discord-cache")
-    );
-    assert!(rules.iter().any(|rule| rule["id"] == "windows.steam-cache"));
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.steam-install-cache")
-    );
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.steam-install-download-cache")
-    );
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.steam-install-library-cache")
-    );
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.steam-library-shader-cache")
-    );
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.steam-library-downloading-cache")
-    );
-    assert!(
-        rules
-            .iter()
-            .any(|rule| rule["id"] == "windows.steam-library-temp-cache")
+    assert_eq!(
+        ids,
+        [
+            "windows.chrome-cache",
+            "windows.cargo-cache",
+            "windows.directx-shader-cache",
+            "windows.discord-cache",
+            "windows.edge-cache",
+            "windows.firefox-profile-cache",
+            "windows.jetbrains-cache",
+            "windows.npm-cache",
+            "windows.pip-cache",
+            "windows.steam-cache",
+            "windows.steam-install-cache",
+            "windows.steam-install-download-cache",
+            "windows.steam-install-library-cache",
+            "windows.steam-library-downloading-cache",
+            "windows.steam-library-shader-cache",
+            "windows.steam-library-temp-cache",
+            "windows.thumbnail-cache",
+            "windows.user-temp",
+            "windows.vscode-cache",
+            "windows.wer-reports",
+        ]
+        .into_iter()
+        .collect()
     );
 }
 
