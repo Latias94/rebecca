@@ -3,6 +3,11 @@ use std::path::PathBuf;
 use rebecca_core::applications::{ApplicationDiscovery, SteamInstallation};
 use rebecca_core::error::{RebeccaError, Result};
 
+#[cfg(windows)]
+use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
+#[cfg(windows)]
+use winreg::{HKEY, RegKey};
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WindowsApplicationDiscovery;
 
@@ -28,33 +33,100 @@ impl ApplicationDiscovery for WindowsApplicationDiscovery {
 
 #[cfg(windows)]
 fn discover_steam_installation() -> Result<Option<SteamInstallation>> {
-    use std::io::ErrorKind;
-    use winreg::RegKey;
-    use winreg::enums::HKEY_CURRENT_USER;
+    match registry_install_path(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath")? {
+        Some(path) => Ok(Some(steam_installation_from_path(path))),
+        None => discover_steam_installation_from_legacy_registry(),
+    }
+}
 
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let steam_key = match hkcu.open_subkey("Software\\Valve\\Steam") {
+#[cfg(windows)]
+fn discover_steam_installation_from_legacy_registry() -> Result<Option<SteamInstallation>> {
+    for key_path in [
+        "SOFTWARE\\Valve\\Steam",
+        "SOFTWARE\\WOW6432Node\\Valve\\Steam",
+    ] {
+        match registry_install_path(HKEY_LOCAL_MACHINE, key_path, "InstallPath")? {
+            Some(path) => return Ok(Some(steam_installation_from_path(path))),
+            None => {}
+        }
+    }
+
+    match registry_command_install_path(HKEY_CLASSES_ROOT, "steam\\Shell\\Open\\Command")? {
+        Some(path) => Ok(Some(steam_installation_from_path(path))),
+        None => Ok(None),
+    }
+}
+
+#[cfg(windows)]
+fn registry_install_path(root: HKEY, key_path: &str, value_name: &str) -> Result<Option<PathBuf>> {
+    let key = match RegKey::predef(root).open_subkey_with_flags(key_path, KEY_READ) {
         Ok(key) => key,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => {
             return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
-                "could not open Steam registry key: {err}"
+                "could not open Steam registry key {key_path}: {err}"
             )));
         }
     };
 
-    let steam_path: String = match steam_key.get_value::<String, _>("SteamPath") {
+    let path: String = match key.get_value::<String, _>(value_name) {
         Ok(path) if !path.trim().is_empty() => path,
         Ok(_) => return Ok(None),
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => {
             return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
-                "could not read SteamPath from registry: {err}"
+                "could not read {value_name} from {key_path}: {err}"
             )));
         }
     };
 
-    Ok(Some(steam_installation_from_path(steam_path)))
+    Ok(Some(PathBuf::from(path)))
+}
+
+#[cfg(windows)]
+fn registry_command_install_path(root: HKEY, key_path: &str) -> Result<Option<PathBuf>> {
+    let key = match RegKey::predef(root).open_subkey_with_flags(key_path, KEY_READ) {
+        Ok(key) => key,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
+                "could not open Steam registry key {key_path}: {err}"
+            )));
+        }
+    };
+
+    let command: String = match key.get_value::<String, _>("") {
+        Ok(command) if !command.trim().is_empty() => command,
+        Ok(_) => return Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
+                "could not read Steam command from {key_path}: {err}"
+            )));
+        }
+    };
+
+    let executable = extract_command_executable(&command);
+    Ok(executable
+        .map(PathBuf::from)
+        .and_then(|path| path.parent().map(PathBuf::from)))
+}
+
+#[cfg(windows)]
+fn extract_command_executable(command: &str) -> Option<String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        rest.split_once('"').map(|(path, _)| path.to_string())
+    } else {
+        trimmed
+            .split_once(' ')
+            .map(|(path, _)| path.to_string())
+            .or_else(|| Some(trimmed.to_string()))
+    }
 }
 
 #[cfg(not(windows))]
@@ -74,7 +146,7 @@ pub fn steam_installation_from_path(steam_path: impl Into<PathBuf>) -> SteamInst
 mod tests {
     use std::fs;
 
-    use super::steam_installation_from_path;
+    use super::{extract_command_executable, steam_installation_from_path};
 
     #[test]
     fn steam_installation_falls_back_to_install_root_when_libraryfolders_is_unreadable() {
@@ -116,5 +188,35 @@ mod tests {
             installation.library_paths(),
             &[std::path::PathBuf::from(r"D:\SteamLibrary")]
         );
+    }
+
+    #[test]
+    fn extract_command_executable_handles_quoted_paths() {
+        let command = r#""C:\Program Files (x86)\Steam\steam.exe" -silent"#;
+
+        let executable = extract_command_executable(command);
+
+        assert_eq!(
+            executable,
+            Some(r"C:\Program Files (x86)\Steam\steam.exe".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_command_executable_handles_unquoted_paths() {
+        let command = r"C:\Steam\steam.exe -silent";
+
+        let executable = extract_command_executable(command);
+
+        assert_eq!(executable, Some(r"C:\Steam\steam.exe".to_string()));
+    }
+
+    #[test]
+    fn extract_command_executable_trims_whitespace() {
+        let command = r#"  "C:\Steam\steam.exe"  "#;
+
+        let executable = extract_command_executable(command);
+
+        assert_eq!(executable, Some(r"C:\Steam\steam.exe".to_string()));
     }
 }
