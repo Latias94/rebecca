@@ -46,6 +46,11 @@ fn scan_json_lists_builtin_rules() {
             .iter()
             .any(|rule| rule["id"] == "windows.steam-library-downloading-cache")
     );
+    assert!(
+        rules
+            .iter()
+            .any(|rule| rule["id"] == "windows.steam-library-temp-cache")
+    );
 }
 
 #[test]

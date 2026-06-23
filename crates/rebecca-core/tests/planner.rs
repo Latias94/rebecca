@@ -487,6 +487,45 @@ fn steam_library_downloading_rule_expands_from_application_discovery() {
 }
 
 #[test]
+fn steam_library_temp_rule_expands_from_application_discovery() {
+    let fixture = PlannerFixture::new();
+    let install_path = fixture.root.join("steam-install");
+    let library_path = fixture.root.join("steam-library");
+    fixture.write("steam-install/steamapps/temp/111/cache.bin", b"ab");
+    fixture.write("steam-library/steamapps/temp/222/cache.bin", b"cde");
+    let applications = StaticApplicationDiscovery::new().with_steam_installation(
+        SteamInstallation::new(install_path.clone(), vec![library_path.clone()]),
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.steam-library-temp-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment_and_applications(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("steam-install").join("steamapps").join("temp"))
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("steam-library").join("steamapps").join("temp"))
+    }));
+}
+
+#[test]
 fn planner_expands_steam_library_targets_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");

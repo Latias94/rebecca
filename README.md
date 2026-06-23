@@ -63,6 +63,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.steam-install-cache`
 - `windows.steam-library-shader-cache`
 - `windows.steam-library-downloading-cache`
+- `windows.steam-library-temp-cache`
 - `windows.directx-shader-cache`
 - `windows.thumbnail-cache`
 - `windows.pip-cache`
@@ -86,7 +87,7 @@ rules target install-root-relative or library-root-relative paths without
 guessing the machine layout.
 The current catalog includes the Steam client web cache, a Steam install-root
 cache rule, a Steam library shader-cache rule, and a Steam library downloading
-cache rule.
+cache rule plus a Steam library temp cache rule.
 
 ## Local State
 

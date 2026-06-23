@@ -78,6 +78,13 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "rules/windows/steam-library-temp-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/steam-library-temp-cache.toml"
+        )),
+    ),
+    (
         "rules/windows/npm-cache.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -265,6 +272,7 @@ mod tests {
             "windows.steam-install-cache",
             "windows.steam-library-downloading-cache",
             "windows.steam-library-shader-cache",
+            "windows.steam-library-temp-cache",
             "windows.thumbnail-cache",
             "windows.vscode-cache",
             "windows.wer-reports",
