@@ -47,6 +47,22 @@ fn invalid_rule_catalog_rejects_duplicate_target_specs() {
     assert!(err.to_string().contains("duplicate target spec"));
 }
 
+#[test]
+fn safety_level_exposes_label_and_opt_in_flag() {
+    assert_eq!(SafetyLevel::Safe.label(), "safe");
+    assert_eq!(SafetyLevel::Moderate.label(), "moderate");
+    assert_eq!(SafetyLevel::Risky.label(), "risky");
+    assert_eq!(SafetyLevel::Dangerous.label(), "dangerous");
+
+    assert_eq!(SafetyLevel::Safe.opt_in_flag(), None);
+    assert_eq!(
+        SafetyLevel::Moderate.opt_in_flag(),
+        Some("--allow-moderate")
+    );
+    assert_eq!(SafetyLevel::Risky.opt_in_flag(), Some("--allow-risky"));
+    assert_eq!(SafetyLevel::Dangerous.opt_in_flag(), Some("--allow-risky"));
+}
+
 fn test_rule(id: &str) -> RuleDefinition {
     RuleDefinition {
         id: id.to_string(),

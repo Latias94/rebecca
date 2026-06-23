@@ -151,14 +151,18 @@ where
 
         if !request.allows_safety_level(rule.safety_level) {
             for spec in &rule.path_templates {
+                let reason = match rule.safety_level.opt_in_flag() {
+                    Some(flag) => format!("{} rule requires {}", rule.safety_level.label(), flag),
+                    None => format!(
+                        "{} rule requires explicit opt-in",
+                        rule.safety_level.label()
+                    ),
+                };
                 candidates.push(CleanupTarget::skipped(
                     rule.id.clone(),
                     spec_placeholder(spec),
                     request.mode,
-                    format!(
-                        "{} rule requires explicit opt-in",
-                        rule.safety_level.label()
-                    ),
+                    reason,
                 ));
             }
             continue;
