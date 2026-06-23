@@ -158,12 +158,15 @@ where
                         rule.safety_level.label()
                     ),
                 };
-                candidates.push(CleanupTarget::skipped(
-                    rule.id.clone(),
-                    spec.placeholder_path(),
-                    request.mode,
-                    reason,
-                ));
+                candidates.push(
+                    CleanupTarget::skipped(
+                        rule.id.clone(),
+                        spec.placeholder_path(),
+                        request.mode,
+                        reason,
+                    )
+                    .with_restore_hint(rule.restore_hint.clone()),
+                );
             }
             continue;
         }
@@ -173,21 +176,27 @@ where
                 match resolve_rule_target_with_applications(spec, env, applications) {
                     Ok(TargetResolution::Paths(paths)) => paths,
                     Ok(TargetResolution::Skipped(reason)) => {
-                        candidates.push(CleanupTarget::skipped(
-                            rule.id.clone(),
-                            spec.placeholder_path(),
-                            request.mode,
-                            reason,
-                        ));
+                        candidates.push(
+                            CleanupTarget::skipped(
+                                rule.id.clone(),
+                                spec.placeholder_path(),
+                                request.mode,
+                                reason,
+                            )
+                            .with_restore_hint(rule.restore_hint.clone()),
+                        );
                         continue;
                     }
                     Err(err) => {
-                        candidates.push(CleanupTarget::blocked(
-                            rule.id.clone(),
-                            spec.placeholder_path(),
-                            request.mode,
-                            err.to_string(),
-                        ));
+                        candidates.push(
+                            CleanupTarget::blocked(
+                                rule.id.clone(),
+                                spec.placeholder_path(),
+                                request.mode,
+                                err.to_string(),
+                            )
+                            .with_restore_hint(rule.restore_hint.clone()),
+                        );
                         continue;
                     }
                 };
@@ -238,7 +247,8 @@ where
                                     expanded,
                                     size,
                                     request.mode,
-                                );
+                                )
+                                .with_restore_hint(rule.restore_hint.clone());
                                 emit_target_finished(&mut progress, &target);
                                 candidates.push(target);
                             }
@@ -250,7 +260,8 @@ where
                                     request.mode,
                                     0,
                                     err.to_string(),
-                                );
+                                )
+                                .with_restore_hint(rule.restore_hint.clone());
                                 emit_target_finished(&mut progress, &target);
                                 candidates.push(target);
                             }
@@ -258,13 +269,15 @@ where
                     }
                     PathDisposition::Skipped(reason) => {
                         let target =
-                            CleanupTarget::skipped(rule.id.clone(), expanded, request.mode, reason);
+                            CleanupTarget::skipped(rule.id.clone(), expanded, request.mode, reason)
+                                .with_restore_hint(rule.restore_hint.clone());
                         emit_target_finished(&mut progress, &target);
                         candidates.push(target);
                     }
                     PathDisposition::Blocked(reason) => {
                         let target =
-                            CleanupTarget::blocked(rule.id.clone(), expanded, request.mode, reason);
+                            CleanupTarget::blocked(rule.id.clone(), expanded, request.mode, reason)
+                                .with_restore_hint(rule.restore_hint.clone());
                         emit_target_finished(&mut progress, &target);
                         candidates.push(target);
                     }

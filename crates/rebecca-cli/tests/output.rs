@@ -44,4 +44,5 @@ fn clean_human_output_uses_lowercase_status_labels() {
     assert!(stdout.contains("Cleanup mode: dry-run"));
     assert!(stdout.contains("allowed (1)"));
     assert!(stdout.contains("skipped (1)"));
+    assert!(stdout.contains("[restore: Temporary files owned by the current user.]"));
 }

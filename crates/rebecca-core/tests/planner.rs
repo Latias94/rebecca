@@ -399,6 +399,10 @@ fn steam_install_rule_expands_from_application_discovery() {
         plan.targets[0].path,
         install_path.join("appcache").join("httpcache")
     );
+    assert_eq!(
+        plan.targets[0].restore_hint.as_deref(),
+        Some("Steam client cache will be rebuilt on launch.")
+    );
 }
 
 #[test]

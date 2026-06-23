@@ -25,6 +25,7 @@ pub struct CleanupTarget {
     pub mode: DeleteMode,
     pub status: TargetStatus,
     pub reason: Option<String>,
+    pub restore_hint: Option<String>,
     pub freed_bytes: u64,
     pub pending_reclaim_bytes: u64,
 }
@@ -43,6 +44,7 @@ impl CleanupTarget {
             mode,
             status: TargetStatus::Allowed,
             reason: None,
+            restore_hint: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -61,6 +63,7 @@ impl CleanupTarget {
             mode,
             status: TargetStatus::Skipped,
             reason: Some(reason.into()),
+            restore_hint: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -79,6 +82,7 @@ impl CleanupTarget {
             mode,
             status: TargetStatus::Blocked,
             reason: Some(reason.into()),
+            restore_hint: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -98,9 +102,15 @@ impl CleanupTarget {
             mode,
             status: TargetStatus::Failed,
             reason: Some(reason.into()),
+            restore_hint: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
+    }
+
+    pub fn with_restore_hint(mut self, restore_hint: Option<String>) -> Self {
+        self.restore_hint = restore_hint;
+        self
     }
 }
 

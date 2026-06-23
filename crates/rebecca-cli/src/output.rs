@@ -133,7 +133,7 @@ fn print_targets_by_status(plan: &CleanupPlan) {
 
 fn print_target_line(target: &CleanupTarget, prefix: &str) {
     println!(
-        "{prefix} {} [{}] {} bytes ({}){}",
+        "{prefix} {} [{}] {} bytes ({}){}{}",
         target.rule_id,
         target.path.display(),
         target.estimated_bytes,
@@ -142,6 +142,11 @@ fn print_target_line(target: &CleanupTarget, prefix: &str) {
             .reason
             .as_ref()
             .map(|reason| format!(" ({reason})"))
+            .unwrap_or_default(),
+        target
+            .restore_hint
+            .as_ref()
+            .map(|hint| format!(" [restore: {hint}]"))
             .unwrap_or_default()
     );
 }

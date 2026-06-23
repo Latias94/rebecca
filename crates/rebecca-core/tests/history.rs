@@ -51,7 +51,8 @@ fn sample_plan() -> CleanupPlan {
         PathBuf::from("C:/Temp/file.tmp"),
         10,
         DeleteMode::RecycleBin,
-    );
+    )
+    .with_restore_hint(Some("Temporary files can be recreated.".to_string()));
     target.status = rebecca_core::TargetStatus::Completed;
     target.pending_reclaim_bytes = 10;
     plan.targets.push(target);
