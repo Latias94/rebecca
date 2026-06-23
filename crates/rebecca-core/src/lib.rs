@@ -14,5 +14,5 @@ pub mod scan;
 pub use error::{RebeccaError, Result};
 pub use model::{
     DeleteMode, DeletePolicy, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance,
-    RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
+    RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };

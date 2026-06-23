@@ -28,6 +28,8 @@ Rebecca is designed to preview before deleting.
 ```powershell
 cargo run -p rebecca-cli -- scan
 cargo run -p rebecca-cli -- scan --json
+cargo run -p rebecca-cli -- scan --category browser
+cargo run -p rebecca-cli -- scan --rule windows.thumbnail-cache
 
 cargo run -p rebecca-cli -- clean --dry-run
 cargo run -p rebecca-cli -- clean --dry-run --json --category system

@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use rebecca_core::config::default_app_paths;
 use rebecca_core::executor::execute_cleanup_plan;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::planner::build_cleanup_plan;
-use rebecca_core::{DeleteMode, PlanRequest, Platform};
+use rebecca_core::{DeleteMode, PlanRequest, Platform, RuleDefinition, RuleSelection};
 
 #[derive(Debug, Parser)]
 #[command(name = "rebecca", version, about = "Windows-first cleanup CLI")]
@@ -20,6 +22,12 @@ enum Command {
         /// Render machine-readable JSON.
         #[arg(long)]
         json: bool,
+        /// Include a category. Can be repeated.
+        #[arg(long = "category")]
+        categories: Vec<String>,
+        /// Include a specific rule id. Can be repeated.
+        #[arg(long = "rule")]
+        rules: Vec<String>,
     },
     /// Build or execute a cleanup plan.
     Clean {
@@ -83,8 +91,16 @@ fn main() -> Result<()> {
     init_tracing();
 
     let cli = Cli::parse();
-    match cli.command.unwrap_or(Command::Scan { json: false }) {
-        Command::Scan { json } => scan(json),
+    match cli.command.unwrap_or(Command::Scan {
+        json: false,
+        categories: Vec::new(),
+        rules: Vec::new(),
+    }) {
+        Command::Scan {
+            json,
+            categories,
+            rules,
+        } => scan(json, categories, rules),
         Command::Clean {
             dry_run,
             json,
@@ -118,23 +134,50 @@ fn init_tracing() {
         .try_init();
 }
 
-fn scan(json: bool) -> Result<()> {
-    let rules = rebecca_rules::builtin_rules()?;
+fn scan(json: bool, categories: Vec<String>, rules: Vec<String>) -> Result<()> {
+    let catalog = rebecca_rules::builtin_rules()?;
+    let selection = RuleSelection::new(categories, rules);
+    let filtered = catalog
+        .iter()
+        .filter(|rule| selection.matches_rule(rule))
+        .collect::<Vec<_>>();
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&rules)?);
+        println!("{}", serde_json::to_string_pretty(&filtered)?);
         return Ok(());
     }
 
-    println!("Rebecca rules: {}", rules.len());
-    for rule in rules {
-        println!(
-            "- {} [{}/{:?}] {}",
-            rule.id, rule.category, rule.safety_level, rule.name
-        );
-    }
+    print_rule_catalog(&filtered);
 
     Ok(())
+}
+
+fn print_rule_catalog(rules: &[&RuleDefinition]) {
+    println!("Rebecca rules: {}", rules.len());
+
+    if rules.is_empty() {
+        println!("No built-in rules match the current selection.");
+        return;
+    }
+
+    let mut grouped: BTreeMap<String, Vec<&RuleDefinition>> = BTreeMap::new();
+    for rule in rules {
+        grouped
+            .entry(rule.category.clone())
+            .or_default()
+            .push(*rule);
+    }
+
+    for rules in grouped.values_mut() {
+        rules.sort_by(|left, right| left.id.cmp(&right.id));
+    }
+
+    for (category, rules) in grouped {
+        println!("- {} ({})", category, rules.len());
+        for rule in rules {
+            println!("  - {} [{:?}] {}", rule.id, rule.safety_level, rule.name);
+        }
+    }
 }
 
 fn clean(

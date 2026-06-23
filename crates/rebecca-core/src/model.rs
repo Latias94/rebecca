@@ -74,6 +74,44 @@ impl RuleTargetSpec {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuleSelection {
+    pub categories: Vec<String>,
+    pub rule_ids: Vec<String>,
+}
+
+impl RuleSelection {
+    pub fn new(categories: Vec<String>, rule_ids: Vec<String>) -> Self {
+        Self {
+            categories,
+            rule_ids,
+        }
+    }
+
+    pub fn from_request(request: &PlanRequest) -> Self {
+        Self::new(
+            request.selected_categories.clone(),
+            request.selected_rule_ids.clone(),
+        )
+    }
+
+    pub fn matches_rule(&self, rule: &RuleDefinition) -> bool {
+        let selected_category = self.categories.is_empty()
+            || self
+                .categories
+                .iter()
+                .any(|category| category.eq_ignore_ascii_case(&rule.category));
+
+        let selected_id = self.rule_ids.is_empty()
+            || self
+                .rule_ids
+                .iter()
+                .any(|id| id.eq_ignore_ascii_case(&rule.id));
+
+        selected_category && selected_id
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuleDefinition {
     pub id: String,
@@ -126,6 +164,10 @@ impl PlanRequest {
             allow_moderate: false,
             allow_risky: false,
         }
+    }
+
+    pub fn selection(&self) -> RuleSelection {
+        RuleSelection::from_request(self)
     }
 }
 

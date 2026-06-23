@@ -22,13 +22,14 @@ pub fn build_cleanup_plan_with_environment(
 
     let mut candidates = Vec::new();
     let mut seen_paths = BTreeSet::new();
+    let selection = request.selection();
 
     for rule in rules {
         if rule.platform != request.platform {
             continue;
         }
 
-        if !selected_rule(rule, request) {
+        if !selection.matches_rule(rule) {
             continue;
         }
 
@@ -152,22 +153,6 @@ fn validate_selected_rule_ids(request: &PlanRequest, rules: &[RuleDefinition]) -
     }
 
     Ok(())
-}
-
-fn selected_rule(rule: &RuleDefinition, request: &PlanRequest) -> bool {
-    let selected_category = request.selected_categories.is_empty()
-        || request
-            .selected_categories
-            .iter()
-            .any(|category| category.eq_ignore_ascii_case(&rule.category));
-
-    let selected_id = request.selected_rule_ids.is_empty()
-        || request
-            .selected_rule_ids
-            .iter()
-            .any(|id| id.eq_ignore_ascii_case(&rule.id));
-
-    selected_category && selected_id
 }
 
 fn safety_allowed(rule_level: SafetyLevel, request: &PlanRequest) -> bool {
