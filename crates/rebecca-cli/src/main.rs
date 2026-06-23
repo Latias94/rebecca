@@ -376,7 +376,7 @@ fn print_plan(plan: &CleanupPlan, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    println!("Cleanup mode: {:?}", plan.request.mode);
+    println!("Cleanup mode: {}", cleanup_mode_label(plan.request.mode));
     println!("Targets: {}", plan.summary.total_targets);
     println!("Allowed: {}", plan.summary.allowed_targets);
     println!("Skipped: {}", plan.summary.skipped_targets);
@@ -456,7 +456,7 @@ fn print_targets_by_status(plan: &CleanupPlan) {
             continue;
         }
 
-        println!("{status:?} ({})", targets.len());
+        println!("{} ({})", status_label(status), targets.len());
         for target in targets {
             print_target_line(target, "  -");
         }
@@ -493,6 +493,24 @@ fn format_bytes(bytes: u64) -> String {
     }
 
     format!("{value:.2} {}", UNITS[unit_index])
+}
+
+fn cleanup_mode_label(mode: DeleteMode) -> &'static str {
+    match mode {
+        DeleteMode::DryRun => "dry-run",
+        DeleteMode::RecycleBin => "recycle-bin",
+        DeleteMode::Permanent => "permanent",
+    }
+}
+
+fn status_label(status: TargetStatus) -> &'static str {
+    match status {
+        TargetStatus::Allowed => "allowed",
+        TargetStatus::Skipped => "skipped",
+        TargetStatus::Blocked => "blocked",
+        TargetStatus::Failed => "failed",
+        TargetStatus::Completed => "completed",
+    }
 }
 
 fn history(json: bool) -> Result<()> {

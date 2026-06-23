@@ -91,8 +91,8 @@ fn clean_human_output_highlights_largest_targets_by_size() {
     assert!(stdout.contains("Estimated bytes: 20 (20 B)"));
     assert!(stdout.contains("Largest estimated targets:"));
     assert!(stdout.contains("Target details:"));
-    assert!(stdout.contains("Allowed (3)"));
-    assert!(stdout.contains("Skipped ("));
+    assert!(stdout.contains("allowed (3)"));
+    assert!(stdout.contains("skipped ("));
 
     let largest_section = stdout
         .split("Largest estimated targets:")
@@ -136,7 +136,7 @@ fn clean_dry_run_accepts_no_progress_flag() {
     assert!(output.status.success(), "stderr: {}", stderr(&output));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Cleanup mode: DryRun"));
+    assert!(stdout.contains("Cleanup mode: dry-run"));
     assert!(stdout.contains("Target details:"));
 }
 
