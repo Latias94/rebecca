@@ -73,10 +73,10 @@ fn scan_human_output_groups_rules_by_category() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("- browser ("));
-    assert!(stdout.contains("  - windows.chrome-cache [Safe] Google Chrome cache"));
-    assert!(stdout.contains("  - windows.firefox-profile-cache [Safe] Firefox profile cache"));
+    assert!(stdout.contains("  - windows.chrome-cache [safe] Google Chrome cache"));
+    assert!(stdout.contains("  - windows.firefox-profile-cache [safe] Firefox profile cache"));
     assert!(stdout.contains("- development ("));
-    assert!(stdout.contains("  - windows.npm-cache [Moderate] npm cache"));
+    assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));
 }
 
 #[test]

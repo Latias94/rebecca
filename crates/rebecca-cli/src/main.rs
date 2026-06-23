@@ -199,7 +199,12 @@ fn print_rule_catalog(rules: &[&RuleDefinition]) {
     for (category, rules) in grouped {
         println!("- {} ({})", category, rules.len());
         for rule in rules {
-            println!("  - {} [{:?}] {}", rule.id, rule.safety_level, rule.name);
+            println!(
+                "  - {} [{}] {}",
+                rule.id,
+                rule.safety_level.label(),
+                rule.name
+            );
         }
     }
 }
