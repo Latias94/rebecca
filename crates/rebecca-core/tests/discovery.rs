@@ -84,6 +84,20 @@ fn steam_install_template_expands_from_discovered_install_path() {
 }
 
 #[test]
+fn steam_install_template_skips_when_steam_is_not_discovered() {
+    let applications = StaticApplicationDiscovery::new();
+    let env = MapEnvironment::new();
+    let target = RuleTargetSpec::steam_install_template("appcache\\httpcache");
+
+    let resolution = resolve_rule_target_with_applications(&target, &env, &applications).unwrap();
+
+    assert_eq!(
+        resolution,
+        TargetResolution::Skipped("Steam installation was not discovered".to_string())
+    );
+}
+
+#[test]
 fn steam_installation_reads_libraryfolders_from_install_path() {
     let temp = tempfile::tempdir().unwrap();
     let install_path = temp.path().join("Steam");
@@ -118,6 +132,20 @@ fn steam_installation_reads_libraryfolders_from_install_path() {
             .library_paths()
             .contains(&std::path::PathBuf::from(r"D:\SteamLibrary"))
     );
+}
+
+#[test]
+fn steam_installation_deduplicates_install_path_from_library_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let install_path = temp.path().join("Steam");
+    let library_path = temp.path().join("SteamLibrary");
+    let installation = SteamInstallation::new(
+        install_path.clone(),
+        vec![install_path.clone(), library_path.clone()],
+    );
+
+    assert_eq!(installation.install_path(), install_path.as_path());
+    assert_eq!(installation.library_paths(), &[library_path]);
 }
 
 #[test]

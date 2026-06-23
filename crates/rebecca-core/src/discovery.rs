@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -60,30 +59,36 @@ where
             }
         }
         RuleTargetSpec::SteamInstallTemplate(template) => {
-            let Some(steam) = applications.steam_installation()? else {
-                return Ok(TargetResolution::Skipped(
-                    "Steam installation was not discovered".to_string(),
-                ));
-            };
-
-            match append_steam_relative_target(steam.install_path(), template, env)? {
-                Some(path) => Ok(TargetResolution::Paths(vec![path])),
-                None => Ok(TargetResolution::Skipped(
-                    "Steam install template could not be resolved in the current environment"
-                        .to_string(),
-                )),
-            }
+            resolve_with_steam_installation(applications, |steam| {
+                match append_steam_relative_target(steam.install_path(), template, env)? {
+                    Some(path) => Ok(TargetResolution::Paths(vec![path])),
+                    None => Ok(TargetResolution::Skipped(
+                        "Steam install template could not be resolved in the current environment"
+                            .to_string(),
+                    )),
+                }
+            })
         }
         RuleTargetSpec::SteamLibraryTemplate(template) => {
-            let Some(steam) = applications.steam_installation()? else {
-                return Ok(TargetResolution::Skipped(
-                    "Steam installation was not discovered".to_string(),
-                ));
-            };
-
-            resolve_steam_library_template(&steam, template, env)
+            resolve_with_steam_installation(applications, |steam| {
+                resolve_steam_library_template(steam, template, env)
+            })
         }
     }
+}
+
+fn resolve_with_steam_installation<A, F>(applications: &A, resolve: F) -> Result<TargetResolution>
+where
+    A: ApplicationDiscovery + ?Sized,
+    F: FnOnce(&SteamInstallation) -> Result<TargetResolution>,
+{
+    let Some(steam) = applications.steam_installation()? else {
+        return Ok(TargetResolution::Skipped(
+            "Steam installation was not discovered".to_string(),
+        ));
+    };
+
+    resolve(&steam)
 }
 
 fn resolve_steam_library_template(
@@ -92,11 +97,9 @@ fn resolve_steam_library_template(
     env: &impl Environment,
 ) -> Result<TargetResolution> {
     let mut paths = Vec::new();
-    let mut roots = Vec::with_capacity(1 + steam.library_paths().len());
-    roots.push(steam.install_path().to_path_buf());
-    roots.extend(steam.library_paths().iter().cloned());
-
-    for library_path in dedupe_steam_roots(roots) {
+    for library_path in std::iter::once(steam.install_path())
+        .chain(steam.library_paths().iter().map(PathBuf::as_path))
+    {
         if let Some(path) = append_steam_relative_target(&library_path, template, env)? {
             paths.push(path);
         } else {
@@ -117,19 +120,6 @@ fn resolve_steam_library_template(
     } else {
         Ok(TargetResolution::Paths(paths))
     }
-}
-
-fn dedupe_steam_roots(paths: Vec<PathBuf>) -> Vec<PathBuf> {
-    let mut seen = BTreeSet::new();
-    let mut deduped = Vec::new();
-
-    for path in paths {
-        if seen.insert(steam_root_key(&path)) {
-            deduped.push(path);
-        }
-    }
-
-    deduped
 }
 
 fn append_steam_relative_target(
@@ -169,13 +159,6 @@ fn looks_absolute(path: &Path) -> bool {
 
     let raw = path.as_os_str().to_string_lossy().replace('\\', "/");
     raw.starts_with('/') || raw.starts_with("//") || raw.as_bytes().get(1) == Some(&b':')
-}
-
-fn steam_root_key(path: &Path) -> String {
-    path.as_os_str()
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase()
 }
 
 fn unsafe_steam_relative_path_error(path: &Path) -> RebeccaError {
