@@ -33,6 +33,25 @@ pub enum SafetyLevel {
     Dangerous,
 }
 
+impl SafetyLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Safe => "safe",
+            Self::Moderate => "moderate",
+            Self::Risky => "risky",
+            Self::Dangerous => "dangerous",
+        }
+    }
+
+    pub fn opt_in_flag(self) -> Option<&'static str> {
+        match self {
+            Self::Safe => None,
+            Self::Moderate => Some("--allow-moderate"),
+            Self::Risky | Self::Dangerous => Some("--allow-risky"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DeletePolicy {
@@ -178,6 +197,14 @@ impl PlanRequest {
 
     pub fn selection(&self) -> RuleSelection {
         RuleSelection::from_request(self)
+    }
+
+    pub fn allows_safety_level(&self, level: SafetyLevel) -> bool {
+        match level {
+            SafetyLevel::Safe => true,
+            SafetyLevel::Moderate => self.allow_moderate || self.allow_risky,
+            SafetyLevel::Risky | SafetyLevel::Dangerous => self.allow_risky,
+        }
     }
 }
 

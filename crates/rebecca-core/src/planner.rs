@@ -5,7 +5,7 @@ use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery};
 use crate::discovery::{TargetResolution, resolve_rule_target_with_applications};
 use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
-use crate::model::{PlanRequest, Platform, RuleDefinition, RuleTargetSpec, SafetyLevel};
+use crate::model::{PlanRequest, Platform, RuleDefinition, RuleTargetSpec};
 use crate::plan::{CleanupPlan, CleanupTarget};
 use crate::safety::{PathDisposition, assess_existing_path};
 use crate::scan::{ScanCancellationToken, ScanProgressEvent, measure_path_size_with_progress};
@@ -149,7 +149,7 @@ where
             continue;
         }
 
-        if !safety_allowed(rule.safety_level, request) {
+        if !request.allows_safety_level(rule.safety_level) {
             for spec in &rule.path_templates {
                 candidates.push(CleanupTarget::skipped(
                     rule.id.clone(),
@@ -157,7 +157,7 @@ where
                     request.mode,
                     format!(
                         "{} rule requires explicit opt-in",
-                        safety_name(rule.safety_level)
+                        rule.safety_level.label()
                     ),
                 ));
             }
@@ -318,23 +318,6 @@ fn validate_selected_rule_ids(request: &PlanRequest, rules: &[RuleDefinition]) -
     }
 
     Ok(())
-}
-
-fn safety_allowed(rule_level: SafetyLevel, request: &PlanRequest) -> bool {
-    match rule_level {
-        SafetyLevel::Safe => true,
-        SafetyLevel::Moderate => request.allow_moderate || request.allow_risky,
-        SafetyLevel::Risky | SafetyLevel::Dangerous => request.allow_risky,
-    }
-}
-
-fn safety_name(level: SafetyLevel) -> &'static str {
-    match level {
-        SafetyLevel::Safe => "safe",
-        SafetyLevel::Moderate => "moderate",
-        SafetyLevel::Risky => "risky",
-        SafetyLevel::Dangerous => "dangerous",
-    }
 }
 
 fn spec_placeholder(spec: &RuleTargetSpec) -> PathBuf {
