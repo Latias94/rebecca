@@ -96,7 +96,7 @@ fn resolve_steam_library_template(
     template: &crate::PathTemplate,
     env: &impl Environment,
 ) -> Result<TargetResolution> {
-    let mut paths = Vec::new();
+    let mut paths = Vec::with_capacity(1 + steam.library_paths().len());
     for library_path in std::iter::once(steam.install_path())
         .chain(steam.library_paths().iter().map(PathBuf::as_path))
     {
@@ -110,16 +110,7 @@ fn resolve_steam_library_template(
         }
     }
 
-    paths.sort();
-    paths.dedup();
-
-    if paths.is_empty() {
-        Ok(TargetResolution::Skipped(
-            "Steam installation has no discovered library paths".to_string(),
-        ))
-    } else {
-        Ok(TargetResolution::Paths(paths))
-    }
+    Ok(TargetResolution::Paths(paths))
 }
 
 fn append_steam_relative_target(
