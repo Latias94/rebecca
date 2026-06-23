@@ -791,6 +791,87 @@ fn moderate_rule_is_skipped_without_opt_in() {
 }
 
 #[test]
+fn moderate_rule_is_allowed_with_opt_in() {
+    let fixture = PlannerFixture::new();
+    fixture.write("roaming/npm-cache/_cacache/index.bin", b"npm");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.npm-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(plan.targets.len(), 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Allowed);
+}
+
+#[test]
+fn risky_rule_is_skipped_without_opt_in() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/risky.tmp", b"risk");
+    let rules = vec![RuleDefinition {
+        id: "windows.custom-risky".to_string(),
+        platform: Platform::Windows,
+        category: "system".to_string(),
+        name: "Custom risky rule".to_string(),
+        safety_level: SafetyLevel::Risky,
+        path_templates: vec![RuleTargetSpec::template("%TEMP%")],
+        delete_policy: DeletePolicy::RecycleBin,
+        restore_hint: Some("The target can be rebuilt.".to_string()),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
+        },
+    }];
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.custom-risky".to_string()];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
+}
+
+#[test]
+fn risky_rule_is_allowed_with_opt_in() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/risky.tmp", b"risk");
+    let rules = vec![RuleDefinition {
+        id: "windows.custom-risky".to_string(),
+        platform: Platform::Windows,
+        category: "system".to_string(),
+        name: "Custom risky rule".to_string(),
+        safety_level: SafetyLevel::Risky,
+        path_templates: vec![RuleTargetSpec::template("%TEMP%")],
+        delete_policy: DeletePolicy::RecycleBin,
+        restore_hint: Some("The target can be rebuilt.".to_string()),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
+        },
+    }];
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.custom-risky".to_string()];
+    request.allow_risky = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 4);
+    assert_eq!(plan.targets.len(), 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Allowed);
+}
+
+#[test]
 fn dry_run_and_recycle_bin_share_target_set() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/a.tmp", b"abc");
