@@ -29,13 +29,21 @@ pub fn print_rule_catalog(rules: &[&RuleDefinition]) {
         println!("- {} ({})", category, rules.len());
         for rule in rules {
             println!(
-                "  - {} [{}] {}",
+                "  - {} [{}] {}{}",
                 rule.id,
                 rule.safety_level.label(),
-                rule.name
+                rule.name,
+                rule_restore_hint_suffix(rule)
             );
         }
     }
+}
+
+fn rule_restore_hint_suffix(rule: &RuleDefinition) -> String {
+    rule.restore_hint
+        .as_ref()
+        .map(|hint| format!(" [restore: {hint}]"))
+        .unwrap_or_default()
 }
 
 pub fn print_plan(plan: &CleanupPlan, json: bool) -> Result<()> {
