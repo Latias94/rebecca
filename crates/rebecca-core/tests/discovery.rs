@@ -149,6 +149,16 @@ fn steam_installation_deduplicates_install_path_from_library_paths() {
 }
 
 #[test]
+fn steam_installation_deduplicates_install_path_case_insensitively() {
+    let install_path = std::path::PathBuf::from(r"C:\Steam");
+    let library_path = std::path::PathBuf::from(r"c:\steam");
+    let installation = SteamInstallation::new(install_path.clone(), vec![library_path]);
+
+    assert_eq!(installation.install_path(), install_path.as_path());
+    assert!(installation.library_paths().is_empty());
+}
+
+#[test]
 fn steam_library_template_expands_all_discovered_library_paths() {
     let temp = tempfile::tempdir().unwrap();
     let install_path = temp.path().join("Steam");

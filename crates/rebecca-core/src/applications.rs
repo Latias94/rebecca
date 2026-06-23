@@ -60,7 +60,7 @@ impl SteamInstallation {
         let install_path = install_path.into();
         let paths = library_paths
             .into_iter()
-            .filter(|path| !same_path(path, &install_path))
+            .filter(|path| !same_path_ignore_case(path, &install_path))
             .collect::<Vec<_>>();
         Self {
             install_path,
@@ -248,6 +248,6 @@ fn path_key(path: &Path) -> String {
         .to_ascii_lowercase()
 }
 
-fn same_path(left: &Path, right: &Path) -> bool {
+fn same_path_ignore_case(left: &Path, right: &Path) -> bool {
     path_key(left) == path_key(right)
 }
