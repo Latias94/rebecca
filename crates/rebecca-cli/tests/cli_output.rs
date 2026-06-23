@@ -1,5 +1,5 @@
-use std::process::Command;
-
+#[path = "common/command.rs"]
+mod command;
 #[path = "common/isolated.rs"]
 mod isolated;
 #[path = "common/support.rs"]
@@ -36,7 +36,7 @@ fn config_paths_json_is_parseable() {
 
 #[test]
 fn doctor_permissions_prints_permission_label() {
-    let output = Command::new(env!("CARGO_BIN_EXE_rebecca"))
+    let output = command::rebecca()
         .args(["doctor", "permissions"])
         .output()
         .unwrap();

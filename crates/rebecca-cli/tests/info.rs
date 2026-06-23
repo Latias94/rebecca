@@ -1,3 +1,5 @@
+#[path = "common/command.rs"]
+mod command;
 #[path = "common/isolated.rs"]
 mod isolated;
 #[path = "common/support.rs"]
@@ -34,7 +36,7 @@ fn config_paths_json_is_parseable() {
 
 #[test]
 fn doctor_permissions_prints_permission_label() {
-    let output = support::rebecca()
+    let output = command::rebecca()
         .args(["doctor", "permissions"])
         .output()
         .unwrap();

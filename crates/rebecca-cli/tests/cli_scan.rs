@@ -1,9 +1,11 @@
+#[path = "common/command.rs"]
+mod command;
 #[path = "common/support.rs"]
 mod support;
 
 #[test]
 fn scan_json_lists_builtin_rules() {
-    let output = support::rebecca()
+    let output = command::rebecca()
         .args(["scan", "--json"])
         .output()
         .unwrap();
@@ -51,7 +53,7 @@ fn scan_json_lists_builtin_rules() {
 
 #[test]
 fn scan_json_filters_by_category_and_rule() {
-    let output = support::rebecca()
+    let output = command::rebecca()
         .args([
             "scan",
             "--json",
@@ -79,7 +81,7 @@ fn scan_json_filters_by_category_and_rule() {
 
 #[test]
 fn scan_human_output_groups_rules_by_category() {
-    let output = support::rebecca().args(["scan"]).output().unwrap();
+    let output = command::rebecca().args(["scan"]).output().unwrap();
 
     assert!(
         output.status.success(),
@@ -97,7 +99,7 @@ fn scan_human_output_groups_rules_by_category() {
 
 #[test]
 fn scan_human_output_filters_by_category() {
-    let output = support::rebecca()
+    let output = command::rebecca()
         .args(["scan", "--category", "browser"])
         .output()
         .unwrap();

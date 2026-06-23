@@ -1,3 +1,5 @@
+#[path = "common/command.rs"]
+mod command;
 #[path = "common/isolated.rs"]
 mod isolated;
 #[path = "common/support.rs"]
@@ -5,7 +7,7 @@ mod support;
 
 #[test]
 fn scan_human_output_uses_lowercase_safety_labels() {
-    let output = support::rebecca()
+    let output = command::rebecca()
         .args(["scan", "--category", "development"])
         .output()
         .unwrap();

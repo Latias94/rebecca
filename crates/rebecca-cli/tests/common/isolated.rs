@@ -1,7 +1,7 @@
 use std::process::Command;
 
-#[path = "support.rs"]
-mod support;
+#[path = "command.rs"]
+mod command;
 
 pub fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
     let roaming = temp.path().join("roaming");
@@ -15,7 +15,7 @@ pub fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
         std::fs::create_dir_all(path).unwrap();
     }
 
-    let mut command = support::rebecca();
+    let mut command = command::rebecca();
     command
         .env("HOME", temp.path())
         .env("USERPROFILE", temp.path())
