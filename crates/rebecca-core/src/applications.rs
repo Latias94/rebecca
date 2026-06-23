@@ -138,9 +138,9 @@ fn parse_steam_libraryfolders_object(
                         parse_steam_libraryfolders_object(tokens, index, paths)?;
                     }
                     Some(VdfToken::String(value)) => {
-                        if key.eq_ignore_ascii_case("path") {
-                            paths.push(PathBuf::from(value));
-                        } else if is_legacy_library_key(&key) && looks_like_path_value(value) {
+                        if key.eq_ignore_ascii_case("path")
+                            || (is_legacy_library_key(&key) && looks_like_path_value(value))
+                        {
                             paths.push(PathBuf::from(value));
                         }
                         *index += 1;

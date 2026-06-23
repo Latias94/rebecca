@@ -100,7 +100,7 @@ fn resolve_steam_library_template(
     for library_path in std::iter::once(steam.install_path())
         .chain(steam.library_paths().iter().map(PathBuf::as_path))
     {
-        if let Some(path) = append_steam_relative_target(&library_path, template, env)? {
+        if let Some(path) = append_steam_relative_target(library_path, template, env)? {
             paths.push(path);
         } else {
             return Ok(TargetResolution::Skipped(

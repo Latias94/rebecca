@@ -135,6 +135,21 @@ fn steam_installation_reads_libraryfolders_from_install_path() {
 }
 
 #[test]
+fn steam_installation_reports_read_errors_for_libraryfolders_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let install_path = temp.path().join("Steam");
+    let library_file = install_path.join("steamapps").join("libraryfolders.vdf");
+    fs::create_dir_all(&library_file).unwrap();
+
+    let err = SteamInstallation::from_install_path(&install_path).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("could not read Steam library folders")
+    );
+}
+
+#[test]
 fn steam_installation_deduplicates_install_path_from_library_paths() {
     let temp = tempfile::tempdir().unwrap();
     let install_path = temp.path().join("Steam");
