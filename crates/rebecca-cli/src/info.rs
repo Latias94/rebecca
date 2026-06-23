@@ -110,12 +110,26 @@ fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery
         return Some(Box::new(NoopApplicationDiscovery::new()));
     }
 
-    match SteamInstallation::from_install_path(path) {
-        Ok(installation) => Some(Box::new(
-            StaticApplicationDiscovery::new().with_steam_installation(installation),
-        )),
-        Err(_) => Some(Box::new(NoopApplicationDiscovery::new())),
-    }
+    Some(Box::new(
+        StaticApplicationDiscovery::new()
+            .with_steam_installation(steam_installation_from_debug_path(path)),
+    ))
+}
+
+#[cfg(debug_assertions)]
+fn steam_installation_from_debug_path(path: &str) -> SteamInstallation {
+    steam_installation_from_debug_path_impl(path)
+}
+
+#[cfg(all(debug_assertions, windows))]
+fn steam_installation_from_debug_path_impl(path: &str) -> SteamInstallation {
+    rebecca_windows::steam::steam_installation_from_path(path)
+}
+
+#[cfg(all(debug_assertions, not(windows)))]
+fn steam_installation_from_debug_path_impl(path: &str) -> SteamInstallation {
+    SteamInstallation::from_install_path(path)
+        .unwrap_or_else(|_| SteamInstallation::new(path, Vec::new()))
 }
 
 #[cfg(not(debug_assertions))]
