@@ -1,5 +1,9 @@
 use anyhow::Result;
 use rebecca_core::applications::ApplicationDiscovery;
+#[cfg(debug_assertions)]
+use rebecca_core::applications::{
+    NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
+};
 use rebecca_core::config::default_app_paths;
 use rebecca_core::history::HistoryStore;
 
@@ -73,6 +77,50 @@ pub fn print_steam_discovery(discovery: &dyn ApplicationDiscovery) -> Result<()>
     }
 
     Ok(())
+}
+
+pub fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
+    if let Some(applications) = steam_application_discovery_override() {
+        return applications;
+    }
+
+    #[cfg(windows)]
+    {
+        Box::new(rebecca_windows::steam::WindowsApplicationDiscovery::new())
+    }
+
+    #[cfg(not(windows))]
+    {
+        Box::new(rebecca_core::applications::NoopApplicationDiscovery::new())
+    }
+}
+
+#[cfg(debug_assertions)]
+fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
+    let discovery = std::env::var("REBECCA_STEAM_DISCOVERY").ok();
+    if discovery.as_deref().is_some_and(|value| {
+        value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("disabled")
+    }) {
+        return Some(Box::new(NoopApplicationDiscovery::new()));
+    }
+
+    let path = std::env::var("REBECCA_STEAM_DISCOVERY_PATH").ok()?;
+    let path = path.trim();
+    if path.is_empty() {
+        return Some(Box::new(NoopApplicationDiscovery::new()));
+    }
+
+    match SteamInstallation::from_install_path(path) {
+        Ok(installation) => Some(Box::new(
+            StaticApplicationDiscovery::new().with_steam_installation(installation),
+        )),
+        Err(_) => Some(Box::new(NoopApplicationDiscovery::new())),
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
+    None
 }
 
 #[cfg(windows)]

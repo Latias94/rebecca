@@ -3,11 +3,6 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::ProgressBar;
-use rebecca_core::applications::ApplicationDiscovery;
-#[cfg(debug_assertions)]
-use rebecca_core::applications::{
-    NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
-};
 use rebecca_core::config::default_app_paths;
 use rebecca_core::environment::SystemEnvironment;
 use rebecca_core::executor::execute_cleanup_plan;
@@ -145,7 +140,9 @@ fn main() -> Result<()> {
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Permissions => info::print_privilege_level(),
-            DoctorCommand::Steam => info::print_steam_discovery(&*steam_application_discovery()),
+            DoctorCommand::Steam => {
+                info::print_steam_discovery(&*info::steam_application_discovery())
+            }
         },
     }
 }
@@ -202,7 +199,7 @@ fn clean(options: CleanOptions) -> Result<()> {
     let cancellation = ScanCancellationToken::new();
     install_cancellation_handler(cancellation.clone())?;
     let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
-    let applications = steam_application_discovery();
+    let applications = info::steam_application_discovery();
     let plan_result = build_cleanup_plan_with_environment_applications_progress_and_cancellation(
         &request,
         &catalog,
@@ -333,48 +330,4 @@ fn confirm_cleanup(plan: &rebecca_core::plan::CleanupPlan) -> Result<bool> {
         .default(false)
         .interact()
         .context("cleanup confirmation failed")
-}
-
-fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
-    if let Some(applications) = steam_application_discovery_override() {
-        return applications;
-    }
-
-    #[cfg(windows)]
-    {
-        Box::new(rebecca_windows::steam::WindowsApplicationDiscovery::new())
-    }
-
-    #[cfg(not(windows))]
-    {
-        Box::new(rebecca_core::applications::NoopApplicationDiscovery::new())
-    }
-}
-
-#[cfg(debug_assertions)]
-fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
-    let discovery = std::env::var("REBECCA_STEAM_DISCOVERY").ok();
-    if discovery.as_deref().is_some_and(|value| {
-        value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("disabled")
-    }) {
-        return Some(Box::new(NoopApplicationDiscovery::new()));
-    }
-
-    let path = std::env::var("REBECCA_STEAM_DISCOVERY_PATH").ok()?;
-    let path = path.trim();
-    if path.is_empty() {
-        return Some(Box::new(NoopApplicationDiscovery::new()));
-    }
-
-    match SteamInstallation::from_install_path(path) {
-        Ok(installation) => Some(Box::new(
-            StaticApplicationDiscovery::new().with_steam_installation(installation),
-        )),
-        Err(_) => Some(Box::new(NoopApplicationDiscovery::new())),
-    }
-}
-
-#[cfg(not(debug_assertions))]
-fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
-    None
 }
