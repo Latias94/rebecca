@@ -1,0 +1,253 @@
+use std::collections::BTreeSet;
+use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+
+use crate::error::{RebeccaError, Result};
+
+pub trait ApplicationDiscovery {
+    fn steam_installation(&self) -> Result<Option<SteamInstallation>>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoopApplicationDiscovery;
+
+impl NoopApplicationDiscovery {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl ApplicationDiscovery for NoopApplicationDiscovery {
+    fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
+        Ok(None)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StaticApplicationDiscovery {
+    steam_installation: Option<SteamInstallation>,
+}
+
+impl StaticApplicationDiscovery {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_steam_installation(mut self, installation: SteamInstallation) -> Self {
+        self.steam_installation = Some(installation);
+        self
+    }
+}
+
+impl ApplicationDiscovery for StaticApplicationDiscovery {
+    fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
+        Ok(self.steam_installation.clone())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SteamInstallation {
+    install_path: PathBuf,
+    library_paths: Vec<PathBuf>,
+}
+
+impl SteamInstallation {
+    pub fn new(
+        install_path: impl Into<PathBuf>,
+        library_paths: impl IntoIterator<Item = PathBuf>,
+    ) -> Self {
+        let install_path = install_path.into();
+        let paths = library_paths
+            .into_iter()
+            .filter(|path| !same_path(path, &install_path))
+            .collect::<Vec<_>>();
+        Self {
+            install_path,
+            library_paths: dedupe_paths(paths),
+        }
+    }
+
+    pub fn from_install_path(install_path: impl Into<PathBuf>) -> Result<Self> {
+        let install_path = install_path.into();
+        let library_file = install_path.join("steamapps").join("libraryfolders.vdf");
+        let library_paths = match fs::read_to_string(&library_file) {
+            Ok(raw) => parse_steam_libraryfolders(&raw)?,
+            Err(err) if err.kind() == ErrorKind::NotFound => Vec::new(),
+            Err(err) => {
+                return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
+                    "could not read Steam library folders at {}: {err}",
+                    library_file.display()
+                )));
+            }
+        };
+
+        Ok(Self::new(install_path, library_paths))
+    }
+
+    pub fn install_path(&self) -> &Path {
+        &self.install_path
+    }
+
+    pub fn library_paths(&self) -> &[PathBuf] {
+        &self.library_paths
+    }
+}
+
+pub fn parse_steam_libraryfolders(raw: &str) -> Result<Vec<PathBuf>> {
+    let tokens = tokenize_vdf(raw)?;
+    let mut paths = Vec::new();
+    let mut index = 0usize;
+
+    while index + 1 < tokens.len() {
+        if let VdfToken::String(value) = &tokens[index]
+            && value.eq_ignore_ascii_case("libraryfolders")
+            && matches!(tokens.get(index + 1), Some(VdfToken::OpenBrace))
+        {
+            index += 2;
+            parse_steam_libraryfolders_object(&tokens, &mut index, &mut paths)?;
+            return Ok(dedupe_paths(paths));
+        }
+        index += 1;
+    }
+
+    Ok(dedupe_paths(paths))
+}
+
+fn parse_steam_libraryfolders_object(
+    tokens: &[VdfToken],
+    index: &mut usize,
+    paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    while *index < tokens.len() {
+        match tokens.get(*index) {
+            Some(VdfToken::CloseBrace) => {
+                *index += 1;
+                return Ok(());
+            }
+            Some(VdfToken::OpenBrace) => {
+                *index += 1;
+            }
+            Some(VdfToken::String(key)) => {
+                let key = key.clone();
+                *index += 1;
+
+                match tokens.get(*index) {
+                    Some(VdfToken::OpenBrace) => {
+                        *index += 1;
+                        parse_steam_libraryfolders_object(tokens, index, paths)?;
+                    }
+                    Some(VdfToken::String(value)) => {
+                        if key.eq_ignore_ascii_case("path") {
+                            paths.push(PathBuf::from(value));
+                        } else if is_legacy_library_key(&key) && looks_like_path_value(value) {
+                            paths.push(PathBuf::from(value));
+                        }
+                        *index += 1;
+                    }
+                    Some(VdfToken::CloseBrace) => return Ok(()),
+                    None => return Ok(()),
+                }
+            }
+            None => return Ok(()),
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum VdfToken {
+    String(String),
+    OpenBrace,
+    CloseBrace,
+}
+
+fn tokenize_vdf(raw: &str) -> Result<Vec<VdfToken>> {
+    let mut tokens = Vec::new();
+    let mut chars = raw.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => tokens.push(VdfToken::String(read_vdf_string(&mut chars)?)),
+            '{' => tokens.push(VdfToken::OpenBrace),
+            '}' => tokens.push(VdfToken::CloseBrace),
+            '/' if chars.peek() == Some(&'/') => {
+                for comment_ch in chars.by_ref() {
+                    if comment_ch == '\n' {
+                        break;
+                    }
+                }
+            }
+            ch if ch.is_whitespace() => {}
+            _ => {}
+        }
+    }
+
+    Ok(tokens)
+}
+
+fn read_vdf_string<I>(chars: &mut std::iter::Peekable<I>) -> Result<String>
+where
+    I: Iterator<Item = char>,
+{
+    let mut value = String::new();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => return Ok(value),
+            '\\' => {
+                if let Some(escaped) = chars.next() {
+                    match escaped {
+                        '\\' | '"' => value.push(escaped),
+                        'n' => value.push('\n'),
+                        't' => value.push('\t'),
+                        other => {
+                            value.push('\\');
+                            value.push(other);
+                        }
+                    }
+                } else {
+                    value.push('\\');
+                }
+            }
+            other => value.push(other),
+        }
+    }
+
+    Err(RebeccaError::ApplicationDiscoveryFailed(
+        "unterminated string in Steam libraryfolders.vdf".to_string(),
+    ))
+}
+
+fn is_legacy_library_key(value: &str) -> bool {
+    !value.is_empty() && value.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn looks_like_path_value(value: &str) -> bool {
+    value.contains(':') || value.contains('\\') || value.contains('/')
+}
+
+fn dedupe_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut seen = BTreeSet::new();
+    let mut deduped = Vec::new();
+
+    for path in paths {
+        if seen.insert(path_key(&path)) {
+            deduped.push(path);
+        }
+    }
+
+    deduped
+}
+
+fn path_key(path: &Path) -> String {
+    path.as_os_str()
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    path_key(left) == path_key(right)
+}

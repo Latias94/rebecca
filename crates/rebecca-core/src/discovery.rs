@@ -1,8 +1,10 @@
+use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use globset::{GlobBuilder, GlobMatcher};
 
+use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery, SteamInstallation};
 use crate::environment::Environment;
 use crate::error::{RebeccaError, Result};
 use crate::model::RuleTargetSpec;
@@ -18,6 +20,17 @@ pub fn resolve_rule_target(
     target: &RuleTargetSpec,
     env: &impl Environment,
 ) -> Result<TargetResolution> {
+    resolve_rule_target_with_applications(target, env, &NoopApplicationDiscovery::new())
+}
+
+pub fn resolve_rule_target_with_applications<A>(
+    target: &RuleTargetSpec,
+    env: &impl Environment,
+    applications: &A,
+) -> Result<TargetResolution>
+where
+    A: ApplicationDiscovery + ?Sized,
+{
     match target {
         RuleTargetSpec::Template(template) => match expand_template(template, env)? {
             Some(path) => Ok(TargetResolution::Paths(vec![path])),
@@ -46,7 +59,130 @@ pub fn resolve_rule_target(
                 Ok(TargetResolution::Paths(paths))
             }
         }
+        RuleTargetSpec::SteamInstallTemplate(template) => {
+            let Some(steam) = applications.steam_installation()? else {
+                return Ok(TargetResolution::Skipped(
+                    "Steam installation was not discovered".to_string(),
+                ));
+            };
+
+            match append_steam_relative_target(steam.install_path(), template, env)? {
+                Some(path) => Ok(TargetResolution::Paths(vec![path])),
+                None => Ok(TargetResolution::Skipped(
+                    "Steam install template could not be resolved in the current environment"
+                        .to_string(),
+                )),
+            }
+        }
+        RuleTargetSpec::SteamLibraryTemplate(template) => {
+            let Some(steam) = applications.steam_installation()? else {
+                return Ok(TargetResolution::Skipped(
+                    "Steam installation was not discovered".to_string(),
+                ));
+            };
+
+            resolve_steam_library_template(&steam, template, env)
+        }
     }
+}
+
+fn resolve_steam_library_template(
+    steam: &SteamInstallation,
+    template: &crate::PathTemplate,
+    env: &impl Environment,
+) -> Result<TargetResolution> {
+    let mut paths = Vec::new();
+    let mut roots = Vec::with_capacity(1 + steam.library_paths().len());
+    roots.push(steam.install_path().to_path_buf());
+    roots.extend(steam.library_paths().iter().cloned());
+
+    for library_path in dedupe_steam_roots(roots) {
+        if let Some(path) = append_steam_relative_target(&library_path, template, env)? {
+            paths.push(path);
+        } else {
+            return Ok(TargetResolution::Skipped(
+                "Steam library template could not be resolved in the current environment"
+                    .to_string(),
+            ));
+        }
+    }
+
+    paths.sort();
+    paths.dedup();
+
+    if paths.is_empty() {
+        Ok(TargetResolution::Skipped(
+            "Steam installation has no discovered library paths".to_string(),
+        ))
+    } else {
+        Ok(TargetResolution::Paths(paths))
+    }
+}
+
+fn dedupe_steam_roots(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = BTreeSet::new();
+    let mut deduped = Vec::new();
+
+    for path in paths {
+        if seen.insert(steam_root_key(&path)) {
+            deduped.push(path);
+        }
+    }
+
+    deduped
+}
+
+fn append_steam_relative_target(
+    root: &Path,
+    template: &crate::PathTemplate,
+    env: &impl Environment,
+) -> Result<Option<PathBuf>> {
+    let Some(relative) = expand_template(template, env)? else {
+        return Ok(None);
+    };
+
+    ensure_safe_relative_steam_target(&relative)?;
+    Ok(Some(root.join(relative)))
+}
+
+fn ensure_safe_relative_steam_target(path: &Path) -> Result<()> {
+    if path.as_os_str().is_empty() || looks_absolute(path) {
+        return Err(unsafe_steam_relative_path_error(path));
+    }
+
+    for component in path.components() {
+        if matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        ) {
+            return Err(unsafe_steam_relative_path_error(path));
+        }
+    }
+
+    Ok(())
+}
+
+fn looks_absolute(path: &Path) -> bool {
+    if path.is_absolute() {
+        return true;
+    }
+
+    let raw = path.as_os_str().to_string_lossy().replace('\\', "/");
+    raw.starts_with('/') || raw.starts_with("//") || raw.as_bytes().get(1) == Some(&b':')
+}
+
+fn steam_root_key(path: &Path) -> String {
+    path.as_os_str()
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn unsafe_steam_relative_path_error(path: &Path) -> RebeccaError {
+    RebeccaError::PathExpansionFailed(format!(
+        "Steam target {} must be a safe relative path",
+        path.display()
+    ))
 }
 
 fn discover_glob_paths(pattern: &Path) -> Result<Vec<PathBuf>> {

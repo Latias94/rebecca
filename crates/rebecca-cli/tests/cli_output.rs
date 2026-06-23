@@ -37,6 +37,19 @@ fn doctor_permissions_prints_permission_label() {
     assert!(stdout.contains("Privilege level:"));
 }
 
+#[test]
+fn doctor_steam_prints_discovery_status() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = isolated_rebecca(&temp)
+        .args(["doctor", "steam"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Steam install:"));
+}
+
 fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
     let roaming = temp.path().join("roaming");
     let local = temp.path().join("local");

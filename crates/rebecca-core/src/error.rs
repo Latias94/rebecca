@@ -156,6 +156,9 @@ pub enum RebeccaError {
     #[error("path template expansion failed: {0}")]
     PathExpansionFailed(String),
 
+    #[error("application discovery failed: {0}")]
+    ApplicationDiscoveryFailed(String),
+
     #[error("cleanup target was blocked by safety policy: {0}")]
     SafetyBlocked(String),
 

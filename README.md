@@ -46,6 +46,7 @@ cargo run -p rebecca-cli -- history --json
 
 cargo run -p rebecca-cli -- config paths
 cargo run -p rebecca-cli -- doctor permissions
+cargo run -p rebecca-cli -- doctor steam
 ```
 
 ## Built-In Rules
@@ -76,6 +77,10 @@ before it reaches the CLI. Reference projects under `repo-ref/` are research
 inputs; their GPL code and cleaner definitions are not copied into Rebecca.
 Chromium-family browser cache rules cover `Default` and bounded `Profile *`
 directories when they exist.
+Steam support currently discovers the install root from the Windows registry
+and library roots from `steamapps\libraryfolders.vdf`, which lets future Steam
+rules target install-root-relative or library-root-relative paths without
+guessing the machine layout.
 
 ## Local State
 

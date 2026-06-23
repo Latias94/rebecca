@@ -62,6 +62,8 @@ pub enum RuleTargetSpec {
     Template(PathTemplate),
     ExactPath(PathBuf),
     GlobTemplate(PathTemplate),
+    SteamInstallTemplate(PathTemplate),
+    SteamLibraryTemplate(PathTemplate),
 }
 
 impl RuleTargetSpec {
@@ -71,6 +73,14 @@ impl RuleTargetSpec {
 
     pub fn glob_template(template: impl Into<String>) -> Self {
         Self::GlobTemplate(PathTemplate::new(template))
+    }
+
+    pub fn steam_install_template(template: impl Into<String>) -> Self {
+        Self::SteamInstallTemplate(PathTemplate::new(template))
+    }
+
+    pub fn steam_library_template(template: impl Into<String>) -> Self {
+        Self::SteamLibraryTemplate(PathTemplate::new(template))
     }
 }
 

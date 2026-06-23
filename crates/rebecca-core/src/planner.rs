@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::discovery::{TargetResolution, resolve_rule_target};
+use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery};
+use crate::discovery::{TargetResolution, resolve_rule_target_with_applications};
 use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
 use crate::model::{PlanRequest, Platform, RuleDefinition, RuleTargetSpec, SafetyLevel};
@@ -84,10 +85,53 @@ pub fn build_cleanup_plan_with_environment_and_progress_and_cancellation<E, F>(
     rules: &[RuleDefinition],
     env: &E,
     cancellation: &ScanCancellationToken,
+    progress: F,
+) -> Result<CleanupPlan>
+where
+    E: Environment,
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
+    build_cleanup_plan_with_environment_applications_progress_and_cancellation(
+        request,
+        rules,
+        env,
+        &NoopApplicationDiscovery::new(),
+        cancellation,
+        progress,
+    )
+}
+
+pub fn build_cleanup_plan_with_environment_and_applications<E, A>(
+    request: &PlanRequest,
+    rules: &[RuleDefinition],
+    env: &E,
+    applications: &A,
+) -> Result<CleanupPlan>
+where
+    E: Environment,
+    A: ApplicationDiscovery + ?Sized,
+{
+    build_cleanup_plan_with_environment_applications_progress_and_cancellation(
+        request,
+        rules,
+        env,
+        applications,
+        &ScanCancellationToken::new(),
+        |_| {},
+    )
+}
+
+pub fn build_cleanup_plan_with_environment_applications_progress_and_cancellation<E, A, F>(
+    request: &PlanRequest,
+    rules: &[RuleDefinition],
+    env: &E,
+    applications: &A,
+    cancellation: &ScanCancellationToken,
     mut progress: F,
 ) -> Result<CleanupPlan>
 where
     E: Environment,
+    A: ApplicationDiscovery + ?Sized,
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
     validate_selected_rule_ids(request, rules)?;
@@ -121,27 +165,28 @@ where
         }
 
         for spec in &rule.path_templates {
-            let expanded_paths = match resolve_rule_target(spec, env) {
-                Ok(TargetResolution::Paths(paths)) => paths,
-                Ok(TargetResolution::Skipped(reason)) => {
-                    candidates.push(CleanupTarget::skipped(
-                        rule.id.clone(),
-                        spec_placeholder(spec),
-                        request.mode,
-                        reason,
-                    ));
-                    continue;
-                }
-                Err(err) => {
-                    candidates.push(CleanupTarget::blocked(
-                        rule.id.clone(),
-                        spec_placeholder(spec),
-                        request.mode,
-                        err.to_string(),
-                    ));
-                    continue;
-                }
-            };
+            let expanded_paths =
+                match resolve_rule_target_with_applications(spec, env, applications) {
+                    Ok(TargetResolution::Paths(paths)) => paths,
+                    Ok(TargetResolution::Skipped(reason)) => {
+                        candidates.push(CleanupTarget::skipped(
+                            rule.id.clone(),
+                            spec_placeholder(spec),
+                            request.mode,
+                            reason,
+                        ));
+                        continue;
+                    }
+                    Err(err) => {
+                        candidates.push(CleanupTarget::blocked(
+                            rule.id.clone(),
+                            spec_placeholder(spec),
+                            request.mode,
+                            err.to_string(),
+                        ));
+                        continue;
+                    }
+                };
 
             for expanded in expanded_paths {
                 let path_key = dedupe_key(&expanded, request.platform);
@@ -297,6 +342,8 @@ fn spec_placeholder(spec: &RuleTargetSpec) -> PathBuf {
         RuleTargetSpec::Template(template) => PathBuf::from(template.raw()),
         RuleTargetSpec::ExactPath(path) => path.clone(),
         RuleTargetSpec::GlobTemplate(template) => PathBuf::from(template.raw()),
+        RuleTargetSpec::SteamInstallTemplate(template) => PathBuf::from(template.raw()),
+        RuleTargetSpec::SteamLibraryTemplate(template) => PathBuf::from(template.raw()),
     }
 }
 
@@ -358,6 +405,12 @@ fn target_spec_key(platform: Platform, spec: &RuleTargetSpec) -> String {
         RuleTargetSpec::Template(template) => format!("template:{}", template.raw()),
         RuleTargetSpec::ExactPath(path) => format!("exact-path:{}", path.display()),
         RuleTargetSpec::GlobTemplate(template) => format!("glob-template:{}", template.raw()),
+        RuleTargetSpec::SteamInstallTemplate(template) => {
+            format!("steam-install-template:{}", template.raw())
+        }
+        RuleTargetSpec::SteamLibraryTemplate(template) => {
+            format!("steam-library-template:{}", template.raw())
+        }
     }
     .replace('\\', "/");
 

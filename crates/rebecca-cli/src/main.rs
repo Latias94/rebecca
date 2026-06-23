@@ -4,13 +4,14 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::ProgressBar;
+use rebecca_core::applications::ApplicationDiscovery;
 use rebecca_core::config::default_app_paths;
 use rebecca_core::environment::SystemEnvironment;
 use rebecca_core::executor::execute_cleanup_plan;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::{CleanupPlan, CleanupTarget};
 use rebecca_core::planner::{
-    PlanProgressEvent, build_cleanup_plan_with_environment_and_progress_and_cancellation,
+    PlanProgressEvent, build_cleanup_plan_with_environment_applications_progress_and_cancellation,
 };
 use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::{
@@ -99,6 +100,8 @@ enum ConfigCommand {
 enum DoctorCommand {
     /// Print the current Windows privilege level when available.
     Permissions,
+    /// Print the Steam installation and library discovery results when available.
+    Steam,
 }
 
 fn main() -> Result<()> {
@@ -140,6 +143,7 @@ fn main() -> Result<()> {
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Permissions => doctor_permissions(),
+            DoctorCommand::Steam => doctor_steam(),
         },
     }
 }
@@ -224,10 +228,12 @@ fn clean(options: CleanOptions) -> Result<()> {
     let cancellation = ScanCancellationToken::new();
     install_cancellation_handler(cancellation.clone())?;
     let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
-    let plan_result = build_cleanup_plan_with_environment_and_progress_and_cancellation(
+    let applications = steam_application_discovery();
+    let plan_result = build_cleanup_plan_with_environment_applications_progress_and_cancellation(
         &request,
         &catalog,
         &SystemEnvironment,
+        applications.as_ref(),
         &cancellation,
         |event| progress.on_event(event),
     );
@@ -529,6 +535,40 @@ fn config_paths(json: bool) -> Result<()> {
 fn doctor_permissions() -> Result<()> {
     println!("Privilege level: {}", current_privilege_label());
     Ok(())
+}
+
+fn doctor_steam() -> Result<()> {
+    let discovery = steam_application_discovery();
+    match discovery.steam_installation()? {
+        Some(installation) => {
+            println!("Steam install: {}", installation.install_path().display());
+            if installation.library_paths().is_empty() {
+                println!("Steam libraries: none discovered");
+            } else {
+                println!("Steam libraries:");
+                for path in installation.library_paths() {
+                    println!("- {}", path.display());
+                }
+            }
+        }
+        None => {
+            println!("Steam install: not discovered");
+        }
+    }
+
+    Ok(())
+}
+
+fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
+    #[cfg(windows)]
+    {
+        Box::new(rebecca_windows::steam::WindowsApplicationDiscovery::new())
+    }
+
+    #[cfg(not(windows))]
+    {
+        Box::new(rebecca_core::applications::NoopApplicationDiscovery::new())
+    }
 }
 
 #[cfg(windows)]

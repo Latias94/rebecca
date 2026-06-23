@@ -3,6 +3,7 @@
 use std::fs;
 
 use rebecca_core::DeleteMode;
+use rebecca_core::applications::ApplicationDiscovery;
 use rebecca_core::executor::CleanupBackend;
 use rebecca_core::plan::CleanupTarget;
 use rebecca_windows::{PrivilegeLevel, WindowsRecycleBinBackend};
@@ -52,4 +53,10 @@ fn recycle_bin_backend_preserves_target_directory() {
     assert_eq!(outcome.pending_reclaim_bytes, 5);
     assert!(cache.exists());
     assert!(!child.exists());
+}
+
+#[test]
+fn steam_discovery_returns_a_known_shape() {
+    let discovery = rebecca_windows::steam::WindowsApplicationDiscovery::new();
+    assert!(discovery.steam_installation().is_ok());
 }

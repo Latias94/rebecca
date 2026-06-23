@@ -170,6 +170,8 @@ enum CatalogTarget {
     Template { value: String },
     ExactPath { value: PathBuf },
     GlobTemplate { value: String },
+    SteamInstallTemplate { value: String },
+    SteamLibraryTemplate { value: String },
 }
 
 impl CatalogTarget {
@@ -178,6 +180,8 @@ impl CatalogTarget {
             Self::Template { value } => RuleTargetSpec::template(value),
             Self::ExactPath { value } => RuleTargetSpec::ExactPath(value),
             Self::GlobTemplate { value } => RuleTargetSpec::glob_template(value),
+            Self::SteamInstallTemplate { value } => RuleTargetSpec::steam_install_template(value),
+            Self::SteamLibraryTemplate { value } => RuleTargetSpec::steam_library_template(value),
         }
     }
 }
@@ -331,6 +335,44 @@ notes = "test"
         assert!(matches!(
             rule.path_templates[0],
             rebecca_core::RuleTargetSpec::GlobTemplate(_)
+        ));
+    }
+
+    #[test]
+    fn catalog_parser_supports_steam_discovery_targets() {
+        let rule = parse_rule_file(
+            "test.toml",
+            r#"
+id = "windows.steam-test"
+platform = "windows"
+category = "application"
+name = "Steam test"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+
+[[targets]]
+kind = "steam-install-template"
+value = "appcache\\httpcache"
+
+[[targets]]
+kind = "steam-library-template"
+value = "steamapps\\shadercache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "test"
+"#,
+        )
+        .expect("Steam discovery targets should parse");
+
+        assert!(matches!(
+            rule.path_templates[0],
+            rebecca_core::RuleTargetSpec::SteamInstallTemplate(_)
+        ));
+        assert!(matches!(
+            rule.path_templates[1],
+            rebecca_core::RuleTargetSpec::SteamLibraryTemplate(_)
         ));
     }
 }

@@ -1,14 +1,19 @@
 use std::fs;
 use std::path::Path;
 
+use rebecca_core::applications::{StaticApplicationDiscovery, SteamInstallation};
 use rebecca_core::environment::MapEnvironment;
 use rebecca_core::planner::{
     PlanProgressEvent, build_cleanup_plan_with_environment,
+    build_cleanup_plan_with_environment_and_applications,
     build_cleanup_plan_with_environment_and_progress,
     build_cleanup_plan_with_environment_and_progress_and_cancellation,
 };
 use rebecca_core::scan::ScanCancellationToken;
-use rebecca_core::{DeleteMode, PlanRequest, Platform, RebeccaError, TargetStatus};
+use rebecca_core::{
+    DeleteMode, DeletePolicy, PlanRequest, Platform, RebeccaError, RuleDefinition, RuleProvenance,
+    RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
+};
 
 #[test]
 fn category_filter_includes_only_matching_rules() {
@@ -364,6 +369,62 @@ fn steam_rule_targets_only_client_browser_cache_directories() {
             && !path.contains("userdata")
             && !path.contains("steamapps")
     }));
+}
+
+#[test]
+fn planner_expands_steam_library_targets_from_application_discovery() {
+    let fixture = PlannerFixture::new();
+    let install_path = fixture.root.join("steam-install");
+    let library_path = fixture.root.join("steam-library");
+    fixture.write("steam-install/steamapps/shadercache/100/cache.bin", b"ab");
+    fixture.write("steam-library/steamapps/shadercache/200/cache.bin", b"cde");
+    fixture.write("steam-library/steamapps/common/Game/game.exe", b"keep");
+    let applications = StaticApplicationDiscovery::new().with_steam_installation(
+        SteamInstallation::new(install_path.clone(), vec![library_path.clone()]),
+    );
+    let rules = vec![RuleDefinition {
+        id: "windows.steam-shader-cache".to_string(),
+        platform: Platform::Windows,
+        category: "application".to_string(),
+        name: "Steam shader cache".to_string(),
+        safety_level: SafetyLevel::Safe,
+        path_templates: vec![RuleTargetSpec::steam_library_template(
+            "steamapps\\shadercache",
+        )],
+        delete_policy: DeletePolicy::RecycleBin,
+        restore_hint: Some("Shader caches will be rebuilt.".to_string()),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
+        },
+    }];
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.steam-shader-cache".to_string()];
+
+    let plan = build_cleanup_plan_with_environment_and_applications(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert!(plan.targets.iter().any(|target| {
+        target.path.ends_with(
+            Path::new("steam-library")
+                .join("steamapps")
+                .join("shadercache"),
+        )
+    }));
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| !target.path.to_string_lossy().contains("common"))
+    );
 }
 
 #[test]
