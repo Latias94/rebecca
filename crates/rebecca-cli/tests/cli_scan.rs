@@ -9,6 +9,11 @@ fn scan_json_lists_builtin_rules() {
     let rules = value.as_array().expect("scan output should be an array");
 
     assert!(rules.iter().any(|rule| rule["id"] == "windows.user-temp"));
+    assert!(
+        rules
+            .iter()
+            .any(|rule| rule["id"] == "windows.chrome-cache")
+    );
 }
 
 fn rebecca() -> Command {

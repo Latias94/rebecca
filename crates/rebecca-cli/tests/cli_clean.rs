@@ -37,7 +37,13 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
         .env("TEMP", &temp_cache)
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", temp.path().join("roaming"))
-        .args(["clean", "--dry-run", "--json", "--category", "system"])
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.user-temp",
+        ])
         .output()
         .unwrap();
 

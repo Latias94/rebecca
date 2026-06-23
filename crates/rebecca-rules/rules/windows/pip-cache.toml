@@ -1,0 +1,16 @@
+id = "windows.pip-cache"
+platform = "windows"
+category = "development"
+name = "pip cache"
+safety_level = "moderate"
+delete_policy = "recycle-bin"
+restore_hint = "Python packages may need to be downloaded again."
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\pip\\Cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

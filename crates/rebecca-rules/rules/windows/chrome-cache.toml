@@ -1,0 +1,24 @@
+id = "windows.chrome-cache"
+platform = "windows"
+category = "browser"
+name = "Google Chrome cache"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+restore_hint = "Browser cache that can be regenerated."
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

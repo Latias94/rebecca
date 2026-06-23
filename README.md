@@ -47,7 +47,14 @@ The starter catalog intentionally stays small and lives in
 
 - `windows.user-temp`
 - `windows.edge-cache`
+- `windows.chrome-cache`
+- `windows.directx-shader-cache`
+- `windows.pip-cache`
 - `windows.npm-cache`
+- `windows.vscode-cache`
+- `windows.wer-reports`
+
+Rule authoring notes live in [`docs/rule-authoring.md`](docs/rule-authoring.md).
 
 Rule metadata includes platform, category, safety level, delete policy, restore
 hint, and provenance. The catalog is embedded from TOML files and validated

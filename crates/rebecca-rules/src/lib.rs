@@ -22,10 +22,45 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "rules/windows/chrome-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/chrome-cache.toml"
+        )),
+    ),
+    (
+        "rules/windows/directx-shader-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/directx-shader-cache.toml"
+        )),
+    ),
+    (
         "rules/windows/npm-cache.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/rules/windows/npm-cache.toml"
+        )),
+    ),
+    (
+        "rules/windows/pip-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/pip-cache.toml"
+        )),
+    ),
+    (
+        "rules/windows/vscode-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/vscode-cache.toml"
+        )),
+    ),
+    (
+        "rules/windows/wer-reports.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/wer-reports.toml"
         )),
     ),
 ];
@@ -139,6 +174,25 @@ mod tests {
         assert_eq!(user_temp.category, "system");
         assert_eq!(user_temp.path_templates.len(), 2);
         assert_eq!(user_temp.provenance.source, RuleSource::Owned);
+    }
+
+    #[test]
+    fn builtin_rules_include_first_expansion_batch() {
+        let rules = builtin_rules().expect("built-in rules should load");
+        let ids = rules
+            .iter()
+            .map(|rule| rule.id.as_str())
+            .collect::<HashSet<_>>();
+
+        for expected in [
+            "windows.chrome-cache",
+            "windows.directx-shader-cache",
+            "windows.pip-cache",
+            "windows.vscode-cache",
+            "windows.wer-reports",
+        ] {
+            assert!(ids.contains(expected), "missing built-in rule: {expected}");
+        }
     }
 
     #[test]

@@ -24,9 +24,20 @@ fn category_filter_includes_only_matching_rules() {
     assert!(
         plan.targets
             .iter()
-            .all(|target| target.rule_id == "windows.user-temp")
+            .any(|target| target.rule_id == "windows.user-temp")
     );
-    assert_eq!(plan.summary.allowed_targets, 2);
+    assert!(plan.targets.iter().all(|target| {
+        matches!(
+            target.rule_id.as_str(),
+            "windows.user-temp" | "windows.directx-shader-cache" | "windows.wer-reports"
+        )
+    }));
+    assert!(
+        !plan
+            .targets
+            .iter()
+            .any(|target| target.rule_id == "windows.edge-cache")
+    );
 }
 
 #[test]
@@ -36,7 +47,7 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_categories = vec!["system".to_string()];
+    request.selected_rule_ids = vec!["windows.user-temp".to_string()];
 
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
