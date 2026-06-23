@@ -11,6 +11,15 @@ use winreg::{HKEY, RegKey};
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WindowsApplicationDiscovery;
 
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+struct SteamRegistrySource {
+    root: HKEY,
+    key_path: &'static str,
+    value_name: &'static str,
+    parser: fn(&str) -> Option<PathBuf>,
+}
+
 impl WindowsApplicationDiscovery {
     pub fn new() -> Self {
         Self
@@ -33,35 +42,58 @@ impl ApplicationDiscovery for WindowsApplicationDiscovery {
 
 #[cfg(windows)]
 fn discover_steam_installation() -> Result<Option<SteamInstallation>> {
-    match registry_install_path(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath")? {
-        Some(path) => Ok(Some(steam_installation_from_path(path))),
-        None => match registry_executable_install_path(
-            HKEY_CURRENT_USER,
-            "Software\\Valve\\Steam",
-            "SteamExe",
-        )? {
-            Some(path) => Ok(Some(steam_installation_from_path(path))),
-            None => discover_steam_installation_from_legacy_registry(),
-        },
-    }
-}
-
-#[cfg(windows)]
-fn discover_steam_installation_from_legacy_registry() -> Result<Option<SteamInstallation>> {
-    for key_path in [
-        "SOFTWARE\\Valve\\Steam",
-        "SOFTWARE\\WOW6432Node\\Valve\\Steam",
-    ] {
-        match registry_install_path(HKEY_LOCAL_MACHINE, key_path, "InstallPath")? {
-            Some(path) => return Ok(Some(steam_installation_from_path(path))),
-            None => {}
+    for source in steam_registry_sources() {
+        if let Some(path) = resolve_steam_registry_source(source)? {
+            return Ok(Some(steam_installation_from_path(path)));
         }
     }
 
-    match registry_command_install_path(HKEY_CLASSES_ROOT, "steam\\Shell\\Open\\Command")? {
-        Some(path) => Ok(Some(steam_installation_from_path(path))),
-        None => Ok(None),
-    }
+    Ok(None)
+}
+
+#[cfg(windows)]
+fn steam_registry_sources() -> [SteamRegistrySource; 5] {
+    [
+        SteamRegistrySource {
+            root: HKEY_CURRENT_USER,
+            key_path: "Software\\Valve\\Steam",
+            value_name: "SteamPath",
+            parser: install_path_from_value,
+        },
+        SteamRegistrySource {
+            root: HKEY_CURRENT_USER,
+            key_path: "Software\\Valve\\Steam",
+            value_name: "SteamExe",
+            parser: install_root_from_executable_path,
+        },
+        SteamRegistrySource {
+            root: HKEY_LOCAL_MACHINE,
+            key_path: "SOFTWARE\\Valve\\Steam",
+            value_name: "InstallPath",
+            parser: install_path_from_value,
+        },
+        SteamRegistrySource {
+            root: HKEY_LOCAL_MACHINE,
+            key_path: "SOFTWARE\\WOW6432Node\\Valve\\Steam",
+            value_name: "InstallPath",
+            parser: install_path_from_value,
+        },
+        SteamRegistrySource {
+            root: HKEY_CLASSES_ROOT,
+            key_path: "steam\\Shell\\Open\\Command",
+            value_name: "",
+            parser: command_install_path_from_command,
+        },
+    ]
+}
+
+#[cfg(windows)]
+fn resolve_steam_registry_source(source: SteamRegistrySource) -> Result<Option<PathBuf>> {
+    Ok(
+        registry_string_value(source.root, source.key_path, source.value_name)?
+            .as_deref()
+            .and_then(source.parser),
+    )
 }
 
 #[cfg(windows)]
@@ -91,34 +123,13 @@ fn registry_string_value(root: HKEY, key_path: &str, value_name: &str) -> Result
 }
 
 #[cfg(windows)]
-fn registry_install_path(root: HKEY, key_path: &str, value_name: &str) -> Result<Option<PathBuf>> {
-    Ok(registry_string_value(root, key_path, value_name)?.map(PathBuf::from))
-}
-
-#[cfg(windows)]
-fn registry_executable_install_path(
-    root: HKEY,
-    key_path: &str,
-    value_name: &str,
-) -> Result<Option<PathBuf>> {
-    Ok(registry_string_value(root, key_path, value_name)?
-        .as_deref()
-        .and_then(install_root_from_executable_path))
-}
-
-#[cfg(windows)]
-fn registry_command_install_path(root: HKEY, key_path: &str) -> Result<Option<PathBuf>> {
-    let command = match registry_string_value(root, key_path, "")? {
-        Some(command) => command,
-        None => return Ok(None),
-    };
-
-    Ok(command_install_path_from_command(&command))
-}
-
-#[cfg(windows)]
 fn install_root_from_executable_path(executable: &str) -> Option<PathBuf> {
     PathBuf::from(executable).parent().map(PathBuf::from)
+}
+
+#[cfg(windows)]
+fn install_path_from_value(value: &str) -> Option<PathBuf> {
+    Some(PathBuf::from(value))
 }
 
 #[cfg(windows)]
@@ -174,7 +185,7 @@ mod tests {
 
     use super::{
         command_install_path_from_command, extract_command_executable,
-        install_root_from_executable_path, steam_installation_from_path,
+        install_root_from_executable_path, steam_installation_from_path, steam_registry_sources,
     };
 
     #[test]
@@ -260,6 +271,27 @@ mod tests {
         assert_eq!(
             install_path,
             Some(std::path::PathBuf::from(r"C:\Program Files (x86)\Steam"))
+        );
+    }
+
+    #[test]
+    fn steam_registry_sources_prefer_specific_values_before_legacy_fallbacks() {
+        let sources = steam_registry_sources();
+
+        let descriptors = sources
+            .iter()
+            .map(|source| (source.key_path, source.value_name))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            descriptors,
+            vec![
+                ("Software\\Valve\\Steam", "SteamPath"),
+                ("Software\\Valve\\Steam", "SteamExe"),
+                ("SOFTWARE\\Valve\\Steam", "InstallPath"),
+                ("SOFTWARE\\WOW6432Node\\Valve\\Steam", "InstallPath"),
+                ("steam\\Shell\\Open\\Command", ""),
+            ]
         );
     }
 
