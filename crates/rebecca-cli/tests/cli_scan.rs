@@ -41,6 +41,11 @@ fn scan_json_lists_builtin_rules() {
             .iter()
             .any(|rule| rule["id"] == "windows.steam-library-shader-cache")
     );
+    assert!(
+        rules
+            .iter()
+            .any(|rule| rule["id"] == "windows.steam-library-downloading-cache")
+    );
 }
 
 #[test]
