@@ -39,6 +39,7 @@ cargo run -p rebecca-cli -- scan --rule windows.thumbnail-cache
 cargo run -p rebecca-cli -- clean --dry-run
 cargo run -p rebecca-cli -- clean --dry-run --json --category system
 cargo run -p rebecca-cli -- clean --dry-run --no-progress --rule windows.edge-cache
+cargo run -p rebecca-cli -- clean --dry-run --json --allow-moderate --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --yes --category system
 
 cargo run -p rebecca-cli -- history

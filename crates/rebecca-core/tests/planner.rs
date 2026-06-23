@@ -813,21 +813,7 @@ fn moderate_rule_is_allowed_with_opt_in() {
 fn risky_rule_is_skipped_without_opt_in() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/risky.tmp", b"risk");
-    let rules = vec![RuleDefinition {
-        id: "windows.custom-risky".to_string(),
-        platform: Platform::Windows,
-        category: "system".to_string(),
-        name: "Custom risky rule".to_string(),
-        safety_level: SafetyLevel::Risky,
-        path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-        delete_policy: DeletePolicy::RecycleBin,
-        restore_hint: Some("The target can be rebuilt.".to_string()),
-        provenance: RuleProvenance {
-            source: RuleSource::Owned,
-            license: "project-owned".to_string(),
-            notes: "test rule".to_string(),
-        },
-    }];
+    let rules = vec![custom_risky_rule()];
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_rule_ids = vec!["windows.custom-risky".to_string()];
@@ -842,21 +828,7 @@ fn risky_rule_is_skipped_without_opt_in() {
 fn risky_rule_is_allowed_with_opt_in() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/risky.tmp", b"risk");
-    let rules = vec![RuleDefinition {
-        id: "windows.custom-risky".to_string(),
-        platform: Platform::Windows,
-        category: "system".to_string(),
-        name: "Custom risky rule".to_string(),
-        safety_level: SafetyLevel::Risky,
-        path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-        delete_policy: DeletePolicy::RecycleBin,
-        restore_hint: Some("The target can be rebuilt.".to_string()),
-        provenance: RuleProvenance {
-            source: RuleSource::Owned,
-            license: "project-owned".to_string(),
-            notes: "test rule".to_string(),
-        },
-    }];
+    let rules = vec![custom_risky_rule()];
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_rule_ids = vec!["windows.custom-risky".to_string()];
@@ -910,6 +882,24 @@ fn dry_run_and_recycle_bin_share_target_set() {
             .iter()
             .all(|target| target.mode == DeleteMode::RecycleBin)
     );
+}
+
+fn custom_risky_rule() -> RuleDefinition {
+    RuleDefinition {
+        id: "windows.custom-risky".to_string(),
+        platform: Platform::Windows,
+        category: "system".to_string(),
+        name: "Custom risky rule".to_string(),
+        safety_level: SafetyLevel::Risky,
+        path_templates: vec![RuleTargetSpec::template("%TEMP%")],
+        delete_policy: DeletePolicy::RecycleBin,
+        restore_hint: Some("The target can be rebuilt.".to_string()),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
+        },
+    }
 }
 
 struct PlannerFixture {
