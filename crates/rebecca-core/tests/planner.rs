@@ -433,6 +433,78 @@ fn steam_install_download_rule_expands_from_application_discovery() {
 }
 
 #[test]
+fn steam_install_library_rule_expands_from_application_discovery() {
+    let fixture = PlannerFixture::new();
+    let install_path = fixture.root.join("steam-install");
+    fixture.write("steam-install/appcache/librarycache/cache.bin", b"ab");
+    let applications = StaticApplicationDiscovery::new().with_steam_installation(
+        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.steam-install-library-cache".to_string()];
+
+    let plan = build_cleanup_plan_with_environment_and_applications(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 2);
+    assert_eq!(
+        plan.targets[0].path,
+        install_path.join("appcache").join("librarycache")
+    );
+}
+
+#[test]
+fn steam_rules_skip_without_application_discovery() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/a.tmp", b"abc");
+    fixture.write("local/Temp/b.tmp", b"de");
+    fixture.write("local/Microsoft/Windows/Explorer/thumbcache_96.db", b"thumb");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.user-temp".to_string(),
+        "windows.steam-install-library-cache".to_string(),
+    ];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.rule_id == "windows.user-temp")
+    );
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.rule_id == "windows.steam-install-library-cache")
+    );
+    assert!(plan.targets.iter().any(|target| {
+        target.rule_id == "windows.steam-install-library-cache"
+            && target
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("Steam installation was not discovered"))
+    }));
+    assert!(plan
+        .targets
+        .iter()
+        .any(|target| target.status == TargetStatus::Skipped));
+}
+
+#[test]
 fn steam_library_rule_expands_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");

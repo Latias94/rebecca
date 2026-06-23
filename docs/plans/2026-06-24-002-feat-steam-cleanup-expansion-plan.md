@@ -102,8 +102,8 @@ This change widens the set of destructive targets the product can surface, so th
 ### U1. Add Conservative Steam Cleanup Rules
 
 - **Goal:** Add new Steam install-root and library-root rules to the TOML catalog.
-- **Files:** `crates/rebecca-rules/rules/windows/steam-install-cache.toml`, `crates/rebecca-rules/rules/windows/steam-library-cache.toml`, `crates/rebecca-rules/src/lib.rs`
-- **Approach:** Introduce one install-root rule for disposable client cache and one library-root rule for safe cache directories such as shader cache. Keep the rules owned, provenance-backed, and recycle-bin based.
+- **Files:** `crates/rebecca-rules/rules/windows/steam-install-cache.toml`, `crates/rebecca-rules/rules/windows/steam-install-download-cache.toml`, `crates/rebecca-rules/rules/windows/steam-install-library-cache.toml`, `crates/rebecca-rules/rules/windows/steam-library-shader-cache.toml`, `crates/rebecca-rules/rules/windows/steam-library-downloading-cache.toml`, `crates/rebecca-rules/rules/windows/steam-library-temp-cache.toml`, `crates/rebecca-rules/src/lib.rs`
+- **Approach:** Introduce conservative install-root cache rules for `appcache\httpcache`, `appcache\download`, and `appcache\librarycache`, plus library-root rules for shader, downloading, and temp caches. Keep the rules owned, provenance-backed, and recycle-bin based.
 - **Patterns to follow:** Existing Steam rule structure in `crates/rebecca-rules/rules/windows/steam-cache.toml` and the catalog parser in `crates/rebecca-rules/src/lib.rs`.
 - **Test scenarios:**
   - Happy path: both new rules load from the catalog with stable ids and required metadata.
@@ -136,6 +136,13 @@ This change widens the set of destructive targets the product can surface, so th
   - Edge case: CLI output still shows Steam rules through the existing scan and clean paths.
   - Error path: no new user-facing flag is required to use the added Steam rules.
 - **Verification:** Documentation and CLI tests remain aligned with the built-in catalog.
+
+---
+
+## Current Status
+
+- The Steam cleanup expansion slice is implemented in the repository.
+- Remaining work belongs to future follow-up scopes, not this plan.
 
 ---
 
