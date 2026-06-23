@@ -10,6 +10,7 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     fs::write(&file, b"cache").unwrap();
 
     let output = isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("LOCALAPPDATA", temp.path().join("local"))
         .env("APPDATA", temp.path().join("roaming"))
@@ -137,6 +138,47 @@ fn clean_dry_run_accepts_no_progress_flag() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Cleanup mode: DryRun"));
     assert!(stdout.contains("Target details:"));
+}
+
+#[test]
+fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
+    let temp = tempfile::tempdir().unwrap();
+    let steam = temp.path().join("Steam");
+    let appcache = steam.join("appcache");
+    let librarycache = appcache.join("librarycache");
+    fs::create_dir_all(&librarycache).unwrap();
+    fs::write(librarycache.join("cache.bin"), b"abc").unwrap();
+
+    let output = isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.steam-install-library-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["total_targets"], 1);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 3);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["rule_id"], "windows.steam-install-library-cache");
+    assert_eq!(targets[0]["status"], "allowed");
+    assert!(
+        targets[0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with(r"appcache\librarycache")
+    );
 }
 
 #[test]

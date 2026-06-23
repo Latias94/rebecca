@@ -467,7 +467,10 @@ fn steam_rules_skip_without_application_discovery() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/a.tmp", b"abc");
     fixture.write("local/Temp/b.tmp", b"de");
-    fixture.write("local/Microsoft/Windows/Explorer/thumbcache_96.db", b"thumb");
+    fixture.write(
+        "local/Microsoft/Windows/Explorer/thumbcache_96.db",
+        b"thumb",
+    );
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
@@ -498,10 +501,11 @@ fn steam_rules_skip_without_application_discovery() {
                 .as_deref()
                 .is_some_and(|reason| reason.contains("Steam installation was not discovered"))
     }));
-    assert!(plan
-        .targets
-        .iter()
-        .any(|target| target.status == TargetStatus::Skipped));
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.status == TargetStatus::Skipped)
+    );
 }
 
 #[test]

@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
+use std::env;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::ProgressBar;
 use rebecca_core::applications::ApplicationDiscovery;
+use rebecca_core::applications::{
+    NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
+};
 use rebecca_core::config::default_app_paths;
 use rebecca_core::environment::SystemEnvironment;
 use rebecca_core::executor::execute_cleanup_plan;
@@ -560,6 +564,10 @@ fn doctor_steam() -> Result<()> {
 }
 
 fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
+    if let Some(applications) = steam_application_discovery_override() {
+        return applications;
+    }
+
     #[cfg(windows)]
     {
         Box::new(rebecca_windows::steam::WindowsApplicationDiscovery::new())
@@ -568,6 +576,28 @@ fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
     #[cfg(not(windows))]
     {
         Box::new(rebecca_core::applications::NoopApplicationDiscovery::new())
+    }
+}
+
+fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
+    let discovery = env::var("REBECCA_STEAM_DISCOVERY").ok();
+    if discovery.as_deref().is_some_and(|value| {
+        value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("disabled")
+    }) {
+        return Some(Box::new(NoopApplicationDiscovery::new()));
+    }
+
+    let path = env::var("REBECCA_STEAM_DISCOVERY_PATH").ok()?;
+    let path = path.trim();
+    if path.is_empty() {
+        return Some(Box::new(NoopApplicationDiscovery::new()));
+    }
+
+    match SteamInstallation::from_install_path(path) {
+        Ok(installation) => Some(Box::new(
+            StaticApplicationDiscovery::new().with_steam_installation(installation),
+        )),
+        Err(_) => Some(Box::new(NoopApplicationDiscovery::new())),
     }
 }
 

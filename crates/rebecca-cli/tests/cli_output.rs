@@ -50,6 +50,39 @@ fn doctor_steam_prints_discovery_status() {
     assert!(stdout.contains("Steam install:"));
 }
 
+#[test]
+fn doctor_steam_prints_library_list_when_discovered() {
+    let temp = tempfile::tempdir().unwrap();
+    let steam = temp.path().join("Steam");
+    let steamapps = steam.join("steamapps");
+    std::fs::create_dir_all(&steamapps).unwrap();
+    std::fs::write(
+        steamapps.join("libraryfolders.vdf"),
+        r#"
+"libraryfolders"
+{
+    "0"
+    {
+        "path"      "D:\\SteamLibrary"
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let output = isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
+        .env("LOCALAPPDATA", temp.path().join("local"))
+        .args(["doctor", "steam"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Steam libraries:"));
+    assert!(stdout.contains(r"D:\SteamLibrary"));
+}
+
 fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
     let roaming = temp.path().join("roaming");
     let local = temp.path().join("local");
