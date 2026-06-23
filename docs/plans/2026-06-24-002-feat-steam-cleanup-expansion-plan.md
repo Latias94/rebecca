@@ -142,7 +142,8 @@ This change widens the set of destructive targets the product can surface, so th
 ## Current Status
 
 - The Steam cleanup expansion slice is implemented in the repository.
-- Remaining work belongs to future follow-up scopes, not this plan.
+- The implemented slice now includes the Steam catalog expansion, Steam discovery hardening, and the user-facing restore-hint contract across human and JSON outputs.
+- Any remaining work belongs to future follow-up scopes, not this plan.
 
 ---
 
@@ -168,6 +169,7 @@ This change widens the set of destructive targets the product can surface, so th
 - Update `README.md` with the new Steam coverage and the explicit exclusions.
 - Update `docs/rule-authoring.md` so future Steam rules follow the same conservative boundaries.
 - Keep the Steam rules small enough that their intent is obvious from the TOML files alone.
+- Keep the restore-hint contract visible in both human and JSON outputs so future rule additions remain auditable from the catalog and plan history.
 
 ---
 
