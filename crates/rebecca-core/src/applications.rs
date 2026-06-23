@@ -250,10 +250,17 @@ fn dedupe_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
 }
 
 fn path_key(path: &Path) -> String {
-    path.as_os_str()
+    let mut normalized = path
+        .as_os_str()
         .to_string_lossy()
         .replace('\\', "/")
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+
+    while normalized.ends_with('/') && normalized.len() > 3 {
+        normalized.pop();
+    }
+
+    normalized
 }
 
 fn same_path_ignore_case(left: &Path, right: &Path) -> bool {
