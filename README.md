@@ -22,6 +22,8 @@ Rebecca is designed to preview before deleting.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
 - Moderate and risky rules require explicit opt-in flags.
+- Dry-run human output highlights the largest estimated targets first and then
+  groups the full target list by status.
 
 ## Usage
 

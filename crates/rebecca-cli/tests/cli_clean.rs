@@ -64,6 +64,56 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
 }
 
 #[test]
+fn clean_human_output_highlights_largest_targets_by_size() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
+    let edge_cache = local.join("Microsoft/Edge/User Data/Default/Cache");
+    let chrome_profile_code_cache = local.join("Google/Chrome/User Data/Profile 1/Code Cache");
+    let chrome_default_cache = local.join("Google/Chrome/User Data/Default/Cache");
+
+    fs::create_dir_all(&edge_cache).unwrap();
+    fs::create_dir_all(&chrome_profile_code_cache).unwrap();
+    fs::create_dir_all(&chrome_default_cache).unwrap();
+    fs::write(edge_cache.join("edge.bin"), b"1234567890").unwrap();
+    fs::write(chrome_profile_code_cache.join("code.bin"), b"123456").unwrap();
+    fs::write(chrome_default_cache.join("chrome.bin"), b"1234").unwrap();
+
+    let output = isolated_rebecca(&temp)
+        .env("LOCALAPPDATA", &local)
+        .args(["clean", "--dry-run", "--category", "browser"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Estimated bytes: 20 (20 B)"));
+    assert!(stdout.contains("Largest estimated targets:"));
+    assert!(stdout.contains("Target details:"));
+    assert!(stdout.contains("Allowed (3)"));
+    assert!(stdout.contains("Skipped ("));
+
+    let largest_section = stdout
+        .split("Largest estimated targets:")
+        .nth(1)
+        .expect("largest section should be present")
+        .split("Target details:")
+        .next()
+        .expect("target details section should follow largest section");
+    let edge_position = largest_section
+        .find("windows.edge-cache")
+        .expect("edge target should be in largest section");
+    let chrome_position = largest_section
+        .find("windows.chrome-cache")
+        .expect("chrome target should be in largest section");
+
+    assert!(
+        edge_position < chrome_position,
+        "largest section should sort targets by estimated bytes"
+    );
+}
+
+#[test]
 fn clean_unknown_rule_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated_rebecca(&temp)

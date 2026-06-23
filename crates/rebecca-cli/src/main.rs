@@ -5,8 +5,13 @@ use clap::{Parser, Subcommand};
 use rebecca_core::config::default_app_paths;
 use rebecca_core::executor::execute_cleanup_plan;
 use rebecca_core::history::HistoryStore;
+use rebecca_core::plan::{CleanupPlan, CleanupTarget};
 use rebecca_core::planner::build_cleanup_plan;
-use rebecca_core::{DeleteMode, PlanRequest, Platform, RuleDefinition, RuleSelection};
+use rebecca_core::{
+    DeleteMode, PlanRequest, Platform, RuleDefinition, RuleSelection, TargetStatus,
+};
+
+const LARGEST_TARGET_LIMIT: usize = 5;
 
 #[derive(Debug, Parser)]
 #[command(name = "rebecca", version, about = "Windows-first cleanup CLI")]
@@ -249,7 +254,7 @@ fn confirm_cleanup(plan: &rebecca_core::plan::CleanupPlan) -> Result<bool> {
         .context("cleanup confirmation failed")
 }
 
-fn print_plan(plan: &rebecca_core::plan::CleanupPlan, json: bool) -> Result<()> {
+fn print_plan(plan: &CleanupPlan, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(plan)?);
         return Ok(());
@@ -262,29 +267,116 @@ fn print_plan(plan: &rebecca_core::plan::CleanupPlan, json: bool) -> Result<()> 
     println!("Blocked: {}", plan.summary.blocked_targets);
     println!("Failed: {}", plan.summary.failed_targets);
     println!("Completed: {}", plan.summary.completed_targets);
-    println!("Estimated bytes: {}", plan.summary.estimated_bytes);
-    println!("Freed bytes: {}", plan.summary.freed_bytes);
     println!(
-        "Pending reclaim bytes: {}",
-        plan.summary.pending_reclaim_bytes
+        "Estimated bytes: {} ({})",
+        plan.summary.estimated_bytes,
+        format_bytes(plan.summary.estimated_bytes)
+    );
+    println!(
+        "Freed bytes: {} ({})",
+        plan.summary.freed_bytes,
+        format_bytes(plan.summary.freed_bytes)
+    );
+    println!(
+        "Pending reclaim bytes: {} ({})",
+        plan.summary.pending_reclaim_bytes,
+        format_bytes(plan.summary.pending_reclaim_bytes)
     );
 
-    for target in &plan.targets {
-        println!(
-            "- {:?} {} [{}] {} bytes{}",
-            target.status,
-            target.rule_id,
-            target.path.display(),
-            target.estimated_bytes,
-            target
-                .reason
-                .as_ref()
-                .map(|reason| format!(" ({reason})"))
-                .unwrap_or_default()
-        );
-    }
+    print_largest_targets(plan);
+    print_targets_by_status(plan);
 
     Ok(())
+}
+
+fn print_largest_targets(plan: &CleanupPlan) {
+    let mut targets = plan
+        .targets
+        .iter()
+        .filter(|target| target.estimated_bytes > 0)
+        .collect::<Vec<_>>();
+
+    targets.sort_by(|left, right| {
+        right
+            .estimated_bytes
+            .cmp(&left.estimated_bytes)
+            .then_with(|| left.rule_id.cmp(&right.rule_id))
+            .then_with(|| left.path.cmp(&right.path))
+    });
+
+    if targets.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Largest estimated targets:");
+    for target in targets.into_iter().take(LARGEST_TARGET_LIMIT) {
+        print_target_line(target, "  -");
+    }
+}
+
+fn print_targets_by_status(plan: &CleanupPlan) {
+    if plan.targets.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Target details:");
+
+    for status in [
+        TargetStatus::Allowed,
+        TargetStatus::Completed,
+        TargetStatus::Failed,
+        TargetStatus::Blocked,
+        TargetStatus::Skipped,
+    ] {
+        let targets = plan
+            .targets
+            .iter()
+            .filter(|target| target.status == status)
+            .collect::<Vec<_>>();
+
+        if targets.is_empty() {
+            continue;
+        }
+
+        println!("{status:?} ({})", targets.len());
+        for target in targets {
+            print_target_line(target, "  -");
+        }
+    }
+}
+
+fn print_target_line(target: &CleanupTarget, prefix: &str) {
+    println!(
+        "{prefix} {} [{}] {} bytes ({}){}",
+        target.rule_id,
+        target.path.display(),
+        target.estimated_bytes,
+        format_bytes(target.estimated_bytes),
+        target
+            .reason
+            .as_ref()
+            .map(|reason| format!(" ({reason})"))
+            .unwrap_or_default()
+    );
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+
+    let mut value = bytes as f64;
+    let mut unit_index = 0;
+    while value >= 1024.0 && unit_index < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit_index += 1;
+    }
+
+    format!("{value:.2} {}", UNITS[unit_index])
 }
 
 fn history(json: bool) -> Result<()> {
