@@ -1,0 +1,20 @@
+id = "windows.edge-cache"
+platform = "windows"
+category = "browser"
+name = "Microsoft Edge cache"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+restore_hint = "Browser cache that can be regenerated."
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Code Cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

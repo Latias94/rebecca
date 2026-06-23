@@ -42,15 +42,17 @@ cargo run -p rebecca-cli -- doctor permissions
 
 ## Built-In Rules
 
-The starter catalog intentionally stays small:
+The starter catalog intentionally stays small and lives in
+`crates/rebecca-rules/rules/windows/`:
 
 - `windows.user-temp`
 - `windows.edge-cache`
 - `windows.npm-cache`
 
 Rule metadata includes platform, category, safety level, delete policy, restore
-hint, and provenance. Reference projects under `repo-ref/` are research inputs;
-their GPL code and cleaner definitions are not copied into Rebecca.
+hint, and provenance. The catalog is embedded from TOML files and validated
+before it reaches the CLI. Reference projects under `repo-ref/` are research
+inputs; their GPL code and cleaner definitions are not copied into Rebecca.
 
 ## Local State
 

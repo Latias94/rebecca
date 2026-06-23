@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 rebecca-core = { path = "../rebecca-core" }
 serde.workspace = true
+toml.workspace = true

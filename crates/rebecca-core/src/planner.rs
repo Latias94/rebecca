@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::environment::{Environment, SystemEnvironment};
@@ -193,9 +193,8 @@ fn spec_placeholder(spec: &RuleTargetSpec) -> PathBuf {
 }
 
 pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
-    use std::collections::BTreeSet;
-
     let mut ids = BTreeSet::new();
+    let mut target_specs = BTreeMap::<String, String>::new();
 
     for rule in rules {
         if rule.id.trim().is_empty() {
@@ -231,7 +230,31 @@ pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                 rule.id
             )));
         }
+
+        for spec in &rule.path_templates {
+            let key = target_spec_key(rule.platform, spec);
+            if let Some(previous_rule) = target_specs.insert(key.clone(), rule.id.clone()) {
+                return Err(RebeccaError::RuleCatalogInvalid(format!(
+                    "duplicate target spec {key} used by rules {previous_rule} and {}",
+                    rule.id
+                )));
+            }
+        }
     }
 
     Ok(())
+}
+
+fn target_spec_key(platform: Platform, spec: &RuleTargetSpec) -> String {
+    let target = match spec {
+        RuleTargetSpec::Template(template) => format!("template:{}", template.raw()),
+        RuleTargetSpec::ExactPath(path) => format!("exact-path:{}", path.display()),
+    }
+    .replace('\\', "/");
+
+    if platform == Platform::Windows {
+        format!("{platform:?}:{}", target.to_ascii_lowercase())
+    } else {
+        format!("{platform:?}:{target}")
+    }
 }

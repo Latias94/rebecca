@@ -3,19 +3,19 @@ type: "Current State"
 title: "Current Engineering State"
 description: "Short durable summary of the active engineering state."
 tags: ["engineering-memory"]
-timestamp: 2026-06-23T10:46:30Z
+timestamp: 2026-06-23T11:11:53Z
 status: "active"
 ---
 
 # Current State
 
-- Goal: Continue from the implemented and committed Windows cleanup MVP, including the dedupe fix for overlapping path templates.
+- Goal: Continue from the implemented Windows cleanup MVP with an externalized built-in rule catalog.
 - Branch: feat/windows-cleanup-mvp
-- Last verified: `cargo fmt --all`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo nextest run --workspace` all passed on 2026-06-23. `cargo nextest run --workspace` ran 33 tests successfully. Real dry-run CLI smoke passed for `system`, `browser`, and `development --allow-moderate`; `system` now deduplicates overlapping templates instead of double-counting the same path.
-- Done: Initialized `docs/knowledge/engineering`; collected Mole, windows-cleaner-cli, CrunchyCleaner, BleachBit, and Bulk Crap Uninstaller references; created platform, architecture, workspace, privilege, registry, scan-engine, deletion/recovery, rule-provenance, and local-state ADRs; initialized the `rebecca` Cargo workspace and crates; created the Windows cleanup MVP implementation plan; implemented the MVP cleanup loop across core, rules, Windows adapter, CLI, history, and tests; changed Windows Recycle Bin execution to preserve directory targets and move their direct child entries; added planner and CLI regression tests for overlapping templates; committed the result with subject `feat: build windows cleanup mvp`.
+- Last verified: `cargo fmt --all`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo nextest run --workspace` all passed on 2026-06-23. `cargo nextest run --workspace` ran 37 tests successfully. `cargo run -p rebecca-cli -- scan` listed the three built-in rules from the TOML-backed catalog.
+- Done: Initialized `docs/knowledge/engineering`; collected Mole, windows-cleaner-cli, CrunchyCleaner, BleachBit, and Bulk Crap Uninstaller references; created platform, architecture, workspace, privilege, registry, scan-engine, deletion/recovery, rule-provenance, and local-state ADRs; initialized the `rebecca` Cargo workspace and crates; created the Windows cleanup MVP implementation plan; implemented the MVP cleanup loop across core, rules, Windows adapter, CLI, history, and tests; changed Windows Recycle Bin execution to preserve directory targets and move their direct child entries; added planner and CLI regression tests for overlapping templates; externalized the built-in rules into TOML files under `crates/rebecca-rules/rules/windows/` with schema and provenance validation.
 - In progress: No active implementation task.
 - Blocked: None.
-- Next action: Expand the rule catalog and execution coverage after the current MVP review stabilizes.
+- Next action: Add rule authoring guidance and begin the first practical Windows rule expansion batch.
 
 # Citations
 - [Mole reference](../../../repo-ref/Mole/README.md)

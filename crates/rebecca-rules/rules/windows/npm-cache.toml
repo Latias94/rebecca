@@ -1,0 +1,16 @@
+id = "windows.npm-cache"
+platform = "windows"
+category = "development"
+name = "npm cache"
+safety_level = "moderate"
+delete_policy = "recycle-bin"
+restore_hint = "Package manager cache; packages may need to be downloaded again."
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\npm-cache\\_cacache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

@@ -14,16 +14,12 @@ fn category_filter_includes_only_matching_rules() {
         "local/Microsoft/Edge/User Data/Default/Cache/cache.bin",
         b"edge",
     );
+    let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_categories = vec!["system".to_string()];
 
-    let plan = build_cleanup_plan_with_environment(
-        &request,
-        &rebecca_rules::builtin_rules(),
-        &fixture.env,
-    )
-    .unwrap();
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
     assert!(
         plan.targets
@@ -37,16 +33,12 @@ fn category_filter_includes_only_matching_rules() {
 fn overlapping_templates_are_deduplicated_before_sizing() {
     let fixture = PlannerFixture::with_local_temp_as_temp();
     fixture.write("local/Temp/a.tmp", b"abc");
+    let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_categories = vec!["system".to_string()];
 
-    let plan = build_cleanup_plan_with_environment(
-        &request,
-        &rebecca_rules::builtin_rules(),
-        &fixture.env,
-    )
-    .unwrap();
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
     assert_eq!(plan.summary.total_targets, 2);
     assert_eq!(plan.summary.allowed_targets, 1);
@@ -62,15 +54,11 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
 #[test]
 fn unknown_rule_id_is_an_error() {
     let fixture = PlannerFixture::new();
+    let rules = rebecca_rules::builtin_rules().unwrap();
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_rule_ids = vec!["missing.rule".to_string()];
 
-    let err = build_cleanup_plan_with_environment(
-        &request,
-        &rebecca_rules::builtin_rules(),
-        &fixture.env,
-    )
-    .unwrap_err();
+    let err = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap_err();
 
     assert!(err.to_string().contains("invalid rule id"));
 }
@@ -79,16 +67,12 @@ fn unknown_rule_id_is_an_error() {
 fn moderate_rule_is_skipped_without_opt_in() {
     let fixture = PlannerFixture::new();
     fixture.write("roaming/npm-cache/_cacache/index.bin", b"npm");
+    let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_rule_ids = vec!["windows.npm-cache".to_string()];
 
-    let plan = build_cleanup_plan_with_environment(
-        &request,
-        &rebecca_rules::builtin_rules(),
-        &fixture.env,
-    )
-    .unwrap();
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
     assert_eq!(plan.summary.skipped_targets, 1);
     assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
@@ -98,6 +82,7 @@ fn moderate_rule_is_skipped_without_opt_in() {
 fn dry_run_and_recycle_bin_share_target_set() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/a.tmp", b"abc");
+    let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut dry_request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     dry_request.selected_rule_ids = vec!["windows.user-temp".to_string()];
@@ -105,18 +90,8 @@ fn dry_run_and_recycle_bin_share_target_set() {
     let mut run_request = PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin);
     run_request.selected_rule_ids = vec!["windows.user-temp".to_string()];
 
-    let dry_plan = build_cleanup_plan_with_environment(
-        &dry_request,
-        &rebecca_rules::builtin_rules(),
-        &fixture.env,
-    )
-    .unwrap();
-    let run_plan = build_cleanup_plan_with_environment(
-        &run_request,
-        &rebecca_rules::builtin_rules(),
-        &fixture.env,
-    )
-    .unwrap();
+    let dry_plan = build_cleanup_plan_with_environment(&dry_request, &rules, &fixture.env).unwrap();
+    let run_plan = build_cleanup_plan_with_environment(&run_request, &rules, &fixture.env).unwrap();
 
     let dry_paths = dry_plan
         .targets

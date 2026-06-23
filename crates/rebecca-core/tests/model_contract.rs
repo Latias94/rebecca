@@ -35,6 +35,18 @@ fn invalid_rule_catalog_rejects_duplicate_ids() {
     assert!(err.to_string().contains("duplicate rule id"));
 }
 
+#[test]
+fn invalid_rule_catalog_rejects_duplicate_target_specs() {
+    let mut first = test_rule("windows.first");
+    let mut second = test_rule("windows.second");
+    first.path_templates = vec![RuleTargetSpec::template("%TEMP%")];
+    second.path_templates = vec![RuleTargetSpec::template("%temp%")];
+
+    let err = rebecca_core::planner::validate_rule_catalog(&[first, second]).unwrap_err();
+
+    assert!(err.to_string().contains("duplicate target spec"));
+}
+
 fn test_rule(id: &str) -> RuleDefinition {
     RuleDefinition {
         id: id.to_string(),

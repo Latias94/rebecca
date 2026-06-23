@@ -1,0 +1,20 @@
+id = "windows.user-temp"
+platform = "windows"
+category = "system"
+name = "User temporary files"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+restore_hint = "Temporary files owned by the current user."
+
+[[targets]]
+kind = "template"
+value = "%TEMP%"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Temp"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

@@ -119,7 +119,7 @@ fn init_tracing() {
 }
 
 fn scan(json: bool) -> Result<()> {
-    let rules = rebecca_rules::builtin_rules();
+    let rules = rebecca_rules::builtin_rules()?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&rules)?);
@@ -158,7 +158,7 @@ fn clean(
     request.allow_moderate = allow_moderate;
     request.allow_risky = allow_risky;
 
-    let rules = rebecca_rules::builtin_rules();
+    let rules = rebecca_rules::builtin_rules()?;
     let mut plan = build_cleanup_plan(&request, &rules)?;
 
     if dry_run {
