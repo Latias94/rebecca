@@ -150,6 +150,18 @@ fn steam_installation_reports_read_errors_for_libraryfolders_file() {
 }
 
 #[test]
+fn steam_installation_treats_missing_libraryfolders_as_empty_library_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let install_path = temp.path().join("Steam");
+    fs::create_dir_all(install_path.join("steamapps")).unwrap();
+
+    let installation = SteamInstallation::from_install_path(&install_path).unwrap();
+
+    assert_eq!(installation.install_path(), install_path.as_path());
+    assert!(installation.library_paths().is_empty());
+}
+
+#[test]
 fn steam_installation_deduplicates_install_path_from_library_paths() {
     let temp = tempfile::tempdir().unwrap();
     let install_path = temp.path().join("Steam");
