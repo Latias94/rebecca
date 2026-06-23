@@ -501,6 +501,40 @@ fn steam_install_library_rule_expands_from_application_discovery() {
 }
 
 #[test]
+fn steam_install_shader_rule_expands_from_application_discovery() {
+    let fixture = PlannerFixture::new();
+    let install_path = fixture.root.join("steam-install");
+    fixture.write("steam-install/appcache/shadercache/cache.bin", b"ab");
+    let applications = StaticApplicationDiscovery::new().with_steam_installation(
+        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.steam-install-shader-cache".to_string()];
+
+    let plan = build_cleanup_plan_with_environment_and_applications(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 2);
+    assert_eq!(
+        plan.targets[0].path,
+        install_path.join("appcache").join("shadercache")
+    );
+    assert_eq!(
+        plan.targets[0].restore_hint.as_deref(),
+        Some("Steam shader caches will be rebuilt on launch.")
+    );
+}
+
+#[test]
 fn steam_rules_skip_without_application_discovery() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/a.tmp", b"abc");
