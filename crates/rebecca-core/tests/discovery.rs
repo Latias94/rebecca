@@ -304,3 +304,24 @@ fn steam_libraryfolders_parser_supports_legacy_flat_format() {
         ]
     );
 }
+
+#[test]
+fn steam_libraryfolders_parser_deduplicates_case_insensitive_paths() {
+    let raw = r#"
+"libraryfolders"
+{
+    "0"
+    {
+        "path"      "C:\\SteamLibrary"
+    }
+    "1"
+    {
+        "path"      "c:\\steamlibrary"
+    }
+}
+"#;
+
+    let paths = parse_steam_libraryfolders(raw).unwrap();
+
+    assert_eq!(paths, vec![std::path::PathBuf::from(r"C:\SteamLibrary")]);
+}
