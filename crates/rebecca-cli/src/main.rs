@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
-use std::env;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::ProgressBar;
 use rebecca_core::applications::ApplicationDiscovery;
+#[cfg(debug_assertions)]
 use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
@@ -579,15 +579,16 @@ fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
     }
 }
 
+#[cfg(debug_assertions)]
 fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
-    let discovery = env::var("REBECCA_STEAM_DISCOVERY").ok();
+    let discovery = std::env::var("REBECCA_STEAM_DISCOVERY").ok();
     if discovery.as_deref().is_some_and(|value| {
         value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("disabled")
     }) {
         return Some(Box::new(NoopApplicationDiscovery::new()));
     }
 
-    let path = env::var("REBECCA_STEAM_DISCOVERY_PATH").ok()?;
+    let path = std::env::var("REBECCA_STEAM_DISCOVERY_PATH").ok()?;
     let path = path.trim();
     if path.is_empty() {
         return Some(Box::new(NoopApplicationDiscovery::new()));
@@ -599,6 +600,11 @@ fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery
         )),
         Err(_) => Some(Box::new(NoopApplicationDiscovery::new())),
     }
+}
+
+#[cfg(not(debug_assertions))]
+fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
+    None
 }
 
 #[cfg(windows)]
