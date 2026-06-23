@@ -182,6 +182,41 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
 }
 
 #[test]
+fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
+    let temp = tempfile::tempdir().unwrap();
+    let roaming = temp.path().join("roaming");
+    let npm_cache = roaming.join("npm-cache").join("_cacache");
+    fs::create_dir_all(&npm_cache).unwrap();
+    fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
+
+    let output = isolated_rebecca(&temp)
+        .env("APPDATA", &roaming)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--allow-moderate",
+            "--rule",
+            "windows.npm-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["total_targets"], 1);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 4);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["rule_id"], "windows.npm-cache");
+    assert_eq!(targets[0]["status"], "allowed");
+}
+
+#[test]
 fn clean_unknown_rule_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated_rebecca(&temp)
