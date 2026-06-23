@@ -31,7 +31,7 @@
 * **Steam CLI regression coverage**: Added deterministic CLI regression coverage for Steam discovery by wiring a debug-only discovery override into the `doctor steam` and `clean --dry-run` test paths, then verified the full Steam slice with `cargo fmt --all`, `cargo nextest run -p rebecca-cli --test cli_clean`, `cargo nextest run -p rebecca-cli --test cli_output`, `cargo nextest run -p rebecca-core --test planner`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace` (88 passing tests).
 * **Moderate rule allow coverage**: Added a CLI regression that proves `windows.npm-cache` stays skipped without `--allow-moderate` and becomes allowed when the flag is present, then re-verified with `cargo fmt --all`, `cargo nextest run -p rebecca-cli --test cli_clean`, `cargo nextest run -p rebecca-core --test planner`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo nextest run --workspace` (89 passing tests).
 * **Safety contract coverage**: Added planner and CLI regressions for `allow_risky` using temporary risky rules so the parser/planner contract is explicit even without a built-in risky catalog entry.
-* **README safety example**: Added an opt-in `--allow-moderate` usage example to README so the documented CLI mirrors the tested contract.
+* **README safety example**: Added opt-in `--allow-moderate` and `--allow-risky` usage examples to README so the documented CLI mirrors the tested contract.
 
 ## 2026-06-24
 * **Plan closure**: Marked the Windows cleanup MVP plan complete and aligned the current-state memory with the finished MVP.

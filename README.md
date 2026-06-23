@@ -21,7 +21,7 @@ Rebecca is designed to preview before deleting.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
-- Moderate and risky rules require explicit opt-in flags.
+- Moderate rules require `--allow-moderate`; risky and dangerous rules require `--allow-risky`.
 - Dry-run human output highlights the largest estimated targets first and then
   groups the full target list by status.
 - Human `clean` commands show target-level and file-level scan progress by
@@ -40,6 +40,7 @@ cargo run -p rebecca-cli -- clean --dry-run
 cargo run -p rebecca-cli -- clean --dry-run --json --category system
 cargo run -p rebecca-cli -- clean --dry-run --no-progress --rule windows.edge-cache
 cargo run -p rebecca-cli -- clean --dry-run --json --allow-moderate --rule windows.npm-cache
+cargo run -p rebecca-cli -- clean --dry-run --json --allow-risky --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --yes --category system
 
 cargo run -p rebecca-cli -- history
