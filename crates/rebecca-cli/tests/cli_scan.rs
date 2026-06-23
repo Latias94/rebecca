@@ -46,6 +46,15 @@ fn scan_json_lists_builtin_rules() {
         .into_iter()
         .collect()
     );
+
+    let steam_cache = rules
+        .iter()
+        .find(|rule| rule["id"] == "windows.steam-cache")
+        .expect("steam cache rule should exist");
+    assert_eq!(
+        steam_cache["restore_hint"].as_str().unwrap(),
+        "Steam web caches will be rebuilt on launch."
+    );
 }
 
 #[test]

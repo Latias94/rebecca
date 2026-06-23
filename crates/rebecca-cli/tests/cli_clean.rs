@@ -195,6 +195,10 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0]["rule_id"], "windows.steam-install-library-cache");
     assert_eq!(targets[0]["status"], "allowed");
+    assert_eq!(
+        targets[0]["restore_hint"].as_str().unwrap(),
+        "Steam library artwork and metadata will be rebuilt on launch."
+    );
     assert!(
         targets[0]["path"]
             .as_str()

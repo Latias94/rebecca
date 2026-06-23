@@ -24,6 +24,58 @@ fn history_json_is_empty_when_no_history_file_exists() {
 }
 
 #[test]
+fn history_json_preserves_restore_hints() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    if let Some(parent) = history_path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+
+    let mut plan = CleanupPlan {
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        summary: CleanupSummary {
+            completed_targets: 1,
+            failed_targets: 0,
+            pending_reclaim_bytes: 11,
+            ..CleanupSummary::default()
+        },
+        targets: vec![
+            CleanupTarget::allowed(
+                "windows.user-temp",
+                std::path::PathBuf::from(r"C:\Temp\cache.tmp"),
+                11,
+                DeleteMode::RecycleBin,
+            )
+            .with_restore_hint(Some("Temporary files can be recreated.".to_string())),
+        ],
+    };
+    plan.targets[0].status = TargetStatus::Completed;
+    plan.targets[0].pending_reclaim_bytes = 11;
+
+    let entry = HistoryEntry::from_plan(&plan);
+    std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entries = value.as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0]["targets"][0]["restore_hint"].as_str().unwrap(),
+        "Temporary files can be recreated."
+    );
+}
+
+#[test]
 fn history_human_output_lists_restore_hints() {
     let temp = tempfile::tempdir().unwrap();
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
