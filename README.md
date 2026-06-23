@@ -56,6 +56,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.edge-cache`
 - `windows.chrome-cache`
 - `windows.firefox-profile-cache`
+- `windows.discord-cache`
 - `windows.directx-shader-cache`
 - `windows.thumbnail-cache`
 - `windows.pip-cache`

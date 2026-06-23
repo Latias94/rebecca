@@ -25,6 +25,11 @@ fn scan_json_lists_builtin_rules() {
             .any(|rule| rule["id"] == "windows.jetbrains-cache")
     );
     assert!(rules.iter().any(|rule| rule["id"] == "windows.cargo-cache"));
+    assert!(
+        rules
+            .iter()
+            .any(|rule| rule["id"] == "windows.discord-cache")
+    );
 }
 
 #[test]

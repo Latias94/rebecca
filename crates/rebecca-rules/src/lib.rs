@@ -43,6 +43,13 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "rules/windows/discord-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/discord-cache.toml"
+        )),
+    ),
+    (
         "rules/windows/npm-cache.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -218,6 +225,7 @@ mod tests {
             "windows.chrome-cache",
             "windows.cargo-cache",
             "windows.directx-shader-cache",
+            "windows.discord-cache",
             "windows.firefox-profile-cache",
             "windows.jetbrains-cache",
             "windows.pip-cache",

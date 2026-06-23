@@ -251,6 +251,38 @@ fn cargo_rule_targets_custom_cargo_home_cache_directories() {
 }
 
 #[test]
+fn discord_rule_targets_only_browser_cache_directories() {
+    let fixture = PlannerFixture::new();
+    fixture.write("roaming/discord/Cache/cache.bin", b"ab");
+    fixture.write("roaming/discord/Code Cache/code.bin", b"cde");
+    fixture.write("roaming/discord/GPUCache/gpu.bin", b"fghi");
+    fixture.write("roaming/discordptb/Cache/cache.bin", b"jklmn");
+    fixture.write("roaming/discordptb/Code Cache/code.bin", b"opqrst");
+    fixture.write("roaming/discordptb/GPUCache/gpu.bin", b"uvwxyz1");
+    fixture.write("roaming/discord/Local Storage/leveldb/LOG", b"keep");
+    fixture.write("roaming/discord/IndexedDB/indexeddb.leveldb/LOG", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.discord-cache".to_string()];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 6);
+    assert_eq!(plan.summary.skipped_targets, 3);
+    assert_eq!(plan.summary.estimated_bytes, 27);
+    assert!(plan.targets.iter().all(|target| {
+        target.path.ends_with(Path::new("Cache"))
+            || target.path.ends_with(Path::new("Code Cache"))
+            || target.path.ends_with(Path::new("GPUCache"))
+    }));
+    assert!(plan.targets.iter().all(|target| {
+        !target.path.to_string_lossy().contains("Local Storage")
+            && !target.path.to_string_lossy().contains("IndexedDB")
+    }));
+}
+
+#[test]
 fn chromium_rules_expand_profile_cache_patterns() {
     let fixture = PlannerFixture::new();
     fixture.write(

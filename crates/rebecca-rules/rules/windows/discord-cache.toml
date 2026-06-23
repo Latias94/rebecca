@@ -1,0 +1,48 @@
+id = "windows.discord-cache"
+platform = "windows"
+category = "application"
+name = "Discord cache"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+restore_hint = "Discord caches will be rebuilt on launch."
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discord\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discord\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discord\\GPUCache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discordptb\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discordptb\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discordptb\\GPUCache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discordcanary\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discordcanary\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\discordcanary\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on Discord's Windows Roaming app data layout and common Electron cache directory conventions. The rule targets cache subdirectories only and intentionally avoids Local Storage, IndexedDB, settings, and session data."

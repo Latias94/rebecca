@@ -29,6 +29,9 @@ files. Keep each rule small, explicit, and easy to audit.
   profile directories or `thumbcache_*.db` files.
 - Chromium-family browser caches may use bounded `Profile *` discovery under
   `User Data`, but should keep `Default` paths explicit.
+- Electron app cache rules should keep `Cache`, `Code Cache`, and `GPUCache`
+  targets explicit, and should not target `Local Storage`, `IndexedDB`, or the
+  application data root.
 - Cargo cache rules should target cache subdirectories under `%CARGO_HOME%`
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or
