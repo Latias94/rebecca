@@ -158,6 +158,34 @@ fn glob_rules_expand_profile_and_file_patterns() {
 }
 
 #[test]
+fn jetbrains_rules_expand_product_directories() {
+    let fixture = PlannerFixture::new();
+    fixture.write("local/JetBrains/IntelliJIdea2026.1/caches/index.bin", b"ab");
+    fixture.write("local/JetBrains/Rider2025.3/caches/index.bin", b"cde");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.jetbrains-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.skipped_targets, 7);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("IntelliJIdea2026.1").join("caches"))
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("Rider2025.3").join("caches"))
+    }));
+}
+
+#[test]
 fn chromium_rules_expand_profile_cache_patterns() {
     let fixture = PlannerFixture::new();
     fixture.write(

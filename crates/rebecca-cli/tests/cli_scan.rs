@@ -19,6 +19,11 @@ fn scan_json_lists_builtin_rules() {
             .iter()
             .any(|rule| rule["id"] == "windows.firefox-profile-cache")
     );
+    assert!(
+        rules
+            .iter()
+            .any(|rule| rule["id"] == "windows.jetbrains-cache")
+    );
 }
 
 #[test]
