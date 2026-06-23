@@ -85,10 +85,10 @@ before it reaches the CLI. Reference projects under `repo-ref/` are research
 inputs; their GPL code and cleaner definitions are not copied into Rebecca.
 Chromium-family browser cache rules cover `Default` and bounded `Profile *`
 directories when they exist.
-Steam support currently discovers the install root from the Windows registry
-and library roots from `steamapps\libraryfolders.vdf`, which lets future Steam
-rules target install-root-relative or library-root-relative paths without
-guessing the machine layout.
+Steam support currently discovers the install root from a small ordered set of
+Windows registry locations, then library roots from `steamapps\libraryfolders.vdf`.
+That lets future Steam rules target install-root-relative or library-root-relative
+paths without guessing the machine layout.
 The current catalog includes the Steam client web cache, Steam install-root
 cache rules for `appcache\\httpcache`, `appcache\\download`, and
 `appcache\\librarycache`, plus Steam library shader-cache, downloading cache,

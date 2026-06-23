@@ -37,9 +37,10 @@ files. Keep each rule small, explicit, and easy to audit.
   Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,
   or download state from a static template rule.
 - For Steam install/library discovery rules, resolve the install root from the
-  Windows registry and expand relative paths against each discovered library
-  root. Keep those relative targets narrow and safe; do not allow `..` or
-  absolute paths.
+  Windows registry using the ordered discovery sources in `rebecca-windows`
+  (`SteamPath`, `SteamExe`, `InstallPath`, then `Shell\\Open\\Command`) and
+  expand relative paths against each discovered library root. Keep those
+  relative targets narrow and safe; do not allow `..` or absolute paths.
 - Current Steam discovery-backed rules are intentionally narrow: an install-root
   cache rule may target `appcache\httpcache`, `appcache\download`, or
   `appcache\librarycache`, and
