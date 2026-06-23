@@ -5,8 +5,10 @@ use rebecca_core::environment::MapEnvironment;
 use rebecca_core::planner::{
     PlanProgressEvent, build_cleanup_plan_with_environment,
     build_cleanup_plan_with_environment_and_progress,
+    build_cleanup_plan_with_environment_and_progress_and_cancellation,
 };
-use rebecca_core::{DeleteMode, PlanRequest, Platform, TargetStatus};
+use rebecca_core::scan::ScanCancellationToken;
+use rebecca_core::{DeleteMode, PlanRequest, Platform, RebeccaError, TargetStatus};
 
 #[test]
 fn category_filter_includes_only_matching_rules() {
@@ -92,6 +94,14 @@ fn planner_reports_target_scan_progress() {
                 } => {
                     events.push(format!("finished:{rule_id}:{status:?}:{estimated_bytes}"));
                 }
+                PlanProgressEvent::FileMeasured {
+                    rule_id,
+                    files_scanned,
+                    bytes_scanned,
+                    ..
+                } => {
+                    events.push(format!("file:{rule_id}:{files_scanned}:{bytes_scanned}"));
+                }
             }
         })
         .unwrap();
@@ -112,6 +122,39 @@ fn planner_reports_target_scan_progress() {
             .iter()
             .any(|event| event == "finished:windows.user-temp:Skipped:0")
     );
+    assert!(
+        events
+            .iter()
+            .any(|event| event == "file:windows.user-temp:1:3")
+    );
+}
+
+#[test]
+fn planner_cancellation_stops_plan_build_during_file_scan() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/a.tmp", b"abc");
+    fixture.write("temp/b.tmp", b"de");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.user-temp".to_string()];
+
+    let cancellation = ScanCancellationToken::new();
+    let progress_cancellation = cancellation.clone();
+    let err = build_cleanup_plan_with_environment_and_progress_and_cancellation(
+        &request,
+        &rules,
+        &fixture.env,
+        &cancellation,
+        |event| {
+            if matches!(event, PlanProgressEvent::FileMeasured { .. }) {
+                progress_cancellation.cancel();
+            }
+        },
+    )
+    .unwrap_err();
+
+    assert!(matches!(err, RebeccaError::OperationCancelled(_)));
 }
 
 #[test]

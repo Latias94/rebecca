@@ -24,8 +24,9 @@ Rebecca is designed to preview before deleting.
 - Moderate and risky rules require explicit opt-in flags.
 - Dry-run human output highlights the largest estimated targets first and then
   groups the full target list by status.
-- Human `clean` commands show target-level scan progress by default; use
-  `--no-progress` for quiet terminal logs. JSON output never emits progress.
+- Human `clean` commands show target-level and file-level scan progress by
+  default, and honor `Ctrl+C` to cancel plan building; use `--no-progress` for
+  quiet terminal logs. JSON output never emits progress.
 
 ## Usage
 

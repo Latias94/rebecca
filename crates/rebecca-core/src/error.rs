@@ -31,6 +31,9 @@ pub enum RebeccaError {
     #[error("scan failed: {0}")]
     ScanFailed(String),
 
+    #[error("operation cancelled: {0}")]
+    OperationCancelled(String),
+
     #[error("platform feature is not available: {0}")]
     PlatformUnavailable(String),
 

@@ -1,7 +1,10 @@
 use std::fs;
 
-use rebecca_core::scan::{measure_path_size, scan_target, scan_targets};
-use rebecca_core::{DeleteMode, TargetStatus};
+use rebecca_core::scan::{
+    ScanCancellationToken, ScanProgressEvent, measure_path_size, measure_path_size_with_progress,
+    scan_target, scan_targets,
+};
+use rebecca_core::{DeleteMode, RebeccaError, TargetStatus};
 
 #[test]
 fn measures_directory_size_from_fixture_files() {
@@ -13,6 +16,60 @@ fn measures_directory_size_from_fixture_files() {
     let size = measure_path_size(temp.path()).unwrap();
 
     assert_eq!(size, 6);
+}
+
+#[test]
+fn measuring_directory_reports_file_level_progress() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+    fs::create_dir(temp.path().join("nested")).unwrap();
+    fs::write(temp.path().join("nested").join("b.txt"), b"ef").unwrap();
+
+    let token = ScanCancellationToken::new();
+    let mut events = Vec::new();
+    let size = measure_path_size_with_progress(temp.path(), &token, |event| match event {
+        ScanProgressEvent::FileMeasured {
+            file_size,
+            files_scanned,
+            bytes_scanned,
+            ..
+        } => events.push((file_size, files_scanned, bytes_scanned)),
+    })
+    .unwrap();
+
+    assert_eq!(size, 6);
+    assert_eq!(events.len(), 2);
+    assert_eq!(
+        events
+            .iter()
+            .map(|(file_size, _, _)| *file_size)
+            .sum::<u64>(),
+        6
+    );
+    assert_eq!(
+        events.last().map(|(_, files, bytes)| (*files, *bytes)),
+        Some((2, 6))
+    );
+}
+
+#[test]
+fn measuring_directory_can_be_cancelled_during_file_scan() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+    fs::write(temp.path().join("b.txt"), b"ef").unwrap();
+
+    let token = ScanCancellationToken::new();
+    let mut events = 0u64;
+    let err = measure_path_size_with_progress(temp.path(), &token, |event| match event {
+        ScanProgressEvent::FileMeasured { .. } => {
+            events += 1;
+            token.cancel();
+        }
+    })
+    .unwrap_err();
+
+    assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+    assert_eq!(events, 1);
 }
 
 #[test]

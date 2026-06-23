@@ -5,10 +5,14 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::ProgressBar;
 use rebecca_core::config::default_app_paths;
+use rebecca_core::environment::SystemEnvironment;
 use rebecca_core::executor::execute_cleanup_plan;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::{CleanupPlan, CleanupTarget};
-use rebecca_core::planner::{PlanProgressEvent, build_cleanup_plan_with_progress};
+use rebecca_core::planner::{
+    PlanProgressEvent, build_cleanup_plan_with_environment_and_progress_and_cancellation,
+};
+use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::{
     DeleteMode, PlanRequest, Platform, RuleDefinition, RuleSelection, TargetStatus,
 };
@@ -217,11 +221,28 @@ fn clean(options: CleanOptions) -> Result<()> {
     request.allow_risky = options.allow_risky;
 
     let catalog = rebecca_rules::builtin_rules()?;
+    let cancellation = ScanCancellationToken::new();
+    install_cancellation_handler(cancellation.clone())?;
     let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
-    let plan_result =
-        build_cleanup_plan_with_progress(&request, &catalog, |event| progress.on_event(event));
+    let plan_result = build_cleanup_plan_with_environment_and_progress_and_cancellation(
+        &request,
+        &catalog,
+        &SystemEnvironment,
+        &cancellation,
+        |event| progress.on_event(event),
+    );
     progress.finish();
-    let mut plan = plan_result?;
+    let mut plan = match plan_result {
+        Ok(plan) => plan,
+        Err(err) => {
+            if matches!(&err, rebecca_core::RebeccaError::OperationCancelled(_)) {
+                println!("Cleanup cancelled.");
+                return Ok(());
+            }
+
+            return Err(err.into());
+        }
+    };
 
     if options.dry_run {
         return print_plan(&plan, options.json);
@@ -254,6 +275,11 @@ fn clean(options: CleanOptions) -> Result<()> {
 
         print_plan(&plan, options.json)
     }
+}
+
+fn install_cancellation_handler(token: ScanCancellationToken) -> Result<()> {
+    ctrlc::set_handler(move || token.cancel()).context("failed to install Ctrl+C handler")?;
+    Ok(())
 }
 
 struct PlanProgressReporter {
@@ -296,6 +322,16 @@ impl PlanProgressReporter {
                     self.scanned_targets, estimated_bytes
                 ));
                 bar.tick();
+            }
+            PlanProgressEvent::FileMeasured {
+                files_scanned,
+                bytes_scanned,
+                ..
+            } => {
+                bar.set_message(format!(
+                    "Scanning files: {files_scanned}, {}",
+                    format_bytes(bytes_scanned)
+                ));
             }
         }
     }

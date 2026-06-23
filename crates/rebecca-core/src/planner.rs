@@ -7,7 +7,7 @@ use crate::error::{RebeccaError, Result};
 use crate::model::{PlanRequest, Platform, RuleDefinition, RuleTargetSpec, SafetyLevel};
 use crate::plan::{CleanupPlan, CleanupTarget};
 use crate::safety::{PathDisposition, assess_existing_path};
-use crate::scan::measure_path_size;
+use crate::scan::{ScanCancellationToken, ScanProgressEvent, measure_path_size_with_progress};
 
 #[derive(Debug, Clone, Copy)]
 pub enum PlanProgressEvent<'a> {
@@ -20,6 +20,14 @@ pub enum PlanProgressEvent<'a> {
         path: &'a Path,
         status: crate::TargetStatus,
         estimated_bytes: u64,
+    },
+    FileMeasured {
+        rule_id: &'a str,
+        target_path: &'a Path,
+        path: &'a Path,
+        file_size: u64,
+        files_scanned: u64,
+        bytes_scanned: u64,
     },
 }
 
@@ -35,7 +43,13 @@ pub fn build_cleanup_plan_with_progress<F>(
 where
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
-    build_cleanup_plan_with_environment_and_progress(request, rules, &SystemEnvironment, progress)
+    build_cleanup_plan_with_environment_and_progress_and_cancellation(
+        request,
+        rules,
+        &SystemEnvironment,
+        &ScanCancellationToken::new(),
+        progress,
+    )
 }
 
 pub fn build_cleanup_plan_with_environment(
@@ -50,6 +64,26 @@ pub fn build_cleanup_plan_with_environment_and_progress<E, F>(
     request: &PlanRequest,
     rules: &[RuleDefinition],
     env: &E,
+    progress: F,
+) -> Result<CleanupPlan>
+where
+    E: Environment,
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
+    build_cleanup_plan_with_environment_and_progress_and_cancellation(
+        request,
+        rules,
+        env,
+        &ScanCancellationToken::new(),
+        progress,
+    )
+}
+
+pub fn build_cleanup_plan_with_environment_and_progress_and_cancellation<E, F>(
+    request: &PlanRequest,
+    rules: &[RuleDefinition],
+    env: &E,
+    cancellation: &ScanCancellationToken,
     mut progress: F,
 ) -> Result<CleanupPlan>
 where
@@ -129,29 +163,50 @@ where
                 });
 
                 match assess_existing_path(&expanded) {
-                    PathDisposition::Allowed => match measure_path_size(&expanded) {
-                        Ok(size) => {
-                            let target = CleanupTarget::allowed(
-                                rule.id.clone(),
-                                expanded,
-                                size,
-                                request.mode,
-                            );
-                            emit_target_finished(&mut progress, &target);
-                            candidates.push(target);
+                    PathDisposition::Allowed => {
+                        match measure_path_size_with_progress(&expanded, cancellation, |event| {
+                            match event {
+                                ScanProgressEvent::FileMeasured {
+                                    path,
+                                    file_size,
+                                    files_scanned,
+                                    bytes_scanned,
+                                } => {
+                                    progress(PlanProgressEvent::FileMeasured {
+                                        rule_id: &rule.id,
+                                        target_path: &expanded,
+                                        path,
+                                        file_size,
+                                        files_scanned,
+                                        bytes_scanned,
+                                    });
+                                }
+                            }
+                        }) {
+                            Ok(size) => {
+                                let target = CleanupTarget::allowed(
+                                    rule.id.clone(),
+                                    expanded,
+                                    size,
+                                    request.mode,
+                                );
+                                emit_target_finished(&mut progress, &target);
+                                candidates.push(target);
+                            }
+                            Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
+                            Err(err) => {
+                                let target = CleanupTarget::failed(
+                                    rule.id.clone(),
+                                    expanded,
+                                    request.mode,
+                                    0,
+                                    err.to_string(),
+                                );
+                                emit_target_finished(&mut progress, &target);
+                                candidates.push(target);
+                            }
                         }
-                        Err(err) => {
-                            let target = CleanupTarget::failed(
-                                rule.id.clone(),
-                                expanded,
-                                request.mode,
-                                0,
-                                err.to_string(),
-                            );
-                            emit_target_finished(&mut progress, &target);
-                            candidates.push(target);
-                        }
-                    },
+                    }
                     PathDisposition::Skipped(reason) => {
                         let target =
                             CleanupTarget::skipped(rule.id.clone(), expanded, request.mode, reason);
