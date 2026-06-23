@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use rebecca_core::RuleSelection;
 
 mod clean;
 mod info;
 mod output;
+mod scan;
 
 #[derive(Debug, Parser)]
 #[command(name = "rebecca", version, about = "Windows-first cleanup CLI")]
@@ -103,7 +103,7 @@ fn main() -> Result<()> {
             json,
             categories,
             rules,
-        } => scan(json, categories, rules),
+        } => scan::run(json, categories, rules),
         Command::Clean {
             dry_run,
             json,
@@ -140,22 +140,4 @@ fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
-}
-
-fn scan(json: bool, categories: Vec<String>, rules: Vec<String>) -> Result<()> {
-    let catalog = rebecca_rules::builtin_rules()?;
-    let selection = RuleSelection::new(categories, rules);
-    let filtered = catalog
-        .iter()
-        .filter(|rule| selection.matches_rule(rule))
-        .collect::<Vec<_>>();
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(&filtered)?);
-        return Ok(());
-    }
-
-    output::print_rule_catalog(&filtered);
-
-    Ok(())
 }
