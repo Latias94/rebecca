@@ -1,8 +1,9 @@
 use std::fs;
 
+use rebecca_core::error::{ScanFailureKind, ScanFailurePhase};
 use rebecca_core::scan::{
-    ScanCancellationToken, ScanProgressEvent, measure_path_size, measure_path_size_with_progress,
-    scan_target, scan_targets,
+    ScanCancellationToken, ScanProgressEvent, measure_path, measure_path_size,
+    measure_path_size_with_progress, scan_target, scan_targets,
 };
 use rebecca_core::{DeleteMode, RebeccaError, TargetStatus};
 
@@ -16,6 +17,35 @@ fn measures_directory_size_from_fixture_files() {
     let size = measure_path_size(temp.path()).unwrap();
 
     assert_eq!(size, 6);
+}
+
+#[test]
+fn measures_directory_report_from_fixture_files() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+    fs::create_dir(temp.path().join("nested")).unwrap();
+    fs::write(temp.path().join("nested").join("b.txt"), b"ef").unwrap();
+
+    let report = measure_path(temp.path()).unwrap();
+
+    assert_eq!(report.bytes_scanned, 6);
+    assert_eq!(report.files_scanned, 2);
+    assert_eq!(report.directories_scanned, 2);
+}
+
+#[test]
+fn missing_path_size_reports_structured_scan_failure() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing");
+
+    let err = measure_path_size(&missing).unwrap_err();
+
+    let RebeccaError::ScanFailed(failure) = err else {
+        panic!("expected structured scan failure");
+    };
+    assert_eq!(failure.kind, ScanFailureKind::NotFound);
+    assert_eq!(failure.phase, ScanFailurePhase::RootMetadata);
+    assert_eq!(failure.path, missing);
 }
 
 #[test]

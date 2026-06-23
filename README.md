@@ -99,4 +99,5 @@ cargo fmt --all
 cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace
+cargo bench -p rebecca-core --bench scan_baseline
 ```

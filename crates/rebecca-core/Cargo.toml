@@ -18,5 +18,10 @@ toml.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 rebecca-rules = { path = "../rebecca-rules" }
 tempfile.workspace = true
+
+[[bench]]
+name = "scan_baseline"
+harness = false

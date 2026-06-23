@@ -11,7 +11,7 @@ pub mod planner;
 pub mod safety;
 pub mod scan;
 
-pub use error::{RebeccaError, Result};
+pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use model::{
     DeleteMode, DeletePolicy, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance,
     RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,

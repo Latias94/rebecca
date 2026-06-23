@@ -8,7 +8,7 @@ use ignore::WalkBuilder;
 use rayon::prelude::*;
 
 use crate::TargetStatus;
-use crate::error::{RebeccaError, Result};
+use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::plan::CleanupTarget;
 use crate::safety::{PathDisposition, assess_existing_path};
 
@@ -41,8 +41,26 @@ pub enum ScanProgressEvent<'a> {
     },
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScanReport {
+    pub bytes_scanned: u64,
+    pub files_scanned: u64,
+    pub directories_scanned: u64,
+}
+
+impl ScanReport {
+    fn record_file(&mut self, bytes: u64) {
+        self.files_scanned = self.files_scanned.saturating_add(1);
+        self.bytes_scanned = self.bytes_scanned.saturating_add(bytes);
+    }
+
+    fn record_directory(&mut self) {
+        self.directories_scanned = self.directories_scanned.saturating_add(1);
+    }
+}
+
 pub fn measure_path_size(path: &Path) -> Result<u64> {
-    measure_path_size_with_progress(path, &ScanCancellationToken::new(), |_| {})
+    measure_path(path).map(|report| report.bytes_scanned)
 }
 
 pub fn measure_path_size_with_progress<F>(
@@ -53,8 +71,29 @@ pub fn measure_path_size_with_progress<F>(
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
+    measure_path_with_progress(path, cancellation, progress).map(|report| report.bytes_scanned)
+}
+
+pub fn measure_path(path: &Path) -> Result<ScanReport> {
+    measure_path_with_progress(path, &ScanCancellationToken::new(), |_| {})
+}
+
+pub fn measure_path_with_progress<F>(
+    path: &Path,
+    cancellation: &ScanCancellationToken,
+    progress: F,
+) -> Result<ScanReport>
+where
+    F: for<'a> FnMut(ScanProgressEvent<'a>),
+{
     check_not_cancelled(cancellation)?;
-    let metadata = std::fs::symlink_metadata(path)?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|err| {
+        RebeccaError::ScanFailed(ScanFailure::from_io(
+            path,
+            ScanFailurePhase::RootMetadata,
+            &err,
+        ))
+    })?;
 
     if metadata.file_type().is_symlink() {
         return Err(RebeccaError::SafetyBlocked(
@@ -65,36 +104,52 @@ where
     if metadata.is_file() {
         let file_size = metadata.len();
         let mut progress = progress;
+        let mut report = ScanReport::default();
+        report.record_file(file_size);
         progress(ScanProgressEvent::FileMeasured {
             path,
             file_size,
-            files_scanned: 1,
-            bytes_scanned: file_size,
+            files_scanned: report.files_scanned,
+            bytes_scanned: report.bytes_scanned,
         });
-        return Ok(file_size);
+        return Ok(report);
     }
 
     if metadata.is_dir() {
-        return measure_directory_size_with_progress(path, cancellation, progress);
+        return measure_directory_with_progress(path, cancellation, progress);
     }
 
-    Ok(0)
+    Ok(ScanReport::default())
 }
 
 pub fn measure_directory_size(path: &Path) -> Result<u64> {
-    measure_directory_size_with_progress(path, &ScanCancellationToken::new(), |_| {})
+    measure_directory(path).map(|report| report.bytes_scanned)
 }
 
 pub fn measure_directory_size_with_progress<F>(
     path: &Path,
     cancellation: &ScanCancellationToken,
-    mut progress: F,
+    progress: F,
 ) -> Result<u64>
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
-    let mut total = 0u64;
-    let mut files_scanned = 0u64;
+    measure_directory_with_progress(path, cancellation, progress).map(|report| report.bytes_scanned)
+}
+
+pub fn measure_directory(path: &Path) -> Result<ScanReport> {
+    measure_directory_with_progress(path, &ScanCancellationToken::new(), |_| {})
+}
+
+pub fn measure_directory_with_progress<F>(
+    path: &Path,
+    cancellation: &ScanCancellationToken,
+    mut progress: F,
+) -> Result<ScanReport>
+where
+    F: for<'a> FnMut(ScanProgressEvent<'a>),
+{
+    let mut report = ScanReport::default();
     let walker = WalkBuilder::new(path)
         .hidden(false)
         .follow_links(false)
@@ -102,29 +157,37 @@ where
 
     for entry in walker {
         check_not_cancelled(cancellation)?;
-        let entry = entry.map_err(|err| RebeccaError::ScanFailed(err.to_string()))?;
-        let metadata = entry
-            .metadata()
-            .map_err(|err| RebeccaError::ScanFailed(err.to_string()))?;
+        let entry = entry
+            .map_err(|err| RebeccaError::ScanFailed(ScanFailure::directory_walk(path, &err)))?;
+        let metadata = entry.metadata().map_err(|err| {
+            RebeccaError::ScanFailed(ScanFailure::from_ignore(
+                entry.path(),
+                ScanFailurePhase::EntryMetadata,
+                &err,
+            ))
+        })?;
 
         if metadata.file_type().is_symlink() {
             continue;
         }
 
+        if metadata.is_dir() {
+            report.record_directory();
+        }
+
         if metadata.is_file() {
-            files_scanned = files_scanned.saturating_add(1);
             let file_size = metadata.len();
-            total = total.saturating_add(file_size);
+            report.record_file(file_size);
             progress(ScanProgressEvent::FileMeasured {
                 path: entry.path(),
                 file_size,
-                files_scanned,
-                bytes_scanned: total,
+                files_scanned: report.files_scanned,
+                bytes_scanned: report.bytes_scanned,
             });
         }
     }
 
-    Ok(total)
+    Ok(report)
 }
 
 fn check_not_cancelled(cancellation: &ScanCancellationToken) -> Result<()> {
