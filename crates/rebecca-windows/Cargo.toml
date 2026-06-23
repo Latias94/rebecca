@@ -1,0 +1,17 @@
+[package]
+name = "rebecca-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+rebecca-core = { path = "../rebecca-core" }
+
+[target.'cfg(windows)'.dependencies]
+trash.workspace = true
+windows.workspace = true
+winreg.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
