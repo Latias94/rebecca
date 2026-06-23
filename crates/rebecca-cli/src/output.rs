@@ -33,17 +33,31 @@ pub fn print_rule_catalog(rules: &[&RuleDefinition]) {
                 rule.id,
                 rule.safety_level.label(),
                 rule.name,
-                rule_restore_hint_suffix(rule)
+                restore_hint_suffix(rule.restore_hint.as_deref())
             );
         }
     }
 }
 
-fn rule_restore_hint_suffix(rule: &RuleDefinition) -> String {
-    rule.restore_hint
-        .as_ref()
-        .map(|hint| format!(" [restore: {hint}]"))
-        .unwrap_or_default()
+pub(crate) fn restore_hint_suffix<I, S>(restore_hints: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut unique_hints = Vec::new();
+
+    for hint in restore_hints {
+        let hint = hint.as_ref();
+        if !unique_hints.iter().any(|existing| existing == hint) {
+            unique_hints.push(hint.to_string());
+        }
+    }
+
+    if unique_hints.is_empty() {
+        String::new()
+    } else {
+        format!(" [restore: {}]", unique_hints.join("; "))
+    }
 }
 
 pub fn print_plan(plan: &CleanupPlan, json: bool) -> Result<()> {
@@ -151,11 +165,7 @@ fn print_target_line(target: &CleanupTarget, prefix: &str) {
             .as_ref()
             .map(|reason| format!(" ({reason})"))
             .unwrap_or_default(),
-        target
-            .restore_hint
-            .as_ref()
-            .map(|hint| format!(" [restore: {hint}]"))
-            .unwrap_or_default()
+        restore_hint_suffix(target.restore_hint.as_deref())
     );
 }
 
@@ -191,5 +201,22 @@ fn status_label(status: TargetStatus) -> &'static str {
         TargetStatus::Blocked => "blocked",
         TargetStatus::Failed => "failed",
         TargetStatus::Completed => "completed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restore_hint_suffix;
+
+    #[test]
+    fn restore_hint_suffix_deduplicates_and_formats_hints() {
+        assert_eq!(
+            restore_hint_suffix([
+                "Steam web caches will be rebuilt on launch.",
+                "Steam web caches will be rebuilt on launch.",
+                "Steam download staging data will be recreated if needed.",
+            ]),
+            " [restore: Steam web caches will be rebuilt on launch.; Steam download staging data will be recreated if needed.]"
+        );
     }
 }

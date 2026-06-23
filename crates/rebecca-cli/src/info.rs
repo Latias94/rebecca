@@ -5,7 +5,9 @@ use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
 use rebecca_core::config::default_app_paths;
-use rebecca_core::history::{HistoryEntry, HistoryStore};
+use rebecca_core::history::HistoryStore;
+
+use crate::output::restore_hint_suffix;
 
 pub fn print_history(json: bool) -> Result<()> {
     let paths = default_app_paths()?;
@@ -30,31 +32,16 @@ pub fn print_history(json: bool) -> Result<()> {
             entry.summary.completed_targets,
             entry.summary.failed_targets,
             entry.summary.pending_reclaim_bytes,
-            history_restore_hint_suffix(&entry)
+            restore_hint_suffix(
+                entry
+                    .targets
+                    .iter()
+                    .filter_map(|target| target.restore_hint.as_deref())
+            )
         );
     }
 
     Ok(())
-}
-
-fn history_restore_hint_suffix(entry: &HistoryEntry) -> String {
-    let mut restore_hints = Vec::new();
-
-    for hint in entry
-        .targets
-        .iter()
-        .filter_map(|target| target.restore_hint.as_deref())
-    {
-        if !restore_hints.iter().any(|existing| existing == hint) {
-            restore_hints.push(hint.to_string());
-        }
-    }
-
-    if restore_hints.is_empty() {
-        String::new()
-    } else {
-        format!(" [restore: {}]", restore_hints.join("; "))
-    }
 }
 
 pub fn print_config_paths(json: bool) -> Result<()> {
