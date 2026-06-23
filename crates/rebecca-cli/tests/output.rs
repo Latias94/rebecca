@@ -1,3 +1,4 @@
+mod isolated;
 mod support;
 
 #[test]
@@ -26,7 +27,7 @@ fn clean_human_output_uses_lowercase_status_labels() {
     std::fs::create_dir_all(&temp_cache).unwrap();
     std::fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .args(["clean", "--dry-run", "--rule", "windows.user-temp"])
         .output()

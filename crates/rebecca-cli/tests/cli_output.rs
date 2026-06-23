@@ -1,11 +1,12 @@
 use std::process::Command;
 
+mod isolated;
 mod support;
 
 #[test]
 fn config_paths_json_is_parseable() {
     let temp = tempfile::tempdir().unwrap();
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .args(["config", "paths", "--json"])
         .output()
         .unwrap();
@@ -50,7 +51,7 @@ fn doctor_permissions_prints_permission_label() {
 #[test]
 fn doctor_steam_prints_discovery_status() {
     let temp = tempfile::tempdir().unwrap();
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .args(["doctor", "steam"])
         .output()
         .unwrap();
@@ -84,7 +85,7 @@ fn doctor_steam_prints_library_list_when_discovered() {
     )
     .unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
         .env("LOCALAPPDATA", temp.path().join("local"))
         .args(["doctor", "steam"])

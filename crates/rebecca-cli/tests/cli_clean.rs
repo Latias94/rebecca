@@ -1,5 +1,6 @@
 use std::fs;
 
+mod isolated;
 mod support;
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {
@@ -9,7 +10,7 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     let file = temp_cache.join("cache.tmp");
     fs::write(&file, b"cache").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("LOCALAPPDATA", temp.path().join("local"))
@@ -38,7 +39,7 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", temp.path().join("roaming"))
@@ -87,7 +88,7 @@ fn clean_human_output_highlights_largest_targets_by_size() {
     fs::write(chrome_profile_code_cache.join("code.bin"), b"123456").unwrap();
     fs::write(chrome_default_cache.join("chrome.bin"), b"1234").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("LOCALAPPDATA", &local)
         .args(["clean", "--dry-run", "--category", "browser"])
         .output()
@@ -133,7 +134,7 @@ fn clean_dry_run_accepts_no_progress_flag() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .args([
             "clean",
@@ -165,7 +166,7 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
     fs::create_dir_all(&librarycache).unwrap();
     fs::write(librarycache.join("cache.bin"), b"abc").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
         .args([
             "clean",
@@ -211,7 +212,7 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
     fs::create_dir_all(&httpcache).unwrap();
     fs::write(httpcache.join("cache.bin"), b"abcd").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
         .args([
             "clean",
@@ -255,7 +256,7 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     fs::create_dir_all(&npm_cache).unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("APPDATA", &roaming)
         .args([
             "clean",
@@ -294,7 +295,7 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
     fs::create_dir_all(&npm_cache).unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("APPDATA", &roaming)
         .args([
             "clean",
@@ -329,7 +330,7 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
 #[test]
 fn clean_unknown_rule_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .args(["clean", "--dry-run", "--json", "--rule", "missing.rule"])
         .output()
         .unwrap();
@@ -342,7 +343,7 @@ fn clean_unknown_rule_returns_clear_error() {
 #[test]
 fn non_windows_execution_is_reported_as_unsupported() {
     let temp = tempfile::tempdir().unwrap();
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", temp.path().join("temp"))
         .args(["clean", "--yes"])
         .output()

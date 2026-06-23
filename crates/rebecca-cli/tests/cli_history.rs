@@ -1,9 +1,10 @@
+mod isolated;
 mod support;
 
 #[test]
 fn history_json_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
-    let output = support::isolated_rebecca(&temp)
+    let output = isolated::isolated_rebecca(&temp)
         .args(["history", "--json"])
         .output()
         .unwrap();
