@@ -1,6 +1,6 @@
 use std::fs;
-use std::process::Command;
 
+mod support;
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
@@ -9,7 +9,7 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     let file = temp_cache.join("cache.tmp");
     fs::write(&file, b"cache").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("LOCALAPPDATA", temp.path().join("local"))
@@ -18,7 +18,11 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
     assert!(file.exists(), "dry-run must not delete files");
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -34,7 +38,7 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", temp.path().join("roaming"))
@@ -48,7 +52,11 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 2);
@@ -79,13 +87,17 @@ fn clean_human_output_highlights_largest_targets_by_size() {
     fs::write(chrome_profile_code_cache.join("code.bin"), b"123456").unwrap();
     fs::write(chrome_default_cache.join("chrome.bin"), b"1234").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("LOCALAPPDATA", &local)
         .args(["clean", "--dry-run", "--category", "browser"])
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Estimated bytes: 20 (20 B)"));
@@ -121,7 +133,7 @@ fn clean_dry_run_accepts_no_progress_flag() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .args([
             "clean",
@@ -133,7 +145,11 @@ fn clean_dry_run_accepts_no_progress_flag() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Cleanup mode: dry-run"));
@@ -149,7 +165,7 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
     fs::create_dir_all(&librarycache).unwrap();
     fs::write(librarycache.join("cache.bin"), b"abc").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
         .args([
             "clean",
@@ -161,7 +177,11 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 1);
@@ -191,7 +211,7 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
     fs::create_dir_all(&httpcache).unwrap();
     fs::write(httpcache.join("cache.bin"), b"abcd").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
         .args([
             "clean",
@@ -203,7 +223,11 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 1);
@@ -231,7 +255,7 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     fs::create_dir_all(&npm_cache).unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("APPDATA", &roaming)
         .args([
             "clean",
@@ -244,7 +268,11 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 1);
@@ -266,7 +294,7 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
     fs::create_dir_all(&npm_cache).unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("APPDATA", &roaming)
         .args([
             "clean",
@@ -279,7 +307,11 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 1);
@@ -297,61 +329,25 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
 #[test]
 fn clean_unknown_rule_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .args(["clean", "--dry-run", "--json", "--rule", "missing.rule"])
         .output()
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(stderr(&output).contains("invalid rule id"));
+    assert!(support::stderr(&output).contains("invalid rule id"));
 }
 
 #[cfg(not(windows))]
 #[test]
 fn non_windows_execution_is_reported_as_unsupported() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("TEMP", temp.path().join("temp"))
         .args(["clean", "--yes"])
         .output()
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(stderr(&output).contains("Windows-only"));
-}
-
-fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
-    let roaming = temp.path().join("roaming");
-    let local = temp.path().join("local");
-    let config = temp.path().join("config");
-    let data = temp.path().join("data");
-    let cache = temp.path().join("cache");
-    let temp_dir = temp.path().join("temp");
-
-    for path in [&roaming, &local, &config, &data, &cache, &temp_dir] {
-        std::fs::create_dir_all(path).unwrap();
-    }
-
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rebecca"));
-    command
-        .env("HOME", temp.path())
-        .env("USERPROFILE", temp.path())
-        .env("APPDATA", roaming)
-        .env("LOCALAPPDATA", local)
-        .env("XDG_CONFIG_HOME", config)
-        .env("XDG_DATA_HOME", data)
-        .env("XDG_CACHE_HOME", cache)
-        .env("TEMP", temp_dir)
-        .env("REBECCA_CONFIG_DIR", temp.path().join("rebecca-config"))
-        .env("REBECCA_STATE_DIR", temp.path().join("rebecca-state"))
-        .env("REBECCA_CACHE_DIR", temp.path().join("rebecca-cache"))
-        .env(
-            "REBECCA_HISTORY_FILE",
-            temp.path().join("rebecca-state").join("history.jsonl"),
-        );
-    command
-}
-
-fn stderr(output: &std::process::Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
+    assert!(support::stderr(&output).contains("Windows-only"));
 }

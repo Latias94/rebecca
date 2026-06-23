@@ -1,10 +1,17 @@
-use std::process::Command;
+mod support;
 
 #[test]
 fn scan_json_lists_builtin_rules() {
-    let output = rebecca().args(["scan", "--json"]).output().unwrap();
+    let output = support::rebecca()
+        .args(["scan", "--json"])
+        .output()
+        .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let rules = value.as_array().expect("scan output should be an array");
     let ids = rules
@@ -43,7 +50,7 @@ fn scan_json_lists_builtin_rules() {
 
 #[test]
 fn scan_json_filters_by_category_and_rule() {
-    let output = rebecca()
+    let output = support::rebecca()
         .args([
             "scan",
             "--json",
@@ -55,7 +62,11 @@ fn scan_json_filters_by_category_and_rule() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let rules = value.as_array().expect("scan output should be an array");
@@ -67,9 +78,13 @@ fn scan_json_filters_by_category_and_rule() {
 
 #[test]
 fn scan_human_output_groups_rules_by_category() {
-    let output = rebecca().args(["scan"]).output().unwrap();
+    let output = support::rebecca().args(["scan"]).output().unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("- browser ("));
@@ -81,23 +96,19 @@ fn scan_human_output_groups_rules_by_category() {
 
 #[test]
 fn scan_human_output_filters_by_category() {
-    let output = rebecca()
+    let output = support::rebecca()
         .args(["scan", "--category", "browser"])
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Rebecca rules: "));
     assert!(stdout.contains("- browser ("));
     assert!(!stdout.contains("- development ("));
-}
-
-fn rebecca() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_rebecca"))
-}
-
-fn stderr(output: &std::process::Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
 }

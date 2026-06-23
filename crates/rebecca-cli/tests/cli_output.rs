@@ -1,14 +1,20 @@
 use std::process::Command;
 
+mod support;
+
 #[test]
 fn config_paths_json_is_parseable() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .args(["config", "paths", "--json"])
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
     assert!(
@@ -32,7 +38,11 @@ fn doctor_permissions_prints_permission_label() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Privilege level:"));
 }
@@ -40,12 +50,16 @@ fn doctor_permissions_prints_permission_label() {
 #[test]
 fn doctor_steam_prints_discovery_status() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .args(["doctor", "steam"])
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Steam install:"));
 }
@@ -70,51 +84,19 @@ fn doctor_steam_prints_library_list_when_discovered() {
     )
     .unwrap();
 
-    let output = isolated_rebecca(&temp)
+    let output = support::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
         .env("LOCALAPPDATA", temp.path().join("local"))
         .args(["doctor", "steam"])
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        support::stderr(&output)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Steam libraries:"));
     assert!(stdout.contains(r"D:\SteamLibrary"));
-}
-
-fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
-    let roaming = temp.path().join("roaming");
-    let local = temp.path().join("local");
-    let config = temp.path().join("config");
-    let data = temp.path().join("data");
-    let cache = temp.path().join("cache");
-    let temp_dir = temp.path().join("temp");
-
-    for path in [&roaming, &local, &config, &data, &cache, &temp_dir] {
-        std::fs::create_dir_all(path).unwrap();
-    }
-
-    let mut command = Command::new(env!("CARGO_BIN_EXE_rebecca"));
-    command
-        .env("HOME", temp.path())
-        .env("USERPROFILE", temp.path())
-        .env("APPDATA", roaming)
-        .env("LOCALAPPDATA", local)
-        .env("XDG_CONFIG_HOME", config)
-        .env("XDG_DATA_HOME", data)
-        .env("XDG_CACHE_HOME", cache)
-        .env("TEMP", temp_dir)
-        .env("REBECCA_CONFIG_DIR", temp.path().join("rebecca-config"))
-        .env("REBECCA_STATE_DIR", temp.path().join("rebecca-state"))
-        .env("REBECCA_CACHE_DIR", temp.path().join("rebecca-cache"))
-        .env(
-            "REBECCA_HISTORY_FILE",
-            temp.path().join("rebecca-state").join("history.jsonl"),
-        );
-    command
-}
-
-fn stderr(output: &std::process::Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
 }
