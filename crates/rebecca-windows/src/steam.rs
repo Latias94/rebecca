@@ -42,8 +42,16 @@ impl ApplicationDiscovery for WindowsApplicationDiscovery {
 
 #[cfg(windows)]
 fn discover_steam_installation() -> Result<Option<SteamInstallation>> {
+    discover_steam_installation_with(registry_string_value)
+}
+
+#[cfg(windows)]
+fn discover_steam_installation_with<F>(mut lookup: F) -> Result<Option<SteamInstallation>>
+where
+    F: FnMut(HKEY, &str, &str) -> Result<Option<String>>,
+{
     for source in steam_registry_sources() {
-        if let Some(path) = resolve_steam_registry_source(source)? {
+        if let Some(path) = resolve_steam_registry_source(source, &mut lookup)? {
             return Ok(Some(steam_installation_from_path(path)));
         }
     }
@@ -88,12 +96,16 @@ fn steam_registry_sources() -> [SteamRegistrySource; 5] {
 }
 
 #[cfg(windows)]
-fn resolve_steam_registry_source(source: SteamRegistrySource) -> Result<Option<PathBuf>> {
-    Ok(
-        registry_string_value(source.root, source.key_path, source.value_name)?
-            .as_deref()
-            .and_then(source.parser),
-    )
+fn resolve_steam_registry_source<F>(
+    source: SteamRegistrySource,
+    lookup: &mut F,
+) -> Result<Option<PathBuf>>
+where
+    F: FnMut(HKEY, &str, &str) -> Result<Option<String>>,
+{
+    Ok(lookup(source.root, source.key_path, source.value_name)?
+        .as_deref()
+        .and_then(source.parser))
 }
 
 #[cfg(windows)]
@@ -184,9 +196,12 @@ mod tests {
     use std::fs;
 
     use super::{
-        command_install_path_from_command, extract_command_executable,
-        install_root_from_executable_path, steam_installation_from_path, steam_registry_sources,
+        command_install_path_from_command, discover_steam_installation_with,
+        extract_command_executable, install_root_from_executable_path,
+        steam_installation_from_path,
     };
+    use winreg::HKEY;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     #[test]
     fn steam_installation_falls_back_to_install_root_when_libraryfolders_is_unreadable() {
@@ -275,22 +290,70 @@ mod tests {
     }
 
     #[test]
-    fn steam_registry_sources_prefer_specific_values_before_legacy_fallbacks() {
-        let sources = steam_registry_sources();
+    fn discover_steam_installation_prefers_steam_path_over_legacy_values() {
+        let mut queries = Vec::new();
+        let mut lookup = |root: HKEY, key_path: &str, value_name: &str| {
+            queries.push((root, key_path.to_string(), value_name.to_string()));
+            Ok(Some(match value_name {
+                "SteamPath" => r"C:\Steam".to_string(),
+                "SteamExe" => r"C:\Steam\steam.exe".to_string(),
+                "InstallPath" => r"C:\LegacySteam".to_string(),
+                _ => r#""C:\Steam\steam.exe" -- "%1""#.to_string(),
+            }))
+        };
 
-        let descriptors = sources
-            .iter()
-            .map(|source| (source.key_path, source.value_name))
-            .collect::<Vec<_>>();
+        let installation = discover_steam_installation_with(&mut lookup)
+            .unwrap()
+            .expect("Steam should be discovered");
 
         assert_eq!(
-            descriptors,
+            installation.install_path(),
+            std::path::Path::new(r"C:\Steam")
+        );
+        assert_eq!(
+            queries,
+            vec![(
+                HKEY_CURRENT_USER,
+                "Software\\Valve\\Steam".to_string(),
+                "SteamPath".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn discover_steam_installation_uses_steamexe_before_lm_install_path() {
+        let mut queries = Vec::new();
+        let mut lookup = |root: HKEY, key_path: &str, value_name: &str| {
+            queries.push((root, key_path.to_string(), value_name.to_string()));
+            Ok(match value_name {
+                "SteamPath" => None,
+                "SteamExe" => Some(r"C:\Steam\steam.exe".to_string()),
+                "InstallPath" => Some(r"C:\LegacySteam".to_string()),
+                _ => Some(r#""C:\Steam\steam.exe" -- "%1""#.to_string()),
+            })
+        };
+
+        let installation = discover_steam_installation_with(&mut lookup)
+            .unwrap()
+            .expect("Steam should be discovered");
+
+        assert_eq!(
+            installation.install_path(),
+            std::path::Path::new(r"C:\Steam")
+        );
+        assert_eq!(
+            queries,
             vec![
-                ("Software\\Valve\\Steam", "SteamPath"),
-                ("Software\\Valve\\Steam", "SteamExe"),
-                ("SOFTWARE\\Valve\\Steam", "InstallPath"),
-                ("SOFTWARE\\WOW6432Node\\Valve\\Steam", "InstallPath"),
-                ("steam\\Shell\\Open\\Command", ""),
+                (
+                    HKEY_CURRENT_USER,
+                    "Software\\Valve\\Steam".to_string(),
+                    "SteamPath".to_string()
+                ),
+                (
+                    HKEY_CURRENT_USER,
+                    "Software\\Valve\\Steam".to_string(),
+                    "SteamExe".to_string()
+                )
             ]
         );
     }
