@@ -4,7 +4,7 @@ use rebecca_core::RuleSelection;
 pub fn run(json: bool, categories: Vec<String>, rules: Vec<String>) -> Result<()> {
     let catalog = rebecca_rules::builtin_rules()?;
     let selection = RuleSelection::new(categories, rules);
-    rebecca_core::planner::validate_rule_selection(&selection, &catalog)?;
+    selection.validate_against_rules(&catalog)?;
     let filtered = catalog
         .iter()
         .filter(|rule| selection.matches_rule(rule))

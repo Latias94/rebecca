@@ -135,7 +135,7 @@ where
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
     let selection = request.selection();
-    validate_rule_selection(&selection, rules)?;
+    selection.validate_against_rules(rules)?;
 
     let mut candidates = Vec::new();
     let mut seen_paths = BTreeSet::new();
@@ -331,46 +331,6 @@ fn dedupe_key(path: &Path, platform: Platform) -> String {
 
 fn with_rule_restore_hint(target: CleanupTarget, rule: &RuleDefinition) -> CleanupTarget {
     target.with_restore_hint(rule.restore_hint.clone())
-}
-
-fn validate_selected_rule_ids(
-    selection: &crate::RuleSelection,
-    rules: &[RuleDefinition],
-) -> Result<()> {
-    for selected in selection.rule_ids() {
-        let known = rules
-            .iter()
-            .any(|rule| rule.id.eq_ignore_ascii_case(selected));
-        if !known {
-            return Err(RebeccaError::InvalidRuleId(selected.clone()));
-        }
-    }
-
-    Ok(())
-}
-
-pub fn validate_rule_selection(
-    selection: &crate::RuleSelection,
-    rules: &[RuleDefinition],
-) -> Result<()> {
-    validate_selected_categories(selection, rules)?;
-    validate_selected_rule_ids(selection, rules)
-}
-
-fn validate_selected_categories(
-    selection: &crate::RuleSelection,
-    rules: &[RuleDefinition],
-) -> Result<()> {
-    for selected in &selection.categories {
-        let known = rules
-            .iter()
-            .any(|rule| rule.category.eq_ignore_ascii_case(selected));
-        if !known {
-            return Err(RebeccaError::InvalidCategory(selected.clone()));
-        }
-    }
-
-    Ok(())
 }
 
 pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {

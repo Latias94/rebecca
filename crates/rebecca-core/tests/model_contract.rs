@@ -106,6 +106,26 @@ fn rule_selection_matches_rules_case_insensitively() {
     assert!(!selection.matches_rule(&browser_rule));
 }
 
+#[test]
+fn rule_selection_validation_rejects_unknown_category() {
+    let selection = RuleSelection::new(vec!["missing".to_string()], Vec::new());
+    let rules = vec![test_rule("windows.user-temp")];
+
+    let err = selection.validate_against_rules(&rules).unwrap_err();
+
+    assert!(err.to_string().contains("invalid category"));
+}
+
+#[test]
+fn rule_selection_validation_rejects_unknown_rule_id() {
+    let selection = RuleSelection::new(Vec::new(), vec!["missing.rule".to_string()]);
+    let rules = vec![test_rule("windows.user-temp")];
+
+    let err = selection.validate_against_rules(&rules).unwrap_err();
+
+    assert!(err.to_string().contains("invalid rule id"));
+}
+
 fn test_rule(id: &str) -> RuleDefinition {
     RuleDefinition {
         id: id.to_string(),

@@ -174,6 +174,31 @@ impl RuleSelection {
 
         selected_category && selected_id
     }
+
+    pub fn validate_against_rules(
+        &self,
+        rules: &[RuleDefinition],
+    ) -> Result<(), crate::RebeccaError> {
+        for selected in &self.categories {
+            let known = rules
+                .iter()
+                .any(|rule| rule.category.eq_ignore_ascii_case(selected));
+            if !known {
+                return Err(crate::RebeccaError::InvalidCategory(selected.clone()));
+            }
+        }
+
+        for selected in self.rule_ids() {
+            let known = rules
+                .iter()
+                .any(|rule| rule.id.eq_ignore_ascii_case(selected));
+            if !known {
+                return Err(crate::RebeccaError::InvalidRuleId(selected.clone()));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
