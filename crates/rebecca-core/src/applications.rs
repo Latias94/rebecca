@@ -70,17 +70,7 @@ impl SteamInstallation {
 
     pub fn from_install_path(install_path: impl Into<PathBuf>) -> Result<Self> {
         let install_path = install_path.into();
-        let library_file = install_path.join("steamapps").join("libraryfolders.vdf");
-        let library_paths = match fs::read_to_string(&library_file) {
-            Ok(raw) => parse_steam_libraryfolders(&raw)?,
-            Err(err) if err.kind() == ErrorKind::NotFound => Vec::new(),
-            Err(err) => {
-                return Err(RebeccaError::ApplicationDiscoveryFailed(format!(
-                    "could not read Steam library folders at {}: {err}",
-                    library_file.display()
-                )));
-            }
-        };
+        let library_paths = read_steam_libraryfolders(&install_path)?;
 
         Ok(Self::new(install_path, library_paths))
     }
@@ -109,6 +99,41 @@ pub fn parse_steam_libraryfolders(raw: &str) -> Result<Vec<PathBuf>> {
             return Ok(dedupe_paths(paths));
         }
         index += 1;
+    }
+
+    Ok(dedupe_paths(paths))
+}
+
+fn read_steam_libraryfolders(install_path: &Path) -> Result<Vec<PathBuf>> {
+    let candidates = [
+        install_path.join("config").join("libraryfolders.vdf"),
+        install_path.join("steamapps").join("libraryfolders.vdf"),
+    ];
+    let mut paths = Vec::new();
+    let mut first_error: Option<RebeccaError> = None;
+
+    for library_file in candidates {
+        match fs::read_to_string(&library_file) {
+            Ok(raw) => match parse_steam_libraryfolders(&raw) {
+                Ok(mut discovered) => paths.append(&mut discovered),
+                Err(err) if first_error.is_none() => first_error = Some(err),
+                Err(_) => {}
+            },
+            Err(err) if err.kind() == ErrorKind::NotFound => {}
+            Err(err) if first_error.is_none() => {
+                first_error = Some(RebeccaError::ApplicationDiscoveryFailed(format!(
+                    "could not read Steam library folders at {}: {err}",
+                    library_file.display()
+                )));
+            }
+            Err(_) => {}
+        }
+    }
+
+    if paths.is_empty() {
+        if let Some(err) = first_error {
+            return Err(err);
+        }
     }
 
     Ok(dedupe_paths(paths))

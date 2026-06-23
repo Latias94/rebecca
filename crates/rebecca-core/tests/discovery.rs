@@ -135,6 +135,82 @@ fn steam_installation_reads_libraryfolders_from_install_path() {
 }
 
 #[test]
+fn steam_installation_merges_config_and_steamapps_libraryfolders() {
+    let temp = tempfile::tempdir().unwrap();
+    let install_path = temp.path().join("Steam");
+    let config = install_path.join("config");
+    let steamapps = install_path.join("steamapps");
+    fs::create_dir_all(&config).unwrap();
+    fs::create_dir_all(&steamapps).unwrap();
+    fs::write(
+        config.join("libraryfolders.vdf"),
+        r#"
+"libraryfolders"
+{
+    "0"
+    {
+        "path"      "D:\\ConfigLibrary"
+    }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        steamapps.join("libraryfolders.vdf"),
+        r#"
+"libraryfolders"
+{
+    "1"
+    {
+        "path"      "E:\\SteamAppsLibrary"
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let installation = SteamInstallation::from_install_path(&install_path).unwrap();
+
+    assert_eq!(installation.install_path(), install_path.as_path());
+    assert_eq!(
+        installation.library_paths(),
+        &[
+            std::path::PathBuf::from(r"D:\ConfigLibrary"),
+            std::path::PathBuf::from(r"E:\SteamAppsLibrary")
+        ]
+    );
+}
+
+#[test]
+fn steam_installation_ignores_missing_but_keeps_readable_libraryfolders() {
+    let temp = tempfile::tempdir().unwrap();
+    let install_path = temp.path().join("Steam");
+    let config = install_path.join("config");
+    fs::create_dir_all(&config).unwrap();
+    fs::write(
+        config.join("libraryfolders.vdf"),
+        r#"
+"libraryfolders"
+{
+    "0"
+    {
+        "path"      "D:\\ConfigLibrary"
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let installation = SteamInstallation::from_install_path(&install_path).unwrap();
+
+    assert_eq!(installation.install_path(), install_path.as_path());
+    assert_eq!(
+        installation.library_paths(),
+        &[std::path::PathBuf::from(r"D:\ConfigLibrary")]
+    );
+}
+
+#[test]
 fn steam_installation_reports_read_errors_for_libraryfolders_file() {
     let temp = tempfile::tempdir().unwrap();
     let install_path = temp.path().join("Steam");

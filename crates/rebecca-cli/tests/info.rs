@@ -54,16 +54,22 @@ fn doctor_steam_prints_discovery_status() {
 fn doctor_steam_prints_library_list_when_discovered() {
     let temp = tempfile::tempdir().unwrap();
     let steam = temp.path().join("Steam");
+    let config = steam.join("config");
     let steamapps = steam.join("steamapps");
+    std::fs::create_dir_all(&config).unwrap();
     std::fs::create_dir_all(&steamapps).unwrap();
     std::fs::write(
-        steamapps.join("libraryfolders.vdf"),
+        config.join("libraryfolders.vdf"),
         r#"
 "libraryfolders"
 {
     "0"
     {
         "path"      "D:\\SteamLibrary"
+    }
+    "1"
+    {
+        "path"      "E:\\SteamLibrary"
     }
 }
 "#,
@@ -81,6 +87,7 @@ fn doctor_steam_prints_library_list_when_discovered() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Steam libraries:"));
     assert!(stdout.contains(r"D:\SteamLibrary"));
+    assert!(stdout.contains(r"E:\SteamLibrary"));
 }
 
 #[test]
