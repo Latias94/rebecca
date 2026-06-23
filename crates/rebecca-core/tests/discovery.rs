@@ -316,7 +316,7 @@ fn steam_libraryfolders_parser_deduplicates_case_insensitive_paths() {
     }
     "1"
     {
-        "path"      "c:\\steamlibrary"
+        "path"      "c:/steamlibrary"
     }
 }
 "#;
