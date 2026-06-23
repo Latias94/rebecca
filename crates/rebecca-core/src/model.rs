@@ -160,17 +160,8 @@ impl RuleSelection {
     }
 
     pub fn matches_rule(&self, rule: &RuleDefinition) -> bool {
-        let selected_category = self.categories.is_empty()
-            || self
-                .categories
-                .iter()
-                .any(|category| category.eq_ignore_ascii_case(&rule.category));
-
-        let selected_id = self.rule_ids.is_empty()
-            || self
-                .rule_ids
-                .iter()
-                .any(|id| id.eq_ignore_ascii_case(&rule.id));
+        let selected_category = self.matches_any(&self.categories, &rule.category);
+        let selected_id = self.matches_any(&self.rule_ids, &rule.id);
 
         selected_category && selected_id
     }
@@ -198,6 +189,10 @@ impl RuleSelection {
         }
 
         Ok(())
+    }
+
+    fn matches_any(&self, selected: &[String], value: &str) -> bool {
+        selected.is_empty() || selected.iter().any(|item| item.eq_ignore_ascii_case(value))
     }
 }
 

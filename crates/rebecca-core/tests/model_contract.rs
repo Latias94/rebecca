@@ -126,6 +126,19 @@ fn rule_selection_validation_rejects_unknown_rule_id() {
     assert!(err.to_string().contains("invalid rule id"));
 }
 
+#[test]
+fn rule_selection_validation_is_case_insensitive() {
+    let selection = RuleSelection::new(
+        vec!["SYSTEM".to_string()],
+        vec!["WINDOWS.USER-TEMP".to_string()],
+    );
+    let rules = vec![test_rule("windows.user-temp")];
+
+    selection
+        .validate_against_rules(&rules)
+        .expect("selection should validate case-insensitively");
+}
+
 fn test_rule(id: &str) -> RuleDefinition {
     RuleDefinition {
         id: id.to_string(),
