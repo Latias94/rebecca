@@ -148,6 +148,10 @@ impl RuleSelection {
         }
     }
 
+    pub fn rule_ids(&self) -> &[String] {
+        &self.rule_ids
+    }
+
     pub fn from_request(request: &PlanRequest) -> Self {
         Self::new(
             request.selected_categories.clone(),

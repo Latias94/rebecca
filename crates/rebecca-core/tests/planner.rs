@@ -54,6 +54,33 @@ fn category_filter_includes_only_matching_rules() {
 }
 
 #[test]
+fn rule_selection_matches_categories_and_rule_ids_case_insensitively() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/a.tmp", b"abc");
+    fixture.write("local/Temp/b.tmp", b"de");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_categories = vec!["SYSTEM".to_string()];
+    request.selected_rule_ids = vec!["WINDOWS.USER-TEMP".to_string()];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.rule_id == "windows.user-temp")
+    );
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| target.rule_id == "windows.user-temp")
+    );
+}
+
+#[test]
 fn overlapping_templates_are_deduplicated_before_sizing() {
     let fixture = PlannerFixture::with_local_temp_as_temp();
     fixture.write("local/Temp/a.tmp", b"abc");

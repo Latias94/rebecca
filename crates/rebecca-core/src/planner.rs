@@ -134,11 +134,11 @@ where
     A: ApplicationDiscovery + ?Sized,
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
-    validate_selected_rule_ids(request, rules)?;
+    let selection = request.selection();
+    validate_selected_rule_ids(&selection, rules)?;
 
     let mut candidates = Vec::new();
     let mut seen_paths = BTreeSet::new();
-    let selection = request.selection();
 
     for rule in rules {
         if rule.platform != request.platform {
@@ -324,8 +324,11 @@ fn dedupe_key(path: &Path, platform: Platform) -> String {
     }
 }
 
-fn validate_selected_rule_ids(request: &PlanRequest, rules: &[RuleDefinition]) -> Result<()> {
-    for selected in &request.selected_rule_ids {
+fn validate_selected_rule_ids(
+    selection: &crate::RuleSelection,
+    rules: &[RuleDefinition],
+) -> Result<()> {
+    for selected in selection.rule_ids() {
         let known = rules
             .iter()
             .any(|rule| rule.id.eq_ignore_ascii_case(selected));

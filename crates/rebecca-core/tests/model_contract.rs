@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use rebecca_core::plan::{CleanupPlan, CleanupTarget};
 use rebecca_core::{
-    DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
-    SafetyLevel,
+    DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSelection, RuleSource,
+    RuleTargetSpec, SafetyLevel,
 };
 
 #[test]
@@ -88,6 +88,22 @@ fn safety_level_exposes_label_and_opt_in_flag() {
     );
     assert_eq!(SafetyLevel::Risky.opt_in_flag(), Some("--allow-risky"));
     assert_eq!(SafetyLevel::Dangerous.opt_in_flag(), Some("--allow-risky"));
+}
+
+#[test]
+fn rule_selection_matches_rules_case_insensitively() {
+    let selection = RuleSelection::new(
+        vec!["SYSTEM".to_string()],
+        vec!["WINDOWS.USER-TEMP".to_string()],
+    );
+    let rule = test_rule("windows.user-temp");
+    let browser_rule = RuleDefinition {
+        category: "browser".to_string(),
+        ..test_rule("windows.browser-cache")
+    };
+
+    assert!(selection.matches_rule(&rule));
+    assert!(!selection.matches_rule(&browser_rule));
 }
 
 fn test_rule(id: &str) -> RuleDefinition {
