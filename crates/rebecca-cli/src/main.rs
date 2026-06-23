@@ -18,6 +18,7 @@ use rebecca_core::planner::{
 use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::{DeleteMode, PlanRequest, Platform, RuleSelection};
 
+mod info;
 mod output;
 use crate::output::format_bytes;
 
@@ -138,13 +139,13 @@ fn main() -> Result<()> {
             allow_moderate,
             allow_risky,
         }),
-        Command::History { json } => history(json),
+        Command::History { json } => info::print_history(json),
         Command::Config { command } => match command {
-            ConfigCommand::Paths { json } => config_paths(json),
+            ConfigCommand::Paths { json } => info::print_config_paths(json),
         },
         Command::Doctor { command } => match command {
-            DoctorCommand::Permissions => doctor_permissions(),
-            DoctorCommand::Steam => doctor_steam(),
+            DoctorCommand::Permissions => info::print_privilege_level(),
+            DoctorCommand::Steam => info::print_steam_discovery(&*steam_application_discovery()),
         },
     }
 }
@@ -334,79 +335,6 @@ fn confirm_cleanup(plan: &rebecca_core::plan::CleanupPlan) -> Result<bool> {
         .context("cleanup confirmation failed")
 }
 
-fn history(json: bool) -> Result<()> {
-    let paths = default_app_paths()?;
-    let store = HistoryStore::new(paths.history_file);
-    let entries = store.load()?;
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(&entries)?);
-        return Ok(());
-    }
-
-    if entries.is_empty() {
-        println!("No cleanup history found.");
-        return Ok(());
-    }
-
-    println!("Cleanup history: {} run(s)", entries.len());
-    for entry in entries {
-        println!(
-            "- {}: {} completed, {} failed, {} pending bytes",
-            entry.recorded_at_unix_seconds,
-            entry.summary.completed_targets,
-            entry.summary.failed_targets,
-            entry.summary.pending_reclaim_bytes
-        );
-    }
-
-    Ok(())
-}
-
-fn config_paths(json: bool) -> Result<()> {
-    let paths = default_app_paths()?;
-
-    if json {
-        println!("{}", serde_json::to_string_pretty(&paths)?);
-        return Ok(());
-    }
-
-    println!("Config file: {}", paths.config_file.display());
-    println!("Config dir:  {}", paths.config_dir.display());
-    println!("State dir:   {}", paths.state_dir.display());
-    println!("Cache dir:   {}", paths.cache_dir.display());
-    println!("History:     {}", paths.history_file.display());
-
-    Ok(())
-}
-
-fn doctor_permissions() -> Result<()> {
-    println!("Privilege level: {}", current_privilege_label());
-    Ok(())
-}
-
-fn doctor_steam() -> Result<()> {
-    let discovery = steam_application_discovery();
-    match discovery.steam_installation()? {
-        Some(installation) => {
-            println!("Steam install: {}", installation.install_path().display());
-            if installation.library_paths().is_empty() {
-                println!("Steam libraries: none discovered");
-            } else {
-                println!("Steam libraries:");
-                for path in installation.library_paths() {
-                    println!("- {}", path.display());
-                }
-            }
-        }
-        None => {
-            println!("Steam install: not discovered");
-        }
-    }
-
-    Ok(())
-}
-
 fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
     if let Some(applications) = steam_application_discovery_override() {
         return applications;
@@ -449,18 +377,4 @@ fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery
 #[cfg(not(debug_assertions))]
 fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
     None
-}
-
-#[cfg(windows)]
-fn current_privilege_label() -> &'static str {
-    match rebecca_windows::current_privilege_level() {
-        rebecca_windows::PrivilegeLevel::StandardUser => "standard-user",
-        rebecca_windows::PrivilegeLevel::Elevated => "elevated",
-        rebecca_windows::PrivilegeLevel::Unknown => "unknown",
-    }
-}
-
-#[cfg(not(windows))]
-fn current_privilege_label() -> &'static str {
-    "unsupported-platform"
 }
