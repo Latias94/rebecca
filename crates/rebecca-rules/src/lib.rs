@@ -57,6 +57,13 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "rules/windows/cargo-cache.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/cargo-cache.toml"
+        )),
+    ),
+    (
         "rules/windows/jetbrains-cache.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -209,6 +216,7 @@ mod tests {
 
         for expected in [
             "windows.chrome-cache",
+            "windows.cargo-cache",
             "windows.directx-shader-cache",
             "windows.firefox-profile-cache",
             "windows.jetbrains-cache",

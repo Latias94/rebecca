@@ -59,6 +59,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.directx-shader-cache`
 - `windows.thumbnail-cache`
 - `windows.pip-cache`
+- `windows.cargo-cache`
 - `windows.jetbrains-cache`
 - `windows.npm-cache`
 - `windows.vscode-cache`

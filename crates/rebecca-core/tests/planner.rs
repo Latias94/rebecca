@@ -186,6 +186,71 @@ fn jetbrains_rules_expand_product_directories() {
 }
 
 #[test]
+fn cargo_rule_targets_default_cargo_home_cache_directories() {
+    let fixture = PlannerFixture::new();
+    fixture.write("user/.cargo/registry/cache/index.crate", b"ab");
+    fixture.write("user/.cargo/registry/index/index/.cache", b"xyz");
+    fixture.write("user/.cargo/registry/src/package/lib.rs", b"cde");
+    fixture.write("user/.cargo/git/db/repo/HEAD", b"fghi");
+    fixture.write("user/.cargo/git/checkouts/repo/main.rs", b"jklmn");
+    fixture.write("user/.cargo/bin/tool.exe", b"do not target binaries");
+    fixture.write("user/.cargo/credentials.toml", b"do not target credentials");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.cargo-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+    let allowed_paths = plan
+        .targets
+        .iter()
+        .filter(|target| target.status == TargetStatus::Allowed)
+        .map(|target| target.path.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(plan.summary.allowed_targets, 5);
+    assert_eq!(plan.summary.skipped_targets, 5);
+    assert_eq!(plan.summary.estimated_bytes, 17);
+    assert!(allowed_paths.iter().all(|path| {
+        path.ends_with(Path::new("registry").join("cache"))
+            || path.ends_with(Path::new("registry").join("index"))
+            || path.ends_with(Path::new("registry").join("src"))
+            || path.ends_with(Path::new("git").join("db"))
+            || path.ends_with(Path::new("git").join("checkouts"))
+    }));
+}
+
+#[test]
+fn cargo_rule_targets_custom_cargo_home_cache_directories() {
+    let fixture = PlannerFixture::with_cargo_home();
+    fixture.write("cargo-home/registry/cache/index.crate", b"ab");
+    fixture.write("cargo-home/registry/index/index/.cache", b"xyz");
+    fixture.write("cargo-home/registry/src/package/lib.rs", b"cde");
+    fixture.write("cargo-home/git/db/repo/HEAD", b"fghi");
+    fixture.write("cargo-home/git/checkouts/repo/main.rs", b"jklmn");
+    fixture.write("cargo-home/bin/tool.exe", b"do not target binaries");
+    fixture.write("cargo-home/credentials.toml", b"do not target credentials");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.cargo-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 5);
+    assert_eq!(plan.summary.skipped_targets, 5);
+    assert_eq!(plan.summary.estimated_bytes, 17);
+    assert!(
+        plan.targets
+            .iter()
+            .filter(|target| target.status == TargetStatus::Allowed)
+            .all(|target| target.path.starts_with(fixture.root.join("cargo-home")))
+    );
+}
+
+#[test]
 fn chromium_rules_expand_profile_cache_patterns() {
     let fixture = PlannerFixture::new();
     fixture.write(
@@ -341,7 +406,8 @@ impl PlannerFixture {
         let env = MapEnvironment::new()
             .with_var("TEMP", root.join("temp").into_os_string())
             .with_var("LOCALAPPDATA", root.join("local").into_os_string())
-            .with_var("APPDATA", root.join("roaming").into_os_string());
+            .with_var("APPDATA", root.join("roaming").into_os_string())
+            .with_var("USERPROFILE", root.join("user").into_os_string());
 
         Self {
             _temp: temp,
@@ -356,11 +422,26 @@ impl PlannerFixture {
         let env = MapEnvironment::new()
             .with_var("TEMP", root.join("local").join("Temp").into_os_string())
             .with_var("LOCALAPPDATA", root.join("local").into_os_string())
-            .with_var("APPDATA", root.join("roaming").into_os_string());
+            .with_var("APPDATA", root.join("roaming").into_os_string())
+            .with_var("USERPROFILE", root.join("user").into_os_string());
 
         Self {
             _temp: temp,
             root,
+            env,
+        }
+    }
+
+    fn with_cargo_home() -> Self {
+        let fixture = Self::new();
+        let env = fixture.env.clone().with_var(
+            "CARGO_HOME",
+            fixture.root.join("cargo-home").into_os_string(),
+        );
+
+        Self {
+            _temp: fixture._temp,
+            root: fixture.root,
             env,
         }
     }

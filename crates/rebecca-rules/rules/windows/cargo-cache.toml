@@ -1,0 +1,52 @@
+id = "windows.cargo-cache"
+platform = "windows"
+category = "development"
+name = "Cargo dependency cache"
+safety_level = "moderate"
+delete_policy = "recycle-bin"
+restore_hint = "Cargo may need to redownload registry and git dependencies."
+
+[[targets]]
+kind = "template"
+value = "%CARGO_HOME%\\registry\\cache"
+
+[[targets]]
+kind = "template"
+value = "%CARGO_HOME%\\registry\\index"
+
+[[targets]]
+kind = "template"
+value = "%CARGO_HOME%\\registry\\src"
+
+[[targets]]
+kind = "template"
+value = "%CARGO_HOME%\\git\\db"
+
+[[targets]]
+kind = "template"
+value = "%CARGO_HOME%\\git\\checkouts"
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\registry\\cache"
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\registry\\index"
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\registry\\src"
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\git\\db"
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\git\\checkouts"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on Cargo's documented home layout. The rule targets cache subdirectories only and intentionally avoids bin, config.toml, credentials.toml, and install tracking files."

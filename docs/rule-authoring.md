@@ -29,6 +29,10 @@ files. Keep each rule small, explicit, and easy to audit.
   profile directories or `thumbcache_*.db` files.
 - Chromium-family browser caches may use bounded `Profile *` discovery under
   `User Data`, but should keep `Default` paths explicit.
+- Cargo cache rules should target cache subdirectories under `%CARGO_HOME%`
+  and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
+  target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or
+  `.crates2.json`.
 - JetBrains IDE caches should point at the product `caches` subdirectory under
   `%LOCALAPPDATA%\JetBrains\<product><version>`, not at the Toolbox app tree.
 - Keep glob roots narrow. Do not start a glob at `%USERPROFILE%` or a drive
