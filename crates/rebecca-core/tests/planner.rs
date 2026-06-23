@@ -402,6 +402,37 @@ fn steam_install_rule_expands_from_application_discovery() {
 }
 
 #[test]
+fn steam_install_download_rule_expands_from_application_discovery() {
+    let fixture = PlannerFixture::new();
+    let install_path = fixture.root.join("steam-install");
+    fixture.write("steam-install/appcache/download/cache.bin", b"ab");
+    let applications = StaticApplicationDiscovery::new().with_steam_installation(
+        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.steam-install-download-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment_and_applications(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 2);
+    assert_eq!(
+        plan.targets[0].path,
+        install_path.join("appcache").join("download")
+    );
+}
+
+#[test]
 fn steam_library_rule_expands_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");
