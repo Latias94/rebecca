@@ -4,6 +4,9 @@ use crate::config::AppStorageEntry;
 use crate::model::RuleTargetSpec;
 use crate::path_overlap::paths_overlap;
 
+const ELECTRON_CACHE_APPS: &[&str] = &["code", "discord", "discordptb", "discordcanary", "slack"];
+const ELECTRON_CACHE_DIRS: &[&str] = &["cache", "code cache", "gpucache", "cacheddata"];
+
 #[derive(Debug, Clone, Copy)]
 pub struct ProtectionPolicy<'a> {
     protected_storage: Option<&'a [AppStorageEntry]>,
@@ -463,8 +466,7 @@ fn is_electron_cache_path(segments: &[&str]) -> bool {
     let app = segments.get(appdata_index + 2).copied().unwrap_or_default();
     let cache = segments.get(appdata_index + 3).copied().unwrap_or_default();
 
-    matches!(app, "code" | "discord" | "discordptb" | "discordcanary")
-        && matches!(cache, "cache" | "code cache" | "gpucache" | "cacheddata")
+    ELECTRON_CACHE_APPS.contains(&app) && ELECTRON_CACHE_DIRS.contains(&cache)
 }
 
 fn is_jetbrains_cache_path(segments: &[&str]) -> bool {

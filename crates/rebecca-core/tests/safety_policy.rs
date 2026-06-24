@@ -107,6 +107,10 @@ fn credentials_ai_cloud_runtime_and_startup_data_are_blocked() {
             "C:/Users/Alice/AppData/Roaming/Steam/userdata/12345/config.vdf",
             ProtectedCategory::ApplicationDurableData,
         ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Slack/Local Storage",
+            ProtectedCategory::ApplicationDurableData,
+        ),
     ] {
         assert!(
             matches!(
@@ -152,6 +156,9 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
         "C:/Users/Alice/AppData/Local/JetBrains/RustRover2024.3/caches",
         "C:/Users/Alice/AppData/Roaming/Code/Cache",
         "C:/Users/Alice/AppData/Roaming/discord/GPUCache",
+        "C:/Users/Alice/AppData/Roaming/Slack/Cache",
+        "C:/Users/Alice/AppData/Roaming/Slack/Code Cache",
+        "C:/Users/Alice/AppData/Roaming/Slack/GPUCache",
         "C:/Users/Alice/AppData/Local/Steam/htmlcache/Default/Cache",
         "C:/Users/Alice/AppData/Local/Temp/rebecca-test",
     ] {
@@ -172,6 +179,7 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
     for target in [
         RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
         RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
+        RuleTargetSpec::template("%APPDATA%\\Slack\\Cache"),
         RuleTargetSpec::steam_install_template("appcache\\httpcache"),
         RuleTargetSpec::steam_install_template("logs"),
         RuleTargetSpec::steam_library_template("steamapps\\downloading"),
@@ -206,6 +214,10 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
                 "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Local Storage",
             ),
             ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Slack\\Local Storage"),
+            ProtectedCategory::ApplicationDurableData,
         ),
         (
             RuleTargetSpec::steam_install_template("userdata"),

@@ -79,6 +79,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.chrome-cache`
 - `windows.firefox-profile-cache`
 - `windows.discord-cache`
+- `windows.slack-cache`
 - `windows.steam-cache`
 - `windows.steam-install-cache`
 - `windows.steam-install-depot-cache`

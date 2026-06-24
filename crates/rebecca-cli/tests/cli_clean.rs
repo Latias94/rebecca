@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 
 mod common;
 #[path = "common/isolated.rs"]
@@ -34,6 +35,39 @@ fn steam_dry_run_json_output(
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(path, bytes).unwrap();
+}
+
+fn write_slack_cache_fixture(temp: &tempfile::TempDir) {
+    let slack = temp.path().join("roaming").join("Slack");
+    write_fixture_file(slack.join("Cache").join("cache.bin"), b"ab");
+    write_fixture_file(slack.join("Code Cache").join("code.bin"), b"cde");
+    write_fixture_file(slack.join("GPUCache").join("gpu.bin"), b"fghi");
+    write_fixture_file(
+        slack.join("Local Storage").join("leveldb").join("LOG"),
+        b"keep",
+    );
+    write_fixture_file(
+        slack
+            .join("IndexedDB")
+            .join("indexeddb.leveldb")
+            .join("LOG"),
+        b"keep",
+    );
+    write_fixture_file(
+        slack
+            .join("Service Worker")
+            .join("CacheStorage")
+            .join("index.bin"),
+        b"keep",
+    );
+}
+
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
@@ -61,6 +95,58 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["request"]["mode"], "dry-run");
     assert!(value["summary"]["allowed_targets"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn clean_dry_run_json_reports_slack_cache_rule() {
+    let temp = tempfile::tempdir().unwrap();
+    write_slack_cache_fixture(&temp);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["allowed_targets"], 3);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 9);
+
+    let targets = value["targets"].as_array().unwrap();
+    let target_paths = targets
+        .iter()
+        .map(|target| PathBuf::from(target["path"].as_str().unwrap()))
+        .collect::<Vec<_>>();
+
+    for expected in [
+        Path::new("Slack").join("Cache"),
+        Path::new("Slack").join("Code Cache"),
+        Path::new("Slack").join("GPUCache"),
+    ] {
+        assert!(
+            target_paths.iter().any(|path| path.ends_with(&expected)),
+            "missing Slack target {expected:?}"
+        );
+    }
+
+    assert!(targets.iter().all(|target| {
+        target["rule_id"] == "windows.slack-cache"
+            && !target["path"].as_str().unwrap().contains("Local Storage")
+            && !target["path"].as_str().unwrap().contains("IndexedDB")
+            && !target["path"].as_str().unwrap().contains("Service Worker")
+    }));
 }
 
 #[test]
@@ -212,6 +298,40 @@ fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Issue matrix:"));
     assert!(stdout.contains("- skipped duplicate-target-path: 1 target, 0 (0 B)"));
+}
+
+#[test]
+fn clean_human_output_reports_slack_cache_rule() {
+    let temp = tempfile::tempdir().unwrap();
+    write_slack_cache_fixture(&temp);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-progress",
+            "--rule",
+            "windows.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Targets: 3"));
+    assert!(stdout.contains("Allowed: 3"));
+    assert!(stdout.contains("Target details:"));
+    assert!(stdout.contains("allowed (3)"));
+    assert!(stdout.contains("windows.slack-cache"));
+    assert!(stdout.contains(&Path::new("Slack").join("Cache").display().to_string()));
+    assert!(!stdout.contains("Local Storage"));
+    assert!(!stdout.contains("IndexedDB"));
+    assert!(!stdout.contains("Service Worker"));
 }
 
 #[test]

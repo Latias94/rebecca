@@ -802,6 +802,41 @@ fn discord_rule_targets_only_browser_cache_directories() {
 }
 
 #[test]
+fn slack_rule_targets_only_electron_cache_directories() {
+    let fixture = PlannerFixture::new();
+    fixture.write("roaming/Slack/Cache/cache.bin", b"ab");
+    fixture.write("roaming/Slack/Code Cache/code.bin", b"cde");
+    fixture.write("roaming/Slack/GPUCache/gpu.bin", b"fghi");
+    fixture.write("roaming/Slack/Local Storage/leveldb/LOG", b"keep");
+    fixture.write("roaming/Slack/IndexedDB/indexeddb.leveldb/LOG", b"keep");
+    fixture.write(
+        "roaming/Slack/Service Worker/CacheStorage/index.bin",
+        b"keep",
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.slack-cache".to_string()];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 3);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 9);
+    assert!(plan.targets.iter().all(|target| {
+        target.path.ends_with(Path::new("Cache"))
+            || target.path.ends_with(Path::new("Code Cache"))
+            || target.path.ends_with(Path::new("GPUCache"))
+    }));
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy();
+        !path.contains("Local Storage")
+            && !path.contains("IndexedDB")
+            && !path.contains("Service Worker")
+    }));
+}
+
+#[test]
 fn steam_rule_targets_only_client_browser_cache_directories() {
     let fixture = PlannerFixture::new();
     fixture.write("local/Steam/htmlcache/Default/Cache/cache.bin", b"ab");

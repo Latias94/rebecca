@@ -92,7 +92,8 @@ rules. These are narrow subpaths, not broad app roots:
   under `Default` or bounded `Profile *` profiles;
 - Firefox `cache2` and `startupCache` directories;
 - Electron/VS Code cache directories such as `Cache`, `Code Cache`,
-  `GPUCache`, and `CachedData`;
+  `GPUCache`, and `CachedData` for explicitly allowlisted app roots including
+  Discord and Slack;
 - JetBrains product `caches` directories;
 - Cargo cache subdirectories under `registry` and `git`;
 - pip and npm cache directories;
@@ -199,9 +200,12 @@ Focused coverage currently includes:
 Recent targeted verification for this audit baseline:
 
 - `cargo nextest run -p rebecca-core --test safety_policy`
+- `cargo nextest run -p rebecca-core --test planner`
 - `cargo nextest run -p rebecca-core --test executor_contract`
 - `cargo nextest run -p rebecca-core --test model_contract`
 - `cargo nextest run -p rebecca-core --test history`
+- `cargo nextest run -p rebecca-cli --test cli_scan`
+- `cargo nextest run -p rebecca-cli --test scan`
 - `cargo nextest run -p rebecca-cli --test cli_clean`
 - `cargo nextest run -p rebecca-cli --test cli_history`
 - `cargo nextest run -p rebecca-rules`

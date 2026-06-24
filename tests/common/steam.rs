@@ -51,6 +51,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.jetbrains-cache",
     "windows.npm-cache",
     "windows.pip-cache",
+    "windows.slack-cache",
     "windows.steam-cache",
     "windows.steam-install-cache",
     "windows.steam-install-depot-cache",
