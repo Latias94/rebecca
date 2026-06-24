@@ -136,6 +136,12 @@ previews by default, requires `--yes` to delete direct cache contents, keeps the
 cache directory itself, and refuses to run if the cache path overlaps preserved
 configuration, state, or history paths.
 
+Future scan-cache records use a versioned JSON format under the rebuildable
+cache directory's `scan` subdirectory. The current v1 contract stores the
+scanned root path, a root metadata fingerprint, the scan report, and the write
+time; missing, corrupted, stale, or unsupported-version records are treated as
+cache misses and can be rebuilt.
+
 The config file is human-editable TOML. The current schema version is `1`; if
 `version` is omitted, Rebecca treats the file as version `1`. Unsupported
 versions fail clearly instead of being partially interpreted.

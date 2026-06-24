@@ -171,6 +171,9 @@ pub enum RebeccaError {
     #[error("scan failed: {0}")]
     ScanFailed(ScanFailure),
 
+    #[error("scan cache is unavailable: {0}")]
+    ScanCacheUnavailable(String),
+
     #[error("operation cancelled: {0}")]
     OperationCancelled(String),
 

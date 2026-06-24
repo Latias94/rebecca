@@ -67,6 +67,9 @@ Use user-scoped storage by default.
   guessing from path names.
 - `rebecca cache purge` can remove only direct contents of Rebecca's rebuildable
   cache directory and must refuse preserved-path overlap.
+- Scan-cache records live under `cache_dir\scan` as versioned JSON. Missing,
+  corrupted, stale, or unsupported-version scan-cache records are cache misses,
+  not hard failures.
 
 # Success Metrics
 
@@ -76,6 +79,7 @@ Use user-scoped storage by default.
 | Schema clarity | Unsupported config versions fail clearly | Core and CLI regression tests |
 | Lifecycle clarity | Cache is marked rebuildable and state/history are marked preserve | Core and CLI regression tests |
 | Cache purge safety | Purge defaults to preview, preserves cache directory, and rejects preserved-path overlap | Core and CLI regression tests |
+| Scan cache rebuildability | Scan-cache stale/corrupt/future-version records return cache misses | Core regression tests |
 | Safe cache | Deleting local cache does not break configuration | Integration test |
 | Privacy | No secrets are stored in history or cache | Review checklist |
 

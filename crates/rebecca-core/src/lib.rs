@@ -12,6 +12,7 @@ pub mod plan;
 pub mod planner;
 pub mod safety;
 pub mod scan;
+pub mod scan_cache;
 
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use model::{

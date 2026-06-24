@@ -6,6 +6,7 @@ use std::sync::{
 
 use ignore::WalkBuilder;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::TargetStatus;
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
@@ -41,7 +42,7 @@ pub enum ScanProgressEvent<'a> {
     },
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanReport {
     pub bytes_scanned: u64,
     pub files_scanned: u64,
