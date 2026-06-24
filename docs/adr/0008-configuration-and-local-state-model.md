@@ -34,6 +34,9 @@ Use user-scoped storage by default.
 - The storage contract distinguishes lifecycle classes: configuration and
   durable state are preserved, history is append-only preserved, and cache is
   rebuildable.
+- The operational contract for schema fields, path precedence, migration
+  expectations, and local-state ownership is maintained in
+  `docs/configuration.md`.
 
 # Alternatives Considered
 
@@ -65,6 +68,8 @@ Use user-scoped storage by default.
   on unknown-key behavior alone.
 - Future cache cleanup can reason over the lifecycle metadata instead of
   guessing from path names.
+- Future settings work has a single contract document to update alongside the
+  Rust schema and CLI tests.
 - `rebecca cache purge` can remove only direct contents of Rebecca's rebuildable
   cache directory, must preserve the cache directory itself, must report its
   lifecycle, entry-status counts, and stable issue matrix, and must refuse

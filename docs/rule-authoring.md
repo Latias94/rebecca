@@ -56,6 +56,10 @@ files. Keep each rule small, explicit, and easy to audit.
   `%LOCALAPPDATA%\JetBrains\<product><version>`, not at the Toolbox app tree.
 - Keep glob roots narrow. Do not start a glob at `%USERPROFILE%` or a drive
   root.
+- Do not target Rebecca's configured `config_dir`, `state_dir`, `history_file`,
+  or `cache_dir` from built-in cleanup rules. Rebecca-owned cache cleanup must
+  go through `rebecca cache purge`, which preserves configuration, durable
+  state, and append-only history.
 
 ## Safety Guidance
 

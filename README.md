@@ -138,6 +138,9 @@ By default, Rebecca uses standard Windows user directories:
 - cache: `%LOCALAPPDATA%\Rebecca\cache`
 - history: `%LOCALAPPDATA%\Rebecca\state\history.jsonl`
 
+The full schema, path precedence, migration, and local-state ownership contract
+is documented in [Configuration And Local State Contract](docs/configuration.md).
+
 `rebecca config paths --json` also reports lifecycle metadata for these paths:
 
 | Path | Lifecycle | Retention |
