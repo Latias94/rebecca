@@ -372,6 +372,14 @@ fn steam_rule_targets_only_client_browser_cache_directories() {
     fixture.write("local/Steam/htmlcache/Default/Code Cache/code.bin", b"cde");
     fixture.write("local/Steam/htmlcache/Default/GPUCache/gpu.bin", b"fghi");
     fixture.write(
+        "local/Steam/htmlcache/Default/Service Worker/CacheStorage/index.bin",
+        b"keep",
+    );
+    fixture.write(
+        "local/Steam/htmlcache/Default/Network/Cache/index.bin",
+        b"keep",
+    );
+    fixture.write(
         "local/Steam/htmlcache/Default/Local Storage/leveldb/LOG",
         b"keep",
     );
@@ -400,6 +408,8 @@ fn steam_rule_targets_only_client_browser_cache_directories() {
     assert!(plan.targets.iter().all(|target| {
         let path = target.path.to_string_lossy();
         !path.contains("Local Storage")
+            && !path.contains("Service Worker")
+            && !path.contains("Network")
             && !path.contains("IndexedDB")
             && !path.contains("userdata")
             && !path.contains("steamapps")

@@ -35,7 +35,7 @@ files. Keep each rule small, explicit, and easy to audit.
 - Steam client cache rules should stay under `%LOCALAPPDATA%\Steam\htmlcache`
   unless the rule also implements explicit Steam install/library discovery.
   Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,
-  or download state from a static template rule.
+  download state, `Service Worker`, or `Network` state from a static template rule.
 - For Steam install/library discovery rules, resolve the install root from the
   Windows registry using the ordered discovery sources in `rebecca-windows`
   (`SteamPath`, `SteamExe`, `InstallPath`, then `Shell\\Open\\Command`) and

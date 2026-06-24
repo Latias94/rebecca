@@ -21,4 +21,4 @@ value = "%LOCALAPPDATA%\\Steam\\htmlcache\\Default\\GPUCache"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Based on the local Steam client Chromium cache layout under %LOCALAPPDATA%\\Steam\\htmlcache\\Default. The rule targets only disposable browser cache subdirectories and intentionally avoids userdata, steamapps, download state, and account metadata."
+notes = "Based on the local Steam client Chromium cache layout under %LOCALAPPDATA%\\Steam\\htmlcache\\Default. The rule targets only disposable browser cache subdirectories and intentionally avoids userdata, steamapps, download state, Service Worker state, Network cache state, and account metadata."
