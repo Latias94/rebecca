@@ -43,7 +43,7 @@ files. Keep each rule small, explicit, and easy to audit.
   relative targets narrow and safe; do not allow `..` or absolute paths.
 - Current Steam discovery-backed rules are intentionally narrow: an install-root
   cache rule may target `appcache\httpcache`, `appcache\download`,
-  `appcache\librarycache`, `appcache\shadercache`, or `logs`, and
+  `appcache\librarycache`, `appcache\shadercache`, `depotcache`, or `logs`, and
   library-root cache rules may
   target `steamapps\shadercache`, `steamapps\downloading`, or `steamapps\temp`.
 - Cargo cache rules should target cache subdirectories under `%CARGO_HOME%`
