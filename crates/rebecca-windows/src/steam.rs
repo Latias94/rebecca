@@ -185,8 +185,7 @@ fn discover_steam_installation() -> Result<Option<SteamInstallation>> {
 pub fn steam_installation_from_path(steam_path: impl Into<PathBuf>) -> SteamInstallation {
     let steam_path = steam_path.into();
 
-    SteamInstallation::from_install_path(&steam_path)
-        .unwrap_or_else(|_| SteamInstallation::new(steam_path, Vec::new()))
+    SteamInstallation::from_install_path_best_effort(steam_path)
 }
 
 #[cfg(all(test, windows))]

@@ -75,6 +75,13 @@ impl SteamInstallation {
         Ok(Self::new(install_path, library_paths))
     }
 
+    pub fn from_install_path_best_effort(install_path: impl Into<PathBuf>) -> Self {
+        let install_path = install_path.into();
+
+        Self::from_install_path(&install_path)
+            .unwrap_or_else(|_| Self::new(install_path, Vec::new()))
+    }
+
     pub fn install_path(&self) -> &Path {
         &self.install_path
     }
