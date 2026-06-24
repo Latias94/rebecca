@@ -86,7 +86,7 @@ where
 {
     for source in STEAM_REGISTRY_SOURCES {
         if let Some(path) = resolve_steam_registry_source(source, &mut lookup)? {
-            return Ok(Some(steam_installation_from_path(path)));
+            return Ok(Some(SteamInstallation::from_install_path_best_effort(path)));
         }
     }
 
@@ -181,13 +181,6 @@ fn discover_steam_installation() -> Result<Option<SteamInstallation>> {
     Ok(None)
 }
 
-#[cfg(windows)]
-pub fn steam_installation_from_path(steam_path: impl Into<PathBuf>) -> SteamInstallation {
-    let steam_path = steam_path.into();
-
-    SteamInstallation::from_install_path_best_effort(steam_path)
-}
-
 #[cfg(all(test, windows))]
 mod tests {
     use std::fs;
@@ -195,8 +188,8 @@ mod tests {
     use super::{
         command_install_path_from_command, discover_steam_installation_with,
         extract_command_executable, install_root_from_executable_path,
-        steam_installation_from_path,
     };
+    use rebecca_core::applications::SteamInstallation;
     use winreg::HKEY;
     use winreg::enums::HKEY_CURRENT_USER;
 
@@ -207,7 +200,7 @@ mod tests {
         let library_file = install_path.join("steamapps").join("libraryfolders.vdf");
         fs::create_dir_all(&library_file).unwrap();
 
-        let installation = steam_installation_from_path(&install_path);
+        let installation = SteamInstallation::from_install_path_best_effort(&install_path);
 
         assert_eq!(installation.install_path(), install_path.as_path());
         assert!(installation.library_paths().is_empty());
@@ -233,7 +226,7 @@ mod tests {
         )
         .unwrap();
 
-        let installation = steam_installation_from_path(&install_path);
+        let installation = SteamInstallation::from_install_path_best_effort(&install_path);
 
         assert_eq!(installation.install_path(), install_path.as_path());
         assert_eq!(
