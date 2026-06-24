@@ -44,6 +44,9 @@ in [Rebecca Cleanup Safety Audit](docs/security-audit.md).
 
 Security reporting guidance lives in [SECURITY.md](SECURITY.md).
 
+Release artifact verification guidance lives in
+[Release Integrity](docs/release.md).
+
 ## Usage
 
 ```powershell
@@ -206,6 +209,15 @@ For tests or constrained environments, these paths can also be overridden:
 - `REBECCA_CACHE_DIR`
 - `REBECCA_HISTORY_FILE`
 
+## Release Integrity
+
+Rebecca's release workflow publishes a Windows x86_64 ZIP artifact and
+`SHA256SUMS`, then generates GitHub build-provenance attestations for release
+assets. Users should verify both the checksum and the attestation when the
+GitHub CLI is available.
+
+See [Release Integrity](docs/release.md) for the exact verification commands.
+
 ## Development
 
 ```powershell
@@ -214,4 +226,6 @@ cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace
 cargo bench -p rebecca-core --bench scan_baseline
+.\scripts\release\build-release.ps1 -Tag v0.1.0 -OutDir target\release-smoke
+.\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
 ```

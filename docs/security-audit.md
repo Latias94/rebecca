@@ -43,6 +43,9 @@ target-shape validation, protected-result audit round-trip, and first
 guardrailed catalog expansion batch are in place. Future cleanup families must
 continue to prove they stay inside those boundaries, but no remaining
 cleanup-system safety gap blocks the current Mole-like Windows-first scope.
+Release integrity is tracked separately from cleanup-runtime safety: the
+repository now has a GitHub Release workflow, checksum generation, and
+build-provenance attestation path for official artifacts.
 
 ## Threat Surface
 
@@ -178,6 +181,25 @@ History must not store file contents, credentials, tokens, browser databases, or
 arbitrary child-file listings. Scan-cache records are rebuildable optimization
 data, not an audit log.
 
+## Release Integrity
+
+Rebecca treats release trust as security-sensitive because users run a local
+cleanup binary against personal data. The current release hardening path uses:
+
+- a Windows GitHub Actions CI quality gate with read-only repository
+  permissions;
+- a tag-triggered release workflow for Windows x86_64 MSVC artifacts;
+- PowerShell packaging that includes `rebecca.exe`, README, security policy,
+  release guide, and this safety audit;
+- `SHA256SUMS` generated from final downloadable artifacts;
+- GitHub build-provenance attestations for release assets;
+- user verification guidance in `docs/release.md`.
+
+This distribution layer does not change cleanup behavior. It gives users and
+maintainers a way to verify that a downloaded artifact matches the release
+checksum and, when GitHub CLI attestation verification is available, that the
+artifact came from the expected GitHub Actions build path.
+
 ## Current Verification Coverage
 
 Focused coverage currently includes:
@@ -218,8 +240,11 @@ Recent targeted verification for this audit baseline:
   updates before new rules are considered complete.
 - Protected category coverage is conservative but not exhaustive for all Windows
   applications.
-- Release artifact attestations and installer integrity remain future
-  distribution-layer work beyond the current cleanup-safety slice.
+- The release workflow has not yet been exercised by a public version tag in
+  this repository.
+- Installer UX, package-manager publishing, SBOM generation, Windows ARM64
+  artifacts, and fully pinned GitHub Action SHAs remain distribution-layer
+  follow-up work beyond the current cleanup-safety slice.
 
 The U8 completion review is recorded in
 `docs/knowledge/engineering/verification/2026-06-24-mole-parity-completion-review.md`.

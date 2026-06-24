@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "V*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows artifact
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Rust toolchain
+        run: rustup show
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Build release package
+        shell: pwsh
+        run: >
+          ./scripts/release/build-release.ps1
+          -Tag "${{ github.ref_name }}"
+          -Target "x86_64-pc-windows-msvc"
+          -OutDir "dist"
+
+      - name: Generate checksums
+        shell: pwsh
+        run: ./scripts/release/write-checksums.ps1 -DistDir "dist"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 5
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: List release assets
+        run: find release-assets -maxdepth 1 -type f -print -exec sha256sum {} \;
+
+      - name: Generate build provenance attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: release-assets/*
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          release-assets/*
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          --verify-tag
