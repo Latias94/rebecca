@@ -97,7 +97,10 @@ paths without guessing the machine layout.
 The current catalog includes the Steam client web cache, Steam install-root
 cache rules for `appcache\\httpcache`, `appcache\\download`,
 `appcache\\librarycache`, `appcache\\shadercache`, `depotcache`, and `logs`,
-plus Steam library shader-cache, downloading cache, and temp cache rules.
+plus Steam library shader-cache, downloading cache, and temp cache rules. The
+Steam browser cache rule intentionally stays on `Cache`, `Code Cache`, and
+`GPUCache` under `htmlcache\\Default` and does not target `Local Storage`,
+`IndexedDB`, `Service Worker`, or `Network` state.
 
 ## Local State
 
