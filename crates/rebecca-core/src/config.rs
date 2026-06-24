@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{RebeccaError, Result};
 
+pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppPaths {
     pub config_dir: PathBuf,
@@ -14,10 +16,20 @@ pub struct AppPaths {
     pub history_file: PathBuf,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RebeccaConfig {
+    pub version: u32,
     pub app_paths: RebeccaAppPathsConfig,
+}
+
+impl Default for RebeccaConfig {
+    fn default() -> Self {
+        Self {
+            version: CONFIG_SCHEMA_VERSION,
+            app_paths: RebeccaAppPathsConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,10 +73,13 @@ pub fn load_config(config_file: &Path) -> Result<RebeccaConfig> {
         return Ok(RebeccaConfig::default());
     }
 
-    toml::from_str(&raw).map_err(|err| RebeccaError::ConfigParse {
+    let config = toml::from_str(&raw).map_err(|err| RebeccaError::ConfigParse {
         path: config_file.to_path_buf(),
         message: err.to_string(),
-    })
+    })?;
+    validate_config(config_file, &config)?;
+
+    Ok(config)
 }
 
 pub fn resolve_app_paths(config: &RebeccaConfig) -> Result<AppPaths> {
@@ -106,6 +121,20 @@ fn resolve_or_default(value: Option<PathBuf>, default: fn() -> Result<PathBuf>) 
     }
 }
 
+fn validate_config(config_file: &Path, config: &RebeccaConfig) -> Result<()> {
+    if config.version != CONFIG_SCHEMA_VERSION {
+        return Err(RebeccaError::ConfigParse {
+            path: config_file.to_path_buf(),
+            message: format!(
+                "unsupported config version {}; supported version is {}",
+                config.version, CONFIG_SCHEMA_VERSION
+            ),
+        });
+    }
+
+    Ok(())
+}
+
 fn default_config_dir() -> Result<PathBuf> {
     if let Some(path) = env_path("REBECCA_CONFIG_DIR") {
         return Ok(path);
@@ -145,8 +174,8 @@ fn env_path(key: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        RebeccaAppPathsConfig, RebeccaConfig, default_app_paths, load_app_paths_from, load_config,
-        resolve_app_paths,
+        CONFIG_SCHEMA_VERSION, RebeccaAppPathsConfig, RebeccaConfig, default_app_paths,
+        load_app_paths_from, load_config, resolve_app_paths,
     };
 
     #[test]
@@ -168,6 +197,73 @@ mod tests {
         let config = load_config(&config_file).unwrap();
 
         assert_eq!(config, RebeccaConfig::default());
+    }
+
+    #[test]
+    fn load_config_comment_only_file_returns_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(&config_file, "# local Rebecca config\n").unwrap();
+
+        let config = load_config(&config_file).unwrap();
+
+        assert_eq!(config, RebeccaConfig::default());
+    }
+
+    #[test]
+    fn load_config_defaults_to_current_schema_version() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+[app_paths]
+state_dir = "C:\\Rebecca\\State"
+"#,
+        )
+        .unwrap();
+
+        let config = load_config(&config_file).unwrap();
+
+        assert_eq!(config.version, CONFIG_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn load_config_accepts_current_schema_version() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+version = 1
+
+[app_paths]
+state_dir = "C:\\Rebecca\\State"
+"#,
+        )
+        .unwrap();
+
+        let config = load_config(&config_file).unwrap();
+
+        assert_eq!(config.version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(
+            config.app_paths.state_dir,
+            Some(std::path::PathBuf::from(r"C:\Rebecca\State"))
+        );
+    }
+
+    #[test]
+    fn load_config_rejects_unsupported_schema_version() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(&config_file, "version = 2\n").unwrap();
+
+        let err = load_config(&config_file).unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("unsupported config version 2"));
+        assert!(message.contains("supported version is 1"));
+        assert!(message.contains("config.toml"));
     }
 
     #[test]
@@ -205,6 +301,7 @@ unknown = "value"
     #[test]
     fn resolve_app_paths_honors_config_overrides() {
         let config = RebeccaConfig {
+            version: CONFIG_SCHEMA_VERSION,
             app_paths: RebeccaAppPathsConfig {
                 state_dir: Some(std::path::PathBuf::from(r"C:\Rebecca\State")),
                 cache_dir: Some(std::path::PathBuf::from(r"C:\Rebecca\Cache")),

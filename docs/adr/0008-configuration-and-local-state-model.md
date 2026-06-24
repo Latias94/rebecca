@@ -1,8 +1,8 @@
 ---
 title: "Configuration and Local State Model"
-status: "proposed"
+status: "accepted"
 created: "2026-06-23"
-last_updated: "2026-06-23"
+last_updated: "2026-06-24"
 ---
 
 # Context
@@ -27,6 +27,8 @@ Use user-scoped storage by default.
 - Local state, history, scan cache, and temporary files live under `%LOCALAPPDATA%\Rebecca`.
 - The tool should not write to `ProgramData` in v1.
 - Config should be human-editable TOML.
+- The current config schema is version `1`; omitted `version` means `1`, and
+  unsupported versions fail with a file-scoped parse/validation error.
 - History should be structured append-only data, with a CLI command to render it.
 - Local scan cache must be safe to delete and rebuild.
 
@@ -56,12 +58,15 @@ Use user-scoped storage by default.
 - Cache and history can be cleaned without losing user preferences.
 - Portable mode can be added later as an explicit mode.
 - Config and state paths should be shown by `rebecca config paths`.
+- Future config migrations have an explicit schema boundary instead of relying
+  on unknown-key behavior alone.
 
 # Success Metrics
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
 | Config clarity | `rebecca config paths` shows all storage locations | CLI smoke test |
+| Schema clarity | Unsupported config versions fail clearly | Core and CLI regression tests |
 | Safe cache | Deleting local cache does not break configuration | Integration test |
 | Privacy | No secrets are stored in history or cache | Review checklist |
 
@@ -71,8 +76,8 @@ Use user-scoped storage by default.
 |------|----------|------------|------------|
 | History stores sensitive paths | Medium | Medium | Avoid contents and secrets; store paths and metadata only |
 | AppData assumptions fail in constrained environments | Low | Medium | Fall back to known-folder APIs or explicit env overrides |
-| Config schema changes break older configs | Medium | Medium | Version config schema and provide defaults |
+| Config schema changes break older configs | Medium | Medium | Pin schema version `1`, default missing versions to `1`, and reject unsupported versions clearly |
 
 # Status
 
-Proposed.
+Accepted. Implemented for the initial config-file-backed storage path contract.

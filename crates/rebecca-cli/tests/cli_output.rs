@@ -44,6 +44,8 @@ fn config_paths_json_respects_config_file_overrides() {
     fs::write(
         config_dir.join("config.toml"),
         r#"
+version = 1
+
 [app_paths]
 state_dir = "C:\\Rebecca\\State"
 cache_dir = "C:\\Rebecca\\Cache"
@@ -107,6 +109,26 @@ fn config_paths_reports_malformed_config_file() {
 }
 
 #[test]
+fn config_paths_reports_unsupported_config_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("config.toml"), "version = 2\n").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["config", "paths"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("config parse failed"));
+    assert!(stderr.contains("unsupported config version 2"));
+    assert!(stderr.contains("config.toml"));
+}
+
+#[test]
 fn history_uses_config_file_overrides() {
     let temp = tempfile::tempdir().unwrap();
     let config_dir = temp.path().join("rebecca-config");
@@ -119,6 +141,8 @@ fn history_uses_config_file_overrides() {
         config_dir.join("config.toml"),
         format!(
             r#"
+version = 1
+
 [app_paths]
 history_file = '{}'
 "#,

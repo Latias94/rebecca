@@ -120,8 +120,21 @@ By default, Rebecca uses standard Windows user directories:
 - cache: `%LOCALAPPDATA%\Rebecca\cache`
 - history: `%LOCALAPPDATA%\Rebecca\state\history.jsonl`
 
-The config file is human-editable TOML. The `app_paths` section can override the
-state, cache, and history locations.
+The config file is human-editable TOML. The current schema version is `1`; if
+`version` is omitted, Rebecca treats the file as version `1`. Unsupported
+versions fail clearly instead of being partially interpreted.
+
+```toml
+version = 1
+
+[app_paths]
+state_dir = 'D:\Rebecca\state'
+cache_dir = 'D:\Rebecca\cache'
+history_file = 'D:\Rebecca\state\history.jsonl'
+```
+
+Every `app_paths` field is optional. Omitted fields keep the default Windows
+user-directory location.
 
 For tests or constrained environments, these paths can also be overridden:
 
