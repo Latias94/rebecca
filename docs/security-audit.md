@@ -24,6 +24,8 @@ The current design is safety-first:
 
 - `clean --dry-run` and real cleanup share the same planner.
 - The planner validates paths through `rebecca-core::protection::ProtectionPolicy`.
+- The executor revalidates executable targets through the same policy before a
+  backend delete runs.
 - Empty paths, traversal, filesystem roots, critical Windows paths, user profile
   roots, protected categories, Rebecca-owned storage, and existing reparse-like
   paths are blocked.
@@ -34,10 +36,10 @@ The current design is safety-first:
 - History stores request metadata, target paths, byte counts, statuses, reason
   codes, issue matrices, and restore hints. It does not store file contents.
 
-The largest remaining gap is execution-time revalidation. Today the planner
-blocks unsafe targets before execution, but the executor still trusts the plan's
-allowed status. Plan `docs/plans/2026-06-24-018-refactor-mole-parity-safety-governance-plan.md`
-tracks the follow-up work to revalidate immediately before backend deletion.
+The largest remaining gap is catalog target-shape validation. Today protected
+final paths are blocked by planning and execution, while built-in catalog load
+time still validates metadata and duplicate targets rather than every protected
+category shape.
 
 ## Threat Surface
 
@@ -143,14 +145,9 @@ contents.
 
 Current limitations:
 
-- execution does not yet revalidate every allowed target immediately before the
-  backend call;
 - the backend does not yet classify all filesystem failures into rich safety
   categories;
 - non-Windows execution is unavailable and returns a platform error.
-
-The next safety-hardening slice should add execution-time revalidation through
-the same `ProtectionPolicy` used by the planner.
 
 ## Dry Run, History, And Audit Data
 
@@ -181,8 +178,8 @@ Focused coverage currently includes:
 - `crates/rebecca-core/tests/planner.rs` for rule selection, target expansion,
   scan-cache behavior, protected storage blocking, protected category blocking,
   and Steam target behavior;
-- `crates/rebecca-core/tests/executor_contract.rs` for executor status updates
-  and backend failure handling;
+- `crates/rebecca-core/tests/executor_contract.rs` for executor status updates,
+  backend failure handling, and execution-time revalidation;
 - `crates/rebecca-core/tests/model_contract.rs` for plan serialization and
   backwards compatibility;
 - `crates/rebecca-cli/tests/cli_clean.rs`, `cli_scan.rs`, and `cli_history.rs`
@@ -192,10 +189,10 @@ Recent targeted verification for this audit baseline:
 
 - `cargo nextest run -p rebecca-core --test safety_policy`
 - `cargo nextest run -p rebecca-core --test planner`
+- `cargo nextest run -p rebecca-core --test executor_contract`
 
 ## Known Limitations And Planned Hardening
 
-- Execution-time revalidation is not implemented yet.
 - Built-in catalog validation does not yet reject protected target shapes at
   load time; protected final paths are blocked during planning.
 - Protected category coverage is conservative but not exhaustive for all Windows

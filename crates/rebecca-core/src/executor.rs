@@ -1,5 +1,7 @@
 use crate::error::Result;
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
+use crate::protection::ProtectionPolicy;
+use crate::safety::{PathDisposition, assess_existing_path_with_policy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcome {
@@ -13,6 +15,14 @@ pub trait CleanupBackend {
 }
 
 pub fn execute_cleanup_plan<B: CleanupBackend>(plan: &mut CleanupPlan, backend: &B) -> Result<()> {
+    execute_cleanup_plan_with_policy(plan, backend, ProtectionPolicy::new())
+}
+
+pub fn execute_cleanup_plan_with_policy<B: CleanupBackend>(
+    plan: &mut CleanupPlan,
+    backend: &B,
+    policy: ProtectionPolicy<'_>,
+) -> Result<()> {
     if plan.request.mode.is_dry_run() {
         plan.recompute_summary();
         return Ok(());
@@ -21,6 +31,18 @@ pub fn execute_cleanup_plan<B: CleanupBackend>(plan: &mut CleanupPlan, backend: 
     for target in &mut plan.targets {
         if !target.status.is_executable() {
             continue;
+        }
+
+        match assess_existing_path_with_policy(&target.path, policy) {
+            PathDisposition::Allowed => {}
+            PathDisposition::Skipped(reason) => {
+                mark_target_skipped_by_policy(target, reason);
+                continue;
+            }
+            PathDisposition::Blocked(reason) => {
+                mark_target_blocked_by_policy(target, reason);
+                continue;
+            }
         }
 
         match backend.delete(target) {
@@ -43,6 +65,22 @@ pub fn execute_cleanup_plan<B: CleanupBackend>(plan: &mut CleanupPlan, backend: 
 
     plan.recompute_summary();
     Ok(())
+}
+
+fn mark_target_skipped_by_policy(target: &mut CleanupTarget, reason: String) {
+    target.status = crate::TargetStatus::Skipped;
+    target.reason = Some(reason);
+    target.reason_code = Some(CleanupTargetIssueReason::SafetyPolicySkipped);
+    target.freed_bytes = 0;
+    target.pending_reclaim_bytes = 0;
+}
+
+fn mark_target_blocked_by_policy(target: &mut CleanupTarget, reason: String) {
+    target.status = crate::TargetStatus::Blocked;
+    target.reason = Some(reason);
+    target.reason_code = Some(CleanupTargetIssueReason::SafetyPolicyBlocked);
+    target.freed_bytes = 0;
+    target.pending_reclaim_bytes = 0;
 }
 
 pub fn recycle_bin_outcome(estimated_bytes: u64) -> ExecutionOutcome {
