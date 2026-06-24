@@ -120,6 +120,15 @@ By default, Rebecca uses standard Windows user directories:
 - cache: `%LOCALAPPDATA%\Rebecca\cache`
 - history: `%LOCALAPPDATA%\Rebecca\state\history.jsonl`
 
+`rebecca config paths --json` also reports lifecycle metadata for these paths:
+
+| Path | Lifecycle | Retention |
+|------|-----------|-----------|
+| config file / config dir | configuration | preserve |
+| state dir | durable-state | preserve |
+| history file | append-only-history | preserve |
+| cache dir | rebuildable-cache | rebuildable |
+
 The config file is human-editable TOML. The current schema version is `1`; if
 `version` is omitted, Rebecca treats the file as version `1`. Unsupported
 versions fail clearly instead of being partially interpreted.

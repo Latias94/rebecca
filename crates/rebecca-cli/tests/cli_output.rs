@@ -34,6 +34,26 @@ fn config_paths_json_is_parseable() {
             .unwrap()
             .contains("history.jsonl")
     );
+    let storage = value["storage"].as_array().unwrap();
+    assert_eq!(storage.len(), 5);
+    assert_eq!(
+        storage
+            .iter()
+            .find(|entry| entry["id"].as_str().unwrap() == "cache-dir")
+            .unwrap()["lifecycle"]
+            .as_str()
+            .unwrap(),
+        "rebuildable-cache"
+    );
+    assert_eq!(
+        storage
+            .iter()
+            .find(|entry| entry["id"].as_str().unwrap() == "history-file")
+            .unwrap()["retention"]
+            .as_str()
+            .unwrap(),
+        "preserve"
+    );
 }
 
 #[test]

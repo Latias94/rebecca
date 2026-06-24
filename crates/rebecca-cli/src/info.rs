@@ -4,10 +4,21 @@ use rebecca_core::applications::ApplicationDiscovery;
 use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
-use rebecca_core::config::load_app_paths;
+use rebecca_core::config::{AppPaths, load_app_paths};
 use rebecca_core::history::HistoryStore;
 
 use crate::output::restore_hint_suffix;
+
+fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
+    serde_json::json!({
+        "config_dir": &paths.config_dir,
+        "config_file": &paths.config_file,
+        "state_dir": &paths.state_dir,
+        "cache_dir": &paths.cache_dir,
+        "history_file": &paths.history_file,
+        "storage": paths.storage_entries(),
+    })
+}
 
 pub fn print_history(json: bool) -> Result<()> {
     let paths = load_app_paths()?;
@@ -48,15 +59,22 @@ pub fn print_config_paths(json: bool) -> Result<()> {
     let paths = load_app_paths()?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&paths)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&config_paths_json(&paths))?
+        );
         return Ok(());
     }
 
-    println!("Config file: {}", paths.config_file.display());
-    println!("Config dir:  {}", paths.config_dir.display());
-    println!("State dir:   {}", paths.state_dir.display());
-    println!("Cache dir:   {}", paths.cache_dir.display());
-    println!("History:     {}", paths.history_file.display());
+    for entry in paths.storage_entries() {
+        println!(
+            "{}: {} [{}; {}]",
+            entry.id.label(),
+            entry.path.display(),
+            entry.lifecycle.label(),
+            entry.retention.label()
+        );
+    }
 
     Ok(())
 }

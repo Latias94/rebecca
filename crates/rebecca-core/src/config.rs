@@ -16,6 +16,125 @@ pub struct AppPaths {
     pub history_file: PathBuf,
 }
 
+impl AppPaths {
+    pub fn storage_entries(&self) -> Vec<AppStorageEntry> {
+        vec![
+            AppStorageEntry::new(
+                AppStorageId::ConfigFile,
+                self.config_file.clone(),
+                AppStorageLifecycle::Configuration,
+                AppStorageRetention::Preserve,
+            ),
+            AppStorageEntry::new(
+                AppStorageId::ConfigDir,
+                self.config_dir.clone(),
+                AppStorageLifecycle::Configuration,
+                AppStorageRetention::Preserve,
+            ),
+            AppStorageEntry::new(
+                AppStorageId::StateDir,
+                self.state_dir.clone(),
+                AppStorageLifecycle::DurableState,
+                AppStorageRetention::Preserve,
+            ),
+            AppStorageEntry::new(
+                AppStorageId::CacheDir,
+                self.cache_dir.clone(),
+                AppStorageLifecycle::RebuildableCache,
+                AppStorageRetention::Rebuildable,
+            ),
+            AppStorageEntry::new(
+                AppStorageId::HistoryFile,
+                self.history_file.clone(),
+                AppStorageLifecycle::AppendOnlyHistory,
+                AppStorageRetention::Preserve,
+            ),
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppStorageEntry {
+    pub id: AppStorageId,
+    pub path: PathBuf,
+    pub lifecycle: AppStorageLifecycle,
+    pub retention: AppStorageRetention,
+}
+
+impl AppStorageEntry {
+    fn new(
+        id: AppStorageId,
+        path: PathBuf,
+        lifecycle: AppStorageLifecycle,
+        retention: AppStorageRetention,
+    ) -> Self {
+        Self {
+            id,
+            path,
+            lifecycle,
+            retention,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppStorageId {
+    ConfigFile,
+    ConfigDir,
+    StateDir,
+    CacheDir,
+    HistoryFile,
+}
+
+impl AppStorageId {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ConfigFile => "Config file",
+            Self::ConfigDir => "Config dir",
+            Self::StateDir => "State dir",
+            Self::CacheDir => "Cache dir",
+            Self::HistoryFile => "History",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppStorageLifecycle {
+    Configuration,
+    DurableState,
+    RebuildableCache,
+    AppendOnlyHistory,
+}
+
+impl AppStorageLifecycle {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Configuration => "configuration",
+            Self::DurableState => "durable state",
+            Self::RebuildableCache => "rebuildable cache",
+            Self::AppendOnlyHistory => "append-only history",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppStorageRetention {
+    Preserve,
+    Rebuildable,
+}
+
+impl AppStorageRetention {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Preserve => "preserve",
+            Self::Rebuildable => "rebuildable",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RebeccaConfig {
@@ -174,8 +293,9 @@ fn env_path(key: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CONFIG_SCHEMA_VERSION, RebeccaAppPathsConfig, RebeccaConfig, default_app_paths,
-        load_app_paths_from, load_config, resolve_app_paths,
+        AppStorageId, AppStorageLifecycle, AppStorageRetention, CONFIG_SCHEMA_VERSION,
+        RebeccaAppPathsConfig, RebeccaConfig, default_app_paths, load_app_paths_from, load_config,
+        resolve_app_paths,
     };
 
     #[test]
@@ -323,6 +443,52 @@ unknown = "value"
         assert_eq!(
             paths.history_file,
             std::path::PathBuf::from(r"C:\Rebecca\State\audit.jsonl")
+        );
+    }
+
+    #[test]
+    fn app_paths_storage_entries_pin_lifecycle_policy() {
+        let config = RebeccaConfig {
+            version: CONFIG_SCHEMA_VERSION,
+            app_paths: RebeccaAppPathsConfig {
+                state_dir: Some(std::path::PathBuf::from(r"C:\Rebecca\State")),
+                cache_dir: Some(std::path::PathBuf::from(r"C:\Rebecca\Cache")),
+                history_file: Some(std::path::PathBuf::from(r"C:\Rebecca\State\audit.jsonl")),
+            },
+        };
+        let paths = resolve_app_paths(&config).unwrap();
+
+        let entries = paths.storage_entries();
+
+        assert_eq!(
+            entries.iter().map(|entry| entry.id).collect::<Vec<_>>(),
+            vec![
+                AppStorageId::ConfigFile,
+                AppStorageId::ConfigDir,
+                AppStorageId::StateDir,
+                AppStorageId::CacheDir,
+                AppStorageId::HistoryFile,
+            ]
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.id == AppStorageId::CacheDir)
+                .map(|entry| (entry.lifecycle, entry.retention)),
+            Some((
+                AppStorageLifecycle::RebuildableCache,
+                AppStorageRetention::Rebuildable,
+            ))
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.id == AppStorageId::HistoryFile)
+                .map(|entry| (entry.lifecycle, entry.retention)),
+            Some((
+                AppStorageLifecycle::AppendOnlyHistory,
+                AppStorageRetention::Preserve,
+            ))
         );
     }
 

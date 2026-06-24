@@ -31,6 +31,9 @@ Use user-scoped storage by default.
   unsupported versions fail with a file-scoped parse/validation error.
 - History should be structured append-only data, with a CLI command to render it.
 - Local scan cache must be safe to delete and rebuild.
+- The storage contract distinguishes lifecycle classes: configuration and
+  durable state are preserved, history is append-only preserved, and cache is
+  rebuildable.
 
 # Alternatives Considered
 
@@ -60,6 +63,8 @@ Use user-scoped storage by default.
 - Config and state paths should be shown by `rebecca config paths`.
 - Future config migrations have an explicit schema boundary instead of relying
   on unknown-key behavior alone.
+- Future cache cleanup can reason over the lifecycle metadata instead of
+  guessing from path names.
 
 # Success Metrics
 
@@ -67,6 +72,7 @@ Use user-scoped storage by default.
 |--------|--------|-------------|
 | Config clarity | `rebecca config paths` shows all storage locations | CLI smoke test |
 | Schema clarity | Unsupported config versions fail clearly | Core and CLI regression tests |
+| Lifecycle clarity | Cache is marked rebuildable and state/history are marked preserve | Core and CLI regression tests |
 | Safe cache | Deleting local cache does not break configuration | Integration test |
 | Privacy | No secrets are stored in history or cache | Review checklist |
 
