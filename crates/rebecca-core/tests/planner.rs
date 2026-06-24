@@ -3,6 +3,7 @@ use std::path::Path;
 
 use rebecca_core::applications::{StaticApplicationDiscovery, SteamInstallation};
 use rebecca_core::environment::MapEnvironment;
+use rebecca_core::plan::CleanupPlan;
 use rebecca_core::planner::{
     PlanProgressEvent, build_cleanup_plan_with_environment,
     build_cleanup_plan_with_environment_and_applications,
@@ -405,26 +406,35 @@ fn steam_rule_targets_only_client_browser_cache_directories() {
     }));
 }
 
-#[test]
-fn steam_install_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    fixture.write("steam-install/appcache/httpcache/cache.bin", b"ab");
+fn steam_install_plan(
+    fixture: &PlannerFixture,
+    rule_id: &str,
+    allow_moderate: bool,
+) -> CleanupPlan {
     let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
+        SteamInstallation::new(fixture.root.join("steam-install"), Vec::new()),
     );
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-install-cache".to_string()];
+    request.selected_rule_ids = vec![rule_id.to_string()];
+    request.allow_moderate = allow_moderate;
 
-    let plan = build_cleanup_plan_with_environment_and_applications(
+    build_cleanup_plan_with_environment_and_applications(
         &request,
         &rules,
         &fixture.env,
         &applications,
     )
-    .unwrap();
+    .unwrap()
+}
+
+#[test]
+fn steam_install_rule_expands_from_application_discovery() {
+    let fixture = PlannerFixture::new();
+    let install_path = fixture.root.join("steam-install");
+    fixture.write("steam-install/appcache/httpcache/cache.bin", b"ab");
+    let plan = steam_install_plan(&fixture, "windows.steam-install-cache", false);
 
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 0);
@@ -444,21 +454,7 @@ fn steam_install_depot_cache_rule_expands_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");
     fixture.write("steam-install/depotcache/package.bin", b"abcd");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
-
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-install-depot-cache".to_string()];
-
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
+    let plan = steam_install_plan(&fixture, "windows.steam-install-depot-cache", false);
 
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 0);
@@ -475,21 +471,7 @@ fn steam_install_logs_rule_expands_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");
     fixture.write("steam-install/logs/cloud_log.txt", b"abc");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
-
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-install-logs".to_string()];
-
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
+    let plan = steam_install_plan(&fixture, "windows.steam-install-logs", false);
 
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 0);
@@ -506,22 +488,7 @@ fn steam_install_download_rule_expands_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");
     fixture.write("steam-install/appcache/download/cache.bin", b"ab");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
-
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-install-download-cache".to_string()];
-    request.allow_moderate = true;
-
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
+    let plan = steam_install_plan(&fixture, "windows.steam-install-download-cache", true);
 
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 0);
@@ -537,21 +504,7 @@ fn steam_install_library_rule_expands_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");
     fixture.write("steam-install/appcache/librarycache/cache.bin", b"ab");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
-
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-install-library-cache".to_string()];
-
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
+    let plan = steam_install_plan(&fixture, "windows.steam-install-library-cache", false);
 
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 0);
@@ -567,21 +520,7 @@ fn steam_install_shader_rule_expands_from_application_discovery() {
     let fixture = PlannerFixture::new();
     let install_path = fixture.root.join("steam-install");
     fixture.write("steam-install/appcache/shadercache/cache.bin", b"ab");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), Vec::<std::path::PathBuf>::new()),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
-
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-install-shader-cache".to_string()];
-
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
+    let plan = steam_install_plan(&fixture, "windows.steam-install-shader-cache", false);
 
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 0);

@@ -3,6 +3,33 @@ use std::fs;
 mod common;
 #[path = "common/isolated.rs"]
 mod isolated;
+
+fn steam_dry_run_json_output(
+    temp: &tempfile::TempDir,
+    rule_id: &str,
+    target_relative_path: &str,
+    bytes: &[u8],
+) -> serde_json::Value {
+    let steam = temp.path().join("Steam");
+    let target = steam.join(target_relative_path);
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("cache.bin"), bytes).unwrap();
+
+    let output = isolated::isolated_rebecca(temp)
+        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
+        .args(["clean", "--dry-run", "--json", "--rule", rule_id])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
@@ -161,31 +188,12 @@ fn clean_dry_run_accepts_no_progress_flag() {
 #[test]
 fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
     let temp = tempfile::tempdir().unwrap();
-    let steam = temp.path().join("Steam");
-    let appcache = steam.join("appcache");
-    let librarycache = appcache.join("librarycache");
-    fs::create_dir_all(&librarycache).unwrap();
-    fs::write(librarycache.join("cache.bin"), b"abc").unwrap();
-
-    let output = isolated::isolated_rebecca(&temp)
-        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
-        .args([
-            "clean",
-            "--dry-run",
-            "--json",
-            "--rule",
-            "windows.steam-install-library-cache",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
+    let value = steam_dry_run_json_output(
+        &temp,
+        "windows.steam-install-library-cache",
+        "appcache/librarycache",
+        b"abc",
     );
-
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 1);
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["skipped_targets"], 0);
@@ -210,31 +218,12 @@ fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
 #[test]
 fn clean_dry_run_json_expands_steam_install_shader_rule_with_discovery_override() {
     let temp = tempfile::tempdir().unwrap();
-    let steam = temp.path().join("Steam");
-    let appcache = steam.join("appcache");
-    let shadercache = appcache.join("shadercache");
-    fs::create_dir_all(&shadercache).unwrap();
-    fs::write(shadercache.join("cache.bin"), b"abcd").unwrap();
-
-    let output = isolated::isolated_rebecca(&temp)
-        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
-        .args([
-            "clean",
-            "--dry-run",
-            "--json",
-            "--rule",
-            "windows.steam-install-shader-cache",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
+    let value = steam_dry_run_json_output(
+        &temp,
+        "windows.steam-install-shader-cache",
+        "appcache/shadercache",
+        b"abcd",
     );
-
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 1);
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["skipped_targets"], 0);
@@ -259,30 +248,7 @@ fn clean_dry_run_json_expands_steam_install_shader_rule_with_discovery_override(
 #[test]
 fn clean_dry_run_json_expands_steam_install_logs_rule_with_discovery_override() {
     let temp = tempfile::tempdir().unwrap();
-    let steam = temp.path().join("Steam");
-    let logs = steam.join("logs");
-    fs::create_dir_all(&logs).unwrap();
-    fs::write(logs.join("cloud_log.txt"), b"abcde").unwrap();
-
-    let output = isolated::isolated_rebecca(&temp)
-        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
-        .args([
-            "clean",
-            "--dry-run",
-            "--json",
-            "--rule",
-            "windows.steam-install-logs",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
-    );
-
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value = steam_dry_run_json_output(&temp, "windows.steam-install-logs", "logs", b"abcde");
     assert_eq!(value["summary"]["total_targets"], 1);
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["skipped_targets"], 0);
@@ -302,30 +268,12 @@ fn clean_dry_run_json_expands_steam_install_logs_rule_with_discovery_override() 
 #[test]
 fn clean_dry_run_json_expands_steam_install_depot_cache_rule_with_discovery_override() {
     let temp = tempfile::tempdir().unwrap();
-    let steam = temp.path().join("Steam");
-    let depotcache = steam.join("depotcache");
-    fs::create_dir_all(&depotcache).unwrap();
-    fs::write(depotcache.join("package.bin"), b"abcd").unwrap();
-
-    let output = isolated::isolated_rebecca(&temp)
-        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
-        .args([
-            "clean",
-            "--dry-run",
-            "--json",
-            "--rule",
-            "windows.steam-install-depot-cache",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
+    let value = steam_dry_run_json_output(
+        &temp,
+        "windows.steam-install-depot-cache",
+        "depotcache",
+        b"abcd",
     );
-
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["total_targets"], 1);
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["skipped_targets"], 0);
