@@ -30,16 +30,16 @@ The current design is safety-first:
   roots, protected categories, Rebecca-owned storage, and existing reparse-like
   paths are blocked.
 - Built-in rules are typed TOML, Windows-scoped, project-owned, and validated
-  before reaching the CLI.
+  against the shared protection model at load time.
 - Default execution moves files, or direct child entries of directory targets,
   to the Windows Recycle Bin.
 - History stores request metadata, target paths, byte counts, statuses, reason
   codes, issue matrices, and restore hints. It does not store file contents.
 
-The largest remaining gap is catalog target-shape validation. Today protected
-final paths are blocked by planning and execution, while built-in catalog load
-time still validates metadata and duplicate targets rather than every protected
-category shape.
+The largest remaining gap is protected-result preservation across history and
+human output. Protected final paths are blocked by planning and execution, but
+the audit surface still needs a dedicated round-trip story for blocked and
+protected outcomes.
 
 ## Threat Surface
 
@@ -131,6 +131,8 @@ from TOML files. The catalog loader and validators enforce:
 - Windows platform and `windows.` id prefix for built-ins;
 - non-empty restore hints;
 - owned source and `project-owned` provenance license.
+- target shapes that overlap protected categories or unallowlisted Steam
+  install/library relative paths.
 
 Rule authoring guidance lives in `docs/rule-authoring.md`. Reference projects
 under `repo-ref/` are research inputs only; their GPL code and rules are not
@@ -190,11 +192,12 @@ Recent targeted verification for this audit baseline:
 - `cargo nextest run -p rebecca-core --test safety_policy`
 - `cargo nextest run -p rebecca-core --test planner`
 - `cargo nextest run -p rebecca-core --test executor_contract`
+- `cargo nextest run -p rebecca-rules`
 
 ## Known Limitations And Planned Hardening
 
-- Built-in catalog validation does not yet reject protected target shapes at
-  load time; protected final paths are blocked during planning.
+- Protected-result preservation across history and human output is still being
+  deepened.
 - Protected category coverage is conservative but not exhaustive for all Windows
   applications.
 - Release artifact attestations, installer integrity, and supply-chain signals

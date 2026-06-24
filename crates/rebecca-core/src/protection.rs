@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::config::AppStorageEntry;
+use crate::model::RuleTargetSpec;
 use crate::path_overlap::paths_overlap;
 
 #[derive(Debug, Clone, Copy)]
@@ -87,10 +88,78 @@ impl<'a> ProtectionPolicy<'a> {
         ProtectionAssessment::Allowed
     }
 
+    pub fn assess_relative_target_shape(&self, path: &Path) -> ProtectionAssessment {
+        let normalized = normalize_shape_path(path);
+
+        if normalized.is_empty() {
+            return blocked(
+                ProtectionBlockKind::EmptyPath,
+                "empty relative target is not allowed".to_string(),
+            );
+        }
+
+        if looks_absolute_shape(&normalized) {
+            return blocked(
+                ProtectionBlockKind::FilesystemRoot,
+                "relative target must not be absolute".to_string(),
+            );
+        }
+
+        if contains_relative_control_segment(&normalized) {
+            return blocked(
+                ProtectionBlockKind::PathTraversal,
+                "relative target must not contain current or parent directory segments".to_string(),
+            );
+        }
+
+        ProtectionAssessment::Allowed
+    }
+
+    pub fn assess_catalog_target_shape(&self, target: &RuleTargetSpec) -> ProtectionAssessment {
+        match target {
+            RuleTargetSpec::Template(template) | RuleTargetSpec::GlobTemplate(template) => {
+                self.assess_path(Path::new(template.raw()))
+            }
+            RuleTargetSpec::ExactPath(path) => self.assess_path(path),
+            RuleTargetSpec::SteamInstallTemplate(template) => self.assess_steam_catalog_shape(
+                "Steam install",
+                template.raw(),
+                is_allowed_steam_install_catalog_shape,
+            ),
+            RuleTargetSpec::SteamLibraryTemplate(template) => self.assess_steam_catalog_shape(
+                "Steam library",
+                template.raw(),
+                is_allowed_steam_library_catalog_shape,
+            ),
+        }
+    }
+
     fn protected_storage_overlap(&self, path: &Path) -> Option<&'a AppStorageEntry> {
         self.protected_storage?
             .iter()
             .find(|entry| paths_overlap(path, &entry.path))
+    }
+
+    fn assess_steam_catalog_shape(
+        &self,
+        scope: &'static str,
+        raw: &str,
+        is_allowlisted: fn(&str) -> bool,
+    ) -> ProtectionAssessment {
+        let path = Path::new(raw);
+        if let ProtectionAssessment::Blocked(block) = self.assess_relative_target_shape(path) {
+            return ProtectionAssessment::Blocked(block);
+        }
+
+        let normalized = normalize_raw_shape(raw);
+        if is_allowlisted(&normalized) {
+            return ProtectionAssessment::Allowed;
+        }
+
+        blocked(
+            ProtectionBlockKind::ProtectedCategory(ProtectedCategory::ApplicationDurableData),
+            format!("{scope} target {raw} is not an allowlisted maintenance path"),
+        )
     }
 }
 
@@ -217,6 +286,50 @@ fn trim_trailing_separators(path: &str) -> String {
     }
 
     normalized
+}
+
+fn normalize_shape_path(path: &Path) -> String {
+    normalize_raw_shape(&path.as_os_str().to_string_lossy())
+}
+
+fn normalize_raw_shape(raw: &str) -> String {
+    let replaced = raw.replace('\\', "/");
+    trim_trailing_separators(replaced.trim()).to_ascii_lowercase()
+}
+
+fn looks_absolute_shape(normalized: &str) -> bool {
+    normalized.starts_with('/') || normalized.as_bytes().get(1) == Some(&b':')
+}
+
+fn contains_relative_control_segment(normalized: &str) -> bool {
+    normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .any(|segment| matches!(segment, "." | ".."))
+}
+
+fn is_allowed_steam_install_catalog_shape(normalized: &str) -> bool {
+    matches!(
+        normalized,
+        "appcache/httpcache"
+            | "appcache/download"
+            | "appcache/librarycache"
+            | "appcache/shadercache"
+            | "appcache/stats"
+            | "appcache/appinfo.vdf"
+            | "appcache/localization.vdf"
+            | "appcache/packageinfo.vdf"
+            | "config/avatarcache"
+            | "depotcache"
+            | "logs"
+    )
+}
+
+fn is_allowed_steam_library_catalog_shape(normalized: &str) -> bool {
+    matches!(
+        normalized,
+        "steamapps/shadercache" | "steamapps/downloading" | "steamapps/temp"
+    )
 }
 
 fn contains_traversal(normalized: &str) -> bool {

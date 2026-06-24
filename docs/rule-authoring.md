@@ -49,6 +49,8 @@ files. Keep each rule small, explicit, and easy to audit.
   `appcache\packageinfo.vdf`, `config\avatarcache`, `depotcache`, or `logs`,
   and library-root cache rules may target
   `steamapps\shadercache`, `steamapps\downloading`, or `steamapps\temp`.
+  Built-in catalog validation rejects other Steam install/library relative
+  target shapes at load time.
 - Cargo cache rules should target cache subdirectories under `%CARGO_HOME%`
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or
@@ -66,6 +68,10 @@ files. Keep each rule small, explicit, and easy to audit.
 
 - Review [Rebecca Cleanup Safety Audit](security-audit.md) before adding a
   new rule family.
+- Built-in target shapes are checked against the shared protection policy during
+  catalog loading. A rule that points at credentials, browser private data,
+  protected application data, or non-allowlisted Steam relative targets is
+  invalid even before planning expands it on a user's machine.
 - `safe`: disposable caches, shader caches, regenerated browser data.
 - `moderate`: developer caches, diagnostic artifacts, package caches.
 - `risky` and above: only when the user impact is well understood.

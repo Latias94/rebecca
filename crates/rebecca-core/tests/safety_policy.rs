@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use rebecca_core::RuleTargetSpec;
 use rebecca_core::config::AppPaths;
 use rebecca_core::protection::{
     ProtectedCategory, ProtectionAssessment, ProtectionBlockKind, ProtectionPolicy,
@@ -160,6 +161,72 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
                 ProtectionAssessment::Allowed
             ),
             "{path} should remain allowed"
+        );
+    }
+}
+
+#[test]
+fn catalog_target_shapes_keep_known_maintenance_targets_open() {
+    let policy = ProtectionPolicy::new();
+
+    for target in [
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
+        RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
+        RuleTargetSpec::steam_install_template("appcache\\httpcache"),
+        RuleTargetSpec::steam_install_template("logs"),
+        RuleTargetSpec::steam_library_template("steamapps\\downloading"),
+    ] {
+        assert!(
+            matches!(
+                policy.assess_catalog_target_shape(&target),
+                ProtectionAssessment::Allowed
+            ),
+            "{target:?} should be an allowed catalog target shape"
+        );
+    }
+}
+
+#[test]
+fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() {
+    let policy = ProtectionPolicy::new();
+
+    for (target, expected_category) in [
+        (
+            RuleTargetSpec::template("%USERPROFILE%\\.ssh"),
+            ProtectedCategory::Credentials,
+        ),
+        (
+            RuleTargetSpec::glob_template(
+                "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cookies.sqlite",
+            ),
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            RuleTargetSpec::template(
+                "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Local Storage",
+            ),
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            RuleTargetSpec::steam_install_template("userdata"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::steam_library_template("steamapps\\common"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::steam_library_template("steamapps\\workshop"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+    ] {
+        assert!(
+            matches!(
+                policy.assess_catalog_target_shape(&target),
+                ProtectionAssessment::Blocked(block)
+                    if block.kind == ProtectionBlockKind::ProtectedCategory(expected_category)
+            ),
+            "{target:?} should be blocked as {expected_category:?}"
         );
     }
 }

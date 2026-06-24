@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use rebecca_core::{
     DeletePolicy, Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleSource,
-    RuleTargetSpec, SafetyLevel, planner::validate_rule_catalog,
+    RuleTargetSpec, SafetyLevel,
+    planner::validate_rule_catalog,
+    protection::{ProtectionAssessment, ProtectionPolicy},
 };
 use serde::Deserialize;
 
@@ -75,6 +77,8 @@ fn parse_rule_file(path: &str, raw: &str) -> Result<RuleDefinition> {
 }
 
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
+    let policy = ProtectionPolicy::new();
+
     for rule in rules {
         if rule.platform != Platform::Windows {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
@@ -115,6 +119,18 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                 "built-in rule {} must use project-owned provenance license",
                 rule.id
             )));
+        }
+
+        for spec in &rule.path_templates {
+            if let ProtectionAssessment::Blocked(block) = policy.assess_catalog_target_shape(spec) {
+                return Err(RebeccaError::RuleCatalogInvalid(format!(
+                    "built-in rule {} target {} is blocked by {}: {}",
+                    rule.id,
+                    spec.placeholder_path().display(),
+                    block.kind.label(),
+                    block.message
+                )));
+            }
         }
     }
 
@@ -181,7 +197,10 @@ impl CatalogTarget {
 mod tests {
     use std::collections::HashSet;
 
-    use rebecca_core::RuleSource;
+    use rebecca_core::{
+        DeletePolicy, Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
+        SafetyLevel,
+    };
 
     use super::{builtin_rules, parse_rule_file};
 
@@ -241,17 +260,17 @@ mod tests {
 
     #[test]
     fn builtin_catalog_rejects_non_owned_provenance_sources() {
-        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
             id: "windows.test".to_string(),
-            platform: rebecca_core::Platform::Windows,
+            platform: Platform::Windows,
             category: "system".to_string(),
             name: "Test".to_string(),
-            safety_level: rebecca_core::SafetyLevel::Safe,
-            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
-            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            safety_level: SafetyLevel::Safe,
+            path_templates: vec![RuleTargetSpec::template("%TEMP%")],
+            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
-            provenance: rebecca_core::RuleProvenance {
-                source: rebecca_core::RuleSource::ReferenceOnly,
+            provenance: RuleProvenance {
+                source: RuleSource::ReferenceOnly,
                 license: "project-owned".to_string(),
                 notes: "test".to_string(),
             },
@@ -428,17 +447,17 @@ notes = "test"
 
     #[test]
     fn builtin_catalog_rejects_missing_restore_hints() {
-        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
             id: "windows.test".to_string(),
-            platform: rebecca_core::Platform::Windows,
+            platform: Platform::Windows,
             category: "system".to_string(),
             name: "Test".to_string(),
-            safety_level: rebecca_core::SafetyLevel::Safe,
-            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
-            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            safety_level: SafetyLevel::Safe,
+            path_templates: vec![RuleTargetSpec::template("%TEMP%")],
+            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: None,
-            provenance: rebecca_core::RuleProvenance {
-                source: rebecca_core::RuleSource::Owned,
+            provenance: RuleProvenance {
+                source: RuleSource::Owned,
                 license: "project-owned".to_string(),
                 notes: "test".to_string(),
             },
@@ -450,17 +469,17 @@ notes = "test"
 
     #[test]
     fn builtin_catalog_rejects_non_project_owned_licenses() {
-        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
             id: "windows.test".to_string(),
-            platform: rebecca_core::Platform::Windows,
+            platform: Platform::Windows,
             category: "system".to_string(),
             name: "Test".to_string(),
-            safety_level: rebecca_core::SafetyLevel::Safe,
-            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
-            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            safety_level: SafetyLevel::Safe,
+            path_templates: vec![RuleTargetSpec::template("%TEMP%")],
+            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
-            provenance: rebecca_core::RuleProvenance {
-                source: rebecca_core::RuleSource::Owned,
+            provenance: RuleProvenance {
+                source: RuleSource::Owned,
                 license: "reference-only".to_string(),
                 notes: "test".to_string(),
             },
@@ -472,17 +491,17 @@ notes = "test"
 
     #[test]
     fn builtin_catalog_rejects_non_windows_platforms() {
-        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
             id: "linux.test".to_string(),
-            platform: rebecca_core::Platform::Linux,
+            platform: Platform::Linux,
             category: "system".to_string(),
             name: "Test".to_string(),
-            safety_level: rebecca_core::SafetyLevel::Safe,
-            path_templates: vec![rebecca_core::RuleTargetSpec::template("/tmp")],
-            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            safety_level: SafetyLevel::Safe,
+            path_templates: vec![RuleTargetSpec::template("/tmp")],
+            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
-            provenance: rebecca_core::RuleProvenance {
-                source: rebecca_core::RuleSource::Owned,
+            provenance: RuleProvenance {
+                source: RuleSource::Owned,
                 license: "project-owned".to_string(),
                 notes: "test".to_string(),
             },
@@ -494,17 +513,17 @@ notes = "test"
 
     #[test]
     fn builtin_catalog_rejects_non_windows_id_prefixes() {
-        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
             id: "linux.test".to_string(),
-            platform: rebecca_core::Platform::Windows,
+            platform: Platform::Windows,
             category: "system".to_string(),
             name: "Test".to_string(),
-            safety_level: rebecca_core::SafetyLevel::Safe,
-            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
-            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            safety_level: SafetyLevel::Safe,
+            path_templates: vec![RuleTargetSpec::template("%TEMP%")],
+            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
-            provenance: rebecca_core::RuleProvenance {
-                source: rebecca_core::RuleSource::Owned,
+            provenance: RuleProvenance {
+                source: RuleSource::Owned,
                 license: "project-owned".to_string(),
                 notes: "test".to_string(),
             },
@@ -512,5 +531,54 @@ notes = "test"
         .unwrap_err();
 
         assert!(err.to_string().contains("windows. rule id prefix"));
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_protected_target_shapes() {
+        for (target, expected) in [
+            (
+                RuleTargetSpec::template("%USERPROFILE%\\.ssh"),
+                "credentials",
+            ),
+            (
+                RuleTargetSpec::template(
+                    "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\History",
+                ),
+                "browser-private-data",
+            ),
+            (
+                RuleTargetSpec::steam_install_template("userdata"),
+                "application-durable-data",
+            ),
+            (
+                RuleTargetSpec::steam_library_template("steamapps\\common"),
+                "application-durable-data",
+            ),
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[rule_with_target(target)])
+                .expect_err("protected target shape should be rejected");
+            assert!(
+                err.to_string().contains(expected),
+                "{err} should mention {expected}"
+            );
+        }
+    }
+
+    fn rule_with_target(target: RuleTargetSpec) -> RuleDefinition {
+        RuleDefinition {
+            id: "windows.test".to_string(),
+            platform: Platform::Windows,
+            category: "system".to_string(),
+            name: "Test".to_string(),
+            safety_level: SafetyLevel::Safe,
+            path_templates: vec![target],
+            delete_policy: DeletePolicy::RecycleBin,
+            restore_hint: Some("Regenerated automatically.".to_string()),
+            provenance: RuleProvenance {
+                source: RuleSource::Owned,
+                license: "project-owned".to_string(),
+                notes: "test".to_string(),
+            },
+        }
     }
 }

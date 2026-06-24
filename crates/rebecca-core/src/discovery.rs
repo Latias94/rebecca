@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use globset::{GlobBuilder, GlobMatcher};
 
@@ -8,6 +8,7 @@ use crate::environment::Environment;
 use crate::error::{RebeccaError, Result};
 use crate::model::RuleTargetSpec;
 use crate::path_template::expand_template;
+use crate::protection::{ProtectionAssessment, ProtectionPolicy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TargetResolution {
@@ -116,29 +117,14 @@ enum SteamRootScope {
 }
 
 fn ensure_safe_relative_steam_target(path: &Path) -> Result<()> {
-    if path.as_os_str().is_empty() || looks_absolute(path) {
-        return Err(unsafe_steam_relative_path_error(path));
+    if matches!(
+        ProtectionPolicy::new().assess_relative_target_shape(path),
+        ProtectionAssessment::Allowed
+    ) {
+        return Ok(());
     }
 
-    for component in path.components() {
-        if matches!(
-            component,
-            Component::CurDir | Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        ) {
-            return Err(unsafe_steam_relative_path_error(path));
-        }
-    }
-
-    Ok(())
-}
-
-fn looks_absolute(path: &Path) -> bool {
-    if path.is_absolute() {
-        return true;
-    }
-
-    let raw = path.as_os_str().to_string_lossy().replace('\\', "/");
-    raw.starts_with('/') || raw.starts_with("//") || raw.as_bytes().get(1) == Some(&b':')
+    Err(unsafe_steam_relative_path_error(path))
 }
 
 fn unsafe_steam_relative_path_error(path: &Path) -> RebeccaError {
