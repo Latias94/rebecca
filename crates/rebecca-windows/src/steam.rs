@@ -20,6 +20,40 @@ struct SteamRegistrySource {
     parser: fn(&str) -> Option<PathBuf>,
 }
 
+#[cfg(windows)]
+const STEAM_REGISTRY_SOURCES: [SteamRegistrySource; 5] = [
+    SteamRegistrySource {
+        root: HKEY_CURRENT_USER,
+        key_path: "Software\\Valve\\Steam",
+        value_name: "SteamPath",
+        parser: install_path_from_value,
+    },
+    SteamRegistrySource {
+        root: HKEY_CURRENT_USER,
+        key_path: "Software\\Valve\\Steam",
+        value_name: "SteamExe",
+        parser: install_root_from_executable_path,
+    },
+    SteamRegistrySource {
+        root: HKEY_LOCAL_MACHINE,
+        key_path: "SOFTWARE\\Valve\\Steam",
+        value_name: "InstallPath",
+        parser: install_path_from_value,
+    },
+    SteamRegistrySource {
+        root: HKEY_LOCAL_MACHINE,
+        key_path: "SOFTWARE\\WOW6432Node\\Valve\\Steam",
+        value_name: "InstallPath",
+        parser: install_path_from_value,
+    },
+    SteamRegistrySource {
+        root: HKEY_CLASSES_ROOT,
+        key_path: "steam\\Shell\\Open\\Command",
+        value_name: "",
+        parser: command_install_path_from_command,
+    },
+];
+
 impl WindowsApplicationDiscovery {
     pub fn new() -> Self {
         Self
@@ -50,49 +84,13 @@ fn discover_steam_installation_with<F>(mut lookup: F) -> Result<Option<SteamInst
 where
     F: FnMut(HKEY, &str, &str) -> Result<Option<String>>,
 {
-    for source in steam_registry_sources() {
+    for source in STEAM_REGISTRY_SOURCES {
         if let Some(path) = resolve_steam_registry_source(source, &mut lookup)? {
             return Ok(Some(steam_installation_from_path(path)));
         }
     }
 
     Ok(None)
-}
-
-#[cfg(windows)]
-fn steam_registry_sources() -> [SteamRegistrySource; 5] {
-    [
-        SteamRegistrySource {
-            root: HKEY_CURRENT_USER,
-            key_path: "Software\\Valve\\Steam",
-            value_name: "SteamPath",
-            parser: install_path_from_value,
-        },
-        SteamRegistrySource {
-            root: HKEY_CURRENT_USER,
-            key_path: "Software\\Valve\\Steam",
-            value_name: "SteamExe",
-            parser: install_root_from_executable_path,
-        },
-        SteamRegistrySource {
-            root: HKEY_LOCAL_MACHINE,
-            key_path: "SOFTWARE\\Valve\\Steam",
-            value_name: "InstallPath",
-            parser: install_path_from_value,
-        },
-        SteamRegistrySource {
-            root: HKEY_LOCAL_MACHINE,
-            key_path: "SOFTWARE\\WOW6432Node\\Valve\\Steam",
-            value_name: "InstallPath",
-            parser: install_path_from_value,
-        },
-        SteamRegistrySource {
-            root: HKEY_CLASSES_ROOT,
-            key_path: "steam\\Shell\\Open\\Command",
-            value_name: "",
-            parser: command_install_path_from_command,
-        },
-    ]
 }
 
 #[cfg(windows)]
