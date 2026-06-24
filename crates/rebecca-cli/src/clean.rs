@@ -80,8 +80,10 @@ pub fn run(options: CleanOptions) -> Result<()> {
         }
     };
 
+    let scan_cache_summary = (!options.json).then(|| progress.scan_cache_summary());
+
     if options.dry_run {
-        return output::print_plan(&plan, options.json);
+        return output::print_plan(&plan, options.json, scan_cache_summary);
     }
 
     #[cfg(not(windows))]
@@ -95,7 +97,7 @@ pub fn run(options: CleanOptions) -> Result<()> {
     #[cfg(windows)]
     {
         if plan.summary.allowed_targets == 0 {
-            return output::print_plan(&plan, options.json);
+            return output::print_plan(&plan, options.json, scan_cache_summary);
         }
 
         if !options.yes && !confirm_cleanup(&plan)? {
@@ -112,7 +114,7 @@ pub fn run(options: CleanOptions) -> Result<()> {
         };
         HistoryStore::new(paths.history_file).append_plan(&plan)?;
 
-        output::print_plan(&plan, options.json)
+        output::print_plan(&plan, options.json, scan_cache_summary)
     }
 }
 
@@ -124,6 +126,7 @@ fn install_cancellation_handler(token: ScanCancellationToken) -> Result<()> {
 struct PlanProgressReporter {
     bar: Option<ProgressBar>,
     scanned_targets: u64,
+    scan_cache_summary: output::ScanCacheProgressSummary,
 }
 
 impl PlanProgressReporter {
@@ -138,10 +141,13 @@ impl PlanProgressReporter {
         Self {
             bar,
             scanned_targets: 0,
+            scan_cache_summary: output::ScanCacheProgressSummary::default(),
         }
     }
 
     fn on_event(&mut self, event: PlanProgressEvent<'_>) {
+        self.record_event(event);
+
         let Some(bar) = &self.bar else {
             return;
         };
@@ -204,6 +210,26 @@ impl PlanProgressReporter {
                 bar.tick();
             }
         }
+    }
+
+    fn record_event(&mut self, event: PlanProgressEvent<'_>) {
+        match event {
+            PlanProgressEvent::ScanCacheHit { .. } => {
+                self.scan_cache_summary.hits = self.scan_cache_summary.hits.saturating_add(1);
+            }
+            PlanProgressEvent::ScanCacheMiss { .. } => {
+                self.scan_cache_summary.misses = self.scan_cache_summary.misses.saturating_add(1);
+            }
+            PlanProgressEvent::ScanCacheWriteSkipped { .. } => {
+                self.scan_cache_summary.write_skipped =
+                    self.scan_cache_summary.write_skipped.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+
+    fn scan_cache_summary(&self) -> output::ScanCacheProgressSummary {
+        self.scan_cache_summary
     }
 
     fn finish(&self) {

@@ -4,6 +4,19 @@ use rebecca_core::{DeleteMode, RuleDefinition, TargetStatus};
 
 const LARGEST_TARGET_LIMIT: usize = 5;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ScanCacheProgressSummary {
+    pub(crate) hits: u64,
+    pub(crate) misses: u64,
+    pub(crate) write_skipped: u64,
+}
+
+impl ScanCacheProgressSummary {
+    fn has_activity(self) -> bool {
+        self.hits > 0 || self.misses > 0 || self.write_skipped > 0
+    }
+}
+
 pub fn print_rule_catalog(rules: &[&RuleDefinition]) {
     println!("Rebecca rules: {}", rules.len());
 
@@ -60,7 +73,11 @@ where
     }
 }
 
-pub fn print_plan(plan: &CleanupPlan, json: bool) -> Result<()> {
+pub(crate) fn print_plan(
+    plan: &CleanupPlan,
+    json: bool,
+    scan_cache_summary: Option<ScanCacheProgressSummary>,
+) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(plan)?);
         return Ok(());
@@ -88,6 +105,14 @@ pub fn print_plan(plan: &CleanupPlan, json: bool) -> Result<()> {
         plan.summary.pending_reclaim_bytes,
         format_bytes(plan.summary.pending_reclaim_bytes)
     );
+    if let Some(summary) = scan_cache_summary.filter(|summary| summary.has_activity()) {
+        println!(
+            "Scan cache summary: {}, {}, {}",
+            format_count(summary.hits, "hit", "hits"),
+            format_count(summary.misses, "miss", "misses"),
+            format_count(summary.write_skipped, "skipped write", "skipped writes")
+        );
+    }
 
     print_largest_targets(plan);
     print_targets_by_status(plan);
@@ -184,6 +209,14 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
     }
 
     format!("{value:.2} {}", UNITS[unit_index])
+}
+
+fn format_count(count: u64, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {plural}")
+    }
 }
 
 fn cleanup_mode_label(mode: DeleteMode) -> &'static str {

@@ -72,6 +72,9 @@ Use user-scoped storage by default.
   fresh records. Missing, corrupted, stale, expired, or unsupported-version
   records are cache misses, not hard failures. Directory target cache reuse is
   freshness-bounded so stale trees fall back to a full scan.
+- Human `clean` output can summarize scan-cache hits, misses, and skipped
+  writes as build diagnostics. Cleanup plan JSON remains a cleanup-result
+  contract and does not include scan-cache diagnostic counters.
 
 # Success Metrics
 
@@ -83,7 +86,7 @@ Use user-scoped storage by default.
 | Cache purge safety | Purge defaults to preview, preserves cache directory, and rejects preserved-path overlap | Core and CLI regression tests |
 | Scan cache rebuildability | Scan-cache stale/corrupt/future-version records return cache misses | Core regression tests |
 | Controlled scan cache | `clean --scan-cache` reuses eligible file-target records, freshness-bounded directory records, and soft-fails on cache errors | Core and CLI regression tests |
-| Scan cache observability | Planner progress reports scan-cache hit, miss, and skipped-write events without changing plan JSON | Core and CLI regression tests |
+| Scan cache observability | Planner progress and human output report scan-cache hit, miss, and skipped-write activity without changing plan JSON | Core and CLI regression tests |
 | Safe cache | Deleting local cache does not break configuration | Integration test |
 | Privacy | No secrets are stored in history or cache | Review checklist |
 

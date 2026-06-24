@@ -27,8 +27,9 @@ Rebecca is designed to preview before deleting.
 - Human `clean` commands show target-level and file-level scan progress by
   default, and honor `Ctrl+C` to cancel plan building; use `--no-progress` for
   quiet terminal logs. When `--scan-cache` is enabled, human progress also
-  reports scan-cache hits, misses, and skipped cache writes. JSON output never
-  emits progress.
+  reports scan-cache hits, misses, and skipped cache writes, and the final
+  human plan output summarizes those counts. JSON output never emits progress
+  or scan-cache diagnostics.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for
   eligible regular-file targets and directory targets with fresh records.
   Cache misses, stale or expired records, corrupted records, and cache-write
@@ -147,9 +148,9 @@ Scan-cache records use a versioned JSON format under the rebuildable cache
 directory's `scan` subdirectory. The current v1 contract stores the scanned
 root path, a root metadata fingerprint, the scan report, and the write time.
 `clean --scan-cache` explicitly enables planner use of eligible regular-file
-records. Missing, corrupted, stale, or unsupported-version records are treated
-as cache misses and can be rebuilt. Directory-target reuse is deferred until a
-stronger invalidation rule exists.
+records and freshness-bounded directory records. Missing, corrupted, stale,
+expired, or unsupported-version records are treated as cache misses and can be
+rebuilt.
 
 The config file is human-editable TOML. The current schema version is `1`; if
 `version` is omitted, Rebecca treats the file as version `1`. Unsupported

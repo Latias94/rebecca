@@ -329,6 +329,62 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["summary"]["estimated_bytes"], 99);
+    assert!(value.get("scan_cache").is_none());
+    assert!(value["summary"].get("scan_cache").is_none());
+}
+
+#[test]
+fn clean_human_output_summarizes_scan_cache_activity() {
+    let temp = tempfile::tempdir().unwrap();
+    let edge_cache = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Edge")
+        .join("User Data")
+        .join("Default")
+        .join("Cache");
+    fs::create_dir_all(&edge_cache).unwrap();
+    fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-progress",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Scan cache summary: 1 hit, 0 misses, 0 skipped writes"));
 }
 
 #[test]
