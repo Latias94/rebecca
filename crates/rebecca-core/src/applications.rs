@@ -108,11 +108,14 @@ const STEAM_LIBRARYFOLDERS_CANDIDATES: [&str; 2] =
     ["config/libraryfolders.vdf", "steamapps/libraryfolders.vdf"];
 
 fn read_steam_libraryfolders(install_path: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-    let mut first_error: Option<RebeccaError> = None;
+    let candidates = STEAM_LIBRARYFOLDERS_CANDIDATES
+        .iter()
+        .map(|relative_path| install_path.join(relative_path));
 
-    for relative_path in STEAM_LIBRARYFOLDERS_CANDIDATES {
-        let library_file = install_path.join(relative_path);
+    let mut paths = Vec::new();
+    let mut first_error = None;
+
+    for library_file in candidates {
         match read_steam_libraryfolders_file(&library_file) {
             Ok(Some(mut discovered)) => paths.append(&mut discovered),
             Ok(None) => {}
@@ -121,10 +124,10 @@ fn read_steam_libraryfolders(install_path: &Path) -> Result<Vec<PathBuf>> {
         }
     }
 
-    if paths.is_empty() {
-        if let Some(err) = first_error {
-            return Err(err);
-        }
+    if paths.is_empty()
+        && let Some(err) = first_error
+    {
+        return Err(err);
     }
 
     Ok(dedupe_paths(paths))
