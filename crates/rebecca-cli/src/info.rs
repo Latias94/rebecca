@@ -126,18 +126,16 @@ fn steam_application_discovery_override() -> Option<Box<dyn ApplicationDiscovery
 
 #[cfg(debug_assertions)]
 fn steam_installation_from_debug_path(path: &str) -> SteamInstallation {
-    steam_installation_from_debug_path_impl(path)
-}
+    #[cfg(windows)]
+    {
+        return rebecca_windows::steam::steam_installation_from_path(path);
+    }
 
-#[cfg(all(debug_assertions, windows))]
-fn steam_installation_from_debug_path_impl(path: &str) -> SteamInstallation {
-    rebecca_windows::steam::steam_installation_from_path(path)
-}
-
-#[cfg(all(debug_assertions, not(windows)))]
-fn steam_installation_from_debug_path_impl(path: &str) -> SteamInstallation {
-    SteamInstallation::from_install_path(path)
-        .unwrap_or_else(|_| SteamInstallation::new(path, Vec::new()))
+    #[cfg(not(windows))]
+    {
+        return SteamInstallation::from_install_path(path)
+            .unwrap_or_else(|_| SteamInstallation::new(path, Vec::new()));
+    }
 }
 
 #[cfg(not(debug_assertions))]
