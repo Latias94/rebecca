@@ -58,6 +58,8 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.steam-install-avatar-cache",
     "windows.steam-install-stats-cache",
     "windows.steam-install-appinfo-cache",
+    "windows.steam-install-localization-cache",
+    "windows.steam-install-packageinfo-cache",
     "windows.steam-install-download-cache",
     "windows.steam-install-library-cache",
     "windows.steam-install-shader-cache",
@@ -76,6 +78,8 @@ pub const HUMAN_SCAN_LINES: &[&str] = &[
     "  - windows.steam-install-avatar-cache [safe] Steam install avatar cache [restore: Steam avatar images will be rebuilt when needed.]",
     "  - windows.steam-install-stats-cache [safe] Steam install stats cache [restore: Steam stats and achievement cache data will be rebuilt on launch.]",
     "  - windows.steam-install-appinfo-cache [safe] Steam install appinfo cache [restore: Steam app metadata will be rebuilt on launch.]",
+    "  - windows.steam-install-localization-cache [safe] Steam install localization cache [restore: Steam localization metadata will be rebuilt on launch.]",
+    "  - windows.steam-install-packageinfo-cache [safe] Steam install package info cache [restore: Steam package metadata will be rebuilt on launch.]",
     "  - windows.steam-cache [safe] Steam cache [restore: Steam web caches will be rebuilt on launch.]",
 ];
 
@@ -139,6 +143,22 @@ pub const STEAM_INSTALL_RULE_CASES: &[SteamRuleCase] = &[
         bytes: b"abcd",
         target_kind: SteamTargetKind::File,
         expected_restore_hint: Some("Steam app metadata will be rebuilt on launch."),
+        allow_moderate: false,
+    },
+    SteamRuleCase {
+        rule_id: "windows.steam-install-localization-cache",
+        relative_path: "appcache/localization.vdf",
+        bytes: b"abc",
+        target_kind: SteamTargetKind::File,
+        expected_restore_hint: Some("Steam localization metadata will be rebuilt on launch."),
+        allow_moderate: false,
+    },
+    SteamRuleCase {
+        rule_id: "windows.steam-install-packageinfo-cache",
+        relative_path: "appcache/packageinfo.vdf",
+        bytes: b"abcd",
+        target_kind: SteamTargetKind::File,
+        expected_restore_hint: Some("Steam package metadata will be rebuilt on launch."),
         allow_moderate: false,
     },
     SteamRuleCase {
