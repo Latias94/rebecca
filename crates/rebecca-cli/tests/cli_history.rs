@@ -48,6 +48,18 @@ fn write_history_entries(history_path: &std::path::Path, entries: &[HistoryEntry
     std::fs::write(history_path, lines).unwrap();
 }
 
+fn history_entry_with_summary(
+    recorded_at_unix_seconds: u64,
+    summary: CleanupSummary,
+) -> HistoryEntry {
+    HistoryEntry {
+        recorded_at_unix_seconds,
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        summary,
+        targets: Vec::new(),
+    }
+}
+
 #[test]
 fn history_json_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
@@ -262,6 +274,62 @@ fn history_human_output_lists_saved_issue_matrix() {
 }
 
 #[test]
+fn history_human_output_includes_aggregate_summary() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(
+        &history_path,
+        &[
+            history_entry_with_summary(
+                10,
+                CleanupSummary {
+                    completed_targets: 1,
+                    skipped_targets: 1,
+                    blocked_targets: 0,
+                    failed_targets: 0,
+                    freed_bytes: 1024,
+                    pending_reclaim_bytes: 512,
+                    ..CleanupSummary::default()
+                },
+            ),
+            history_entry_with_summary(
+                20,
+                CleanupSummary {
+                    completed_targets: 2,
+                    skipped_targets: 0,
+                    blocked_targets: 1,
+                    failed_targets: 1,
+                    freed_bytes: 2048,
+                    pending_reclaim_bytes: 1024,
+                    ..CleanupSummary::default()
+                },
+            ),
+        ],
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("History summary:"));
+    assert!(stdout.contains("Runs: 2"));
+    assert!(stdout.contains("Completed targets: 3"));
+    assert!(stdout.contains("Skipped targets: 1"));
+    assert!(stdout.contains("Blocked targets: 1"));
+    assert!(stdout.contains("Failed targets: 1"));
+    assert!(stdout.contains("Freed bytes: 3072 (3.00 KiB)"));
+    assert!(stdout.contains("Pending reclaim bytes: 1536 (1.50 KiB)"));
+}
+
+#[test]
 fn history_human_limit_shows_most_recent_entries_in_chronological_order() {
     let temp = tempfile::tempdir().unwrap();
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
@@ -287,6 +355,9 @@ fn history_human_limit_shows_most_recent_entries_in_chronological_order() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Cleanup history: 2 run(s)"));
+    assert!(stdout.contains("Runs: 2"));
+    assert!(stdout.contains("Completed targets: 2"));
+    assert!(stdout.contains("Pending reclaim bytes: 50 (50 B)"));
     assert!(!stdout.contains("- 10:"));
     assert!(stdout.contains("- 20:"));
     assert!(stdout.contains("- 30:"));

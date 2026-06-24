@@ -105,9 +105,11 @@ Rule metadata includes platform, category, safety level, delete policy, restore
 hint, and provenance. Built-in rules use `source = "owned"` with
 `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface
 restore hints when available, and the JSON forms preserve those fields for
-script consumers. The catalog is embedded from TOML files and validated before
-it reaches the CLI. Reference projects under `repo-ref/` are research inputs;
-their GPL code and cleaner definitions are not copied into Rebecca.
+script consumers. Human `history` output also summarizes the current history
+window by result counts and cleanup bytes. The catalog is embedded from TOML
+files and validated before it reaches the CLI. Reference projects under
+`repo-ref/` are research inputs; their GPL code and cleaner definitions are not
+copied into Rebecca.
 Chromium-family browser cache rules cover `Default` and bounded `Profile *`
 directories when they exist.
 Steam support currently discovers the install root from a small ordered set of

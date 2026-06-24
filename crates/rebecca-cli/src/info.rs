@@ -10,7 +10,7 @@ use rebecca_core::config::{AppPaths, load_app_paths};
 use rebecca_core::history::{HistoryEntry, HistoryStore};
 use rebecca_core::plan::CleanupIssueSummary;
 
-use crate::output::{format_issue_matrix_entry, restore_hint_suffix};
+use crate::output::{format_bytes, format_issue_matrix_entry, restore_hint_suffix};
 
 fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
     serde_json::json!({
@@ -39,6 +39,8 @@ pub fn print_history(json: bool, limit: Option<NonZeroUsize>) -> Result<()> {
     }
 
     println!("Cleanup history: {} run(s)", entries.len());
+    print_history_summary(&entries);
+
     for entry in entries {
         println!(
             "- {}: {} completed, {} failed, {} pending bytes{}",
@@ -73,6 +75,70 @@ fn recent_history_entries(
     }
 
     entries.split_off(entries.len() - limit)
+}
+
+#[derive(Debug, Default)]
+struct HistoryAggregateSummary {
+    runs: usize,
+    completed_targets: usize,
+    skipped_targets: usize,
+    blocked_targets: usize,
+    failed_targets: usize,
+    freed_bytes: u64,
+    pending_reclaim_bytes: u64,
+}
+
+impl HistoryAggregateSummary {
+    fn from_entries(entries: &[HistoryEntry]) -> Self {
+        let mut summary = Self::default();
+
+        for entry in entries {
+            summary.runs = summary.runs.saturating_add(1);
+            summary.completed_targets = summary
+                .completed_targets
+                .saturating_add(entry.summary.completed_targets);
+            summary.skipped_targets = summary
+                .skipped_targets
+                .saturating_add(entry.summary.skipped_targets);
+            summary.blocked_targets = summary
+                .blocked_targets
+                .saturating_add(entry.summary.blocked_targets);
+            summary.failed_targets = summary
+                .failed_targets
+                .saturating_add(entry.summary.failed_targets);
+            summary.freed_bytes = summary
+                .freed_bytes
+                .saturating_add(entry.summary.freed_bytes);
+            summary.pending_reclaim_bytes = summary
+                .pending_reclaim_bytes
+                .saturating_add(entry.summary.pending_reclaim_bytes);
+        }
+
+        summary
+    }
+}
+
+fn print_history_summary(entries: &[HistoryEntry]) {
+    let summary = HistoryAggregateSummary::from_entries(entries);
+
+    println!();
+    println!("History summary:");
+    println!("  Runs: {}", summary.runs);
+    println!("  Completed targets: {}", summary.completed_targets);
+    println!("  Skipped targets: {}", summary.skipped_targets);
+    println!("  Blocked targets: {}", summary.blocked_targets);
+    println!("  Failed targets: {}", summary.failed_targets);
+    println!(
+        "  Freed bytes: {} ({})",
+        summary.freed_bytes,
+        format_bytes(summary.freed_bytes)
+    );
+    println!(
+        "  Pending reclaim bytes: {} ({})",
+        summary.pending_reclaim_bytes,
+        format_bytes(summary.pending_reclaim_bytes)
+    );
+    println!();
 }
 
 fn print_history_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
