@@ -45,6 +45,20 @@ fn malformed_history_line_is_reported() {
     assert!(err.to_string().contains("history record was corrupted"));
 }
 
+#[test]
+fn history_error_mentions_bad_line_number() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("history.jsonl");
+    fs::write(&path, "{not json}\n{}\n").unwrap();
+
+    let store = HistoryStore::new(path);
+    let err = store.load().unwrap_err();
+
+    let message = err.to_string();
+    assert!(message.contains("history record was corrupted"));
+    assert!(message.contains("line 1"));
+}
+
 fn sample_plan() -> CleanupPlan {
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,

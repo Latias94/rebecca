@@ -23,6 +23,13 @@ fn scan_json_lists_builtin_rules() {
         ids,
         common::steam::BUILTIN_RULE_IDS.iter().copied().collect()
     );
+
+    let steam_cache = rules
+        .iter()
+        .find(|rule| rule["id"] == "windows.steam-cache")
+        .expect("steam cache rule should exist");
+    assert_eq!(steam_cache["provenance"]["source"], "owned");
+    assert_eq!(steam_cache["provenance"]["license"], "project-owned");
 }
 
 #[test]

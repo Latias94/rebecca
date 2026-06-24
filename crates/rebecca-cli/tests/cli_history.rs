@@ -1,3 +1,5 @@
+use std::fs;
+
 mod common;
 use rebecca_core::history::HistoryEntry;
 use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
@@ -21,6 +23,46 @@ fn history_json_is_empty_when_no_history_file_exists() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
     assert_eq!(value.as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn history_human_output_is_empty_when_no_history_file_exists() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("No cleanup history found."));
+}
+
+#[test]
+fn history_reports_corrupted_history_file_with_line_number() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    if let Some(parent) = history_path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(&history_path, "{not json}\n").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("history record was corrupted"));
+    assert!(stderr.contains("line 1"));
+    assert!(stderr.contains("history.jsonl"));
 }
 
 #[test]

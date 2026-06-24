@@ -72,4 +72,5 @@ files. Keep each rule small, explicit, and easy to audit.
 ## Provenance
 
 - Do not copy GPL rule definitions or code into the catalog.
+- Built-in rules must use `source = "owned"` and `license = "project-owned"`.
 - Document the source of each rule in `provenance.notes`.

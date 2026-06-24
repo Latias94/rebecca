@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use rebecca_core::{
-    DeletePolicy, Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleTargetSpec,
-    SafetyLevel, planner::validate_rule_catalog,
+    DeletePolicy, Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleSource,
+    RuleTargetSpec, SafetyLevel, planner::validate_rule_catalog,
 };
 use serde::Deserialize;
 
@@ -57,6 +57,7 @@ pub fn builtin_rules() -> Result<Vec<RuleDefinition>> {
         rules.push(parse_rule_file(path, raw)?);
     }
 
+    validate_builtin_rule_catalog(&rules)?;
     validate_rule_catalog(&rules)?;
     Ok(rules)
 }
@@ -71,6 +72,19 @@ fn parse_rule_file(path: &str, raw: &str) -> Result<RuleDefinition> {
     })?;
 
     Ok(rule.into_rule_definition())
+}
+
+fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
+    for rule in rules {
+        if rule.provenance.source != RuleSource::Owned {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} must use owned provenance source",
+                rule.id
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,6 +168,17 @@ mod tests {
     }
 
     #[test]
+    fn builtin_rules_use_owned_provenance_sources() {
+        let rules = builtin_rules().expect("built-in rules should load");
+
+        assert!(
+            rules
+                .iter()
+                .all(|rule| rule.provenance.source == rebecca_core::RuleSource::Owned)
+        );
+    }
+
+    #[test]
     fn builtin_rules_are_loaded_from_toml_catalog_files() {
         let rules = builtin_rules().expect("built-in rules should load");
         let user_temp = rules
@@ -165,6 +190,28 @@ mod tests {
         assert_eq!(user_temp.category, "system");
         assert_eq!(user_temp.path_templates.len(), 2);
         assert_eq!(user_temp.provenance.source, RuleSource::Owned);
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_non_owned_provenance_sources() {
+        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+            id: "windows.test".to_string(),
+            platform: rebecca_core::Platform::Windows,
+            category: "system".to_string(),
+            name: "Test".to_string(),
+            safety_level: rebecca_core::SafetyLevel::Safe,
+            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
+            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            restore_hint: None,
+            provenance: rebecca_core::RuleProvenance {
+                source: rebecca_core::RuleSource::ReferenceOnly,
+                license: "project-owned".to_string(),
+                notes: "test".to_string(),
+            },
+        }])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("owned provenance source"));
     }
 
     #[test]
