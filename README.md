@@ -26,7 +26,9 @@ Rebecca is designed to preview before deleting.
   groups the full target list by status.
 - Human `clean` commands show target-level and file-level scan progress by
   default, and honor `Ctrl+C` to cancel plan building; use `--no-progress` for
-  quiet terminal logs. JSON output never emits progress.
+  quiet terminal logs. When `--scan-cache` is enabled, human progress also
+  reports scan-cache hits, misses, and skipped cache writes. JSON output never
+  emits progress.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for
   eligible regular-file targets. Cache misses, stale records, corrupted
   records, and cache-write failures are treated as soft rebuilds. Directory

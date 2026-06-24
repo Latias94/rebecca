@@ -101,6 +101,17 @@ pub enum ScanCacheMiss {
     MetadataUnavailable,
 }
 
+impl ScanCacheMiss {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Stale => "stale",
+            Self::Corrupted => "corrupted",
+            Self::MetadataUnavailable => "metadata-unavailable",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ScanCacheStore {
     root_dir: PathBuf,

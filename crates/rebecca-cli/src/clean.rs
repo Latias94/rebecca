@@ -172,6 +172,37 @@ impl PlanProgressReporter {
                     format_bytes(bytes_scanned)
                 ));
             }
+            PlanProgressEvent::ScanCacheHit {
+                rule_id,
+                path,
+                estimated_bytes,
+            } => {
+                bar.set_message(format!(
+                    "Scan cache hit {rule_id}: {} ({})",
+                    path.display(),
+                    format_bytes(estimated_bytes)
+                ));
+                bar.tick();
+            }
+            PlanProgressEvent::ScanCacheMiss {
+                rule_id,
+                path,
+                reason,
+            } => {
+                bar.set_message(format!(
+                    "Scan cache miss {rule_id}: {} ({})",
+                    path.display(),
+                    reason.label()
+                ));
+                bar.tick();
+            }
+            PlanProgressEvent::ScanCacheWriteSkipped { rule_id, path } => {
+                bar.set_message(format!(
+                    "Scan cache write skipped {rule_id}: {}",
+                    path.display()
+                ));
+                bar.tick();
+            }
         }
     }
 

@@ -11,7 +11,7 @@ use crate::safety::{PathDisposition, assess_existing_path};
 use crate::scan::{
     ScanCancellationToken, ScanProgressEvent, ScanReport, measure_path_with_progress,
 };
-use crate::scan_cache::{ScanCacheLookup, ScanCacheStore};
+use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss, ScanCacheStore};
 
 #[derive(Debug, Clone, Copy)]
 pub enum PlanProgressEvent<'a> {
@@ -32,6 +32,20 @@ pub enum PlanProgressEvent<'a> {
         file_size: u64,
         files_scanned: u64,
         bytes_scanned: u64,
+    },
+    ScanCacheHit {
+        rule_id: &'a str,
+        path: &'a Path,
+        estimated_bytes: u64,
+    },
+    ScanCacheMiss {
+        rule_id: &'a str,
+        path: &'a Path,
+        reason: ScanCacheMiss,
+    },
+    ScanCacheWriteSkipped {
+        rule_id: &'a str,
+        path: &'a Path,
     },
 }
 
@@ -281,12 +295,14 @@ where
                     PathDisposition::Allowed => {
                         match measure_path_with_optional_scan_cache(&expanded, context, |event| {
                             match event {
-                                ScanProgressEvent::FileMeasured {
-                                    path,
-                                    file_size,
-                                    files_scanned,
-                                    bytes_scanned,
-                                } => {
+                                PathMeasureProgressEvent::Scan(
+                                    ScanProgressEvent::FileMeasured {
+                                        path,
+                                        file_size,
+                                        files_scanned,
+                                        bytes_scanned,
+                                    },
+                                ) => {
                                     progress(PlanProgressEvent::FileMeasured {
                                         rule_id: &rule.id,
                                         target_path: &expanded,
@@ -294,6 +310,26 @@ where
                                         file_size,
                                         files_scanned,
                                         bytes_scanned,
+                                    });
+                                }
+                                PathMeasureProgressEvent::ScanCacheHit { report } => {
+                                    progress(PlanProgressEvent::ScanCacheHit {
+                                        rule_id: &rule.id,
+                                        path: &expanded,
+                                        estimated_bytes: report.bytes_scanned,
+                                    });
+                                }
+                                PathMeasureProgressEvent::ScanCacheMiss { reason } => {
+                                    progress(PlanProgressEvent::ScanCacheMiss {
+                                        rule_id: &rule.id,
+                                        path: &expanded,
+                                        reason,
+                                    });
+                                }
+                                PathMeasureProgressEvent::ScanCacheWriteSkipped => {
+                                    progress(PlanProgressEvent::ScanCacheWriteSkipped {
+                                        rule_id: &rule.id,
+                                        path: &expanded,
                                     });
                                 }
                             }
@@ -361,10 +397,10 @@ where
 fn measure_path_with_optional_scan_cache<F>(
     path: &Path,
     context: PlanBuildContext<'_>,
-    progress: F,
+    mut progress: F,
 ) -> Result<ScanReport>
 where
-    F: for<'a> FnMut(ScanProgressEvent<'a>),
+    F: for<'a> FnMut(PathMeasureProgressEvent<'a>),
 {
     if context.cancellation().is_cancelled() {
         return Err(RebeccaError::OperationCancelled(
@@ -375,13 +411,21 @@ where
     let cacheable_file = context.scan_cache().is_some() && is_regular_file(path);
     if cacheable_file {
         if let Some(store) = context.scan_cache() {
-            if let ScanCacheLookup::Hit(report) = store.load(path) {
-                return Ok(report);
+            match store.load(path) {
+                ScanCacheLookup::Hit(report) => {
+                    progress(PathMeasureProgressEvent::ScanCacheHit { report });
+                    return Ok(report);
+                }
+                ScanCacheLookup::Miss(reason) => {
+                    progress(PathMeasureProgressEvent::ScanCacheMiss { reason });
+                }
             }
         }
     }
 
-    let report = measure_path_with_progress(path, context.cancellation(), progress)?;
+    let report = measure_path_with_progress(path, context.cancellation(), |event| {
+        progress(PathMeasureProgressEvent::Scan(event));
+    })?;
     if cacheable_file {
         if let Some(store) = context.scan_cache() {
             if let Err(err) = store.store(path, report) {
@@ -390,11 +434,19 @@ where
                     error = %err,
                     "scan cache write skipped"
                 );
+                progress(PathMeasureProgressEvent::ScanCacheWriteSkipped);
             }
         }
     }
 
     Ok(report)
+}
+
+enum PathMeasureProgressEvent<'a> {
+    Scan(ScanProgressEvent<'a>),
+    ScanCacheHit { report: ScanReport },
+    ScanCacheMiss { reason: ScanCacheMiss },
+    ScanCacheWriteSkipped,
 }
 
 fn is_regular_file(path: &Path) -> bool {

@@ -83,6 +83,7 @@ Use user-scoped storage by default.
 | Cache purge safety | Purge defaults to preview, preserves cache directory, and rejects preserved-path overlap | Core and CLI regression tests |
 | Scan cache rebuildability | Scan-cache stale/corrupt/future-version records return cache misses | Core regression tests |
 | Controlled scan cache | `clean --scan-cache` only reuses eligible file-target records and soft-fails on cache errors | Core and CLI regression tests |
+| Scan cache observability | Planner progress reports scan-cache hit, miss, and skipped-write events without changing plan JSON | Core and CLI regression tests |
 | Safe cache | Deleting local cache does not break configuration | Integration test |
 | Privacy | No secrets are stored in history or cache | Review checklist |
 
