@@ -9,6 +9,7 @@ use crate::error::{RebeccaError, Result};
 use crate::scan::ScanReport;
 
 pub const SCAN_CACHE_VERSION: u32 = 1;
+pub const DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS: u64 = 5 * 60;
 const SCAN_CACHE_DIR: &str = "scan";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,8 +32,30 @@ impl ScanCacheRecord {
         }
     }
 
-    fn matches(&self, root: &Path, fingerprint: &ScanCacheFingerprint) -> bool {
-        self.version == SCAN_CACHE_VERSION && self.root == root && &self.fingerprint == fingerprint
+    fn miss_reason(
+        &self,
+        root: &Path,
+        fingerprint: &ScanCacheFingerprint,
+        now_unix_seconds: u64,
+    ) -> Option<ScanCacheMiss> {
+        if self.version != SCAN_CACHE_VERSION
+            || self.root != root
+            || &self.fingerprint != fingerprint
+        {
+            return Some(ScanCacheMiss::Stale);
+        }
+
+        if self.is_expired_directory_record(now_unix_seconds) {
+            return Some(ScanCacheMiss::Expired);
+        }
+
+        None
+    }
+
+    fn is_expired_directory_record(&self, now_unix_seconds: u64) -> bool {
+        self.fingerprint.file_type == ScanCacheFileType::Directory
+            && now_unix_seconds.saturating_sub(self.written_at_unix_seconds)
+                > DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS
     }
 }
 
@@ -97,6 +120,7 @@ pub enum ScanCacheLookup {
 pub enum ScanCacheMiss {
     Missing,
     Stale,
+    Expired,
     Corrupted,
     MetadataUnavailable,
 }
@@ -106,6 +130,7 @@ impl ScanCacheMiss {
         match self {
             Self::Missing => "missing",
             Self::Stale => "stale",
+            Self::Expired => "expired",
             Self::Corrupted => "corrupted",
             Self::MetadataUnavailable => "metadata-unavailable",
         }
@@ -154,10 +179,9 @@ impl ScanCacheStore {
             Err(_) => return ScanCacheLookup::Miss(ScanCacheMiss::Corrupted),
         };
 
-        if record.matches(root, &fingerprint) {
-            ScanCacheLookup::Hit(record.report)
-        } else {
-            ScanCacheLookup::Miss(ScanCacheMiss::Stale)
+        match record.miss_reason(root, &fingerprint, unix_now()) {
+            Some(reason) => ScanCacheLookup::Miss(reason),
+            None => ScanCacheLookup::Hit(record.report),
         }
     }
 
@@ -258,7 +282,10 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{SCAN_CACHE_VERSION, ScanCacheLookup, ScanCacheMiss, ScanCacheStore, path_hash};
+    use super::{
+        DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheLookup, ScanCacheMiss,
+        ScanCacheStore, path_hash, unix_now,
+    };
     use crate::scan::ScanReport;
 
     #[test]
@@ -389,6 +416,57 @@ mod tests {
         let lookup = store.load(&root);
 
         assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Stale));
+    }
+
+    #[test]
+    fn scan_cache_directory_record_expires_after_freshness_window() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file.bin"), b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 1,
+        };
+        let mut record = store.store(&root, report).unwrap();
+        record.written_at_unix_seconds =
+            unix_now().saturating_sub(DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS + 1);
+        std::fs::write(
+            store.cache_file_for(&root),
+            serde_json::to_vec_pretty(&record).unwrap(),
+        )
+        .unwrap();
+
+        let lookup = store.load(&root);
+
+        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Expired));
+    }
+
+    #[test]
+    fn scan_cache_file_record_does_not_expire_by_age() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+        let mut record = store.store(&root, report).unwrap();
+        record.written_at_unix_seconds =
+            unix_now().saturating_sub(DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS + 1);
+        std::fs::write(
+            store.cache_file_for(&root),
+            serde_json::to_vec_pretty(&record).unwrap(),
+        )
+        .unwrap();
+
+        let lookup = store.load(&root);
+
+        assert_eq!(lookup, ScanCacheLookup::Hit(report));
     }
 
     #[test]

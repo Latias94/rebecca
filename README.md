@@ -30,9 +30,9 @@ Rebecca is designed to preview before deleting.
   reports scan-cache hits, misses, and skipped cache writes. JSON output never
   emits progress.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for
-  eligible regular-file targets. Cache misses, stale records, corrupted
-  records, and cache-write failures are treated as soft rebuilds. Directory
-  targets still scan normally until a stronger invalidation rule exists.
+  eligible regular-file targets and directory targets with fresh records.
+  Cache misses, stale or expired records, corrupted records, and cache-write
+  failures are treated as soft rebuilds.
 
 ## Usage
 

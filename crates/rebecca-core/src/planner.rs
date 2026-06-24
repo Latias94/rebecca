@@ -408,8 +408,8 @@ where
         ));
     }
 
-    let cacheable_file = context.scan_cache().is_some() && is_regular_file(path);
-    if cacheable_file {
+    let cacheable_target = context.scan_cache().is_some() && is_cacheable_scan_target(path);
+    if cacheable_target {
         if let Some(store) = context.scan_cache() {
             match store.load(path) {
                 ScanCacheLookup::Hit(report) => {
@@ -426,7 +426,7 @@ where
     let report = measure_path_with_progress(path, context.cancellation(), |event| {
         progress(PathMeasureProgressEvent::Scan(event));
     })?;
-    if cacheable_file {
+    if cacheable_target {
         if let Some(store) = context.scan_cache() {
             if let Err(err) = store.store(path, report) {
                 tracing::debug!(
@@ -449,9 +449,9 @@ enum PathMeasureProgressEvent<'a> {
     ScanCacheWriteSkipped,
 }
 
-fn is_regular_file(path: &Path) -> bool {
+fn is_cacheable_scan_target(path: &Path) -> bool {
     std::fs::symlink_metadata(path)
-        .map(|metadata| metadata.is_file())
+        .map(|metadata| metadata.is_file() || metadata.is_dir())
         .unwrap_or(false)
 }
 

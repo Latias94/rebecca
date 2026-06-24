@@ -262,6 +262,76 @@ fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {
 }
 
 #[test]
+fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let edge_cache = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Edge")
+        .join("User Data")
+        .join("Default")
+        .join("Cache");
+    fs::create_dir_all(&edge_cache).unwrap();
+    fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["estimated_bytes"], 4);
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_files = fs::read_dir(scan_cache_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    assert_eq!(cache_files.len(), 1);
+
+    let cache_file = &cache_files[0];
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&fs::read(cache_file).unwrap()).unwrap();
+    record["report"]["bytes_scanned"] = serde_json::json!(99);
+    fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["estimated_bytes"], 99);
+}
+
+#[test]
 fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
     for case in common::steam::STEAM_INSTALL_RULE_CASES {
         let temp = tempfile::tempdir().unwrap();

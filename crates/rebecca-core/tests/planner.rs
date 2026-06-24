@@ -352,7 +352,7 @@ fn planner_writes_scan_cache_when_context_enables_it_for_file_targets() {
 }
 
 #[test]
-fn planner_does_not_reuse_scan_cache_for_directory_targets() {
+fn planner_uses_scan_cache_when_context_enables_it_for_directory_targets() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/cached/a.tmp", b"abc");
     let path = fixture.root.join("temp").join("cached");
@@ -375,7 +375,7 @@ fn planner_does_not_reuse_scan_cache_for_directory_targets() {
     let cancellation = ScanCancellationToken::new();
     let applications = NoopApplicationDiscovery::new();
     let mut file_events = 0;
-    let mut cache_events = 0;
+    let mut cache_events = Vec::new();
 
     let plan = build_cleanup_plan_with_context(
         &request,
@@ -383,25 +383,100 @@ fn planner_does_not_reuse_scan_cache_for_directory_targets() {
         &fixture.env,
         &applications,
         PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
-        |event| {
-            if matches!(event, PlanProgressEvent::FileMeasured { .. }) {
+        |event| match event {
+            PlanProgressEvent::FileMeasured { .. } => {
                 file_events += 1;
             }
-            if matches!(
-                event,
-                PlanProgressEvent::ScanCacheHit { .. }
-                    | PlanProgressEvent::ScanCacheMiss { .. }
-                    | PlanProgressEvent::ScanCacheWriteSkipped { .. }
-            ) {
-                cache_events += 1;
+            PlanProgressEvent::ScanCacheHit {
+                rule_id,
+                estimated_bytes,
+                ..
+            } => cache_events.push(format!("hit:{rule_id}:{estimated_bytes}")),
+            PlanProgressEvent::ScanCacheMiss { reason, .. } => {
+                cache_events.push(format!("miss:{}", reason.label()));
             }
+            PlanProgressEvent::ScanCacheWriteSkipped { .. } => {
+                cache_events.push("write-skipped".to_string());
+            }
+            _ => {}
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.estimated_bytes, 99);
+    assert_eq!(file_events, 0);
+    assert_eq!(cache_events, ["hit:windows.custom-dir-cache:99"]);
+}
+
+#[test]
+fn planner_rebuilds_expired_scan_cache_for_directory_targets() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/cached/a.tmp", b"abc");
+    let path = fixture.root.join("temp").join("cached");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-dir-cache",
+        path.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    let mut record = cache
+        .store(
+            &path,
+            ScanReport {
+                bytes_scanned: 99,
+                files_scanned: 1,
+                directories_scanned: 1,
+            },
+        )
+        .unwrap();
+    record.written_at_unix_seconds = 0;
+    fs::write(
+        cache.cache_file_for(&path),
+        serde_json::to_vec_pretty(&record).unwrap(),
+    )
+    .unwrap();
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut file_events = 0;
+    let mut cache_events = Vec::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
+        |event| match event {
+            PlanProgressEvent::FileMeasured { .. } => {
+                file_events += 1;
+            }
+            PlanProgressEvent::ScanCacheHit {
+                rule_id,
+                estimated_bytes,
+                ..
+            } => cache_events.push(format!("hit:{rule_id}:{estimated_bytes}")),
+            PlanProgressEvent::ScanCacheMiss { reason, .. } => {
+                cache_events.push(format!("miss:{}", reason.label()));
+            }
+            PlanProgressEvent::ScanCacheWriteSkipped { .. } => {
+                cache_events.push("write-skipped".to_string());
+            }
+            _ => {}
         },
     )
     .unwrap();
 
     assert_eq!(plan.summary.estimated_bytes, 3);
     assert_eq!(file_events, 1);
-    assert_eq!(cache_events, 0);
+    assert_eq!(cache_events, ["miss:expired"]);
+    assert_eq!(
+        cache.load(&path),
+        ScanCacheLookup::Hit(ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 1,
+        })
+    );
 }
 
 #[test]
