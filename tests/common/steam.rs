@@ -24,6 +24,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.steam-install-depot-cache",
     "windows.steam-install-logs",
     "windows.steam-install-avatar-cache",
+    "windows.steam-install-stats-cache",
     "windows.steam-install-download-cache",
     "windows.steam-install-library-cache",
     "windows.steam-install-shader-cache",
@@ -40,6 +41,7 @@ pub const HUMAN_SCAN_LINES: &[&str] = &[
     "  - windows.steam-install-depot-cache [safe] Steam install depot cache",
     "  - windows.steam-install-logs [safe] Steam install logs",
     "  - windows.steam-install-avatar-cache [safe] Steam install avatar cache [restore: Steam avatar images will be rebuilt when needed.]",
+    "  - windows.steam-install-stats-cache [safe] Steam install stats cache [restore: Steam stats and achievement cache data will be rebuilt on launch.]",
     "  - windows.steam-cache [safe] Steam cache [restore: Steam web caches will be rebuilt on launch.]",
 ];
 
@@ -81,6 +83,15 @@ pub const STEAM_INSTALL_RULE_CASES: &[SteamRuleCase] = &[
         bytes: b"ab",
         expected_restore_hint: Some("Steam download staging data will be recreated if needed."),
         allow_moderate: true,
+    },
+    SteamRuleCase {
+        rule_id: "windows.steam-install-stats-cache",
+        relative_path: "appcache/stats",
+        bytes: b"abc",
+        expected_restore_hint: Some(
+            "Steam stats and achievement cache data will be rebuilt on launch.",
+        ),
+        allow_moderate: false,
     },
     SteamRuleCase {
         rule_id: "windows.steam-install-library-cache",
