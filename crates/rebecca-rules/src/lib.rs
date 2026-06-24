@@ -183,6 +183,7 @@ mod tests {
             "windows.steam-install-download-cache",
             "windows.steam-install-library-cache",
             "windows.steam-install-shader-cache",
+            "windows.steam-install-logs",
             "windows.steam-library-downloading-cache",
             "windows.steam-library-shader-cache",
             "windows.steam-library-temp-cache",
