@@ -1,21 +1,8 @@
 use anyhow::Result;
-use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan, CleanupTarget};
-use rebecca_core::{DeleteMode, RuleDefinition, TargetStatus};
+use rebecca_core::RuleDefinition;
+use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan};
 
-const LARGEST_TARGET_LIMIT: usize = 5;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct ScanCacheProgressSummary {
-    pub(crate) hits: u64,
-    pub(crate) misses: u64,
-    pub(crate) write_skipped: u64,
-}
-
-impl ScanCacheProgressSummary {
-    fn has_activity(self) -> bool {
-        self.hits > 0 || self.misses > 0 || self.write_skipped > 0
-    }
-}
+use crate::clean_view::{CleanPlanProjection, CleanTargetRow, ScanCacheProgressSummary};
 
 pub fn print_rule_catalog(rules: &[&RuleDefinition]) {
     println!("Rebecca rules: {}", rules.len());
@@ -83,103 +70,74 @@ pub(crate) fn print_plan(
         return Ok(());
     }
 
-    println!("Cleanup mode: {}", cleanup_mode_label(plan.request.mode));
-    println!("Targets: {}", plan.summary.total_targets);
-    println!("Allowed: {}", plan.summary.allowed_targets);
-    println!("Skipped: {}", plan.summary.skipped_targets);
-    println!("Blocked: {}", plan.summary.blocked_targets);
-    println!("Failed: {}", plan.summary.failed_targets);
-    println!("Completed: {}", plan.summary.completed_targets);
+    let projection = CleanPlanProjection::new(plan, scan_cache_summary);
+
+    println!("Cleanup mode: {}", projection.mode_label);
+    println!("Targets: {}", projection.summary.total_targets);
+    println!("Allowed: {}", projection.summary.allowed_targets);
+    println!("Skipped: {}", projection.summary.skipped_targets);
+    println!("Blocked: {}", projection.summary.blocked_targets);
+    println!("Failed: {}", projection.summary.failed_targets);
+    println!("Completed: {}", projection.summary.completed_targets);
     println!(
         "Estimated bytes: {} ({})",
-        plan.summary.estimated_bytes,
-        format_bytes(plan.summary.estimated_bytes)
+        projection.summary.estimated_bytes,
+        format_bytes(projection.summary.estimated_bytes)
     );
     println!(
         "Freed bytes: {} ({})",
-        plan.summary.freed_bytes,
-        format_bytes(plan.summary.freed_bytes)
+        projection.summary.freed_bytes,
+        format_bytes(projection.summary.freed_bytes)
     );
     println!(
         "Pending reclaim bytes: {} ({})",
-        plan.summary.pending_reclaim_bytes,
-        format_bytes(plan.summary.pending_reclaim_bytes)
+        projection.summary.pending_reclaim_bytes,
+        format_bytes(projection.summary.pending_reclaim_bytes)
     );
-    print_issue_matrix(&plan.summary.issue_matrix);
-    if let Some(summary) = scan_cache_summary.filter(|summary| summary.has_activity()) {
+    if !projection.issue_matrix().is_empty() {
+        println!();
+        println!("Issue matrix:");
+        for issue in projection.issue_matrix() {
+            println!(
+                "- {} {}: {}, {} ({})",
+                issue.status_label,
+                issue.reason_label,
+                issue.targets_label,
+                issue.estimated_bytes,
+                format_bytes(issue.estimated_bytes)
+            );
+        }
+    }
+    if let Some(summary) = projection.scan_cache_summary() {
         println!(
             "Scan cache summary: {}, {}, {}",
-            format_count(summary.hits, "hit", "hits"),
-            format_count(summary.misses, "miss", "misses"),
-            format_count(summary.write_skipped, "skipped write", "skipped writes")
+            summary.hits_label, summary.misses_label, summary.write_skipped_label
         );
     }
 
-    print_largest_targets(plan);
-    print_targets_by_status(plan);
+    if !projection.largest_targets().is_empty() {
+        println!();
+        println!("Largest estimated targets:");
+        for target in projection.largest_targets() {
+            print_target_line(target, "  -");
+        }
+    }
+
+    if !projection.target_groups().is_empty() {
+        println!();
+        println!("Target details:");
+        for group in projection.target_groups() {
+            println!("{} ({})", group.status_label, group.targets.len());
+            for target in &group.targets {
+                print_target_line(target, "  -");
+            }
+        }
+    }
 
     Ok(())
 }
 
-fn print_largest_targets(plan: &CleanupPlan) {
-    let mut targets = plan
-        .targets
-        .iter()
-        .filter(|target| target.estimated_bytes > 0)
-        .collect::<Vec<_>>();
-
-    targets.sort_by(|left, right| {
-        right
-            .estimated_bytes
-            .cmp(&left.estimated_bytes)
-            .then_with(|| left.rule_id.cmp(&right.rule_id))
-            .then_with(|| left.path.cmp(&right.path))
-    });
-
-    if targets.is_empty() {
-        return;
-    }
-
-    println!();
-    println!("Largest estimated targets:");
-    for target in targets.into_iter().take(LARGEST_TARGET_LIMIT) {
-        print_target_line(target, "  -");
-    }
-}
-
-fn print_targets_by_status(plan: &CleanupPlan) {
-    if plan.targets.is_empty() {
-        return;
-    }
-
-    println!();
-    println!("Target details:");
-
-    for status in [
-        TargetStatus::Allowed,
-        TargetStatus::Completed,
-        TargetStatus::Failed,
-        TargetStatus::Blocked,
-        TargetStatus::Skipped,
-    ] {
-        let targets = plan
-            .targets
-            .iter()
-            .filter(|target| target.status == status)
-            .collect::<Vec<_>>();
-
-        if targets.is_empty() {
-            continue;
-        }
-
-        println!("{} ({})", status.label(), targets.len());
-        for target in targets {
-            print_target_line(target, "  -");
-        }
-    }
-}
-
-fn print_target_line(target: &CleanupTarget, prefix: &str) {
+fn print_target_line(target: &CleanTargetRow<'_>, prefix: &str) {
     println!(
         "{prefix} {} [{}] {} bytes ({}){}{}",
         target.rule_id,
@@ -188,10 +146,9 @@ fn print_target_line(target: &CleanupTarget, prefix: &str) {
         format_bytes(target.estimated_bytes),
         target
             .reason
-            .as_ref()
             .map(|reason| format!(" ({reason})"))
             .unwrap_or_default(),
-        restore_hint_suffix(target.restore_hint.as_deref())
+        restore_hint_suffix(target.restore_hint)
     );
 }
 
@@ -204,18 +161,6 @@ pub(crate) fn format_issue_matrix_entry(issue: &CleanupIssueSummary) -> String {
         issue.estimated_bytes,
         format_bytes(issue.estimated_bytes)
     )
-}
-
-fn print_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
-    if issue_matrix.is_empty() {
-        return;
-    }
-
-    println!();
-    println!("Issue matrix:");
-    for issue in issue_matrix {
-        println!("- {}", format_issue_matrix_entry(issue));
-    }
 }
 
 pub(crate) fn format_bytes(bytes: u64) -> String {
@@ -240,14 +185,6 @@ fn format_count(count: u64, singular: &str, plural: &str) -> String {
         format!("{count} {singular}")
     } else {
         format!("{count} {plural}")
-    }
-}
-
-fn cleanup_mode_label(mode: DeleteMode) -> &'static str {
-    match mode {
-        DeleteMode::DryRun => "dry-run",
-        DeleteMode::RecycleBin => "recycle-bin",
-        DeleteMode::Permanent => "permanent",
     }
 }
 

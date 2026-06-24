@@ -11,6 +11,7 @@ use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::scan_cache::ScanCacheStore;
 use rebecca_core::{DeleteMode, PlanRequest, Platform};
 
+use crate::clean_view::ScanCacheProgressSummary;
 use crate::output::format_bytes;
 use crate::{info, output};
 use rebecca_core::environment::SystemEnvironment;
@@ -131,7 +132,7 @@ fn install_cancellation_handler(token: ScanCancellationToken) -> Result<()> {
 struct PlanProgressReporter {
     bar: Option<ProgressBar>,
     scanned_targets: u64,
-    scan_cache_summary: output::ScanCacheProgressSummary,
+    scan_cache_summary: ScanCacheProgressSummary,
 }
 
 impl PlanProgressReporter {
@@ -146,7 +147,7 @@ impl PlanProgressReporter {
         Self {
             bar,
             scanned_targets: 0,
-            scan_cache_summary: output::ScanCacheProgressSummary::default(),
+            scan_cache_summary: ScanCacheProgressSummary::default(),
         }
     }
 
@@ -233,7 +234,7 @@ impl PlanProgressReporter {
         }
     }
 
-    fn scan_cache_summary(&self) -> output::ScanCacheProgressSummary {
+    fn scan_cache_summary(&self) -> ScanCacheProgressSummary {
         self.scan_cache_summary
     }
 
