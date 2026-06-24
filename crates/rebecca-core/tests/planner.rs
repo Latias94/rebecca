@@ -482,6 +482,15 @@ fn steam_install_rule_expands_from_application_discovery() {
             allow_moderate: false,
         },
         SteamInstallRuleCase {
+            rule_id: "windows.steam-install-avatar-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "config/avatarcache",
+            bytes: b"abc",
+            expected_path: "config/avatarcache",
+            expected_restore_hint: Some("Steam avatar images will be rebuilt when needed."),
+            allow_moderate: false,
+        },
+        SteamInstallRuleCase {
             rule_id: "windows.steam-install-download-cache",
             install_fixture_path: "steam-install",
             relative_path: "appcache/download",

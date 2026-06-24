@@ -35,6 +35,7 @@ fn scan_json_lists_builtin_rules() {
             "windows.steam-install-cache",
             "windows.steam-install-depot-cache",
             "windows.steam-install-logs",
+            "windows.steam-install-avatar-cache",
             "windows.steam-install-download-cache",
             "windows.steam-install-library-cache",
             "windows.steam-install-shader-cache",
@@ -107,6 +108,7 @@ fn scan_human_output_groups_rules_by_category() {
     for expected in [
         "  - windows.steam-install-depot-cache [safe] Steam install depot cache",
         "  - windows.steam-install-logs [safe] Steam install logs",
+        "  - windows.steam-install-avatar-cache [safe] Steam install avatar cache [restore: Steam avatar images will be rebuilt when needed.]",
         "  - windows.steam-cache [safe] Steam cache [restore: Steam web caches will be rebuilt on launch.]",
     ] {
         assert!(stdout.contains(expected), "{expected}");

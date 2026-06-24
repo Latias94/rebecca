@@ -216,6 +216,12 @@ fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
             expected_restore_hint: Some("Steam logs will be recreated when Steam runs again."),
         },
         SteamDryRunCase {
+            rule_id: "windows.steam-install-avatar-cache",
+            target_relative_path: "config/avatarcache",
+            bytes: b"abc",
+            expected_restore_hint: Some("Steam avatar images will be rebuilt when needed."),
+        },
+        SteamDryRunCase {
             rule_id: "windows.steam-install-depot-cache",
             target_relative_path: "depotcache",
             bytes: b"abcd",
