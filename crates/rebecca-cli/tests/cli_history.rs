@@ -7,6 +7,47 @@ use rebecca_core::{DeleteMode, PlanRequest, Platform, TargetStatus};
 #[path = "common/isolated.rs"]
 mod isolated;
 
+fn completed_history_entry(
+    recorded_at_unix_seconds: u64,
+    pending_reclaim_bytes: u64,
+) -> HistoryEntry {
+    let mut plan = CleanupPlan {
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        summary: CleanupSummary {
+            completed_targets: 1,
+            failed_targets: 0,
+            pending_reclaim_bytes,
+            ..CleanupSummary::default()
+        },
+        targets: vec![CleanupTarget::allowed(
+            "windows.user-temp",
+            std::path::PathBuf::from(format!(r"C:\Temp\cache-{recorded_at_unix_seconds}.tmp")),
+            pending_reclaim_bytes,
+            DeleteMode::RecycleBin,
+        )],
+    };
+    plan.targets[0].status = TargetStatus::Completed;
+    plan.targets[0].pending_reclaim_bytes = pending_reclaim_bytes;
+
+    let mut entry = HistoryEntry::from_plan(&plan);
+    entry.recorded_at_unix_seconds = recorded_at_unix_seconds;
+    entry
+}
+
+fn write_history_entries(history_path: &std::path::Path, entries: &[HistoryEntry]) {
+    if let Some(parent) = history_path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+
+    let mut lines = entries
+        .iter()
+        .map(|entry| serde_json::to_string(entry).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    lines.push('\n');
+    std::fs::write(history_path, lines).unwrap();
+}
+
 #[test]
 fn history_json_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
@@ -218,4 +259,81 @@ fn history_human_output_lists_saved_issue_matrix() {
     assert!(stdout.contains("Cleanup history: 1 run(s)"));
     assert!(stdout.contains("Issue matrix:"));
     assert!(stdout.contains("- skipped duplicate-target-path: 1 target, 0 (0 B)"));
+}
+
+#[test]
+fn history_human_limit_shows_most_recent_entries_in_chronological_order() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(
+        &history_path,
+        &[
+            completed_history_entry(10, 10),
+            completed_history_entry(20, 20),
+            completed_history_entry(30, 30),
+        ],
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history", "--limit", "2"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Cleanup history: 2 run(s)"));
+    assert!(!stdout.contains("- 10:"));
+    assert!(stdout.contains("- 20:"));
+    assert!(stdout.contains("- 30:"));
+    assert!(stdout.find("- 20:").unwrap() < stdout.find("- 30:").unwrap());
+}
+
+#[test]
+fn history_json_limit_shows_most_recent_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(
+        &history_path,
+        &[
+            completed_history_entry(10, 10),
+            completed_history_entry(20, 20),
+            completed_history_entry(30, 30),
+        ],
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history", "--json", "--limit", "2"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entries = value.as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["recorded_at_unix_seconds"].as_u64().unwrap(), 20);
+    assert_eq!(entries[1]["recorded_at_unix_seconds"].as_u64().unwrap(), 30);
+}
+
+#[test]
+fn history_limit_rejects_zero() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history", "--limit", "0"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("--limit"));
+    assert!(stderr.contains('0'));
 }

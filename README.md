@@ -56,6 +56,7 @@ cargo run -p rebecca-cli -- clean --dry-run --json --allow-risky --rule windows.
 cargo run -p rebecca-cli -- clean --yes --category system
 
 cargo run -p rebecca-cli -- history
+cargo run -p rebecca-cli -- history --limit 10
 cargo run -p rebecca-cli -- history --json
 
 cargo run -p rebecca-cli -- config paths

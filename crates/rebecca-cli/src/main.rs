@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::num::NonZeroUsize;
 
 mod cache;
 mod clean;
@@ -63,6 +64,9 @@ enum Command {
         /// Render machine-readable JSON.
         #[arg(long)]
         json: bool,
+        /// Show only the most recent N history entries.
+        #[arg(long)]
+        limit: Option<NonZeroUsize>,
     },
     /// Inspect or purge Rebecca's own cache directory.
     Cache {
@@ -150,7 +154,7 @@ fn main() -> Result<()> {
             allow_moderate,
             allow_risky,
         }),
-        Command::History { json } => info::print_history(json),
+        Command::History { json, limit } => info::print_history(json, limit),
         Command::Cache { command } => match command {
             CacheCommand::Purge { dry_run, json, yes } => {
                 cache::purge(cache::CachePurgeOptions { dry_run, json, yes })

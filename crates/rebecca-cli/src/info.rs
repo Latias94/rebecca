@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use anyhow::Result;
 use rebecca_core::applications::ApplicationDiscovery;
 #[cfg(debug_assertions)]
@@ -5,7 +7,7 @@ use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
 use rebecca_core::config::{AppPaths, load_app_paths};
-use rebecca_core::history::HistoryStore;
+use rebecca_core::history::{HistoryEntry, HistoryStore};
 use rebecca_core::plan::CleanupIssueSummary;
 
 use crate::output::{format_issue_matrix_entry, restore_hint_suffix};
@@ -21,10 +23,10 @@ fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
     })
 }
 
-pub fn print_history(json: bool) -> Result<()> {
+pub fn print_history(json: bool, limit: Option<NonZeroUsize>) -> Result<()> {
     let paths = load_app_paths()?;
     let store = HistoryStore::new(paths.history_file);
-    let entries = store.load()?;
+    let entries = recent_history_entries(store.load()?, limit);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&entries)?);
@@ -55,6 +57,22 @@ pub fn print_history(json: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn recent_history_entries(
+    mut entries: Vec<HistoryEntry>,
+    limit: Option<NonZeroUsize>,
+) -> Vec<HistoryEntry> {
+    let Some(limit) = limit else {
+        return entries;
+    };
+
+    let limit = limit.get();
+    if entries.len() <= limit {
+        return entries;
+    }
+
+    entries.split_off(entries.len() - limit)
 }
 
 fn print_history_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
