@@ -64,6 +64,13 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "rules/windows/steam-install-logs.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/rules/windows/steam-install-logs.toml"
+        )),
+    ),
+    (
         "rules/windows/steam-install-download-cache.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

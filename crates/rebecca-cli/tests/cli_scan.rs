@@ -33,6 +33,7 @@ fn scan_json_lists_builtin_rules() {
             "windows.pip-cache",
             "windows.steam-cache",
             "windows.steam-install-cache",
+            "windows.steam-install-logs",
             "windows.steam-install-download-cache",
             "windows.steam-install-library-cache",
             "windows.steam-install-shader-cache",

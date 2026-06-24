@@ -257,6 +257,49 @@ fn clean_dry_run_json_expands_steam_install_shader_rule_with_discovery_override(
 }
 
 #[test]
+fn clean_dry_run_json_expands_steam_install_logs_rule_with_discovery_override() {
+    let temp = tempfile::tempdir().unwrap();
+    let steam = temp.path().join("Steam");
+    let logs = steam.join("logs");
+    fs::create_dir_all(&logs).unwrap();
+    fs::write(logs.join("cloud_log.txt"), b"abcde").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.steam-install-logs",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["total_targets"], 1);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 5);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["rule_id"], "windows.steam-install-logs");
+    assert_eq!(targets[0]["status"], "allowed");
+    assert_eq!(
+        targets[0]["restore_hint"].as_str().unwrap(),
+        "Steam logs will be recreated when Steam runs again."
+    );
+    assert!(targets[0]["path"].as_str().unwrap().ends_with(r"logs"));
+}
+
+#[test]
 fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
     let temp = tempfile::tempdir().unwrap();
     let steam = temp.path().join("Steam");

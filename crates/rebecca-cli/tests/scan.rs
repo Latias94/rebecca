@@ -33,6 +33,7 @@ fn scan_json_lists_builtin_rules() {
             "windows.pip-cache",
             "windows.steam-cache",
             "windows.steam-install-cache",
+            "windows.steam-install-logs",
             "windows.steam-install-download-cache",
             "windows.steam-install-library-cache",
             "windows.steam-install-shader-cache",
@@ -93,6 +94,7 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("  - windows.firefox-profile-cache [safe] Firefox profile cache"));
     assert!(stdout.contains("- development ("));
     assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));
+    assert!(stdout.contains("  - windows.steam-install-logs [safe] Steam install logs"));
     assert!(stdout.contains(
         "  - windows.steam-cache [safe] Steam cache [restore: Steam web caches will be rebuilt on launch.]"
     ));
