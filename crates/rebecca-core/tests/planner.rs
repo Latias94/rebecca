@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+mod common;
+
 use rebecca_core::applications::{StaticApplicationDiscovery, SteamInstallation};
 use rebecca_core::environment::MapEnvironment;
 use rebecca_core::plan::CleanupPlan;
@@ -417,25 +419,17 @@ fn steam_rule_targets_only_client_browser_cache_directories() {
     }));
 }
 
-struct SteamInstallRuleCase<'a> {
-    rule_id: &'a str,
-    install_fixture_path: &'a str,
-    relative_path: &'a str,
-    bytes: &'a [u8],
-    expected_path: &'a str,
-    expected_restore_hint: Option<&'a str>,
-    allow_moderate: bool,
-}
-
 fn steam_plan(
     fixture: &PlannerFixture,
     rule_id: &str,
     allow_moderate: bool,
     library_paths: Vec<PathBuf>,
 ) -> CleanupPlan {
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(fixture.root.join("steam-install"), library_paths),
-    );
+    let applications =
+        StaticApplicationDiscovery::new().with_steam_installation(SteamInstallation::new(
+            fixture.root.join(common::steam::STEAM_INSTALL_FIXTURE_ROOT),
+            library_paths,
+        ));
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
@@ -453,78 +447,10 @@ fn steam_plan(
 
 #[test]
 fn steam_install_rule_expands_from_application_discovery() {
-    let cases = [
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-install-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "appcache/httpcache",
-            bytes: b"ab",
-            expected_path: "appcache/httpcache",
-            expected_restore_hint: Some("Steam client cache will be rebuilt on launch."),
-            allow_moderate: false,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-install-depot-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "depotcache",
-            bytes: b"abcd",
-            expected_path: "depotcache",
-            expected_restore_hint: Some("Steam depot cache will be rebuilt when Steam runs again."),
-            allow_moderate: false,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-install-logs",
-            install_fixture_path: "steam-install",
-            relative_path: "logs",
-            bytes: b"abc",
-            expected_path: "logs",
-            expected_restore_hint: Some("Steam logs will be recreated when Steam runs again."),
-            allow_moderate: false,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-install-avatar-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "config/avatarcache",
-            bytes: b"abc",
-            expected_path: "config/avatarcache",
-            expected_restore_hint: Some("Steam avatar images will be rebuilt when needed."),
-            allow_moderate: false,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-install-download-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "appcache/download",
-            bytes: b"ab",
-            expected_path: "appcache/download",
-            expected_restore_hint: Some("Steam download staging data will be recreated if needed."),
-            allow_moderate: true,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-install-library-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "appcache/librarycache",
-            bytes: b"ab",
-            expected_path: "appcache/librarycache",
-            expected_restore_hint: Some(
-                "Steam library artwork and metadata will be rebuilt on launch.",
-            ),
-            allow_moderate: false,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-install-shader-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "appcache/shadercache",
-            bytes: b"ab",
-            expected_path: "appcache/shadercache",
-            expected_restore_hint: Some("Steam shader caches will be rebuilt on launch."),
-            allow_moderate: false,
-        },
-    ];
-
-    for case in cases {
+    for case in common::steam::STEAM_INSTALL_RULE_CASES.iter().copied() {
         let fixture = PlannerFixture::new();
-        let install_path = fixture.root.join("steam-install");
-        let target = Path::new(case.install_fixture_path)
+        let install_path = fixture.root.join(common::steam::STEAM_INSTALL_FIXTURE_ROOT);
+        let target = Path::new(common::steam::STEAM_INSTALL_FIXTURE_ROOT)
             .join(case.relative_path)
             .join("cache.bin");
         fixture.write(target, case.bytes);
@@ -540,7 +466,7 @@ fn steam_install_rule_expands_from_application_discovery() {
         );
         assert_eq!(
             plan.targets[0].path,
-            install_path.join(case.expected_path),
+            install_path.join(case.relative_path),
             "{}",
             case.rule_id
         );
@@ -601,47 +527,15 @@ fn steam_rules_skip_without_application_discovery() {
 
 #[test]
 fn steam_library_rule_expands_from_application_discovery() {
-    let cases = [
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-library-shader-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "steamapps/shadercache",
-            bytes: b"ab",
-            expected_path: "steamapps/shadercache",
-            expected_restore_hint: Some("Steam shader caches will be rebuilt by Steam and games."),
-            allow_moderate: false,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-library-downloading-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "steamapps/downloading",
-            bytes: b"ab",
-            expected_path: "steamapps/downloading",
-            expected_restore_hint: Some("Steam download staging data will be recreated if needed."),
-            allow_moderate: true,
-        },
-        SteamInstallRuleCase {
-            rule_id: "windows.steam-library-temp-cache",
-            install_fixture_path: "steam-install",
-            relative_path: "steamapps/temp",
-            bytes: b"ab",
-            expected_path: "steamapps/temp",
-            expected_restore_hint: Some(
-                "Steam temporary staging data will be recreated if needed.",
-            ),
-            allow_moderate: true,
-        },
-    ];
-
-    for case in cases {
+    for case in common::steam::STEAM_LIBRARY_RULE_CASES.iter().copied() {
         let fixture = PlannerFixture::new();
-        let install_path = fixture.root.join("steam-install");
-        let library_path = fixture.root.join("steam-library");
-        let install_target = Path::new(case.install_fixture_path)
+        let install_path = fixture.root.join(common::steam::STEAM_INSTALL_FIXTURE_ROOT);
+        let library_path = fixture.root.join(common::steam::STEAM_LIBRARY_FIXTURE_ROOT);
+        let install_target = Path::new(common::steam::STEAM_INSTALL_FIXTURE_ROOT)
             .join(case.relative_path)
             .join("111")
             .join("cache.bin");
-        let library_target = Path::new("steam-library")
+        let library_target = Path::new(common::steam::STEAM_LIBRARY_FIXTURE_ROOT)
             .join(case.relative_path)
             .join("222")
             .join("cache.bin");
@@ -665,12 +559,12 @@ fn steam_library_rule_expands_from_application_discovery() {
         assert!(
             plan.targets
                 .iter()
-                .any(|target| { target.path.ends_with(install_path.join(case.expected_path)) })
+                .any(|target| { target.path.ends_with(install_path.join(case.relative_path)) })
         );
         assert!(
             plan.targets
                 .iter()
-                .any(|target| { target.path.ends_with(library_path.join(case.expected_path)) })
+                .any(|target| { target.path.ends_with(library_path.join(case.relative_path)) })
         );
         assert!(
             plan.targets

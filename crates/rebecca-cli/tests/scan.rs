@@ -21,34 +21,7 @@ fn scan_json_lists_builtin_rules() {
 
     assert_eq!(
         ids,
-        [
-            "windows.chrome-cache",
-            "windows.cargo-cache",
-            "windows.directx-shader-cache",
-            "windows.discord-cache",
-            "windows.edge-cache",
-            "windows.firefox-profile-cache",
-            "windows.jetbrains-cache",
-            "windows.npm-cache",
-            "windows.pip-cache",
-            "windows.steam-cache",
-            "windows.steam-install-cache",
-            "windows.steam-install-depot-cache",
-            "windows.steam-install-logs",
-            "windows.steam-install-avatar-cache",
-            "windows.steam-install-download-cache",
-            "windows.steam-install-library-cache",
-            "windows.steam-install-shader-cache",
-            "windows.steam-library-downloading-cache",
-            "windows.steam-library-shader-cache",
-            "windows.steam-library-temp-cache",
-            "windows.thumbnail-cache",
-            "windows.user-temp",
-            "windows.vscode-cache",
-            "windows.wer-reports",
-        ]
-        .into_iter()
-        .collect()
+        common::steam::BUILTIN_RULE_IDS.iter().copied().collect()
     );
 }
 
@@ -96,13 +69,9 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("  - windows.firefox-profile-cache [safe] Firefox profile cache"));
     assert!(stdout.contains("- development ("));
     assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));
-    assert!(
-        stdout.contains("  - windows.steam-install-depot-cache [safe] Steam install depot cache")
-    );
-    assert!(stdout.contains("  - windows.steam-install-logs [safe] Steam install logs"));
-    assert!(stdout.contains(
-        "  - windows.steam-cache [safe] Steam cache [restore: Steam web caches will be rebuilt on launch.]"
-    ));
+    for expected in common::steam::HUMAN_SCAN_LINES {
+        assert!(stdout.contains(expected), "{expected}");
+    }
 }
 
 #[test]

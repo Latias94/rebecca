@@ -6,20 +6,26 @@ mod isolated;
 
 fn steam_dry_run_json_output(
     temp: &tempfile::TempDir,
-    rule_id: &str,
-    target_relative_path: &str,
-    bytes: &[u8],
+    case: common::steam::SteamRuleCase,
 ) -> serde_json::Value {
     let steam = temp.path().join("Steam");
-    let target = steam.join(target_relative_path);
+    let target = steam.join(case.relative_path);
     fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("cache.bin"), bytes).unwrap();
+    fs::write(target.join("cache.bin"), case.bytes).unwrap();
 
-    let output = isolated::isolated_rebecca(temp)
-        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
-        .args(["clean", "--dry-run", "--json", "--rule", rule_id])
-        .output()
-        .unwrap();
+    let mut command = isolated::isolated_rebecca(temp);
+    command.env("REBECCA_STEAM_DISCOVERY_PATH", &steam).args([
+        "clean",
+        "--dry-run",
+        "--json",
+        "--rule",
+        case.rule_id,
+    ]);
+    if case.allow_moderate {
+        command.args(["--allow-moderate"]);
+    }
+
+    let output = command.output().unwrap();
 
     assert!(
         output.status.success(),
@@ -28,13 +34,6 @@ fn steam_dry_run_json_output(
     );
 
     serde_json::from_slice(&output.stdout).unwrap()
-}
-
-struct SteamDryRunCase<'a> {
-    rule_id: &'a str,
-    target_relative_path: &'a str,
-    bytes: &'a [u8],
-    expected_restore_hint: Option<&'a str>,
 }
 
 #[test]
@@ -194,45 +193,9 @@ fn clean_dry_run_accepts_no_progress_flag() {
 
 #[test]
 fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
-    let cases = [
-        SteamDryRunCase {
-            rule_id: "windows.steam-install-library-cache",
-            target_relative_path: "appcache/librarycache",
-            bytes: b"abc",
-            expected_restore_hint: Some(
-                "Steam library artwork and metadata will be rebuilt on launch.",
-            ),
-        },
-        SteamDryRunCase {
-            rule_id: "windows.steam-install-shader-cache",
-            target_relative_path: "appcache/shadercache",
-            bytes: b"abcd",
-            expected_restore_hint: Some("Steam shader caches will be rebuilt on launch."),
-        },
-        SteamDryRunCase {
-            rule_id: "windows.steam-install-logs",
-            target_relative_path: "logs",
-            bytes: b"abcde",
-            expected_restore_hint: Some("Steam logs will be recreated when Steam runs again."),
-        },
-        SteamDryRunCase {
-            rule_id: "windows.steam-install-avatar-cache",
-            target_relative_path: "config/avatarcache",
-            bytes: b"abc",
-            expected_restore_hint: Some("Steam avatar images will be rebuilt when needed."),
-        },
-        SteamDryRunCase {
-            rule_id: "windows.steam-install-depot-cache",
-            target_relative_path: "depotcache",
-            bytes: b"abcd",
-            expected_restore_hint: Some("Steam depot cache will be rebuilt when Steam runs again."),
-        },
-    ];
-
-    for case in cases {
+    for case in common::steam::STEAM_INSTALL_RULE_CASES.iter().copied() {
         let temp = tempfile::tempdir().unwrap();
-        let value =
-            steam_dry_run_json_output(&temp, case.rule_id, case.target_relative_path, case.bytes);
+        let value = steam_dry_run_json_output(&temp, case);
         assert_eq!(value["summary"]["total_targets"], 1, "{}", case.rule_id);
         assert_eq!(value["summary"]["allowed_targets"], 1, "{}", case.rule_id);
         assert_eq!(value["summary"]["skipped_targets"], 0, "{}", case.rule_id);
@@ -255,7 +218,7 @@ fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
             targets[0]["path"]
                 .as_str()
                 .unwrap()
-                .ends_with(&case.target_relative_path.replace('/', r"\"))
+                .ends_with(&case.relative_path.replace('/', r"\"))
         );
     }
 }
