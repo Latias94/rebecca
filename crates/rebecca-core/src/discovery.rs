@@ -58,27 +58,20 @@ where
                 Ok(TargetResolution::Paths(paths))
             }
         }
-        RuleTargetSpec::SteamInstallTemplate(template) => {
-            resolve_with_steam_installation(applications, |steam| {
-                resolve_steam_relative_targets(
-                    std::iter::once(steam.install_path()),
-                    template,
-                    env,
-                    "Steam install template could not be resolved in the current environment",
-                )
-            })
-        }
-        RuleTargetSpec::SteamLibraryTemplate(template) => {
-            resolve_with_steam_installation(applications, |steam| {
-                resolve_steam_relative_targets(
-                    std::iter::once(steam.install_path())
-                        .chain(steam.library_paths().iter().map(PathBuf::as_path)),
-                    template,
-                    env,
-                    "Steam library template could not be resolved in the current environment",
-                )
-            })
-        }
+        RuleTargetSpec::SteamInstallTemplate(template) => resolve_steam_relative_target(
+            applications,
+            template,
+            env,
+            "Steam install template could not be resolved in the current environment",
+            SteamRootScope::InstallOnly,
+        ),
+        RuleTargetSpec::SteamLibraryTemplate(template) => resolve_steam_relative_target(
+            applications,
+            template,
+            env,
+            "Steam library template could not be resolved in the current environment",
+            SteamRootScope::IncludeLibraries,
+        ),
     }
 }
 
@@ -94,6 +87,33 @@ where
     };
 
     resolve(&steam)
+}
+
+fn resolve_steam_relative_target<A>(
+    applications: &A,
+    template: &crate::PathTemplate,
+    env: &impl Environment,
+    skipped_message: &'static str,
+    scope: SteamRootScope,
+) -> Result<TargetResolution>
+where
+    A: ApplicationDiscovery + ?Sized,
+{
+    resolve_with_steam_installation(applications, |steam| match scope {
+        SteamRootScope::InstallOnly => resolve_steam_relative_targets(
+            std::iter::once(steam.install_path()),
+            template,
+            env,
+            skipped_message,
+        ),
+        SteamRootScope::IncludeLibraries => resolve_steam_relative_targets(
+            std::iter::once(steam.install_path())
+                .chain(steam.library_paths().iter().map(PathBuf::as_path)),
+            template,
+            env,
+            skipped_message,
+        ),
+    })
 }
 
 fn resolve_steam_relative_targets<'a, I>(
@@ -117,6 +137,12 @@ where
     }
 
     Ok(TargetResolution::Paths(paths))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SteamRootScope {
+    InstallOnly,
+    IncludeLibraries,
 }
 
 fn ensure_safe_relative_steam_target(path: &Path) -> Result<()> {
