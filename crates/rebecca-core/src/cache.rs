@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{AppPaths, AppStorageRetention};
+use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
 use crate::error::{RebeccaError, Result};
 use crate::scan::measure_path;
 
@@ -22,6 +22,10 @@ impl CachePurgeMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachePurgeReport {
     pub cache_dir: PathBuf,
+    pub cache_dir_lifecycle: AppStorageLifecycle,
+    pub cache_dir_retention: AppStorageRetention,
+    pub cache_dir_exists: bool,
+    pub preserves_cache_dir: bool,
     pub mode: CachePurgeMode,
     pub deleted: bool,
     pub summary: CachePurgeSummary,
@@ -32,6 +36,10 @@ impl CachePurgeReport {
     fn empty(cache_dir: PathBuf, mode: CachePurgeMode) -> Self {
         Self {
             cache_dir,
+            cache_dir_lifecycle: AppStorageLifecycle::RebuildableCache,
+            cache_dir_retention: AppStorageRetention::Rebuildable,
+            cache_dir_exists: false,
+            preserves_cache_dir: true,
             mode,
             deleted: mode.deletes(),
             summary: CachePurgeSummary::default(),
@@ -179,6 +187,7 @@ pub fn purge_app_cache(paths: &AppPaths, mode: CachePurgeMode) -> Result<CachePu
             paths.cache_dir.display()
         )));
     }
+    report.cache_dir_exists = true;
 
     let read_dir = std::fs::read_dir(&paths.cache_dir).map_err(|err| {
         RebeccaError::ExecutionFailed(format!(
@@ -336,7 +345,7 @@ fn comparable_components(path: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{CachePurgeEntryStatus, CachePurgeMode, purge_app_cache};
-    use crate::config::AppPaths;
+    use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
 
     fn app_paths(temp: &tempfile::TempDir) -> AppPaths {
         AppPaths {
@@ -360,6 +369,13 @@ mod tests {
 
         assert!(!report.deleted);
         assert_eq!(report.mode, CachePurgeMode::DryRun);
+        assert_eq!(
+            report.cache_dir_lifecycle,
+            AppStorageLifecycle::RebuildableCache
+        );
+        assert_eq!(report.cache_dir_retention, AppStorageRetention::Rebuildable);
+        assert!(report.cache_dir_exists);
+        assert!(report.preserves_cache_dir);
         assert_eq!(report.summary.total_entries, 2);
         assert_eq!(report.summary.would_delete_entries, 2);
         assert_eq!(report.summary.deleted_entries, 0);
@@ -402,6 +418,8 @@ mod tests {
 
         let report = purge_app_cache(&paths, CachePurgeMode::DryRun).unwrap();
 
+        assert!(!report.cache_dir_exists);
+        assert!(report.preserves_cache_dir);
         assert_eq!(report.summary.total_entries, 0);
         assert!(report.entries.is_empty());
     }

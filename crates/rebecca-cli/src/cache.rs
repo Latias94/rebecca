@@ -33,8 +33,28 @@ fn print_cache_purge_report(report: &CachePurgeReport) {
     println!("Rebecca cache: {}", report.cache_dir.display());
     println!("Mode: {}", mode_label(report.mode));
     println!(
+        "Lifecycle: {} ({})",
+        report.cache_dir_lifecycle.label(),
+        report.cache_dir_retention.label()
+    );
+    println!(
+        "Cache directory exists: {}",
+        yes_no(report.cache_dir_exists)
+    );
+    println!(
+        "Preserves cache directory: {}",
+        yes_no(report.preserves_cache_dir)
+    );
+    println!(
         "Entries: {}, files: {}, directories: {}",
         report.summary.total_entries, report.summary.files, report.summary.directories
+    );
+    println!(
+        "Entry status: {} would delete, {} deleted, {} skipped, {} failed",
+        report.summary.would_delete_entries,
+        report.summary.deleted_entries,
+        report.summary.skipped_entries,
+        report.summary.failed_entries
     );
     println!(
         "Estimated bytes: {} ({})",
@@ -80,4 +100,8 @@ fn mode_label(mode: CachePurgeMode) -> &'static str {
         CachePurgeMode::DryRun => "dry-run",
         CachePurgeMode::Delete => "delete",
     }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }

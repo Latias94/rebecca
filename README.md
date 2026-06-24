@@ -139,9 +139,10 @@ By default, Rebecca uses standard Windows user directories:
 | history file | append-only-history | preserve |
 | cache dir | rebuildable-cache | rebuildable |
 
-`rebecca cache purge` operates only on Rebecca's configured cache directory. It
-previews by default, requires `--yes` to delete direct cache contents, keeps the
-cache directory itself, and refuses to run if the cache path overlaps preserved
+`rebecca cache purge` operates only on Rebecca's configured rebuildable cache
+directory. It previews by default, requires `--yes` to delete direct cache
+contents, keeps the cache directory itself, reports lifecycle and entry-status
+counts in human output, and refuses to run if the cache path overlaps preserved
 configuration, state, or history paths.
 
 Scan-cache records use a versioned JSON format under the rebuildable cache
