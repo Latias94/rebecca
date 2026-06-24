@@ -334,6 +334,125 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
 }
 
 #[test]
+fn clean_dry_run_scan_cache_policy_expires_directory_records_from_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        r#"
+version = 1
+
+[scan_cache]
+directory_record_max_age_seconds = 1
+"#,
+    )
+    .unwrap();
+    let edge_cache = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Edge")
+        .join("User Data")
+        .join("Default")
+        .join("Cache");
+    fs::create_dir_all(&edge_cache).unwrap();
+    fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_files = fs::read_dir(scan_cache_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    assert_eq!(cache_files.len(), 1);
+
+    let cache_file = &cache_files[0];
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&fs::read(cache_file).unwrap()).unwrap();
+    let stale_written_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .saturating_sub(2);
+    record["report"]["bytes_scanned"] = serde_json::json!(99);
+    record["written_at_unix_seconds"] = serde_json::json!(stale_written_at);
+    fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["estimated_bytes"], 4);
+}
+
+#[test]
+fn clean_dry_run_scan_cache_reports_invalid_policy_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        r#"
+[scan_cache]
+directory_record_max_age_seconds = 0
+"#,
+    )
+    .unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("config parse failed"));
+    assert!(stderr.contains("scan_cache.directory_record_max_age_seconds must be at least 1"));
+    assert!(stderr.contains("config.toml"));
+}
+
+#[test]
 fn clean_human_output_summarizes_scan_cache_activity() {
     let temp = tempfile::tempdir().unwrap();
     let edge_cache = temp

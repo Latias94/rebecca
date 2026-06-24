@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use indicatif::ProgressBar;
-use rebecca_core::config::load_app_paths;
+use rebecca_core::config::load_runtime_config;
 use rebecca_core::executor::execute_cleanup_plan;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::CleanupPlan;
@@ -46,18 +46,23 @@ pub fn run(options: CleanOptions) -> Result<()> {
     install_cancellation_handler(cancellation.clone())?;
     let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
     let applications = info::steam_application_discovery();
-    let app_paths = if options.scan_cache || !options.dry_run {
-        Some(load_app_paths()?)
+    let runtime_config = if options.scan_cache || !options.dry_run {
+        Some(load_runtime_config()?)
     } else {
         None
     };
-    let scan_cache_store = app_paths
+    let scan_cache_store = runtime_config
         .as_ref()
         .filter(|_| options.scan_cache)
-        .map(ScanCacheStore::from_app_paths);
+        .map(|config| ScanCacheStore::from_app_paths(&config.app_paths));
     let mut context = PlanBuildContext::new(&cancellation);
-    if let Some(store) = &scan_cache_store {
-        context = context.with_scan_cache(store);
+    if options.scan_cache {
+        if let Some(config) = &runtime_config {
+            context = context.with_scan_cache_policy(config.scan_cache_policy);
+        }
+        if let Some(store) = &scan_cache_store {
+            context = context.with_scan_cache(store);
+        }
     }
     let plan_result = build_cleanup_plan_with_context(
         &request,
@@ -108,11 +113,11 @@ pub fn run(options: CleanOptions) -> Result<()> {
         let backend = rebecca_windows::WindowsRecycleBinBackend::new();
         execute_cleanup_plan(&mut plan, &backend)?;
 
-        let paths = match app_paths {
-            Some(paths) => paths,
-            None => load_app_paths()?,
+        let config = match runtime_config {
+            Some(config) => config,
+            None => load_runtime_config()?,
         };
-        HistoryStore::new(paths.history_file).append_plan(&plan)?;
+        HistoryStore::new(config.app_paths.history_file).append_plan(&plan)?;
 
         output::print_plan(&plan, options.json, scan_cache_summary)
     }

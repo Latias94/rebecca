@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 
+use crate::scan_cache::{DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, ScanCachePolicy};
 use crate::{RebeccaError, Result};
 
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
@@ -51,6 +52,12 @@ impl AppPaths {
             ),
         ]
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppRuntimeConfig {
+    pub app_paths: AppPaths,
+    pub scan_cache_policy: ScanCachePolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +147,7 @@ impl AppStorageRetention {
 pub struct RebeccaConfig {
     pub version: u32,
     pub app_paths: RebeccaAppPathsConfig,
+    pub scan_cache: RebeccaScanCacheConfig,
 }
 
 impl Default for RebeccaConfig {
@@ -147,6 +155,7 @@ impl Default for RebeccaConfig {
         Self {
             version: CONFIG_SCHEMA_VERSION,
             app_paths: RebeccaAppPathsConfig::default(),
+            scan_cache: RebeccaScanCacheConfig::default(),
         }
     }
 }
@@ -159,11 +168,33 @@ pub struct RebeccaAppPathsConfig {
     pub history_file: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RebeccaScanCacheConfig {
+    #[serde(default = "default_directory_record_max_age_seconds")]
+    pub directory_record_max_age_seconds: u64,
+}
+
+impl RebeccaScanCacheConfig {
+    pub fn policy(&self) -> ScanCachePolicy {
+        ScanCachePolicy::new(self.directory_record_max_age_seconds)
+    }
+}
+
+impl Default for RebeccaScanCacheConfig {
+    fn default() -> Self {
+        Self {
+            directory_record_max_age_seconds: default_directory_record_max_age_seconds(),
+        }
+    }
+}
+
+fn default_directory_record_max_age_seconds() -> u64 {
+    DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS
+}
+
 pub fn default_app_paths() -> Result<AppPaths> {
-    let config_dir = default_config_dir()?;
-    let config_file = config_dir.join("config.toml");
-    let config = load_config(&config_file)?;
-    resolve_app_paths_with_config_dir(config_dir, config_file, &config)
+    default_runtime_config().map(|config| config.app_paths)
 }
 
 pub fn load_app_paths() -> Result<AppPaths> {
@@ -171,12 +202,27 @@ pub fn load_app_paths() -> Result<AppPaths> {
 }
 
 pub fn load_app_paths_from(config_file: &Path) -> Result<AppPaths> {
+    load_runtime_config_from(config_file).map(|config| config.app_paths)
+}
+
+pub fn default_runtime_config() -> Result<AppRuntimeConfig> {
+    let config_dir = default_config_dir()?;
+    let config_file = config_dir.join("config.toml");
+    let config = load_config(&config_file)?;
+    resolve_runtime_config_with_config_dir(config_dir, config_file, &config)
+}
+
+pub fn load_runtime_config() -> Result<AppRuntimeConfig> {
+    default_runtime_config()
+}
+
+pub fn load_runtime_config_from(config_file: &Path) -> Result<AppRuntimeConfig> {
     let config_dir = config_file
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_default();
     let config = load_config(config_file)?;
-    resolve_app_paths_with_config_dir(config_dir, config_file.to_path_buf(), &config)
+    resolve_runtime_config_with_config_dir(config_dir, config_file.to_path_buf(), &config)
 }
 
 pub fn load_config(config_file: &Path) -> Result<RebeccaConfig> {
@@ -202,9 +248,24 @@ pub fn load_config(config_file: &Path) -> Result<RebeccaConfig> {
 }
 
 pub fn resolve_app_paths(config: &RebeccaConfig) -> Result<AppPaths> {
+    resolve_runtime_config(config).map(|config| config.app_paths)
+}
+
+pub fn resolve_runtime_config(config: &RebeccaConfig) -> Result<AppRuntimeConfig> {
     let config_dir = default_config_dir()?;
     let config_file = config_dir.join("config.toml");
-    resolve_app_paths_with_config_dir(config_dir, config_file, config)
+    resolve_runtime_config_with_config_dir(config_dir, config_file, config)
+}
+
+fn resolve_runtime_config_with_config_dir(
+    config_dir: PathBuf,
+    config_file: PathBuf,
+    config: &RebeccaConfig,
+) -> Result<AppRuntimeConfig> {
+    Ok(AppRuntimeConfig {
+        app_paths: resolve_app_paths_with_config_dir(config_dir, config_file, config)?,
+        scan_cache_policy: config.scan_cache.policy(),
+    })
 }
 
 fn resolve_app_paths_with_config_dir(
@@ -251,6 +312,13 @@ fn validate_config(config_file: &Path, config: &RebeccaConfig) -> Result<()> {
         });
     }
 
+    if config.scan_cache.directory_record_max_age_seconds == 0 {
+        return Err(RebeccaError::ConfigParse {
+            path: config_file.to_path_buf(),
+            message: "scan_cache.directory_record_max_age_seconds must be at least 1".to_string(),
+        });
+    }
+
     Ok(())
 }
 
@@ -294,9 +362,11 @@ fn env_path(key: &str) -> Option<PathBuf> {
 mod tests {
     use super::{
         AppStorageId, AppStorageLifecycle, AppStorageRetention, CONFIG_SCHEMA_VERSION,
-        RebeccaAppPathsConfig, RebeccaConfig, default_app_paths, load_app_paths_from, load_config,
-        resolve_app_paths,
+        RebeccaAppPathsConfig, RebeccaConfig, RebeccaScanCacheConfig, default_app_paths,
+        load_app_paths_from, load_config, load_runtime_config_from, resolve_app_paths,
+        resolve_runtime_config,
     };
+    use crate::scan_cache::DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS;
 
     #[test]
     fn load_config_missing_file_returns_default() {
@@ -346,6 +416,10 @@ state_dir = "C:\\Rebecca\\State"
         let config = load_config(&config_file).unwrap();
 
         assert_eq!(config.version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(
+            config.scan_cache.directory_record_max_age_seconds,
+            DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS
+        );
     }
 
     #[test]
@@ -359,6 +433,9 @@ version = 1
 
 [app_paths]
 state_dir = "C:\\Rebecca\\State"
+
+[scan_cache]
+directory_record_max_age_seconds = 42
 "#,
         )
         .unwrap();
@@ -370,6 +447,7 @@ state_dir = "C:\\Rebecca\\State"
             config.app_paths.state_dir,
             Some(std::path::PathBuf::from(r"C:\Rebecca\State"))
         );
+        assert_eq!(config.scan_cache.directory_record_max_age_seconds, 42);
     }
 
     #[test]
@@ -406,6 +484,47 @@ unknown = "value"
     }
 
     #[test]
+    fn load_config_rejects_invalid_scan_cache_policy() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+[scan_cache]
+directory_record_max_age_seconds = 0
+"#,
+        )
+        .unwrap();
+
+        let err = load_config(&config_file).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("scan_cache.directory_record_max_age_seconds must be at least 1")
+        );
+        assert!(err.to_string().contains("config.toml"));
+    }
+
+    #[test]
+    fn load_config_rejects_unknown_scan_cache_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+[scan_cache]
+unknown = 1
+"#,
+        )
+        .unwrap();
+
+        let err = load_config(&config_file).unwrap_err();
+
+        assert!(err.to_string().contains("unknown field"));
+        assert!(err.to_string().contains("config.toml"));
+    }
+
+    #[test]
     fn load_config_reports_read_errors() {
         let temp = tempfile::tempdir().unwrap();
         let config_file = temp.path().join("config.toml");
@@ -426,6 +545,9 @@ unknown = "value"
                 state_dir: Some(std::path::PathBuf::from(r"C:\Rebecca\State")),
                 cache_dir: Some(std::path::PathBuf::from(r"C:\Rebecca\Cache")),
                 history_file: Some(std::path::PathBuf::from(r"C:\Rebecca\State\audit.jsonl")),
+            },
+            scan_cache: RebeccaScanCacheConfig {
+                directory_record_max_age_seconds: 42,
             },
         };
 
@@ -455,6 +577,7 @@ unknown = "value"
                 cache_dir: Some(std::path::PathBuf::from(r"C:\Rebecca\Cache")),
                 history_file: Some(std::path::PathBuf::from(r"C:\Rebecca\State\audit.jsonl")),
             },
+            scan_cache: RebeccaScanCacheConfig::default(),
         };
         let paths = resolve_app_paths(&config).unwrap();
 
@@ -493,6 +616,26 @@ unknown = "value"
     }
 
     #[test]
+    fn resolve_runtime_config_derives_scan_cache_policy() {
+        let config = RebeccaConfig {
+            version: CONFIG_SCHEMA_VERSION,
+            app_paths: RebeccaAppPathsConfig::default(),
+            scan_cache: RebeccaScanCacheConfig {
+                directory_record_max_age_seconds: 17,
+            },
+        };
+
+        let runtime_config = resolve_runtime_config(&config).unwrap();
+
+        assert_eq!(
+            runtime_config
+                .scan_cache_policy
+                .directory_record_max_age_seconds(),
+            17
+        );
+    }
+
+    #[test]
     fn load_app_paths_from_uses_config_file_when_present() {
         let temp = tempfile::tempdir().unwrap();
         let config_dir = temp.path().join("Rebecca");
@@ -523,6 +666,28 @@ history_file = "C:\\Rebecca\\State\\audit.jsonl"
         assert_eq!(
             paths.history_file,
             std::path::PathBuf::from(r"C:\Rebecca\State\audit.jsonl")
+        );
+    }
+
+    #[test]
+    fn load_runtime_config_from_uses_config_file_scan_cache_policy() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_dir = temp.path().join("Rebecca");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.toml"),
+            r#"
+[scan_cache]
+directory_record_max_age_seconds = 9
+"#,
+        )
+        .unwrap();
+
+        let config = load_runtime_config_from(&config_dir.join("config.toml")).unwrap();
+
+        assert_eq!(
+            config.scan_cache_policy.directory_record_max_age_seconds(),
+            9
         );
     }
 

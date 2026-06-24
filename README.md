@@ -149,10 +149,17 @@ directory's `scan` subdirectory. The current v1 contract stores the scanned
 root path, a root metadata fingerprint, the scan report, and the write time.
 `clean --scan-cache` explicitly enables planner use of eligible regular-file
 records and freshness-bounded directory records. Directory freshness is
-governed by an internal policy seam with a current 5-minute default, so the
-window can evolve without changing the on-disk record format. Missing,
+governed by a policy seam with a current 5-minute default, so the window can
+evolve without changing the on-disk record format. Missing,
 corrupted, stale, expired, or unsupported-version records are treated as cache
 misses and can be rebuilt.
+
+The config file can override that directory freshness window:
+
+```toml
+[scan_cache]
+directory_record_max_age_seconds = 300
+```
 
 The config file is human-editable TOML. The current schema version is `1`; if
 `version` is omitted, Rebecca treats the file as version `1`. Unsupported
@@ -165,10 +172,14 @@ version = 1
 state_dir = 'D:\Rebecca\state'
 cache_dir = 'D:\Rebecca\cache'
 history_file = 'D:\Rebecca\state\history.jsonl'
+
+[scan_cache]
+directory_record_max_age_seconds = 300
 ```
 
 Every `app_paths` field is optional. Omitted fields keep the default Windows
-user-directory location.
+user-directory location. Omitted `scan_cache` fields keep the default
+directory-record freshness policy.
 
 For tests or constrained environments, these paths can also be overridden:
 
