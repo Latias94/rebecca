@@ -1,5 +1,6 @@
 param(
     [string]$Tag = $env:GITHUB_REF_NAME,
+    [string]$Repository = $env:GITHUB_REPOSITORY,
     [string]$Target = "x86_64-pc-windows-msvc",
     [string]$OutDir = "dist",
     [switch]$SkipBuild
@@ -127,18 +128,21 @@ try {
 
     New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "docs") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "scripts") | Out-Null
 
     Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $stageDir "rebecca.exe")
     Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $stageDir
     Copy-Item -LiteralPath (Join-Path $repoRoot "SECURITY.md") -Destination $stageDir
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs\security-audit.md") -Destination (Join-Path $stageDir "docs")
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs\release.md") -Destination (Join-Path $stageDir "docs")
+    Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\install.ps1") -Destination (Join-Path $stageDir "scripts")
 
     $metadata = @(
         "name=rebecca",
         "version=$version",
         "target=$Target",
         "tag=$Tag",
+        "repository=$Repository",
         "commit=$env:GITHUB_SHA"
     )
     Set-Content -LiteralPath (Join-Path $stageDir "VERSION.txt") -Value $metadata -Encoding utf8

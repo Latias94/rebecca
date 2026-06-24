@@ -190,9 +190,11 @@ cleanup binary against personal data. The current release hardening path uses:
   permissions;
 - a tag-triggered release workflow for Windows x86_64 MSVC artifacts;
 - PowerShell packaging that includes `rebecca.exe`, README, security policy,
-  release guide, and this safety audit;
+  release guide, install script, and this safety audit;
 - `SHA256SUMS` generated from final downloadable artifacts;
 - GitHub build-provenance attestations for release assets;
+- a PowerShell installer that verifies `SHA256SUMS` before extraction and can
+  require GitHub CLI attestation verification;
 - user verification guidance in `docs/release.md`.
 
 This distribution layer does not change cleanup behavior. It gives users and
@@ -242,8 +244,8 @@ Recent targeted verification for this audit baseline:
   applications.
 - The release workflow has not yet been exercised by a public version tag in
   this repository.
-- Installer UX, package-manager publishing, SBOM generation, Windows ARM64
-  artifacts, and fully pinned GitHub Action SHAs remain distribution-layer
+- MSI/MSIX installer UX, package-manager publishing, SBOM generation, Windows
+  ARM64 artifacts, and fully pinned GitHub Action SHAs remain distribution-layer
   follow-up work beyond the current cleanup-safety slice.
 
 The U8 completion review is recorded in

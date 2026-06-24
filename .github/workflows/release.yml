@@ -37,6 +37,7 @@ jobs:
         run: >
           ./scripts/release/build-release.ps1
           -Tag "${{ github.ref_name }}"
+          -Repository "${{ github.repository }}"
           -Target "x86_64-pc-windows-msvc"
           -OutDir "dist"
 

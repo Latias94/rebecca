@@ -74,6 +74,21 @@ cargo run -p rebecca-cli -- doctor permissions
 cargo run -p rebecca-cli -- doctor steam
 ```
 
+## Install
+
+Rebecca can be installed from a GitHub Release with the PowerShell installer:
+
+```powershell
+.\scripts\install.ps1 -Repository OWNER/REPO
+.\scripts\install.ps1 -Repository OWNER/REPO -Tag v0.1.0
+.\scripts\install.ps1 -Repository OWNER/REPO -Tag v0.1.0 -RequireAttestation
+```
+
+The default install directory is `%LOCALAPPDATA%\Programs\Rebecca`. Re-run the
+same command with a newer tag to update the installed `rebecca.exe`. The
+installer always verifies `SHA256SUMS` before extraction; `-RequireAttestation`
+also requires GitHub CLI build-provenance verification.
+
 ## Built-In Rules
 
 The starter catalog intentionally stays small and lives in
@@ -228,4 +243,5 @@ cargo nextest run --workspace
 cargo bench -p rebecca-core --bench scan_baseline
 .\scripts\release\build-release.ps1 -Tag v0.1.0 -OutDir target\release-smoke
 .\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
+.\scripts\install.ps1 -AssetPath target\release-smoke\rebecca-0.1.0-windows-x86_64-msvc.zip -ChecksumsPath target\release-smoke\SHA256SUMS -InstallDir target\install-smoke -SkipAttestation
 ```

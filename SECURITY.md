@@ -82,6 +82,9 @@ workflow and be accompanied by `SHA256SUMS` and GitHub build-provenance
 attestations. Verification guidance lives in
 [docs/release.md](docs/release.md).
 
+The PowerShell installer verifies `SHA256SUMS` before extraction and supports
+`-RequireAttestation` for fail-closed GitHub CLI provenance verification.
+
 Report release-integrity problems privately when:
 
 - a published asset has no matching checksum entry;
