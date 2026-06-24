@@ -60,18 +60,23 @@ where
         }
         RuleTargetSpec::SteamInstallTemplate(template) => {
             resolve_with_steam_installation(applications, |steam| {
-                match append_steam_relative_target(steam.install_path(), template, env)? {
-                    Some(path) => Ok(TargetResolution::Paths(vec![path])),
-                    None => Ok(TargetResolution::Skipped(
-                        "Steam install template could not be resolved in the current environment"
-                            .to_string(),
-                    )),
-                }
+                resolve_steam_relative_targets(
+                    std::iter::once(steam.install_path()),
+                    template,
+                    env,
+                    "Steam install template could not be resolved in the current environment",
+                )
             })
         }
         RuleTargetSpec::SteamLibraryTemplate(template) => {
             resolve_with_steam_installation(applications, |steam| {
-                resolve_steam_library_template(steam, template, env)
+                resolve_steam_relative_targets(
+                    std::iter::once(steam.install_path())
+                        .chain(steam.library_paths().iter().map(PathBuf::as_path)),
+                    template,
+                    env,
+                    "Steam library template could not be resolved in the current environment",
+                )
             })
         }
     }
@@ -91,39 +96,27 @@ where
     resolve(&steam)
 }
 
-fn resolve_steam_library_template(
-    steam: &SteamInstallation,
+fn resolve_steam_relative_targets<'a, I>(
+    roots: I,
     template: &crate::PathTemplate,
     env: &impl Environment,
-) -> Result<TargetResolution> {
-    let mut paths = Vec::with_capacity(1 + steam.library_paths().len());
-    for library_path in std::iter::once(steam.install_path())
-        .chain(steam.library_paths().iter().map(PathBuf::as_path))
-    {
-        if let Some(path) = append_steam_relative_target(library_path, template, env)? {
-            paths.push(path);
-        } else {
-            return Ok(TargetResolution::Skipped(
-                "Steam library template could not be resolved in the current environment"
-                    .to_string(),
-            ));
-        }
-    }
-
-    Ok(TargetResolution::Paths(paths))
-}
-
-fn append_steam_relative_target(
-    root: &Path,
-    template: &crate::PathTemplate,
-    env: &impl Environment,
-) -> Result<Option<PathBuf>> {
+    skipped_message: &str,
+) -> Result<TargetResolution>
+where
+    I: IntoIterator<Item = &'a Path>,
+{
     let Some(relative) = expand_template(template, env)? else {
-        return Ok(None);
+        return Ok(TargetResolution::Skipped(skipped_message.to_string()));
     };
 
     ensure_safe_relative_steam_target(&relative)?;
-    Ok(Some(root.join(relative)))
+
+    let mut paths = Vec::new();
+    for root in roots {
+        paths.push(root.join(&relative));
+    }
+
+    Ok(TargetResolution::Paths(paths))
 }
 
 fn ensure_safe_relative_steam_target(path: &Path) -> Result<()> {
