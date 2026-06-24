@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 
 use rebecca_core::executor::{CleanupBackend, ExecutionOutcome, execute_cleanup_plan};
-use rebecca_core::plan::{CleanupPlan, CleanupTarget};
+use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::{DeleteMode, PlanRequest, Platform, Result, TargetStatus};
 
 #[test]
@@ -17,10 +17,11 @@ fn executor_marks_allowed_targets_completed_and_keeps_blocked_targets() {
         10,
         DeleteMode::RecycleBin,
     ));
-    plan.targets.push(CleanupTarget::blocked(
+    plan.targets.push(CleanupTarget::blocked_with_reason_code(
         "windows.user-temp",
         PathBuf::from("C:/Windows"),
         DeleteMode::RecycleBin,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
         "protected",
     ));
     plan.recompute_summary();
@@ -52,7 +53,15 @@ fn executor_records_failure_without_aborting_plan() {
     execute_cleanup_plan(&mut plan, &backend).unwrap();
 
     assert_eq!(plan.targets[0].status, TargetStatus::Failed);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionFailed)
+    );
     assert_eq!(plan.summary.failed_targets, 1);
+    assert_eq!(
+        plan.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::ExecutionFailed
+    );
 }
 
 struct FakeBackend {

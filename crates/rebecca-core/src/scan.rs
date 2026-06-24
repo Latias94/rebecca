@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::TargetStatus;
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
-use crate::plan::CleanupTarget;
+use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
 use crate::safety::{PathDisposition, assess_existing_path};
 
 #[derive(Debug, Clone, Default)]
@@ -211,10 +211,29 @@ pub fn scan_target(
     match assess_existing_path(&path) {
         PathDisposition::Allowed => match measure_path_size(&path) {
             Ok(size) => CleanupTarget::allowed(rule_id, path, size, mode),
-            Err(err) => CleanupTarget::failed(rule_id, path, mode, 0, err.to_string()),
+            Err(err) => CleanupTarget::failed_with_reason_code(
+                rule_id,
+                path,
+                mode,
+                0,
+                CleanupTargetIssueReason::ScanFailed,
+                err.to_string(),
+            ),
         },
-        PathDisposition::Skipped(reason) => CleanupTarget::skipped(rule_id, path, mode, reason),
-        PathDisposition::Blocked(reason) => CleanupTarget::blocked(rule_id, path, mode, reason),
+        PathDisposition::Skipped(reason) => CleanupTarget::skipped_with_reason_code(
+            rule_id,
+            path,
+            mode,
+            CleanupTargetIssueReason::SafetyPolicySkipped,
+            reason,
+        ),
+        PathDisposition::Blocked(reason) => CleanupTarget::blocked_with_reason_code(
+            rule_id,
+            path,
+            mode,
+            CleanupTargetIssueReason::SafetyPolicyBlocked,
+            reason,
+        ),
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::plan::{CleanupPlan, CleanupTarget};
+use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcome {
@@ -29,10 +29,12 @@ pub fn execute_cleanup_plan<B: CleanupBackend>(plan: &mut CleanupPlan, backend: 
                 target.freed_bytes = outcome.freed_bytes;
                 target.pending_reclaim_bytes = outcome.pending_reclaim_bytes;
                 target.reason = outcome.note;
+                target.reason_code = None;
             }
             Err(err) => {
                 target.status = crate::TargetStatus::Failed;
                 target.reason = Some(err.to_string());
+                target.reason_code = Some(CleanupTargetIssueReason::ExecutionFailed);
                 target.freed_bytes = 0;
                 target.pending_reclaim_bytes = 0;
             }

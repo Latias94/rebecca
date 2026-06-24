@@ -96,6 +96,12 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["skipped_targets"], 1);
     assert_eq!(value["summary"]["estimated_bytes"], 5);
+    assert_eq!(value["summary"]["issue_matrix"][0]["status"], "skipped");
+    assert_eq!(
+        value["summary"]["issue_matrix"][0]["reason_code"],
+        "duplicate-target-path"
+    );
+    assert_eq!(value["summary"]["issue_matrix"][0]["targets"], 1);
     assert!(
         value["targets"]
             .as_array()
@@ -103,6 +109,40 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
             .iter()
             .any(|target| target["reason"] == "duplicate target path already covered")
     );
+    assert!(
+        value["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|target| target["reason_code"] == "duplicate-target-path")
+    );
+}
+
+#[test]
+fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
+    let temp_cache = local.join("Temp");
+    fs::create_dir_all(&temp_cache).unwrap();
+    fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("TEMP", &temp_cache)
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", temp.path().join("roaming"))
+        .args(["clean", "--dry-run", "--category", "system"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Issue matrix:"));
+    assert!(stdout.contains("- skipped duplicate-target-path: 1 target, 0 (0 B)"));
 }
 
 #[test]

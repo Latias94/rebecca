@@ -2,7 +2,7 @@
 title: "Deletion and Recovery Model"
 status: "proposed"
 created: "2026-06-23"
-last_updated: "2026-06-23"
+last_updated: "2026-06-24"
 ---
 
 # Context
@@ -38,6 +38,9 @@ All destructive commands must build a cleanup plan before execution.
 - Every target passes centralized path validation before deletion.
 - Reparse points, junctions, and symlinks are not followed by default.
 - History records both `freed_bytes` and `pending_reclaim_bytes` because moving to Recycle Bin does not immediately free disk space.
+- Skipped, blocked, and failed targets carry stable `reason_code` values, while
+  summaries aggregate those values into an `issue_matrix` keyed by target status
+  and reason code. Detailed `reason` text remains available for local context.
 
 # Alternatives Considered
 
@@ -65,6 +68,8 @@ All destructive commands must build a cleanup plan before execution.
 - Rules do not decide how deletion happens; they only produce candidates.
 - CLI output must distinguish moved-to-Recycle-Bin from permanently freed bytes.
 - Some targets may fall back to permanent deletion only when explicitly requested.
+- Human output, JSON output, and history all derive issue diagnostics from the
+  core cleanup plan model instead of reclassifying errors in the CLI.
 
 # Success Metrics
 
@@ -74,6 +79,7 @@ All destructive commands must build a cleanup plan before execution.
 | Recoverable default | Default deletion uses Recycle Bin where supported | Integration tests on Windows |
 | Safety | Reparse points are not followed by default | Fixture tests |
 | Auditability | Every attempted target has a history outcome | History tests |
+| Issue observability | Skipped, blocked, and failed targets expose stable reason-code summaries | Core and CLI regression tests |
 
 # Risks & Mitigations
 

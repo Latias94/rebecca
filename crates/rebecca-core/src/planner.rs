@@ -6,7 +6,7 @@ use crate::discovery::{TargetResolution, resolve_rule_target_with_applications};
 use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
 use crate::model::{PlanRequest, Platform, RuleDefinition};
-use crate::plan::{CleanupPlan, CleanupTarget};
+use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::safety::{PathDisposition, assess_existing_path};
 use crate::scan::{
     ScanCancellationToken, ScanProgressEvent, ScanReport, measure_path_with_progress,
@@ -238,10 +238,11 @@ where
                     ),
                 };
                 candidates.push(with_rule_restore_hint(
-                    CleanupTarget::skipped(
+                    CleanupTarget::skipped_with_reason_code(
                         rule.id.clone(),
                         spec.placeholder_path(),
                         request.mode,
+                        CleanupTargetIssueReason::SafetyOptInRequired,
                         reason,
                     ),
                     rule,
@@ -256,10 +257,11 @@ where
                     Ok(TargetResolution::Paths(paths)) => paths,
                     Ok(TargetResolution::Skipped(reason)) => {
                         candidates.push(with_rule_restore_hint(
-                            CleanupTarget::skipped(
+                            CleanupTarget::skipped_with_reason_code(
                                 rule.id.clone(),
                                 spec.placeholder_path(),
                                 request.mode,
+                                CleanupTargetIssueReason::TargetDiscoverySkipped,
                                 reason,
                             ),
                             rule,
@@ -268,10 +270,11 @@ where
                     }
                     Err(err) => {
                         candidates.push(with_rule_restore_hint(
-                            CleanupTarget::blocked(
+                            CleanupTarget::blocked_with_reason_code(
                                 rule.id.clone(),
                                 spec.placeholder_path(),
                                 request.mode,
+                                CleanupTargetIssueReason::TargetDiscoveryFailed,
                                 err.to_string(),
                             ),
                             rule,
@@ -284,10 +287,11 @@ where
                 let path_key = dedupe_key(&expanded, request.platform);
                 if !seen_paths.insert(path_key) {
                     let target = with_rule_restore_hint(
-                        CleanupTarget::skipped(
+                        CleanupTarget::skipped_with_reason_code(
                             rule.id.clone(),
                             expanded,
                             request.mode,
+                            CleanupTargetIssueReason::DuplicateTargetPath,
                             "duplicate target path already covered",
                         ),
                         rule,
@@ -359,11 +363,12 @@ where
                             }
                             Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
                             Err(err) => {
-                                let target = CleanupTarget::failed(
+                                let target = CleanupTarget::failed_with_reason_code(
                                     rule.id.clone(),
                                     expanded,
                                     request.mode,
                                     0,
+                                    CleanupTargetIssueReason::ScanFailed,
                                     err.to_string(),
                                 );
                                 let target = with_rule_restore_hint(target, rule);
@@ -374,7 +379,13 @@ where
                     }
                     PathDisposition::Skipped(reason) => {
                         let target = with_rule_restore_hint(
-                            CleanupTarget::skipped(rule.id.clone(), expanded, request.mode, reason),
+                            CleanupTarget::skipped_with_reason_code(
+                                rule.id.clone(),
+                                expanded,
+                                request.mode,
+                                CleanupTargetIssueReason::SafetyPolicySkipped,
+                                reason,
+                            ),
                             rule,
                         );
                         emit_target_finished(&mut progress, &target);
@@ -382,7 +393,13 @@ where
                     }
                     PathDisposition::Blocked(reason) => {
                         let target = with_rule_restore_hint(
-                            CleanupTarget::blocked(rule.id.clone(), expanded, request.mode, reason),
+                            CleanupTarget::blocked_with_reason_code(
+                                rule.id.clone(),
+                                expanded,
+                                request.mode,
+                                CleanupTargetIssueReason::SafetyPolicyBlocked,
+                                reason,
+                            ),
                             rule,
                         );
                         emit_target_finished(&mut progress, &target);

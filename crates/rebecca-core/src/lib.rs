@@ -19,3 +19,6 @@ pub use model::{
     DeleteMode, DeletePolicy, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance,
     RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
+pub use plan::{
+    CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason,
+};

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rebecca_core::plan::{CleanupPlan, CleanupTarget};
+use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::{
     DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSelection, RuleSource,
     RuleTargetSpec, SafetyLevel,
@@ -31,6 +31,41 @@ fn cleanup_plan_serialization_preserves_target_contract() {
         decoded.targets[0].restore_hint.as_deref(),
         Some("Temporary files can be recreated.")
     );
+    assert!(decoded.summary.issue_matrix.is_empty());
+    assert!(decoded.targets[0].reason_code.is_none());
+}
+
+#[test]
+fn cleanup_plan_deserializes_legacy_issue_fields() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(CleanupTarget::skipped_with_reason_code(
+        "windows.user-temp",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Temp"),
+        DeleteMode::DryRun,
+        CleanupTargetIssueReason::DuplicateTargetPath,
+        "duplicate target path already covered",
+    ));
+    plan.recompute_summary();
+
+    let mut value = serde_json::to_value(&plan).expect("plan should serialize");
+    let root = value.as_object_mut().expect("plan should be object");
+    root.get_mut("summary")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("summary should be object")
+        .remove("issue_matrix");
+    root.get_mut("targets")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("targets should be array")[0]
+        .as_object_mut()
+        .expect("target should be object")
+        .remove("reason_code");
+
+    let decoded: CleanupPlan = serde_json::from_value(value).expect("legacy plan should load");
+
+    assert_eq!(decoded.summary.skipped_targets, 1);
+    assert!(decoded.summary.issue_matrix.is_empty());
+    assert_eq!(decoded.targets[0].reason_code, None);
 }
 
 #[test]

@@ -8,7 +8,7 @@ use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
 use rebecca_core::environment::MapEnvironment;
-use rebecca_core::plan::CleanupPlan;
+use rebecca_core::plan::{CleanupPlan, CleanupTargetIssueReason};
 use rebecca_core::planner::{
     PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
     build_cleanup_plan_with_environment, build_cleanup_plan_with_environment_and_applications,
@@ -103,17 +103,19 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 1);
     assert_eq!(plan.summary.estimated_bytes, 3);
-    assert!(
-        plan.targets
-            .iter()
-            .any(|target| target.reason.as_deref() == Some("duplicate target path already covered"))
+    let duplicate_target = plan
+        .targets
+        .iter()
+        .find(|target| target.reason.as_deref() == Some("duplicate target path already covered"))
+        .expect("duplicate target should be skipped");
+    assert_eq!(
+        duplicate_target.reason_code,
+        Some(CleanupTargetIssueReason::DuplicateTargetPath)
     );
-    assert!(
-        plan.targets
-            .iter()
-            .find(|target| target.reason.as_deref() == Some("duplicate target path already covered"))
-            .and_then(|target| target.restore_hint.as_deref())
-            .is_some()
+    assert!(duplicate_target.restore_hint.is_some());
+    assert_eq!(
+        plan.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::DuplicateTargetPath
     );
 }
 

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rebecca_core::plan::{CleanupPlan, CleanupTarget};
+use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan, CleanupTarget};
 use rebecca_core::{DeleteMode, RuleDefinition, TargetStatus};
 
 const LARGEST_TARGET_LIMIT: usize = 5;
@@ -105,6 +105,7 @@ pub(crate) fn print_plan(
         plan.summary.pending_reclaim_bytes,
         format_bytes(plan.summary.pending_reclaim_bytes)
     );
+    print_issue_matrix(&plan.summary.issue_matrix);
     if let Some(summary) = scan_cache_summary.filter(|summary| summary.has_activity()) {
         println!(
             "Scan cache summary: {}, {}, {}",
@@ -171,7 +172,7 @@ fn print_targets_by_status(plan: &CleanupPlan) {
             continue;
         }
 
-        println!("{} ({})", status_label(status), targets.len());
+        println!("{} ({})", status.label(), targets.len());
         for target in targets {
             print_target_line(target, "  -");
         }
@@ -192,6 +193,25 @@ fn print_target_line(target: &CleanupTarget, prefix: &str) {
             .unwrap_or_default(),
         restore_hint_suffix(target.restore_hint.as_deref())
     );
+}
+
+fn print_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
+    if issue_matrix.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Issue matrix:");
+    for issue in issue_matrix {
+        println!(
+            "- {} {}: {}, {} ({})",
+            issue.status.label(),
+            issue.reason_code.label(),
+            format_count(issue.targets as u64, "target", "targets"),
+            issue.estimated_bytes,
+            format_bytes(issue.estimated_bytes)
+        );
+    }
 }
 
 pub(crate) fn format_bytes(bytes: u64) -> String {
@@ -224,16 +244,6 @@ fn cleanup_mode_label(mode: DeleteMode) -> &'static str {
         DeleteMode::DryRun => "dry-run",
         DeleteMode::RecycleBin => "recycle-bin",
         DeleteMode::Permanent => "permanent",
-    }
-}
-
-fn status_label(status: TargetStatus) -> &'static str {
-    match status {
-        TargetStatus::Allowed => "allowed",
-        TargetStatus::Skipped => "skipped",
-        TargetStatus::Blocked => "blocked",
-        TargetStatus::Failed => "failed",
-        TargetStatus::Completed => "completed",
     }
 }
 

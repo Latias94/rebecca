@@ -263,7 +263,7 @@ impl PlanRequest {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TargetStatus {
     Allowed,
@@ -276,5 +276,19 @@ pub enum TargetStatus {
 impl TargetStatus {
     pub fn is_executable(self) -> bool {
         matches!(self, Self::Allowed)
+    }
+
+    pub fn is_issue(self) -> bool {
+        matches!(self, Self::Skipped | Self::Blocked | Self::Failed)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Allowed => "allowed",
+            Self::Skipped => "skipped",
+            Self::Blocked => "blocked",
+            Self::Failed => "failed",
+            Self::Completed => "completed",
+        }
     }
 }
