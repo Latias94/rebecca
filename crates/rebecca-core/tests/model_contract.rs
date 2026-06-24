@@ -36,6 +36,45 @@ fn cleanup_plan_serialization_preserves_target_contract() {
 }
 
 #[test]
+fn cleanup_plan_serialization_preserves_protected_issue_contract() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(CleanupTarget::blocked_with_reason_code(
+        "windows.custom-browser-history",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/History"),
+        DeleteMode::DryRun,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
+        "browser private data is protected",
+    ));
+    plan.recompute_summary();
+
+    let json = serde_json::to_string(&plan).expect("plan should serialize");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("plan JSON should parse");
+    assert_eq!(
+        value["summary"]["issue_matrix"][0]["reason_code"],
+        "safety-policy-blocked"
+    );
+    assert_eq!(value["targets"][0]["reason_code"], "safety-policy-blocked");
+
+    let decoded: CleanupPlan = serde_json::from_str(&json).expect("plan should deserialize");
+
+    assert_eq!(decoded.summary.blocked_targets, 1);
+    assert_eq!(decoded.summary.issue_matrix.len(), 1);
+    assert_eq!(
+        decoded.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::SafetyPolicyBlocked
+    );
+    assert_eq!(
+        decoded.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert_eq!(
+        decoded.targets[0].reason.as_deref(),
+        Some("browser private data is protected")
+    );
+}
+
+#[test]
 fn cleanup_plan_deserializes_legacy_issue_fields() {
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     let mut plan = CleanupPlan::empty(request);

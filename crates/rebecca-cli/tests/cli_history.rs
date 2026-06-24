@@ -60,6 +60,27 @@ fn history_entry_with_summary(
     }
 }
 
+fn protected_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
+    let mut plan = CleanupPlan {
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun),
+        summary: CleanupSummary::default(),
+        targets: vec![CleanupTarget::blocked_with_reason_code(
+            "windows.custom-browser-history",
+            std::path::PathBuf::from(
+                r"C:\Users\Alice\AppData\Local\Google\Chrome\User Data\Default\History",
+            ),
+            DeleteMode::DryRun,
+            CleanupTargetIssueReason::SafetyPolicyBlocked,
+            "browser private data is protected",
+        )],
+    };
+    plan.recompute_summary();
+
+    let mut entry = HistoryEntry::from_plan(&plan);
+    entry.recorded_at_unix_seconds = recorded_at_unix_seconds;
+    entry
+}
+
 #[test]
 fn history_json_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
@@ -171,6 +192,46 @@ fn history_json_preserves_restore_hints() {
 }
 
 #[test]
+fn history_json_preserves_protected_issue_details() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(&history_path, &[protected_history_entry(99)]);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entry = &value.as_array().unwrap()[0];
+
+    assert_eq!(entry["summary"]["blocked_targets"], 1);
+    assert!(
+        entry["summary"]["issue_matrix"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["status"] == "blocked"
+                && issue["reason_code"] == "safety-policy-blocked"
+                && issue["targets"] == 1)
+    );
+    assert_eq!(entry["targets"][0]["status"], "blocked");
+    assert_eq!(entry["targets"][0]["reason_code"], "safety-policy-blocked");
+    assert_eq!(
+        entry["targets"][0]["reason"],
+        "browser private data is protected"
+    );
+    assert!(entry["targets"][0].get("children").is_none());
+    assert!(entry["targets"][0].get("contents").is_none());
+}
+
+#[test]
 fn history_human_output_lists_restore_hints() {
     let temp = tempfile::tempdir().unwrap();
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
@@ -271,6 +332,33 @@ fn history_human_output_lists_saved_issue_matrix() {
     assert!(stdout.contains("Cleanup history: 1 run(s)"));
     assert!(stdout.contains("Issue matrix:"));
     assert!(stdout.contains("- skipped duplicate-target-path: 1 target, 0 (0 B)"));
+}
+
+#[test]
+fn history_human_output_lists_protected_issue_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(&history_path, &[protected_history_entry(99)]);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Cleanup history: 1 run(s)"));
+    assert!(stdout.contains("Issue matrix:"));
+    assert!(stdout.contains("- blocked safety-policy-blocked: 1 target, 0 (0 B)"));
+    assert!(stdout.contains("Issue targets:"));
+    assert!(stdout.contains("blocked safety-policy-blocked: windows.custom-browser-history"));
+    assert!(stdout.contains("Default\\History"));
+    assert!(stdout.contains("browser private data is protected"));
 }
 
 #[test]

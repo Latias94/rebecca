@@ -26,6 +26,42 @@ fn append_and_load_history_entries_in_order() {
 }
 
 #[test]
+fn append_and_load_history_entries_preserve_protected_issue_details() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = HistoryStore::new(temp.path().join("history.jsonl"));
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::blocked_with_reason_code(
+        "windows.custom-browser-history",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/History"),
+        DeleteMode::RecycleBin,
+        rebecca_core::CleanupTargetIssueReason::SafetyPolicyBlocked,
+        "browser private data is protected",
+    ));
+    plan.recompute_summary();
+
+    store.append_plan(&plan).unwrap();
+
+    let entries = store.load().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].summary.blocked_targets, 1);
+    assert_eq!(
+        entries[0].summary.issue_matrix[0].reason_code,
+        rebecca_core::CleanupTargetIssueReason::SafetyPolicyBlocked
+    );
+    assert_eq!(
+        entries[0].targets[0].reason_code,
+        Some(rebecca_core::CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert_eq!(
+        entries[0].targets[0].reason.as_deref(),
+        Some("browser private data is protected")
+    );
+}
+
+#[test]
 fn missing_history_file_loads_as_empty() {
     let temp = tempfile::tempdir().unwrap();
     let store = HistoryStore::new(temp.path().join("missing.jsonl"));

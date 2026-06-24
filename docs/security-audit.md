@@ -34,12 +34,14 @@ The current design is safety-first:
 - Default execution moves files, or direct child entries of directory targets,
   to the Windows Recycle Bin.
 - History stores request metadata, target paths, byte counts, statuses, reason
-  codes, issue matrices, and restore hints. It does not store file contents.
+  codes, issue matrices, target-scoped issue reasons, and restore hints. It
+  does not store file contents.
 
-The largest remaining gap is protected-result preservation across history and
-human output. Protected final paths are blocked by planning and execution, but
-the audit surface still needs a dedicated round-trip story for blocked and
-protected outcomes.
+The largest remaining product gap is guardrailed catalog expansion under this
+safety model. The core destructive-operation boundaries, execution
+revalidation, catalog target-shape validation, and protected-result audit
+round-trip are in place; future cleanup families still need to prove they stay
+inside those boundaries.
 
 ## Threat Surface
 
@@ -166,6 +168,10 @@ History is append-only JSONL. It records:
 - issue matrices;
 - restore hints.
 
+Human history output replays issue targets with status, stable reason code,
+rule id, path, target-scoped reason, and restore hint when present. It does not
+expand arbitrary child-file listings.
+
 History must not store file contents, credentials, tokens, browser databases, or
 arbitrary child-file listings. Scan-cache records are rebuildable optimization
 data, not an audit log.
@@ -182,22 +188,29 @@ Focused coverage currently includes:
   and Steam target behavior;
 - `crates/rebecca-core/tests/executor_contract.rs` for executor status updates,
   backend failure handling, and execution-time revalidation;
-- `crates/rebecca-core/tests/model_contract.rs` for plan serialization and
-  backwards compatibility;
+- `crates/rebecca-core/tests/model_contract.rs` for plan serialization,
+  protected issue contracts, and backwards compatibility;
+- `crates/rebecca-core/tests/history.rs` for append/load history JSONL
+  round-trips, including protected issue reason preservation;
 - `crates/rebecca-cli/tests/cli_clean.rs`, `cli_scan.rs`, and `cli_history.rs`
-  for user-facing and JSON contract behavior.
+  for user-facing and JSON contract behavior, including protected issue target
+  replay.
 
 Recent targeted verification for this audit baseline:
 
 - `cargo nextest run -p rebecca-core --test safety_policy`
-- `cargo nextest run -p rebecca-core --test planner`
 - `cargo nextest run -p rebecca-core --test executor_contract`
+- `cargo nextest run -p rebecca-core --test model_contract`
+- `cargo nextest run -p rebecca-core --test history`
+- `cargo nextest run -p rebecca-cli --test cli_clean`
+- `cargo nextest run -p rebecca-cli --test cli_history`
 - `cargo nextest run -p rebecca-rules`
 
 ## Known Limitations And Planned Hardening
 
-- Protected-result preservation across history and human output is still being
-  deepened.
+- Future cleanup-rule expansion must stay batch-sized and include
+  family-specific unsafe-near-miss tests, CLI contract coverage, and audit
+  updates before new rules are considered complete.
 - Protected category coverage is conservative but not exhaustive for all Windows
   applications.
 - Release artifact attestations, installer integrity, and supply-chain signals

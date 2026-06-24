@@ -215,6 +215,57 @@ fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
 }
 
 #[test]
+fn clean_human_output_reports_blocked_target_details() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&temp_cache).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        format!(
+            r#"
+version = 1
+
+[app_paths]
+cache_dir = '{}'
+"#,
+            temp_cache.display()
+        ),
+    )
+    .unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env_remove("REBECCA_CACHE_DIR")
+        .env("TEMP", &temp_cache)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-progress",
+            "--rule",
+            "windows.user-temp",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Issue matrix:"));
+    assert!(stdout.contains("- blocked safety-policy-blocked: 1 target, 0 (0 B)"));
+    assert!(stdout.contains("Target details:"));
+    assert!(stdout.contains("blocked (1)"));
+    assert!(stdout.contains("windows.user-temp"));
+    assert!(stdout.contains(&temp_cache.display().to_string()));
+    assert!(stdout.contains("Rebecca-owned Cache dir"));
+}
+
+#[test]
 fn clean_human_output_highlights_largest_targets_by_size() {
     let temp = tempfile::tempdir().unwrap();
     let local = temp.path().join("local");

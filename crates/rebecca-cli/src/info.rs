@@ -8,7 +8,7 @@ use rebecca_core::applications::{
 };
 use rebecca_core::config::{AppPaths, load_app_paths};
 use rebecca_core::history::HistoryStore;
-use rebecca_core::plan::CleanupIssueSummary;
+use rebecca_core::plan::{CleanupIssueSummary, CleanupTarget, CleanupTargetIssueReason};
 
 use crate::history_view::{HistoryAggregateSummary, HistoryProjection, HistoryRunHighlight};
 use crate::output::{format_bytes, format_issue_matrix_entry, restore_hint_suffix};
@@ -58,6 +58,7 @@ pub fn print_history(json: bool, limit: Option<NonZeroUsize>) -> Result<()> {
             )
         );
         print_history_issue_matrix(&entry.summary.issue_matrix);
+        print_history_issue_targets(&entry.targets);
     }
 
     Ok(())
@@ -113,6 +114,37 @@ fn print_history_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
     println!("  Issue matrix:");
     for issue in issue_matrix {
         println!("  - {}", format_issue_matrix_entry(issue));
+    }
+}
+
+fn print_history_issue_targets(targets: &[CleanupTarget]) {
+    let issue_targets = targets
+        .iter()
+        .filter(|target| target.status.is_issue())
+        .collect::<Vec<_>>();
+
+    if issue_targets.is_empty() {
+        return;
+    }
+
+    println!("  Issue targets:");
+    for target in issue_targets {
+        println!(
+            "  - {} {}: {} [{}]{}{}",
+            target.status.label(),
+            target
+                .reason_code
+                .unwrap_or(CleanupTargetIssueReason::Unclassified)
+                .label(),
+            target.rule_id,
+            target.path.display(),
+            target
+                .reason
+                .as_deref()
+                .map(|reason| format!(" ({reason})"))
+                .unwrap_or_default(),
+            restore_hint_suffix(target.restore_hint.as_deref())
+        );
     }
 }
 
