@@ -11,6 +11,7 @@ mod path_overlap;
 pub mod path_template;
 pub mod plan;
 pub mod planner;
+pub mod protection;
 pub mod safety;
 pub mod scan;
 pub mod scan_cache;

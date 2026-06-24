@@ -39,6 +39,9 @@ Rebecca is designed to preview before deleting.
   Cache misses, stale or expired records, corrupted records, and cache-write
   failures are treated as soft rebuilds.
 
+The current destructive-operation boundary and known safety gaps are documented
+in [Rebecca Cleanup Safety Audit](docs/security-audit.md).
+
 ## Usage
 
 ```powershell

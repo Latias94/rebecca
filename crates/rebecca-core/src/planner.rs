@@ -7,9 +7,9 @@ use crate::discovery::{TargetResolution, resolve_rule_target_with_applications};
 use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
 use crate::model::{PlanRequest, Platform, RuleDefinition};
-use crate::path_overlap::paths_overlap;
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
-use crate::safety::{PathDisposition, assess_existing_path};
+use crate::protection::ProtectionPolicy;
+use crate::safety::{PathDisposition, assess_existing_path_with_policy};
 use crate::scan::{
     ScanCancellationToken, ScanProgressEvent, ScanReport, measure_path_with_progress,
 };
@@ -56,7 +56,7 @@ pub struct PlanBuildContext<'a> {
     cancellation: &'a ScanCancellationToken,
     scan_cache: Option<&'a ScanCacheStore>,
     scan_cache_policy: ScanCachePolicy,
-    protected_storage: Option<&'a [AppStorageEntry]>,
+    protection_policy: ProtectionPolicy<'a>,
 }
 
 impl<'a> PlanBuildContext<'a> {
@@ -65,7 +65,7 @@ impl<'a> PlanBuildContext<'a> {
             cancellation,
             scan_cache: None,
             scan_cache_policy: ScanCachePolicy::default(),
-            protected_storage: None,
+            protection_policy: ProtectionPolicy::new(),
         }
     }
 
@@ -80,7 +80,9 @@ impl<'a> PlanBuildContext<'a> {
     }
 
     pub fn with_protected_storage(mut self, protected_storage: &'a [AppStorageEntry]) -> Self {
-        self.protected_storage = Some(protected_storage);
+        self.protection_policy = self
+            .protection_policy
+            .with_protected_storage(protected_storage);
         self
     }
 
@@ -96,8 +98,8 @@ impl<'a> PlanBuildContext<'a> {
         self.scan_cache_policy
     }
 
-    pub fn protected_storage(&self) -> Option<&'a [AppStorageEntry]> {
-        self.protected_storage
+    pub fn protection_policy(&self) -> ProtectionPolicy<'a> {
+        self.protection_policy
     }
 }
 
@@ -314,28 +316,12 @@ where
                     continue;
                 }
 
-                if let Some(entry) = protected_storage_overlap(&expanded, context) {
-                    let target = with_rule_restore_hint(
-                        CleanupTarget::blocked_with_reason_code(
-                            rule.id.clone(),
-                            expanded,
-                            request.mode,
-                            CleanupTargetIssueReason::SafetyPolicyBlocked,
-                            protected_storage_reason(entry),
-                        ),
-                        rule,
-                    );
-                    emit_target_finished(&mut progress, &target);
-                    candidates.push(target);
-                    continue;
-                }
-
                 progress(PlanProgressEvent::TargetScanning {
                     rule_id: &rule.id,
                     path: &expanded,
                 });
 
-                match assess_existing_path(&expanded) {
+                match assess_existing_path_with_policy(&expanded, context.protection_policy()) {
                     PathDisposition::Allowed => {
                         match measure_path_with_optional_scan_cache(&expanded, context, |event| {
                             match event {
@@ -449,24 +435,6 @@ where
     plan.targets = candidates;
     plan.recompute_summary();
     Ok(plan)
-}
-
-fn protected_storage_overlap<'a>(
-    path: &Path,
-    context: PlanBuildContext<'a>,
-) -> Option<&'a AppStorageEntry> {
-    context
-        .protected_storage()?
-        .iter()
-        .find(|entry| paths_overlap(path, &entry.path))
-}
-
-fn protected_storage_reason(entry: &AppStorageEntry) -> String {
-    format!(
-        "target overlaps Rebecca-owned {} at {}",
-        entry.id.label(),
-        entry.path.display()
-    )
 }
 
 fn measure_path_with_optional_scan_cache<F>(

@@ -64,6 +64,8 @@ files. Keep each rule small, explicit, and easy to audit.
 
 ## Safety Guidance
 
+- Review [Rebecca Cleanup Safety Audit](security-audit.md) before adding a
+  new rule family.
 - `safe`: disposable caches, shader caches, regenerated browser data.
 - `moderate`: developer caches, diagnostic artifacts, package caches.
 - `risky` and above: only when the user impact is well understood.

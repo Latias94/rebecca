@@ -140,6 +140,9 @@ History is append-only JSONL. It records cleanup request metadata, summaries,
 target paths, status, byte counts, reason codes, and restore hints. It must not
 store file contents, credentials, tokens, or arbitrary user data.
 
+The current cleanup safety boundaries and planned hardening steps are documented
+in [Rebecca Cleanup Safety Audit](security-audit.md).
+
 Scan-cache records may store target paths, metadata fingerprints, scan reports,
 and write times. They are rebuildable optimization data, not an audit log.
 

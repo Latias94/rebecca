@@ -200,6 +200,34 @@ fn planner_blocks_targets_from_custom_rebecca_storage_paths() {
 }
 
 #[test]
+fn planner_blocks_protected_category_targets_before_sizing() {
+    let fixture = PlannerFixture::new();
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-browser-history",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/History"),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.total_targets, 1);
+    assert_eq!(plan.summary.allowed_targets, 0);
+    assert_eq!(plan.summary.blocked_targets, 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("browser private data")
+    );
+}
+
+#[test]
 fn planner_reports_target_scan_progress() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/a.tmp", b"abc");

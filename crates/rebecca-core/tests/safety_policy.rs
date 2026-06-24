@@ -1,5 +1,9 @@
 use std::path::PathBuf;
 
+use rebecca_core::config::AppPaths;
+use rebecca_core::protection::{
+    ProtectedCategory, ProtectionAssessment, ProtectionBlockKind, ProtectionPolicy,
+};
 use rebecca_core::safety::{PathDisposition, assess_existing_path, assess_path};
 
 #[test]
@@ -35,4 +39,127 @@ fn missing_existing_path_is_skipped() {
     let disposition = assess_existing_path(&PathBuf::from("C:/Rebecca/definitely-missing"));
 
     assert!(matches!(disposition, PathDisposition::Skipped(_)));
+}
+
+#[test]
+fn browser_cache_paths_remain_allowed_while_private_data_is_blocked() {
+    let policy = ProtectionPolicy::new();
+
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/Cache"
+        )),
+        ProtectionAssessment::Allowed
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/History"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::BrowserPrivateData)
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Roaming/Mozilla/Firefox/Profiles/abcd1234.cache2/cache2"
+        )),
+        ProtectionAssessment::Allowed
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Roaming/Mozilla/Firefox/Profiles/abcd1234.default/cookies.sqlite"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::BrowserPrivateData)
+    ));
+}
+
+#[test]
+fn credentials_ai_cloud_runtime_and_startup_data_are_blocked() {
+    let policy = ProtectionPolicy::new();
+
+    for (path, expected_category) in [
+        (
+            "C:/Users/Alice/AppData/Roaming/Microsoft/Credentials",
+            ProtectedCategory::Credentials,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Clash Verge",
+            ProtectedCategory::VpnProxyState,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Cursor/User",
+            ProtectedCategory::AiToolDurableState,
+        ),
+        (
+            "C:/Users/Alice/OneDrive/Documents",
+            ProtectedCategory::CloudSyncedData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Local/Docker",
+            ProtectedCategory::ContainerRuntimeState,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup",
+            ProtectedCategory::StartupAutomation,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Steam/userdata/12345/config.vdf",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+    ] {
+        assert!(
+            matches!(
+                policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Blocked(block)
+                    if block.kind == ProtectionBlockKind::ProtectedCategory(expected_category)
+            ),
+            "{path} should be blocked"
+        );
+    }
+}
+
+#[test]
+fn rebecca_owned_storage_is_blocked_even_when_the_path_exists_only_logically() {
+    let app_paths = AppPaths {
+        config_dir: PathBuf::from("C:/Users/Alice/AppData/Roaming/Rebecca"),
+        config_file: PathBuf::from("C:/Users/Alice/AppData/Roaming/Rebecca/config.toml"),
+        state_dir: PathBuf::from("C:/Users/Alice/AppData/Local/Rebecca/state"),
+        cache_dir: PathBuf::from("C:/Users/Alice/AppData/Local/Rebecca/cache"),
+        history_file: PathBuf::from("C:/Users/Alice/AppData/Local/Rebecca/state/history.jsonl"),
+    };
+    let storage_entries = app_paths.storage_entries();
+    let policy = ProtectionPolicy::new().with_protected_storage(&storage_entries);
+
+    assert!(matches!(
+        policy.assess_path(&app_paths.cache_dir.join("scan")),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::RebeccaOwnedStorage
+    ));
+    assert!(matches!(
+        policy.assess_path(&app_paths.history_file),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::RebeccaOwnedStorage
+    ));
+}
+
+#[test]
+fn maintenance_allowlists_keep_known_cache_paths_open() {
+    let policy = ProtectionPolicy::new();
+
+    for path in [
+        "C:/Users/Alice/AppData/Local/pip/Cache",
+        "C:/Users/Alice/AppData/Local/JetBrains/RustRover2024.3/caches",
+        "C:/Users/Alice/AppData/Roaming/Code/Cache",
+        "C:/Users/Alice/AppData/Roaming/discord/GPUCache",
+        "C:/Users/Alice/AppData/Local/Steam/htmlcache/Default/Cache",
+        "C:/Users/Alice/AppData/Local/Temp/rebecca-test",
+    ] {
+        assert!(
+            matches!(
+                policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Allowed
+            ),
+            "{path} should remain allowed"
+        );
+    }
 }
