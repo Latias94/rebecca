@@ -90,6 +90,36 @@ fn invalid_rule_catalog_rejects_duplicate_target_specs() {
 }
 
 #[test]
+fn invalid_rule_catalog_rejects_empty_category() {
+    let mut rule = test_rule("windows.empty-category");
+    rule.category = "   ".to_string();
+
+    let err = rebecca_core::planner::validate_rule_catalog(&[rule]).unwrap_err();
+
+    assert!(err.to_string().contains("must define a category"));
+}
+
+#[test]
+fn invalid_rule_catalog_rejects_empty_name() {
+    let mut rule = test_rule("windows.empty-name");
+    rule.name = String::new();
+
+    let err = rebecca_core::planner::validate_rule_catalog(&[rule]).unwrap_err();
+
+    assert!(err.to_string().contains("must define a name"));
+}
+
+#[test]
+fn invalid_rule_catalog_rejects_empty_target_paths() {
+    let mut rule = test_rule("windows.empty-target");
+    rule.path_templates = vec![RuleTargetSpec::template("   ")];
+
+    let err = rebecca_core::planner::validate_rule_catalog(&[rule]).unwrap_err();
+
+    assert!(err.to_string().contains("empty target path"));
+}
+
+#[test]
 fn rule_target_spec_exposes_placeholder_path_and_dedupe_key() {
     let template = RuleTargetSpec::steam_library_template("steamapps\\shadercache");
     let exact = RuleTargetSpec::ExactPath(PathBuf::from(r"C:\Temp\Cache"));

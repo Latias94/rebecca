@@ -578,6 +578,20 @@ pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
             )));
         }
 
+        if rule.category.trim().is_empty() {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "rule {} must define a category",
+                rule.id
+            )));
+        }
+
+        if rule.name.trim().is_empty() {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "rule {} must define a name",
+                rule.id
+            )));
+        }
+
         if rule.provenance.license.trim().is_empty() {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
                 "rule {} is missing provenance license",
@@ -600,6 +614,19 @@ pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
         }
 
         for spec in &rule.path_templates {
+            if spec
+                .placeholder_path()
+                .as_os_str()
+                .to_string_lossy()
+                .trim()
+                .is_empty()
+            {
+                return Err(RebeccaError::RuleCatalogInvalid(format!(
+                    "rule {} contains an empty target path",
+                    rule.id
+                )));
+            }
+
             let key = spec.dedupe_key(rule.platform);
             if let Some(previous_rule) = target_specs.insert(key.clone(), rule.id.clone()) {
                 return Err(RebeccaError::RuleCatalogInvalid(format!(

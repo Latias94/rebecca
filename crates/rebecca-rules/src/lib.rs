@@ -76,9 +76,43 @@ fn parse_rule_file(path: &str, raw: &str) -> Result<RuleDefinition> {
 
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
     for rule in rules {
+        if rule.platform != Platform::Windows {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} must target the Windows platform",
+                rule.id
+            )));
+        }
+
+        if !rule.id.starts_with("windows.") {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} must use a windows. rule id prefix",
+                rule.id
+            )));
+        }
+
+        if rule
+            .restore_hint
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
+        {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} must define a restore hint",
+                rule.id
+            )));
+        }
+
         if rule.provenance.source != RuleSource::Owned {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
                 "built-in rule {} must use owned provenance source",
+                rule.id
+            )));
+        }
+
+        if rule.provenance.license.trim() != "project-owned" {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} must use project-owned provenance license",
                 rule.id
             )));
         }
@@ -179,6 +213,19 @@ mod tests {
     }
 
     #[test]
+    fn builtin_rules_have_restore_hints_and_project_owned_provenance() {
+        let rules = builtin_rules().expect("built-in rules should load");
+
+        assert!(rules.iter().all(|rule| {
+            rule.restore_hint
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|hint| !hint.is_empty())
+                && rule.provenance.license == "project-owned"
+        }));
+    }
+
+    #[test]
     fn builtin_rules_are_loaded_from_toml_catalog_files() {
         let rules = builtin_rules().expect("built-in rules should load");
         let user_temp = rules
@@ -202,7 +249,7 @@ mod tests {
             safety_level: rebecca_core::SafetyLevel::Safe,
             path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
             delete_policy: rebecca_core::DeletePolicy::RecycleBin,
-            restore_hint: None,
+            restore_hint: Some("Regenerated automatically.".to_string()),
             provenance: rebecca_core::RuleProvenance {
                 source: rebecca_core::RuleSource::ReferenceOnly,
                 license: "project-owned".to_string(),
@@ -377,5 +424,93 @@ notes = "test"
             rule.path_templates[1],
             rebecca_core::RuleTargetSpec::SteamLibraryTemplate(_)
         ));
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_missing_restore_hints() {
+        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+            id: "windows.test".to_string(),
+            platform: rebecca_core::Platform::Windows,
+            category: "system".to_string(),
+            name: "Test".to_string(),
+            safety_level: rebecca_core::SafetyLevel::Safe,
+            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
+            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            restore_hint: None,
+            provenance: rebecca_core::RuleProvenance {
+                source: rebecca_core::RuleSource::Owned,
+                license: "project-owned".to_string(),
+                notes: "test".to_string(),
+            },
+        }])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("restore hint"));
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_non_project_owned_licenses() {
+        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+            id: "windows.test".to_string(),
+            platform: rebecca_core::Platform::Windows,
+            category: "system".to_string(),
+            name: "Test".to_string(),
+            safety_level: rebecca_core::SafetyLevel::Safe,
+            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
+            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            restore_hint: Some("Regenerated automatically.".to_string()),
+            provenance: rebecca_core::RuleProvenance {
+                source: rebecca_core::RuleSource::Owned,
+                license: "reference-only".to_string(),
+                notes: "test".to_string(),
+            },
+        }])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("project-owned provenance license"));
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_non_windows_platforms() {
+        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+            id: "linux.test".to_string(),
+            platform: rebecca_core::Platform::Linux,
+            category: "system".to_string(),
+            name: "Test".to_string(),
+            safety_level: rebecca_core::SafetyLevel::Safe,
+            path_templates: vec![rebecca_core::RuleTargetSpec::template("/tmp")],
+            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            restore_hint: Some("Regenerated automatically.".to_string()),
+            provenance: rebecca_core::RuleProvenance {
+                source: rebecca_core::RuleSource::Owned,
+                license: "project-owned".to_string(),
+                notes: "test".to_string(),
+            },
+        }])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("Windows platform"));
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_non_windows_id_prefixes() {
+        let err = super::validate_builtin_rule_catalog(&[rebecca_core::RuleDefinition {
+            id: "linux.test".to_string(),
+            platform: rebecca_core::Platform::Windows,
+            category: "system".to_string(),
+            name: "Test".to_string(),
+            safety_level: rebecca_core::SafetyLevel::Safe,
+            path_templates: vec![rebecca_core::RuleTargetSpec::template("%TEMP%")],
+            delete_policy: rebecca_core::DeletePolicy::RecycleBin,
+            restore_hint: Some("Regenerated automatically.".to_string()),
+            provenance: rebecca_core::RuleProvenance {
+                source: rebecca_core::RuleSource::Owned,
+                license: "project-owned".to_string(),
+                notes: "test".to_string(),
+            },
+        }])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("windows. rule id prefix"));
     }
 }

@@ -18,6 +18,7 @@ files. Keep each rule small, explicit, and easy to audit.
 - `name`
 - `safety_level`
 - `delete_policy`
+- `restore_hint`
 - `targets`
 - `provenance`
 
@@ -76,5 +77,8 @@ files. Keep each rule small, explicit, and easy to audit.
 ## Provenance
 
 - Do not copy GPL rule definitions or code into the catalog.
-- Built-in rules must use `source = "owned"` and `license = "project-owned"`.
+- Built-in rules must use `platform = "windows"`, a `windows.` rule id prefix,
+  `source = "owned"`, and `license = "project-owned"`.
+- Built-in rules must include a concise non-empty `restore_hint`, because dry-run,
+  history, and grouped human output surface it as part of the safety contract.
 - Document the source of each rule in `provenance.notes`.
