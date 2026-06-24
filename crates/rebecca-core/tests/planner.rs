@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 
 use rebecca_core::applications::{StaticApplicationDiscovery, SteamInstallation};
 use rebecca_core::environment::MapEnvironment;
@@ -416,13 +417,24 @@ fn steam_rule_targets_only_client_browser_cache_directories() {
     }));
 }
 
-fn steam_install_plan(
+struct SteamInstallRuleCase<'a> {
+    rule_id: &'a str,
+    install_fixture_path: &'a str,
+    relative_path: &'a str,
+    bytes: &'a [u8],
+    expected_path: &'a str,
+    expected_restore_hint: Option<&'a str>,
+    allow_moderate: bool,
+}
+
+fn steam_plan(
     fixture: &PlannerFixture,
     rule_id: &str,
     allow_moderate: bool,
+    library_paths: Vec<PathBuf>,
 ) -> CleanupPlan {
     let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(fixture.root.join("steam-install"), Vec::new()),
+        SteamInstallation::new(fixture.root.join("steam-install"), library_paths),
     );
     let rules = rebecca_rules::builtin_rules().unwrap();
 
@@ -441,108 +453,95 @@ fn steam_install_plan(
 
 #[test]
 fn steam_install_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    fixture.write("steam-install/appcache/httpcache/cache.bin", b"ab");
-    let plan = steam_install_plan(&fixture, "windows.steam-install-cache", false);
+    let cases = [
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-install-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "appcache/httpcache",
+            bytes: b"ab",
+            expected_path: "appcache/httpcache",
+            expected_restore_hint: Some("Steam client cache will be rebuilt on launch."),
+            allow_moderate: false,
+        },
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-install-depot-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "depotcache",
+            bytes: b"abcd",
+            expected_path: "depotcache",
+            expected_restore_hint: Some("Steam depot cache will be rebuilt when Steam runs again."),
+            allow_moderate: false,
+        },
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-install-logs",
+            install_fixture_path: "steam-install",
+            relative_path: "logs",
+            bytes: b"abc",
+            expected_path: "logs",
+            expected_restore_hint: Some("Steam logs will be recreated when Steam runs again."),
+            allow_moderate: false,
+        },
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-install-download-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "appcache/download",
+            bytes: b"ab",
+            expected_path: "appcache/download",
+            expected_restore_hint: Some("Steam download staging data will be recreated if needed."),
+            allow_moderate: true,
+        },
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-install-library-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "appcache/librarycache",
+            bytes: b"ab",
+            expected_path: "appcache/librarycache",
+            expected_restore_hint: Some(
+                "Steam library artwork and metadata will be rebuilt on launch.",
+            ),
+            allow_moderate: false,
+        },
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-install-shader-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "appcache/shadercache",
+            bytes: b"ab",
+            expected_path: "appcache/shadercache",
+            expected_restore_hint: Some("Steam shader caches will be rebuilt on launch."),
+            allow_moderate: false,
+        },
+    ];
 
-    assert_eq!(plan.summary.allowed_targets, 1);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 2);
-    assert_eq!(
-        plan.targets[0].path,
-        install_path.join("appcache").join("httpcache")
-    );
-    assert_eq!(
-        plan.targets[0].restore_hint.as_deref(),
-        Some("Steam client cache will be rebuilt on launch.")
-    );
-}
+    for case in cases {
+        let fixture = PlannerFixture::new();
+        let install_path = fixture.root.join("steam-install");
+        let target = Path::new(case.install_fixture_path)
+            .join(case.relative_path)
+            .join("cache.bin");
+        fixture.write(target, case.bytes);
+        let plan = steam_plan(&fixture, case.rule_id, case.allow_moderate, Vec::new());
 
-#[test]
-fn steam_install_depot_cache_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    fixture.write("steam-install/depotcache/package.bin", b"abcd");
-    let plan = steam_install_plan(&fixture, "windows.steam-install-depot-cache", false);
-
-    assert_eq!(plan.summary.allowed_targets, 1);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 4);
-    assert_eq!(plan.targets[0].path, install_path.join("depotcache"));
-    assert_eq!(
-        plan.targets[0].restore_hint.as_deref(),
-        Some("Steam depot cache will be rebuilt when Steam runs again.")
-    );
-}
-
-#[test]
-fn steam_install_logs_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    fixture.write("steam-install/logs/cloud_log.txt", b"abc");
-    let plan = steam_install_plan(&fixture, "windows.steam-install-logs", false);
-
-    assert_eq!(plan.summary.allowed_targets, 1);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 3);
-    assert_eq!(plan.targets[0].path, install_path.join("logs"));
-    assert_eq!(
-        plan.targets[0].restore_hint.as_deref(),
-        Some("Steam logs will be recreated when Steam runs again.")
-    );
-}
-
-#[test]
-fn steam_install_download_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    fixture.write("steam-install/appcache/download/cache.bin", b"ab");
-    let plan = steam_install_plan(&fixture, "windows.steam-install-download-cache", true);
-
-    assert_eq!(plan.summary.allowed_targets, 1);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 2);
-    assert_eq!(
-        plan.targets[0].path,
-        install_path.join("appcache").join("download")
-    );
-}
-
-#[test]
-fn steam_install_library_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    fixture.write("steam-install/appcache/librarycache/cache.bin", b"ab");
-    let plan = steam_install_plan(&fixture, "windows.steam-install-library-cache", false);
-
-    assert_eq!(plan.summary.allowed_targets, 1);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 2);
-    assert_eq!(
-        plan.targets[0].path,
-        install_path.join("appcache").join("librarycache")
-    );
-}
-
-#[test]
-fn steam_install_shader_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    fixture.write("steam-install/appcache/shadercache/cache.bin", b"ab");
-    let plan = steam_install_plan(&fixture, "windows.steam-install-shader-cache", false);
-
-    assert_eq!(plan.summary.allowed_targets, 1);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 2);
-    assert_eq!(
-        plan.targets[0].path,
-        install_path.join("appcache").join("shadercache")
-    );
-    assert_eq!(
-        plan.targets[0].restore_hint.as_deref(),
-        Some("Steam shader caches will be rebuilt on launch.")
-    );
+        assert_eq!(plan.summary.allowed_targets, 1, "{}", case.rule_id);
+        assert_eq!(plan.summary.skipped_targets, 0, "{}", case.rule_id);
+        assert_eq!(
+            plan.summary.estimated_bytes,
+            case.bytes.len() as u64,
+            "{}",
+            case.rule_id
+        );
+        assert_eq!(
+            plan.targets[0].path,
+            install_path.join(case.expected_path),
+            "{}",
+            case.rule_id
+        );
+        assert_eq!(
+            plan.targets[0].restore_hint.as_deref(),
+            case.expected_restore_hint,
+            "{}",
+            case.rule_id
+        );
+    }
 }
 
 #[test]
@@ -593,126 +592,83 @@ fn steam_rules_skip_without_application_discovery() {
 
 #[test]
 fn steam_library_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    let library_path = fixture.root.join("steam-library");
-    fixture.write("steam-install/steamapps/shadercache/111/cache.bin", b"ab");
-    fixture.write("steam-library/steamapps/shadercache/222/cache.bin", b"cde");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), vec![library_path.clone()]),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
+    let cases = [
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-library-shader-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "steamapps/shadercache",
+            bytes: b"ab",
+            expected_path: "steamapps/shadercache",
+            expected_restore_hint: Some("Steam shader caches will be rebuilt by Steam and games."),
+            allow_moderate: false,
+        },
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-library-downloading-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "steamapps/downloading",
+            bytes: b"ab",
+            expected_path: "steamapps/downloading",
+            expected_restore_hint: Some("Steam download staging data will be recreated if needed."),
+            allow_moderate: true,
+        },
+        SteamInstallRuleCase {
+            rule_id: "windows.steam-library-temp-cache",
+            install_fixture_path: "steam-install",
+            relative_path: "steamapps/temp",
+            bytes: b"ab",
+            expected_path: "steamapps/temp",
+            expected_restore_hint: Some(
+                "Steam temporary staging data will be recreated if needed.",
+            ),
+            allow_moderate: true,
+        },
+    ];
 
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-library-shader-cache".to_string()];
+    for case in cases {
+        let fixture = PlannerFixture::new();
+        let install_path = fixture.root.join("steam-install");
+        let library_path = fixture.root.join("steam-library");
+        let install_target = Path::new(case.install_fixture_path)
+            .join(case.relative_path)
+            .join("111")
+            .join("cache.bin");
+        let library_target = Path::new("steam-library")
+            .join(case.relative_path)
+            .join("222")
+            .join("cache.bin");
+        fixture.write(install_target, case.bytes);
+        fixture.write(library_target, case.bytes);
+        let plan = steam_plan(
+            &fixture,
+            case.rule_id,
+            case.allow_moderate,
+            vec![library_path.clone()],
+        );
 
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
-
-    assert_eq!(plan.summary.allowed_targets, 2);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 5);
-    assert!(plan.targets.iter().any(|target| {
-        target.path.ends_with(
-            Path::new("steam-install")
-                .join("steamapps")
-                .join("shadercache"),
-        )
-    }));
-    assert!(plan.targets.iter().any(|target| {
-        target.path.ends_with(
-            Path::new("steam-library")
-                .join("steamapps")
-                .join("shadercache"),
-        )
-    }));
-}
-
-#[test]
-fn steam_library_downloading_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    let library_path = fixture.root.join("steam-library");
-    fixture.write("steam-install/steamapps/downloading/111/cache.bin", b"ab");
-    fixture.write("steam-library/steamapps/downloading/222/cache.bin", b"cde");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), vec![library_path.clone()]),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
-
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-library-downloading-cache".to_string()];
-    request.allow_moderate = true;
-
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
-
-    assert_eq!(plan.summary.allowed_targets, 2);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 5);
-    assert!(plan.targets.iter().any(|target| {
-        target.path.ends_with(
-            Path::new("steam-install")
-                .join("steamapps")
-                .join("downloading"),
-        )
-    }));
-    assert!(plan.targets.iter().any(|target| {
-        target.path.ends_with(
-            Path::new("steam-library")
-                .join("steamapps")
-                .join("downloading"),
-        )
-    }));
-}
-
-#[test]
-fn steam_library_temp_rule_expands_from_application_discovery() {
-    let fixture = PlannerFixture::new();
-    let install_path = fixture.root.join("steam-install");
-    let library_path = fixture.root.join("steam-library");
-    fixture.write("steam-install/steamapps/temp/111/cache.bin", b"ab");
-    fixture.write("steam-library/steamapps/temp/222/cache.bin", b"cde");
-    let applications = StaticApplicationDiscovery::new().with_steam_installation(
-        SteamInstallation::new(install_path.clone(), vec![library_path.clone()]),
-    );
-    let rules = rebecca_rules::builtin_rules().unwrap();
-
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    request.selected_rule_ids = vec!["windows.steam-library-temp-cache".to_string()];
-    request.allow_moderate = true;
-
-    let plan = build_cleanup_plan_with_environment_and_applications(
-        &request,
-        &rules,
-        &fixture.env,
-        &applications,
-    )
-    .unwrap();
-
-    assert_eq!(plan.summary.allowed_targets, 2);
-    assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 5);
-    assert!(plan.targets.iter().any(|target| {
-        target
-            .path
-            .ends_with(Path::new("steam-install").join("steamapps").join("temp"))
-    }));
-    assert!(plan.targets.iter().any(|target| {
-        target
-            .path
-            .ends_with(Path::new("steam-library").join("steamapps").join("temp"))
-    }));
+        assert_eq!(plan.summary.allowed_targets, 2, "{}", case.rule_id);
+        assert_eq!(plan.summary.skipped_targets, 0, "{}", case.rule_id);
+        assert_eq!(
+            plan.summary.estimated_bytes,
+            (case.bytes.len() * 2) as u64,
+            "{}",
+            case.rule_id
+        );
+        assert!(
+            plan.targets
+                .iter()
+                .any(|target| { target.path.ends_with(install_path.join(case.expected_path)) })
+        );
+        assert!(
+            plan.targets
+                .iter()
+                .any(|target| { target.path.ends_with(library_path.join(case.expected_path)) })
+        );
+        assert!(
+            plan.targets
+                .iter()
+                .all(|target| { target.restore_hint.as_deref() == case.expected_restore_hint })
+        );
+    }
 }
 
 #[test]

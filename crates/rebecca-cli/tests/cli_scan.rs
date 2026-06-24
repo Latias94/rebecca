@@ -104,6 +104,13 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("  - windows.firefox-profile-cache [safe] Firefox profile cache"));
     assert!(stdout.contains("- development ("));
     assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));
+    for expected in [
+        "  - windows.steam-install-depot-cache [safe] Steam install depot cache",
+        "  - windows.steam-install-logs [safe] Steam install logs",
+        "  - windows.steam-cache [safe] Steam cache [restore: Steam web caches will be rebuilt on launch.]",
+    ] {
+        assert!(stdout.contains(expected), "{expected}");
+    }
 }
 
 #[test]

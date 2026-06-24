@@ -100,7 +100,9 @@ cache rules for `appcache\\httpcache`, `appcache\\download`,
 plus Steam library shader-cache, downloading cache, and temp cache rules. The
 Steam browser cache rule intentionally stays on `Cache`, `Code Cache`, and
 `GPUCache` under `htmlcache\\Default` and does not target `Local Storage`,
-`IndexedDB`, `Service Worker`, or `Network` state.
+`IndexedDB`, `Service Worker`, or `Network` state. The Steam install-root
+cache rules stay limited to disposable subdirectories and do not touch
+`userdata`, `steamapps`, or broader appcache metadata.
 
 ## Local State
 

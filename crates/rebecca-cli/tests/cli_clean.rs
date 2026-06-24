@@ -30,6 +30,13 @@ fn steam_dry_run_json_output(
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+struct SteamDryRunCase<'a> {
+    rule_id: &'a str,
+    target_relative_path: &'a str,
+    bytes: &'a [u8],
+    expected_restore_hint: Option<&'a str>,
+}
+
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
@@ -186,113 +193,65 @@ fn clean_dry_run_accepts_no_progress_flag() {
 }
 
 #[test]
-fn clean_dry_run_json_expands_steam_rule_with_discovery_override() {
-    let temp = tempfile::tempdir().unwrap();
-    let value = steam_dry_run_json_output(
-        &temp,
-        "windows.steam-install-library-cache",
-        "appcache/librarycache",
-        b"abc",
-    );
-    assert_eq!(value["summary"]["total_targets"], 1);
-    assert_eq!(value["summary"]["allowed_targets"], 1);
-    assert_eq!(value["summary"]["skipped_targets"], 0);
-    assert_eq!(value["summary"]["estimated_bytes"], 3);
+fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
+    let cases = [
+        SteamDryRunCase {
+            rule_id: "windows.steam-install-library-cache",
+            target_relative_path: "appcache/librarycache",
+            bytes: b"abc",
+            expected_restore_hint: Some(
+                "Steam library artwork and metadata will be rebuilt on launch.",
+            ),
+        },
+        SteamDryRunCase {
+            rule_id: "windows.steam-install-shader-cache",
+            target_relative_path: "appcache/shadercache",
+            bytes: b"abcd",
+            expected_restore_hint: Some("Steam shader caches will be rebuilt on launch."),
+        },
+        SteamDryRunCase {
+            rule_id: "windows.steam-install-logs",
+            target_relative_path: "logs",
+            bytes: b"abcde",
+            expected_restore_hint: Some("Steam logs will be recreated when Steam runs again."),
+        },
+        SteamDryRunCase {
+            rule_id: "windows.steam-install-depot-cache",
+            target_relative_path: "depotcache",
+            bytes: b"abcd",
+            expected_restore_hint: Some("Steam depot cache will be rebuilt when Steam runs again."),
+        },
+    ];
 
-    let targets = value["targets"].as_array().unwrap();
-    assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.steam-install-library-cache");
-    assert_eq!(targets[0]["status"], "allowed");
-    assert_eq!(
-        targets[0]["restore_hint"].as_str().unwrap(),
-        "Steam library artwork and metadata will be rebuilt on launch."
-    );
-    assert!(
-        targets[0]["path"]
-            .as_str()
-            .unwrap()
-            .ends_with(r"appcache\librarycache")
-    );
-}
+    for case in cases {
+        let temp = tempfile::tempdir().unwrap();
+        let value =
+            steam_dry_run_json_output(&temp, case.rule_id, case.target_relative_path, case.bytes);
+        assert_eq!(value["summary"]["total_targets"], 1, "{}", case.rule_id);
+        assert_eq!(value["summary"]["allowed_targets"], 1, "{}", case.rule_id);
+        assert_eq!(value["summary"]["skipped_targets"], 0, "{}", case.rule_id);
+        assert_eq!(
+            value["summary"]["estimated_bytes"],
+            case.bytes.len() as u64,
+            "{}",
+            case.rule_id
+        );
 
-#[test]
-fn clean_dry_run_json_expands_steam_install_shader_rule_with_discovery_override() {
-    let temp = tempfile::tempdir().unwrap();
-    let value = steam_dry_run_json_output(
-        &temp,
-        "windows.steam-install-shader-cache",
-        "appcache/shadercache",
-        b"abcd",
-    );
-    assert_eq!(value["summary"]["total_targets"], 1);
-    assert_eq!(value["summary"]["allowed_targets"], 1);
-    assert_eq!(value["summary"]["skipped_targets"], 0);
-    assert_eq!(value["summary"]["estimated_bytes"], 4);
-
-    let targets = value["targets"].as_array().unwrap();
-    assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.steam-install-shader-cache");
-    assert_eq!(targets[0]["status"], "allowed");
-    assert_eq!(
-        targets[0]["restore_hint"].as_str().unwrap(),
-        "Steam shader caches will be rebuilt on launch."
-    );
-    assert!(
-        targets[0]["path"]
-            .as_str()
-            .unwrap()
-            .ends_with(r"appcache\shadercache")
-    );
-}
-
-#[test]
-fn clean_dry_run_json_expands_steam_install_logs_rule_with_discovery_override() {
-    let temp = tempfile::tempdir().unwrap();
-    let value = steam_dry_run_json_output(&temp, "windows.steam-install-logs", "logs", b"abcde");
-    assert_eq!(value["summary"]["total_targets"], 1);
-    assert_eq!(value["summary"]["allowed_targets"], 1);
-    assert_eq!(value["summary"]["skipped_targets"], 0);
-    assert_eq!(value["summary"]["estimated_bytes"], 5);
-
-    let targets = value["targets"].as_array().unwrap();
-    assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.steam-install-logs");
-    assert_eq!(targets[0]["status"], "allowed");
-    assert_eq!(
-        targets[0]["restore_hint"].as_str().unwrap(),
-        "Steam logs will be recreated when Steam runs again."
-    );
-    assert!(targets[0]["path"].as_str().unwrap().ends_with(r"logs"));
-}
-
-#[test]
-fn clean_dry_run_json_expands_steam_install_depot_cache_rule_with_discovery_override() {
-    let temp = tempfile::tempdir().unwrap();
-    let value = steam_dry_run_json_output(
-        &temp,
-        "windows.steam-install-depot-cache",
-        "depotcache",
-        b"abcd",
-    );
-    assert_eq!(value["summary"]["total_targets"], 1);
-    assert_eq!(value["summary"]["allowed_targets"], 1);
-    assert_eq!(value["summary"]["skipped_targets"], 0);
-    assert_eq!(value["summary"]["estimated_bytes"], 4);
-
-    let targets = value["targets"].as_array().unwrap();
-    assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.steam-install-depot-cache");
-    assert_eq!(targets[0]["status"], "allowed");
-    assert_eq!(
-        targets[0]["restore_hint"].as_str().unwrap(),
-        "Steam depot cache will be rebuilt when Steam runs again."
-    );
-    assert!(
-        targets[0]["path"]
-            .as_str()
-            .unwrap()
-            .ends_with(r"depotcache")
-    );
+        let targets = value["targets"].as_array().unwrap();
+        assert_eq!(targets.len(), 1, "{}", case.rule_id);
+        assert_eq!(targets[0]["rule_id"], case.rule_id);
+        assert_eq!(targets[0]["status"], "allowed");
+        assert_eq!(
+            targets[0]["restore_hint"].as_str().unwrap(),
+            case.expected_restore_hint.unwrap()
+        );
+        assert!(
+            targets[0]["path"]
+                .as_str()
+                .unwrap()
+                .ends_with(&case.target_relative_path.replace('/', r"\"))
+        );
+    }
 }
 
 #[test]
