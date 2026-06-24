@@ -67,7 +67,8 @@ Use user-scoped storage by default.
   guessing from path names.
 - `rebecca cache purge` can remove only direct contents of Rebecca's rebuildable
   cache directory, must preserve the cache directory itself, must report its
-  lifecycle and entry-status counts, and must refuse preserved-path overlap.
+  lifecycle, entry-status counts, and stable issue matrix, and must refuse
+  preserved-path overlap.
 - `clean --scan-cache` explicitly enables planner access to scan-cache records
   under `cache_dir\scan` for regular-file targets and directory targets with
   fresh records. Missing, corrupted, stale, expired, or unsupported-version
@@ -88,7 +89,7 @@ Use user-scoped storage by default.
 | Schema clarity | Unsupported config versions fail clearly | Core and CLI regression tests |
 | Lifecycle clarity | Cache is marked rebuildable and state/history are marked preserve | Core and CLI regression tests |
 | Cache purge safety | Purge defaults to preview, preserves cache directory, and rejects preserved-path overlap | Core and CLI regression tests |
-| Cache purge observability | Purge reports lifecycle, cache-dir preservation, cache-dir existence, and entry-status counts | Core and CLI regression tests |
+| Cache purge observability | Purge reports lifecycle, cache-dir preservation, cache-dir existence, entry-status counts, and issue-matrix details | Core and CLI regression tests |
 | Scan cache rebuildability | Scan-cache stale/corrupt/future-version records return cache misses | Core regression tests |
 | Controlled scan cache | `clean --scan-cache` reuses eligible file-target records, freshness-bounded directory records, and soft-fails on cache errors | Core and CLI regression tests |
 | Scan cache policy | Configured directory freshness changes cache-hit eligibility without changing the cache record format | Core and CLI regression tests |

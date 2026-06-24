@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -63,11 +64,13 @@ pub struct CachePurgeSummary {
     pub directories: u64,
     pub estimated_bytes: u64,
     pub reclaimed_bytes: u64,
+    pub issue_matrix: Vec<CachePurgeIssueSummary>,
 }
 
 impl CachePurgeSummary {
     fn from_entries(entries: &[CachePurgeEntry]) -> Self {
         let mut summary = Self::default();
+        let mut issue_matrix = BTreeMap::new();
         for entry in entries {
             summary.total_entries += 1;
             summary.files = summary.files.saturating_add(entry.files);
@@ -87,10 +90,33 @@ impl CachePurgeSummary {
                 CachePurgeEntryStatus::Skipped => summary.skipped_entries += 1,
                 CachePurgeEntryStatus::Failed => summary.failed_entries += 1,
             }
+
+            if let Some(reason_code) = entry.reason_code {
+                let bucket = issue_matrix
+                    .entry((entry.status, reason_code))
+                    .or_insert_with(|| CachePurgeIssueSummary {
+                        status: entry.status,
+                        reason_code,
+                        entries: 0,
+                        estimated_bytes: 0,
+                    });
+                bucket.entries = bucket.entries.saturating_add(1);
+                bucket.estimated_bytes =
+                    bucket.estimated_bytes.saturating_add(entry.estimated_bytes);
+            }
         }
 
+        summary.issue_matrix = issue_matrix.into_values().collect();
         summary
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachePurgeIssueSummary {
+    pub status: CachePurgeEntryStatus,
+    pub reason_code: CachePurgeEntryReason,
+    pub entries: usize,
+    pub estimated_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,10 +128,17 @@ pub struct CachePurgeEntry {
     pub files: u64,
     pub directories: u64,
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<CachePurgeEntryReason>,
 }
 
 impl CachePurgeEntry {
-    fn failed(path: PathBuf, kind: CachePurgeEntryKind, reason: String) -> Self {
+    fn failed(
+        path: PathBuf,
+        kind: CachePurgeEntryKind,
+        reason_code: CachePurgeEntryReason,
+        reason: String,
+    ) -> Self {
         Self {
             path,
             kind,
@@ -114,10 +147,16 @@ impl CachePurgeEntry {
             files: 0,
             directories: 0,
             reason: Some(reason),
+            reason_code: Some(reason_code),
         }
     }
 
-    fn skipped(path: PathBuf, kind: CachePurgeEntryKind, reason: impl Into<String>) -> Self {
+    fn skipped(
+        path: PathBuf,
+        kind: CachePurgeEntryKind,
+        reason_code: CachePurgeEntryReason,
+        reason: impl Into<String>,
+    ) -> Self {
         Self {
             path,
             kind,
@@ -126,6 +165,7 @@ impl CachePurgeEntry {
             files: 0,
             directories: 0,
             reason: Some(reason.into()),
+            reason_code: Some(reason_code),
         }
     }
 }
@@ -139,7 +179,18 @@ pub enum CachePurgeEntryKind {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+impl CachePurgeEntryKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Directory => "directory",
+            Self::Symlink => "symlink",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CachePurgeEntryStatus {
     WouldDelete,
@@ -155,6 +206,28 @@ impl CachePurgeEntryStatus {
             Self::Deleted => "deleted",
             Self::Skipped => "skipped",
             Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CachePurgeEntryReason {
+    SymlinkSkipped,
+    UnsupportedEntryType,
+    MetadataReadFailed,
+    MeasurementFailed,
+    DeleteFailed,
+}
+
+impl CachePurgeEntryReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::SymlinkSkipped => "symlink-skipped",
+            Self::UnsupportedEntryType => "unsupported-entry-type",
+            Self::MetadataReadFailed => "metadata-read-failed",
+            Self::MeasurementFailed => "measurement-failed",
+            Self::DeleteFailed => "delete-failed",
         }
     }
 }
@@ -245,7 +318,12 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
     let metadata = match std::fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(err) => {
-            return CachePurgeEntry::failed(path, CachePurgeEntryKind::Other, err.to_string());
+            return CachePurgeEntry::failed(
+                path,
+                CachePurgeEntryKind::Other,
+                CachePurgeEntryReason::MetadataReadFailed,
+                err.to_string(),
+            );
         }
     };
 
@@ -254,6 +332,7 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
         return CachePurgeEntry::skipped(
             path,
             CachePurgeEntryKind::Symlink,
+            CachePurgeEntryReason::SymlinkSkipped,
             "symlink entries are skipped",
         );
     }
@@ -266,13 +345,21 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
         return CachePurgeEntry::skipped(
             path,
             CachePurgeEntryKind::Other,
+            CachePurgeEntryReason::UnsupportedEntryType,
             "unsupported cache entry type",
         );
     };
 
     let report = match measure_path(&path) {
         Ok(report) => report,
-        Err(err) => return CachePurgeEntry::failed(path, kind, err.to_string()),
+        Err(err) => {
+            return CachePurgeEntry::failed(
+                path,
+                kind,
+                CachePurgeEntryReason::MeasurementFailed,
+                err.to_string(),
+            );
+        }
     };
 
     let status = if mode.deletes() {
@@ -287,6 +374,7 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
                     files: report.files_scanned,
                     directories: report.directories_scanned,
                     reason: Some(err.to_string()),
+                    reason_code: Some(CachePurgeEntryReason::DeleteFailed),
                 };
             }
         }
@@ -302,6 +390,7 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
         files: report.files_scanned,
         directories: report.directories_scanned,
         reason: None,
+        reason_code: None,
     }
 }
 
@@ -344,7 +433,10 @@ fn comparable_components(path: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CachePurgeEntryStatus, CachePurgeMode, purge_app_cache};
+    use super::{
+        CachePurgeEntry, CachePurgeEntryKind, CachePurgeEntryReason, CachePurgeEntryStatus,
+        CachePurgeIssueSummary, CachePurgeMode, CachePurgeSummary, purge_app_cache,
+    };
     use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
 
     fn app_paths(temp: &tempfile::TempDir) -> AppPaths {
@@ -382,6 +474,7 @@ mod tests {
         assert_eq!(report.summary.files, 2);
         assert_eq!(report.summary.directories, 1);
         assert_eq!(report.summary.estimated_bytes, 5);
+        assert!(report.summary.issue_matrix.is_empty());
         assert!(paths.cache_dir.join("file.bin").exists());
         assert!(paths.cache_dir.join("nested").join("nested.bin").exists());
         assert!(
@@ -407,6 +500,7 @@ mod tests {
         assert_eq!(report.summary.total_entries, 2);
         assert_eq!(report.summary.deleted_entries, 2);
         assert_eq!(report.summary.reclaimed_bytes, 5);
+        assert!(report.summary.issue_matrix.is_empty());
         assert!(paths.cache_dir.exists());
         assert_eq!(std::fs::read_dir(&paths.cache_dir).unwrap().count(), 0);
     }
@@ -421,6 +515,7 @@ mod tests {
         assert!(!report.cache_dir_exists);
         assert!(report.preserves_cache_dir);
         assert_eq!(report.summary.total_entries, 0);
+        assert!(report.summary.issue_matrix.is_empty());
         assert!(report.entries.is_empty());
     }
 
@@ -445,5 +540,96 @@ mod tests {
         let err = purge_app_cache(&paths, CachePurgeMode::DryRun).unwrap_err();
 
         assert!(err.to_string().contains("absolute cache directory"));
+    }
+
+    #[test]
+    fn cache_purge_summary_groups_issue_matrix_by_status_and_reason() {
+        let entries = vec![
+            CachePurgeEntry {
+                path: std::path::PathBuf::from("cache/a"),
+                kind: CachePurgeEntryKind::Symlink,
+                status: CachePurgeEntryStatus::Skipped,
+                estimated_bytes: 0,
+                files: 0,
+                directories: 0,
+                reason: Some("symlink entries are skipped".to_string()),
+                reason_code: Some(CachePurgeEntryReason::SymlinkSkipped),
+            },
+            CachePurgeEntry {
+                path: std::path::PathBuf::from("cache/b"),
+                kind: CachePurgeEntryKind::Other,
+                status: CachePurgeEntryStatus::Skipped,
+                estimated_bytes: 0,
+                files: 0,
+                directories: 0,
+                reason: Some("unsupported cache entry type".to_string()),
+                reason_code: Some(CachePurgeEntryReason::UnsupportedEntryType),
+            },
+            CachePurgeEntry {
+                path: std::path::PathBuf::from("cache/c"),
+                kind: CachePurgeEntryKind::File,
+                status: CachePurgeEntryStatus::Failed,
+                estimated_bytes: 12,
+                files: 1,
+                directories: 0,
+                reason: Some("first failure".to_string()),
+                reason_code: Some(CachePurgeEntryReason::MeasurementFailed),
+            },
+            CachePurgeEntry {
+                path: std::path::PathBuf::from("cache/d"),
+                kind: CachePurgeEntryKind::Directory,
+                status: CachePurgeEntryStatus::Failed,
+                estimated_bytes: 8,
+                files: 2,
+                directories: 1,
+                reason: Some("second failure".to_string()),
+                reason_code: Some(CachePurgeEntryReason::MeasurementFailed),
+            },
+            CachePurgeEntry {
+                path: std::path::PathBuf::from("cache/e"),
+                kind: CachePurgeEntryKind::Directory,
+                status: CachePurgeEntryStatus::Failed,
+                estimated_bytes: 7,
+                files: 3,
+                directories: 1,
+                reason: Some("delete failed".to_string()),
+                reason_code: Some(CachePurgeEntryReason::DeleteFailed),
+            },
+        ];
+
+        let summary = CachePurgeSummary::from_entries(&entries);
+
+        assert_eq!(summary.total_entries, 5);
+        assert_eq!(summary.skipped_entries, 2);
+        assert_eq!(summary.failed_entries, 3);
+        assert_eq!(
+            summary.issue_matrix,
+            vec![
+                CachePurgeIssueSummary {
+                    status: CachePurgeEntryStatus::Skipped,
+                    reason_code: CachePurgeEntryReason::SymlinkSkipped,
+                    entries: 1,
+                    estimated_bytes: 0,
+                },
+                CachePurgeIssueSummary {
+                    status: CachePurgeEntryStatus::Skipped,
+                    reason_code: CachePurgeEntryReason::UnsupportedEntryType,
+                    entries: 1,
+                    estimated_bytes: 0,
+                },
+                CachePurgeIssueSummary {
+                    status: CachePurgeEntryStatus::Failed,
+                    reason_code: CachePurgeEntryReason::MeasurementFailed,
+                    entries: 2,
+                    estimated_bytes: 20,
+                },
+                CachePurgeIssueSummary {
+                    status: CachePurgeEntryStatus::Failed,
+                    reason_code: CachePurgeEntryReason::DeleteFailed,
+                    entries: 1,
+                    estimated_bytes: 7,
+                },
+            ]
+        );
     }
 }

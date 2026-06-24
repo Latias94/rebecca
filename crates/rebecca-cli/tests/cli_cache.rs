@@ -36,6 +36,12 @@ fn cache_purge_json_defaults_to_preview_without_deleting() {
     assert_eq!(value["summary"]["deleted_entries"], 0);
     assert_eq!(value["summary"]["estimated_bytes"], 5);
     assert_eq!(value["summary"]["reclaimed_bytes"], 0);
+    assert!(
+        value["summary"]["issue_matrix"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -93,6 +99,12 @@ fn cache_purge_yes_deletes_direct_contents_but_keeps_cache_dir() {
     assert_eq!(value["preserves_cache_dir"], true);
     assert_eq!(value["summary"]["deleted_entries"], 2);
     assert_eq!(value["summary"]["reclaimed_bytes"], 5);
+    assert!(
+        value["summary"]["issue_matrix"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
