@@ -47,6 +47,8 @@ cargo run -p rebecca-cli -- history
 cargo run -p rebecca-cli -- history --json
 
 cargo run -p rebecca-cli -- config paths
+cargo run -p rebecca-cli -- cache purge --json
+cargo run -p rebecca-cli -- cache purge --yes
 cargo run -p rebecca-cli -- doctor permissions
 cargo run -p rebecca-cli -- doctor steam
 ```
@@ -128,6 +130,11 @@ By default, Rebecca uses standard Windows user directories:
 | state dir | durable-state | preserve |
 | history file | append-only-history | preserve |
 | cache dir | rebuildable-cache | rebuildable |
+
+`rebecca cache purge` operates only on Rebecca's configured cache directory. It
+previews by default, requires `--yes` to delete direct cache contents, keeps the
+cache directory itself, and refuses to run if the cache path overlaps preserved
+configuration, state, or history paths.
 
 The config file is human-editable TOML. The current schema version is `1`; if
 `version` is omitted, Rebecca treats the file as version `1`. Unsupported

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod cache;
 mod clean;
 mod info;
 mod output;
@@ -60,6 +61,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect or purge Rebecca's own cache directory.
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommand,
+    },
     /// Inspect configuration and local state locations.
     Config {
         #[command(subcommand)]
@@ -79,6 +85,22 @@ enum ConfigCommand {
         /// Render machine-readable JSON.
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CacheCommand {
+    /// Purge Rebecca's rebuildable cache directory.
+    Purge {
+        /// Preview the purge without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Render machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// Delete rebuildable cache entries instead of previewing them.
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -124,6 +146,11 @@ fn main() -> Result<()> {
             allow_risky,
         }),
         Command::History { json } => info::print_history(json),
+        Command::Cache { command } => match command {
+            CacheCommand::Purge { dry_run, json, yes } => {
+                cache::purge(cache::CachePurgeOptions { dry_run, json, yes })
+            }
+        },
         Command::Config { command } => match command {
             ConfigCommand::Paths { json } => info::print_config_paths(json),
         },

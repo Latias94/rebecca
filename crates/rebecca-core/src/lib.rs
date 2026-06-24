@@ -1,4 +1,5 @@
 pub mod applications;
+pub mod cache;
 pub mod config;
 pub mod discovery;
 pub mod environment;

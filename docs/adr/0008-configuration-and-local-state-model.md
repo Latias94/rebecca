@@ -65,6 +65,8 @@ Use user-scoped storage by default.
   on unknown-key behavior alone.
 - Future cache cleanup can reason over the lifecycle metadata instead of
   guessing from path names.
+- `rebecca cache purge` can remove only direct contents of Rebecca's rebuildable
+  cache directory and must refuse preserved-path overlap.
 
 # Success Metrics
 
@@ -73,6 +75,7 @@ Use user-scoped storage by default.
 | Config clarity | `rebecca config paths` shows all storage locations | CLI smoke test |
 | Schema clarity | Unsupported config versions fail clearly | Core and CLI regression tests |
 | Lifecycle clarity | Cache is marked rebuildable and state/history are marked preserve | Core and CLI regression tests |
+| Cache purge safety | Purge defaults to preview, preserves cache directory, and rejects preserved-path overlap | Core and CLI regression tests |
 | Safe cache | Deleting local cache does not break configuration | Integration test |
 | Privacy | No secrets are stored in history or cache | Review checklist |
 
