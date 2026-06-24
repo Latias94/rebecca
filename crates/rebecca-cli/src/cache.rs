@@ -4,6 +4,7 @@ use anyhow::Result;
 use rebecca_core::cache::{CachePurgeMode, CachePurgeReport, purge_app_cache};
 use rebecca_core::config::load_app_paths;
 
+use crate::cache_view::CachePurgeProjection;
 use crate::output::format_bytes;
 
 #[derive(Debug)]
@@ -32,67 +33,67 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
 }
 
 fn render_cache_purge_report(report: &CachePurgeReport) -> String {
+    let projection = CachePurgeProjection::new(report);
     let mut output = String::new();
-    writeln!(output, "Rebecca cache: {}", report.cache_dir.display()).unwrap();
-    writeln!(output, "Mode: {}", mode_label(report.mode)).unwrap();
+    writeln!(output, "Rebecca cache: {}", projection.cache_dir.display()).unwrap();
+    writeln!(output, "Mode: {}", projection.mode_label).unwrap();
     writeln!(
         output,
         "Lifecycle: {} ({})",
-        report.cache_dir_lifecycle.label(),
-        report.cache_dir_retention.label()
+        projection.lifecycle_label, projection.retention_label
     )
     .unwrap();
     writeln!(
         output,
         "Cache directory exists: {}",
-        yes_no(report.cache_dir_exists)
+        projection.cache_dir_exists_label
     )
     .unwrap();
     writeln!(
         output,
         "Preserves cache directory: {}",
-        yes_no(report.preserves_cache_dir)
+        projection.preserves_cache_dir_label
     )
     .unwrap();
     writeln!(
         output,
         "Entries: {}, files: {}, directories: {}",
-        report.summary.total_entries, report.summary.files, report.summary.directories
+        projection.summary.total_entries, projection.summary.files, projection.summary.directories
     )
     .unwrap();
     writeln!(
         output,
         "Entry status: {} would delete, {} deleted, {} skipped, {} failed",
-        report.summary.would_delete_entries,
-        report.summary.deleted_entries,
-        report.summary.skipped_entries,
-        report.summary.failed_entries
+        projection.summary.would_delete_entries,
+        projection.summary.deleted_entries,
+        projection.summary.skipped_entries,
+        projection.summary.failed_entries
     )
     .unwrap();
     writeln!(
         output,
         "Estimated bytes: {} ({})",
-        report.summary.estimated_bytes,
-        format_bytes(report.summary.estimated_bytes)
+        projection.summary.estimated_bytes,
+        format_bytes(projection.summary.estimated_bytes)
     )
     .unwrap();
     writeln!(
         output,
         "Reclaimed bytes: {} ({})",
-        report.summary.reclaimed_bytes,
-        format_bytes(report.summary.reclaimed_bytes)
+        projection.summary.reclaimed_bytes,
+        format_bytes(projection.summary.reclaimed_bytes)
     )
     .unwrap();
 
-    if !report.summary.issue_matrix.is_empty() {
+    if !projection.issue_matrix().is_empty() {
         writeln!(output, "Issue matrix:").unwrap();
-        for issue in &report.summary.issue_matrix {
+        for issue in projection.issue_matrix() {
             writeln!(
                 output,
                 "- {} {}: {}, {} ({})",
-                issue.status.label(),
-                issue.reason_code.label(),
-                format_count(issue.entries, "entry", "entries"),
+                issue.status_label,
+                issue.reason_label,
+                issue.entries_label,
                 issue.estimated_bytes,
                 format_bytes(issue.estimated_bytes)
             )
@@ -100,12 +101,12 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> String {
         }
     }
 
-    if report.entries.is_empty() {
+    if projection.is_empty() {
         writeln!(output, "No cache entries found.").unwrap();
         return output;
     }
 
-    if report.mode == CachePurgeMode::DryRun {
+    if projection.show_delete_hint() {
         writeln!(
             output,
             "Run with --yes to purge these rebuildable cache entries."
@@ -114,45 +115,21 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> String {
     }
 
     writeln!(output, "Cache entries:").unwrap();
-    for entry in &report.entries {
-        let reason = entry
-            .reason
-            .as_deref()
-            .map(|reason| format!(" - {reason}"))
-            .unwrap_or_default();
+    for entry in projection.entries() {
         writeln!(
             output,
             "- {}: {} ({}; {} file(s), {} dir(s)){}",
-            entry.status.label(),
+            entry.status_label,
             entry.path.display(),
             format_bytes(entry.estimated_bytes),
             entry.files,
             entry.directories,
-            reason
+            entry.reason_suffix
         )
         .unwrap();
     }
 
     output
-}
-
-fn mode_label(mode: CachePurgeMode) -> &'static str {
-    match mode {
-        CachePurgeMode::DryRun => "dry-run",
-        CachePurgeMode::Delete => "delete",
-    }
-}
-
-fn yes_no(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
-}
-
-fn format_count(value: usize, singular: &str, plural: &str) -> String {
-    if value == 1 {
-        format!("1 {singular}")
-    } else {
-        format!("{value} {plural}")
-    }
 }
 
 #[cfg(test)]

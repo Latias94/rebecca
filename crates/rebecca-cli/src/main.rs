@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use std::num::NonZeroUsize;
 
 mod cache;
+mod cache_view;
 mod clean;
 mod history_view;
 mod info;
