@@ -6,12 +6,10 @@ mod isolated;
 
 fn steam_dry_run_json_output(
     temp: &tempfile::TempDir,
-    case: common::steam::SteamRuleCase,
+    case: &common::steam::SteamRuleCase,
 ) -> serde_json::Value {
     let steam = temp.path().join("Steam");
-    let target = steam.join(case.relative_path);
-    fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("cache.bin"), case.bytes).unwrap();
+    case.write_fixture(&steam);
 
     let mut command = isolated::isolated_rebecca(temp);
     command.env("REBECCA_STEAM_DISCOVERY_PATH", &steam).args([
@@ -193,7 +191,7 @@ fn clean_dry_run_accepts_no_progress_flag() {
 
 #[test]
 fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
-    for case in common::steam::STEAM_INSTALL_RULE_CASES.iter().copied() {
+    for case in common::steam::STEAM_INSTALL_RULE_CASES {
         let temp = tempfile::tempdir().unwrap();
         let value = steam_dry_run_json_output(&temp, case);
         assert_eq!(value["summary"]["total_targets"], 1, "{}", case.rule_id);

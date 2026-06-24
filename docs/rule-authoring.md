@@ -44,7 +44,8 @@ files. Keep each rule small, explicit, and easy to audit.
 - Current Steam discovery-backed rules are intentionally narrow: an install-root
   cache rule may target `appcache\httpcache`, `appcache\download`,
   `appcache\librarycache`, `appcache\shadercache`, `appcache\stats`,
-  `config\avatarcache`, `depotcache`, or `logs`, and library-root cache rules may target
+  `appcache\appinfo.vdf`, `config\avatarcache`, `depotcache`, or `logs`, and
+  library-root cache rules may target
   `steamapps\shadercache`, `steamapps\downloading`, or `steamapps\temp`.
 - Cargo cache rules should target cache subdirectories under `%CARGO_HOME%`
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never

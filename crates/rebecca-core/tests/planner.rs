@@ -447,13 +447,10 @@ fn steam_plan(
 
 #[test]
 fn steam_install_rule_expands_from_application_discovery() {
-    for case in common::steam::STEAM_INSTALL_RULE_CASES.iter().copied() {
+    for case in common::steam::STEAM_INSTALL_RULE_CASES {
         let fixture = PlannerFixture::new();
         let install_path = fixture.root.join(common::steam::STEAM_INSTALL_FIXTURE_ROOT);
-        let target = Path::new(common::steam::STEAM_INSTALL_FIXTURE_ROOT)
-            .join(case.relative_path)
-            .join("cache.bin");
-        fixture.write(target, case.bytes);
+        case.write_fixture(&install_path);
         let plan = steam_plan(&fixture, case.rule_id, case.allow_moderate, Vec::new());
 
         assert_eq!(plan.summary.allowed_targets, 1, "{}", case.rule_id);
@@ -466,7 +463,7 @@ fn steam_install_rule_expands_from_application_discovery() {
         );
         assert_eq!(
             plan.targets[0].path,
-            install_path.join(case.relative_path),
+            case.target_path(&install_path),
             "{}",
             case.rule_id
         );
@@ -527,20 +524,12 @@ fn steam_rules_skip_without_application_discovery() {
 
 #[test]
 fn steam_library_rule_expands_from_application_discovery() {
-    for case in common::steam::STEAM_LIBRARY_RULE_CASES.iter().copied() {
+    for case in common::steam::STEAM_LIBRARY_RULE_CASES {
         let fixture = PlannerFixture::new();
         let install_path = fixture.root.join(common::steam::STEAM_INSTALL_FIXTURE_ROOT);
         let library_path = fixture.root.join(common::steam::STEAM_LIBRARY_FIXTURE_ROOT);
-        let install_target = Path::new(common::steam::STEAM_INSTALL_FIXTURE_ROOT)
-            .join(case.relative_path)
-            .join("111")
-            .join("cache.bin");
-        let library_target = Path::new(common::steam::STEAM_LIBRARY_FIXTURE_ROOT)
-            .join(case.relative_path)
-            .join("222")
-            .join("cache.bin");
-        fixture.write(install_target, case.bytes);
-        fixture.write(library_target, case.bytes);
+        case.write_fixture(&install_path);
+        case.write_fixture(&library_path);
         let plan = steam_plan(
             &fixture,
             case.rule_id,

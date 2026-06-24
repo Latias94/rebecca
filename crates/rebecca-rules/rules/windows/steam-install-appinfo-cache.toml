@@ -1,0 +1,16 @@
+id = "windows.steam-install-appinfo-cache"
+platform = "windows"
+category = "application"
+name = "Steam install appinfo cache"
+safety_level = "safe"
+delete_policy = "recycle-bin"
+restore_hint = "Steam app metadata will be rebuilt on launch."
+
+[[targets]]
+kind = "steam-install-template"
+value = "appcache\\appinfo.vdf"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the Steam install root appcache\\appinfo.vdf cache file, which stores disposable application metadata. The rule targets only the cache file and intentionally avoids userdata, steamapps, and broader appcache metadata."
