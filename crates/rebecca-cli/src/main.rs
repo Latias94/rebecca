@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 
 mod cache;
 mod clean;
+mod history_view;
 mod info;
 mod output;
 mod scan;

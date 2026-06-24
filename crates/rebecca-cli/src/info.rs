@@ -7,12 +7,11 @@ use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
 use rebecca_core::config::{AppPaths, load_app_paths};
-use rebecca_core::history::{HistoryEntry, HistoryStore};
+use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::CleanupIssueSummary;
 
+use crate::history_view::{HistoryAggregateSummary, HistoryProjection, HistoryRunHighlight};
 use crate::output::{format_bytes, format_issue_matrix_entry, restore_hint_suffix};
-
-const HISTORY_LARGEST_RUN_LIMIT: usize = 3;
 
 fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
     serde_json::json!({
@@ -28,23 +27,23 @@ fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
 pub fn print_history(json: bool, limit: Option<NonZeroUsize>) -> Result<()> {
     let paths = load_app_paths()?;
     let store = HistoryStore::new(paths.history_file);
-    let entries = recent_history_entries(store.load()?, limit);
+    let history = HistoryProjection::new(store.load()?, limit);
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&entries)?);
+        println!("{}", serde_json::to_string_pretty(history.entries())?);
         return Ok(());
     }
 
-    if entries.is_empty() {
+    if history.is_empty() {
         println!("No cleanup history found.");
         return Ok(());
     }
 
-    println!("Cleanup history: {} run(s)", entries.len());
-    print_history_summary(&entries);
-    print_largest_history_runs(&entries);
+    println!("Cleanup history: {} run(s)", history.entries().len());
+    print_history_summary(history.summary());
+    print_largest_history_runs(history.largest_runs());
 
-    for entry in entries {
+    for entry in history.entries() {
         println!(
             "- {}: {} completed, {} failed, {} pending bytes{}",
             entry.recorded_at_unix_seconds,
@@ -64,66 +63,7 @@ pub fn print_history(json: bool, limit: Option<NonZeroUsize>) -> Result<()> {
     Ok(())
 }
 
-fn recent_history_entries(
-    mut entries: Vec<HistoryEntry>,
-    limit: Option<NonZeroUsize>,
-) -> Vec<HistoryEntry> {
-    let Some(limit) = limit else {
-        return entries;
-    };
-
-    let limit = limit.get();
-    if entries.len() <= limit {
-        return entries;
-    }
-
-    entries.split_off(entries.len() - limit)
-}
-
-#[derive(Debug, Default)]
-struct HistoryAggregateSummary {
-    runs: usize,
-    completed_targets: usize,
-    skipped_targets: usize,
-    blocked_targets: usize,
-    failed_targets: usize,
-    freed_bytes: u64,
-    pending_reclaim_bytes: u64,
-}
-
-impl HistoryAggregateSummary {
-    fn from_entries(entries: &[HistoryEntry]) -> Self {
-        let mut summary = Self::default();
-
-        for entry in entries {
-            summary.runs = summary.runs.saturating_add(1);
-            summary.completed_targets = summary
-                .completed_targets
-                .saturating_add(entry.summary.completed_targets);
-            summary.skipped_targets = summary
-                .skipped_targets
-                .saturating_add(entry.summary.skipped_targets);
-            summary.blocked_targets = summary
-                .blocked_targets
-                .saturating_add(entry.summary.blocked_targets);
-            summary.failed_targets = summary
-                .failed_targets
-                .saturating_add(entry.summary.failed_targets);
-            summary.freed_bytes = summary
-                .freed_bytes
-                .saturating_add(entry.summary.freed_bytes);
-            summary.pending_reclaim_bytes = summary
-                .pending_reclaim_bytes
-                .saturating_add(entry.summary.pending_reclaim_bytes);
-        }
-
-        summary
-    }
-}
-
-fn print_history_summary(entries: &[HistoryEntry]) {
-    let summary = HistoryAggregateSummary::from_entries(entries);
-
+fn print_history_summary(summary: &HistoryAggregateSummary) {
     println!();
     println!("History summary:");
     println!("  Runs: {}", summary.runs);
@@ -144,55 +84,25 @@ fn print_history_summary(entries: &[HistoryEntry]) {
     println!();
 }
 
-fn print_largest_history_runs(entries: &[HistoryEntry]) {
-    let mut runs = entries
-        .iter()
-        .filter(|entry| history_cleanup_bytes(entry) > 0)
-        .collect::<Vec<_>>();
-
+fn print_largest_history_runs(runs: &[HistoryRunHighlight]) {
     if runs.is_empty() {
         return;
     }
 
-    runs.sort_by(|left, right| {
-        history_cleanup_bytes(right)
-            .cmp(&history_cleanup_bytes(left))
-            .then_with(|| right.summary.freed_bytes.cmp(&left.summary.freed_bytes))
-            .then_with(|| {
-                right
-                    .summary
-                    .pending_reclaim_bytes
-                    .cmp(&left.summary.pending_reclaim_bytes)
-            })
-            .then_with(|| {
-                right
-                    .recorded_at_unix_seconds
-                    .cmp(&left.recorded_at_unix_seconds)
-            })
-    });
-
     println!("Largest cleanup runs:");
-    for entry in runs.into_iter().take(HISTORY_LARGEST_RUN_LIMIT) {
-        let total_bytes = history_cleanup_bytes(entry);
+    for run in runs {
         println!(
             "  - {}: {} ({}) total, {} ({}) freed, {} ({}) pending reclaim",
-            entry.recorded_at_unix_seconds,
-            total_bytes,
-            format_bytes(total_bytes),
-            entry.summary.freed_bytes,
-            format_bytes(entry.summary.freed_bytes),
-            entry.summary.pending_reclaim_bytes,
-            format_bytes(entry.summary.pending_reclaim_bytes)
+            run.recorded_at_unix_seconds,
+            run.total_bytes,
+            format_bytes(run.total_bytes),
+            run.freed_bytes,
+            format_bytes(run.freed_bytes),
+            run.pending_reclaim_bytes,
+            format_bytes(run.pending_reclaim_bytes)
         );
     }
     println!();
-}
-
-fn history_cleanup_bytes(entry: &HistoryEntry) -> u64 {
-    entry
-        .summary
-        .freed_bytes
-        .saturating_add(entry.summary.pending_reclaim_bytes)
 }
 
 fn print_history_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
