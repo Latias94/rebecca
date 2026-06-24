@@ -4,13 +4,13 @@ use rebecca_core::applications::ApplicationDiscovery;
 use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
-use rebecca_core::config::default_app_paths;
+use rebecca_core::config::load_app_paths;
 use rebecca_core::history::HistoryStore;
 
 use crate::output::restore_hint_suffix;
 
 pub fn print_history(json: bool) -> Result<()> {
-    let paths = default_app_paths()?;
+    let paths = load_app_paths()?;
     let store = HistoryStore::new(paths.history_file);
     let entries = store.load()?;
 
@@ -45,7 +45,7 @@ pub fn print_history(json: bool) -> Result<()> {
 }
 
 pub fn print_config_paths(json: bool) -> Result<()> {
-    let paths = default_app_paths()?;
+    let paths = load_app_paths()?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&paths)?);

@@ -141,8 +141,11 @@ pub enum RebeccaError {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("toml error: {0}")]
-    Toml(#[from] toml::de::Error),
+    #[error("config read failed at {path}: {message}")]
+    ConfigRead { path: PathBuf, message: String },
+
+    #[error("config parse failed at {path}: {message}")]
+    ConfigParse { path: PathBuf, message: String },
 
     #[error("could not locate the current user's standard directories")]
     UserDirsUnavailable,

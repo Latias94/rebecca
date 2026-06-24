@@ -1,4 +1,9 @@
+use std::fs;
+
 mod common;
+use rebecca_core::history::HistoryStore;
+use rebecca_core::plan::{CleanupPlan, CleanupTarget};
+use rebecca_core::{DeleteMode, PlanRequest, Platform, TargetStatus};
 #[path = "common/isolated.rs"]
 mod isolated;
 
@@ -29,6 +34,131 @@ fn config_paths_json_is_parseable() {
             .unwrap()
             .contains("history.jsonl")
     );
+}
+
+#[test]
+fn config_paths_json_respects_config_file_overrides() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        r#"
+[app_paths]
+state_dir = "C:\\Rebecca\\State"
+cache_dir = "C:\\Rebecca\\Cache"
+history_file = "C:\\Rebecca\\State\\audit.jsonl"
+"#,
+    )
+    .unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env_remove("REBECCA_STATE_DIR")
+        .env_remove("REBECCA_CACHE_DIR")
+        .env_remove("REBECCA_HISTORY_FILE")
+        .args(["config", "paths", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        value["state_dir"]
+            .as_str()
+            .unwrap()
+            .ends_with(r"Rebecca\State")
+    );
+    assert!(
+        value["cache_dir"]
+            .as_str()
+            .unwrap()
+            .ends_with(r"Rebecca\Cache")
+    );
+    assert!(
+        value["history_file"]
+            .as_str()
+            .unwrap()
+            .ends_with(r"Rebecca\State\audit.jsonl")
+    );
+}
+
+#[test]
+fn config_paths_reports_malformed_config_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("config.toml"), "[app_paths\n").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["config", "paths"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("config parse failed"));
+    assert!(stderr.contains("config.toml"));
+}
+
+#[test]
+fn history_uses_config_file_overrides() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().join("rebecca-config");
+    let history_path = temp.path().join("custom-state").join("audit.jsonl");
+    fs::create_dir_all(&config_dir).unwrap();
+    if let Some(parent) = history_path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(
+        config_dir.join("config.toml"),
+        format!(
+            r#"
+[app_paths]
+history_file = '{}'
+"#,
+            history_path.display()
+        ),
+    )
+    .unwrap();
+
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    let mut target = CleanupTarget::allowed(
+        "windows.user-temp",
+        std::path::PathBuf::from(r"C:\Temp\file.tmp"),
+        10,
+        DeleteMode::RecycleBin,
+    );
+    target.status = TargetStatus::Completed;
+    target.pending_reclaim_bytes = 10;
+    plan.targets.push(target);
+    plan.recompute_summary();
+    HistoryStore::new(history_path.clone())
+        .append_plan(&plan)
+        .unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env_remove("REBECCA_HISTORY_FILE")
+        .args(["history", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value.as_array().unwrap().len(), 1);
 }
 
 #[test]

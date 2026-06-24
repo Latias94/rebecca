@@ -87,8 +87,9 @@ The starter catalog intentionally stays small and lives in
 Rule authoring notes live in [`docs/rule-authoring.md`](docs/rule-authoring.md).
 
 Rule metadata includes platform, category, safety level, delete policy, restore
-hint, and provenance. Human `scan`, `clean`, and `history` views surface
-restore hints when available, and the JSON forms preserve the same field for
+hint, and provenance. Built-in rules use `source = "owned"` with
+`license = "project-owned"`. Human `scan`, `clean`, and `history` views surface
+restore hints when available, and the JSON forms preserve those fields for
 script consumers. The catalog is embedded from TOML files and validated before
 it reaches the CLI. Reference projects under `repo-ref/` are research inputs;
 their GPL code and cleaner definitions are not copied into Rebecca.
@@ -119,7 +120,10 @@ By default, Rebecca uses standard Windows user directories:
 - cache: `%LOCALAPPDATA%\Rebecca\cache`
 - history: `%LOCALAPPDATA%\Rebecca\state\history.jsonl`
 
-For tests or constrained environments, these can be overridden:
+The config file is human-editable TOML. The `app_paths` section can override the
+state, cache, and history locations.
+
+For tests or constrained environments, these paths can also be overridden:
 
 - `REBECCA_CONFIG_DIR`
 - `REBECCA_STATE_DIR`
