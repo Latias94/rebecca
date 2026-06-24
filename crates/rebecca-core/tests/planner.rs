@@ -7,6 +7,7 @@ mod common;
 use rebecca_core::applications::{
     NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
+use rebecca_core::config::AppPaths;
 use rebecca_core::environment::MapEnvironment;
 use rebecca_core::plan::{CleanupPlan, CleanupTargetIssueReason};
 use rebecca_core::planner::{
@@ -117,6 +118,85 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
         plan.summary.issue_matrix[0].reason_code,
         CleanupTargetIssueReason::DuplicateTargetPath
     );
+}
+
+#[test]
+fn planner_blocks_targets_overlapping_rebecca_owned_storage() {
+    let fixture = PlannerFixture::new();
+    let app_paths = app_paths_for_fixture(&fixture);
+    fixture.write("rebecca-cache/scan/cache.json", b"cached");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-rebecca-cache",
+        app_paths.cache_dir.join("scan"),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let storage_entries = app_paths.storage_entries();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_protected_storage(&storage_entries),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 1);
+    assert_eq!(plan.summary.allowed_targets, 0);
+    assert_eq!(plan.summary.blocked_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("Rebecca-owned Cache dir")
+    );
+    assert_eq!(
+        plan.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::SafetyPolicyBlocked
+    );
+}
+
+#[test]
+fn planner_blocks_targets_from_custom_rebecca_storage_paths() {
+    let fixture = PlannerFixture::new();
+    let mut app_paths = app_paths_for_fixture(&fixture);
+    app_paths.state_dir = fixture.root.join("custom-state");
+    app_paths.history_file = app_paths.state_dir.join("history.jsonl");
+    fixture.write("custom-state/history.jsonl", b"history");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-rebecca-state",
+        app_paths.state_dir.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let storage_entries = app_paths.storage_entries();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_protected_storage(&storage_entries),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.blocked_targets, 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    let reason = plan.targets[0].reason.as_deref().unwrap();
+    assert!(reason.contains("Rebecca-owned State dir"));
+    assert!(reason.contains("custom-state"));
 }
 
 #[test]
@@ -1206,6 +1286,16 @@ fn custom_risky_rule() -> RuleDefinition {
             license: "project-owned".to_string(),
             notes: "test rule".to_string(),
         },
+    }
+}
+
+fn app_paths_for_fixture(fixture: &PlannerFixture) -> AppPaths {
+    AppPaths {
+        config_dir: fixture.root.join("rebecca-config"),
+        config_file: fixture.root.join("rebecca-config").join("config.toml"),
+        state_dir: fixture.root.join("rebecca-state"),
+        cache_dir: fixture.root.join("rebecca-cache"),
+        history_file: fixture.root.join("rebecca-state").join("history.jsonl"),
     }
 }
 

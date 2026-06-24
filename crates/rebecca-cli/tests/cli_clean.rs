@@ -119,6 +119,75 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
 }
 
 #[test]
+fn clean_dry_run_blocks_rebecca_storage_targets_from_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&temp_cache).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        format!(
+            r#"
+version = 1
+
+[app_paths]
+cache_dir = '{}'
+"#,
+            temp_cache.display()
+        ),
+    )
+    .unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env_remove("REBECCA_CACHE_DIR")
+        .env("TEMP", &temp_cache)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.user-temp",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["blocked_targets"], 1);
+    assert!(
+        value["summary"]["issue_matrix"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["status"] == "blocked"
+                && issue["reason_code"] == "safety-policy-blocked"
+                && issue["targets"] == 1)
+    );
+
+    let blocked = value["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|target| target["status"] == "blocked")
+        .expect("expected a blocked Rebecca-owned storage target");
+    assert_eq!(blocked["reason_code"], "safety-policy-blocked");
+    assert!(
+        blocked["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Rebecca-owned Cache dir")
+    );
+    assert!(temp_cache.join("cache.tmp").exists());
+}
+
+#[test]
 fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
     let temp = tempfile::tempdir().unwrap();
     let local = temp.path().join("local");

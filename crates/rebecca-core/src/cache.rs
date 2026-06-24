@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
 use crate::error::{RebeccaError, Result};
+use crate::path_overlap::paths_overlap;
 use crate::scan::measure_path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -400,35 +401,6 @@ fn delete_cache_entry(path: &Path, kind: CachePurgeEntryKind) -> std::io::Result
         CachePurgeEntryKind::Directory => std::fs::remove_dir_all(path),
         CachePurgeEntryKind::Symlink | CachePurgeEntryKind::Other => Ok(()),
     }
-}
-
-fn paths_overlap(left: &Path, right: &Path) -> bool {
-    same_or_child_path(left, right) || same_or_child_path(right, left)
-}
-
-fn same_or_child_path(parent: &Path, child: &Path) -> bool {
-    let parent = comparable_components(parent);
-    let child = comparable_components(child);
-    !parent.is_empty() && child.len() >= parent.len() && child.starts_with(&parent)
-}
-
-fn comparable_components(path: &Path) -> Vec<String> {
-    path.components()
-        .filter_map(|component| match component {
-            Component::Prefix(prefix) => Some(prefix.as_os_str().to_string_lossy().into_owned()),
-            Component::RootDir => Some(std::path::MAIN_SEPARATOR.to_string()),
-            Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
-            Component::ParentDir => Some("..".to_string()),
-            Component::CurDir => None,
-        })
-        .map(|component| {
-            if cfg!(windows) {
-                component.to_ascii_lowercase()
-            } else {
-                component
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]

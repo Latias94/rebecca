@@ -131,6 +131,8 @@ history.
 
 Cleanup rules must not target Rebecca's own config, state, history, or cache
 paths. Rebecca-owned cache cleanup goes through `rebecca cache purge`.
+`rebecca clean` now enforces that boundary in code and blocks any target that
+overlaps Rebecca-owned storage.
 
 ## History And Privacy
 
