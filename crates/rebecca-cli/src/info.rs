@@ -6,8 +6,9 @@ use rebecca_core::applications::{
 };
 use rebecca_core::config::{AppPaths, load_app_paths};
 use rebecca_core::history::HistoryStore;
+use rebecca_core::plan::CleanupIssueSummary;
 
-use crate::output::restore_hint_suffix;
+use crate::output::{format_issue_matrix_entry, restore_hint_suffix};
 
 fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
     serde_json::json!({
@@ -50,9 +51,21 @@ pub fn print_history(json: bool) -> Result<()> {
                     .filter_map(|target| target.restore_hint.as_deref())
             )
         );
+        print_history_issue_matrix(&entry.summary.issue_matrix);
     }
 
     Ok(())
+}
+
+fn print_history_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
+    if issue_matrix.is_empty() {
+        return;
+    }
+
+    println!("  Issue matrix:");
+    for issue in issue_matrix {
+        println!("  - {}", format_issue_matrix_entry(issue));
+    }
 }
 
 pub fn print_config_paths(json: bool) -> Result<()> {

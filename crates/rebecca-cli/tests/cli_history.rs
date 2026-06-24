@@ -2,7 +2,7 @@ use std::fs;
 
 mod common;
 use rebecca_core::history::HistoryEntry;
-use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
+use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::{DeleteMode, PlanRequest, Platform, TargetStatus};
 #[path = "common/isolated.rs"]
 mod isolated;
@@ -177,4 +177,45 @@ fn history_human_output_lists_restore_hints() {
     assert!(stdout.contains(
         "[restore: Temporary files can be recreated.; Steam web caches will be rebuilt on launch.]"
     ));
+}
+
+#[test]
+fn history_human_output_lists_saved_issue_matrix() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    if let Some(parent) = history_path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+
+    let mut plan = CleanupPlan {
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun),
+        summary: CleanupSummary::default(),
+        targets: vec![CleanupTarget::skipped_with_reason_code(
+            "windows.user-temp",
+            std::path::PathBuf::from(r"C:\Temp\cache.tmp"),
+            DeleteMode::DryRun,
+            CleanupTargetIssueReason::DuplicateTargetPath,
+            "duplicate target path",
+        )],
+    };
+    plan.recompute_summary();
+
+    let entry = HistoryEntry::from_plan(&plan);
+    std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Cleanup history: 1 run(s)"));
+    assert!(stdout.contains("Issue matrix:"));
+    assert!(stdout.contains("- skipped duplicate-target-path: 1 target, 0 (0 B)"));
 }

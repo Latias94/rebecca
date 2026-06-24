@@ -24,9 +24,10 @@ Rebecca is designed to preview before deleting.
 - Moderate rules require `--allow-moderate`; risky and dangerous rules require `--allow-risky`.
 - Dry-run human output highlights the largest estimated targets first and then
   groups the full target list by status.
-- Cleanup plan JSON and human output include stable `reason_code` and
-  `issue_matrix` diagnostics for skipped, blocked, and failed targets, while
-  preserving the detailed human-readable `reason` text.
+- Cleanup plans persist stable `reason_code` and `issue_matrix` diagnostics
+  for skipped, blocked, and failed targets; human `clean` and `history` output
+  surface the issue matrix while preserving the detailed human-readable
+  `reason` text.
 - Human `clean` commands show target-level and file-level scan progress by
   default, and honor `Ctrl+C` to cancel plan building; use `--no-progress` for
   quiet terminal logs. When `--scan-cache` is enabled, human progress also

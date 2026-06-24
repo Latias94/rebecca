@@ -195,6 +195,17 @@ fn print_target_line(target: &CleanupTarget, prefix: &str) {
     );
 }
 
+pub(crate) fn format_issue_matrix_entry(issue: &CleanupIssueSummary) -> String {
+    format!(
+        "{} {}: {}, {} ({})",
+        issue.status.label(),
+        issue.reason_code.label(),
+        format_count(issue.targets as u64, "target", "targets"),
+        issue.estimated_bytes,
+        format_bytes(issue.estimated_bytes)
+    )
+}
+
 fn print_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
     if issue_matrix.is_empty() {
         return;
@@ -203,14 +214,7 @@ fn print_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {
     println!();
     println!("Issue matrix:");
     for issue in issue_matrix {
-        println!(
-            "- {} {}: {}, {} ({})",
-            issue.status.label(),
-            issue.reason_code.label(),
-            format_count(issue.targets as u64, "target", "targets"),
-            issue.estimated_bytes,
-            format_bytes(issue.estimated_bytes)
-        );
+        println!("- {}", format_issue_matrix_entry(issue));
     }
 }
 
