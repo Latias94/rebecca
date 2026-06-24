@@ -106,7 +106,8 @@ hint, and provenance. Built-in rules use `source = "owned"` with
 `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface
 restore hints when available, and the JSON forms preserve those fields for
 script consumers. Human `history` output also summarizes the current history
-window by result counts and cleanup bytes. The catalog is embedded from TOML
+window by result counts and cleanup bytes, and highlights the largest cleanup
+runs for quick review. The catalog is embedded from TOML
 files and validated before it reaches the CLI. Reference projects under
 `repo-ref/` are research inputs; their GPL code and cleaner definitions are not
 copied into Rebecca.

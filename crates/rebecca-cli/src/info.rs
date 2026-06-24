@@ -12,6 +12,8 @@ use rebecca_core::plan::CleanupIssueSummary;
 
 use crate::output::{format_bytes, format_issue_matrix_entry, restore_hint_suffix};
 
+const HISTORY_LARGEST_RUN_LIMIT: usize = 3;
+
 fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
     serde_json::json!({
         "config_dir": &paths.config_dir,
@@ -40,6 +42,7 @@ pub fn print_history(json: bool, limit: Option<NonZeroUsize>) -> Result<()> {
 
     println!("Cleanup history: {} run(s)", entries.len());
     print_history_summary(&entries);
+    print_largest_history_runs(&entries);
 
     for entry in entries {
         println!(
@@ -139,6 +142,57 @@ fn print_history_summary(entries: &[HistoryEntry]) {
         format_bytes(summary.pending_reclaim_bytes)
     );
     println!();
+}
+
+fn print_largest_history_runs(entries: &[HistoryEntry]) {
+    let mut runs = entries
+        .iter()
+        .filter(|entry| history_cleanup_bytes(entry) > 0)
+        .collect::<Vec<_>>();
+
+    if runs.is_empty() {
+        return;
+    }
+
+    runs.sort_by(|left, right| {
+        history_cleanup_bytes(right)
+            .cmp(&history_cleanup_bytes(left))
+            .then_with(|| right.summary.freed_bytes.cmp(&left.summary.freed_bytes))
+            .then_with(|| {
+                right
+                    .summary
+                    .pending_reclaim_bytes
+                    .cmp(&left.summary.pending_reclaim_bytes)
+            })
+            .then_with(|| {
+                right
+                    .recorded_at_unix_seconds
+                    .cmp(&left.recorded_at_unix_seconds)
+            })
+    });
+
+    println!("Largest cleanup runs:");
+    for entry in runs.into_iter().take(HISTORY_LARGEST_RUN_LIMIT) {
+        let total_bytes = history_cleanup_bytes(entry);
+        println!(
+            "  - {}: {} ({}) total, {} ({}) freed, {} ({}) pending reclaim",
+            entry.recorded_at_unix_seconds,
+            total_bytes,
+            format_bytes(total_bytes),
+            entry.summary.freed_bytes,
+            format_bytes(entry.summary.freed_bytes),
+            entry.summary.pending_reclaim_bytes,
+            format_bytes(entry.summary.pending_reclaim_bytes)
+        );
+    }
+    println!();
+}
+
+fn history_cleanup_bytes(entry: &HistoryEntry) -> u64 {
+    entry
+        .summary
+        .freed_bytes
+        .saturating_add(entry.summary.pending_reclaim_bytes)
 }
 
 fn print_history_issue_matrix(issue_matrix: &[CleanupIssueSummary]) {

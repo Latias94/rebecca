@@ -330,6 +330,106 @@ fn history_human_output_includes_aggregate_summary() {
 }
 
 #[test]
+fn history_human_output_highlights_largest_cleanup_runs() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(
+        &history_path,
+        &[
+            history_entry_with_summary(
+                10,
+                CleanupSummary {
+                    freed_bytes: 100,
+                    pending_reclaim_bytes: 0,
+                    ..CleanupSummary::default()
+                },
+            ),
+            history_entry_with_summary(
+                20,
+                CleanupSummary {
+                    freed_bytes: 0,
+                    pending_reclaim_bytes: 400,
+                    ..CleanupSummary::default()
+                },
+            ),
+            history_entry_with_summary(
+                30,
+                CleanupSummary {
+                    freed_bytes: 200,
+                    pending_reclaim_bytes: 100,
+                    ..CleanupSummary::default()
+                },
+            ),
+            history_entry_with_summary(
+                40,
+                CleanupSummary {
+                    freed_bytes: 0,
+                    pending_reclaim_bytes: 200,
+                    ..CleanupSummary::default()
+                },
+            ),
+            history_entry_with_summary(50, CleanupSummary::default()),
+        ],
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Largest cleanup runs:"));
+    assert!(
+        stdout.contains("  - 20: 400 (400 B) total, 0 (0 B) freed, 400 (400 B) pending reclaim")
+    );
+    assert!(
+        stdout
+            .contains("  - 30: 300 (300 B) total, 200 (200 B) freed, 100 (100 B) pending reclaim")
+    );
+    assert!(
+        stdout.contains("  - 40: 200 (200 B) total, 0 (0 B) freed, 200 (200 B) pending reclaim")
+    );
+    assert!(!stdout.contains("  - 10:"));
+    assert!(!stdout.contains("  - 50:"));
+    assert!(stdout.find("  - 20:").unwrap() < stdout.find("  - 30:").unwrap());
+    assert!(stdout.find("  - 30:").unwrap() < stdout.find("  - 40:").unwrap());
+}
+
+#[test]
+fn history_human_output_omits_largest_runs_when_cleanup_bytes_are_zero() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(
+        &history_path,
+        &[
+            history_entry_with_summary(10, CleanupSummary::default()),
+            history_entry_with_summary(20, CleanupSummary::default()),
+        ],
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("History summary:"));
+    assert!(!stdout.contains("Largest cleanup runs:"));
+}
+
+#[test]
 fn history_human_limit_shows_most_recent_entries_in_chronological_order() {
     let temp = tempfile::tempdir().unwrap();
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
@@ -358,10 +458,14 @@ fn history_human_limit_shows_most_recent_entries_in_chronological_order() {
     assert!(stdout.contains("Runs: 2"));
     assert!(stdout.contains("Completed targets: 2"));
     assert!(stdout.contains("Pending reclaim bytes: 50 (50 B)"));
+    assert!(stdout.contains("Largest cleanup runs:"));
+    assert!(stdout.contains("  - 30:"));
+    assert!(stdout.contains("  - 20:"));
+    assert!(!stdout.contains("  - 10:"));
     assert!(!stdout.contains("- 10:"));
     assert!(stdout.contains("- 20:"));
     assert!(stdout.contains("- 30:"));
-    assert!(stdout.find("- 20:").unwrap() < stdout.find("- 30:").unwrap());
+    assert!(stdout.find("\n- 20:").unwrap() < stdout.find("\n- 30:").unwrap());
 }
 
 #[test]
