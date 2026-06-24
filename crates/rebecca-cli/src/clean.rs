@@ -2,14 +2,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use indicatif::ProgressBar;
-use rebecca_core::config::default_app_paths;
+use rebecca_core::config::load_app_paths;
 use rebecca_core::executor::execute_cleanup_plan;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::CleanupPlan;
-use rebecca_core::planner::{
-    PlanProgressEvent, build_cleanup_plan_with_environment_applications_progress_and_cancellation,
-};
+use rebecca_core::planner::{PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context};
 use rebecca_core::scan::ScanCancellationToken;
+use rebecca_core::scan_cache::ScanCacheStore;
 use rebecca_core::{DeleteMode, PlanRequest, Platform};
 
 use crate::output::format_bytes;
@@ -22,6 +21,7 @@ pub struct CleanOptions {
     pub json: bool,
     pub yes: bool,
     pub no_progress: bool,
+    pub scan_cache: bool,
     pub categories: Vec<String>,
     pub rules: Vec<String>,
     pub allow_moderate: bool,
@@ -46,12 +46,25 @@ pub fn run(options: CleanOptions) -> Result<()> {
     install_cancellation_handler(cancellation.clone())?;
     let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
     let applications = info::steam_application_discovery();
-    let plan_result = build_cleanup_plan_with_environment_applications_progress_and_cancellation(
+    let app_paths = if options.scan_cache || !options.dry_run {
+        Some(load_app_paths()?)
+    } else {
+        None
+    };
+    let scan_cache_store = app_paths
+        .as_ref()
+        .filter(|_| options.scan_cache)
+        .map(ScanCacheStore::from_app_paths);
+    let mut context = PlanBuildContext::new(&cancellation);
+    if let Some(store) = &scan_cache_store {
+        context = context.with_scan_cache(store);
+    }
+    let plan_result = build_cleanup_plan_with_context(
         &request,
         &catalog,
         &SystemEnvironment,
         applications.as_ref(),
-        &cancellation,
+        context,
         |event| progress.on_event(event),
     );
     progress.finish();
@@ -93,7 +106,10 @@ pub fn run(options: CleanOptions) -> Result<()> {
         let backend = rebecca_windows::WindowsRecycleBinBackend::new();
         execute_cleanup_plan(&mut plan, &backend)?;
 
-        let paths = default_app_paths()?;
+        let paths = match app_paths {
+            Some(paths) => paths,
+            None => load_app_paths()?,
+        };
         HistoryStore::new(paths.history_file).append_plan(&plan)?;
 
         output::print_plan(&plan, options.json)

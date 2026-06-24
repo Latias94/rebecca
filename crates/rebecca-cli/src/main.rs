@@ -42,6 +42,9 @@ enum Command {
         /// Disable human progress output while building the cleanup plan.
         #[arg(long)]
         no_progress: bool,
+        /// Use the rebuildable scan cache for eligible target estimates.
+        #[arg(long)]
+        scan_cache: bool,
         /// Include a category. Can be repeated.
         #[arg(long = "category")]
         categories: Vec<String>,
@@ -131,6 +134,7 @@ fn main() -> Result<()> {
             json,
             yes,
             no_progress,
+            scan_cache,
             categories,
             rules,
             allow_moderate,
@@ -140,6 +144,7 @@ fn main() -> Result<()> {
             json,
             yes,
             no_progress,
+            scan_cache,
             categories,
             rules,
             allow_moderate,

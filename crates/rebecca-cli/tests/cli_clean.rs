@@ -190,6 +190,78 @@ fn clean_dry_run_accepts_no_progress_flag() {
 }
 
 #[test]
+fn clean_dry_run_does_not_write_scan_cache_by_default_for_file_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let explorer = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Windows")
+        .join("Explorer");
+    fs::create_dir_all(&explorer).unwrap();
+    fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.thumbnail-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["estimated_bytes"], 5);
+    assert!(!temp.path().join("rebecca-cache").join("scan").exists());
+}
+
+#[test]
+fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let explorer = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Windows")
+        .join("Explorer");
+    fs::create_dir_all(&explorer).unwrap();
+    fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.thumbnail-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["estimated_bytes"], 5);
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_entries = fs::read_dir(scan_cache_dir).unwrap().count();
+    assert_eq!(cache_entries, 1);
+}
+
+#[test]
 fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
     for case in common::steam::STEAM_INSTALL_RULE_CASES {
         let temp = tempfile::tempdir().unwrap();

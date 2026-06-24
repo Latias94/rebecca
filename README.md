@@ -27,6 +27,10 @@ Rebecca is designed to preview before deleting.
 - Human `clean` commands show target-level and file-level scan progress by
   default, and honor `Ctrl+C` to cancel plan building; use `--no-progress` for
   quiet terminal logs. JSON output never emits progress.
+- `clean --scan-cache` explicitly enables the rebuildable scan cache for
+  eligible regular-file targets. Cache misses, stale records, corrupted
+  records, and cache-write failures are treated as soft rebuilds. Directory
+  targets still scan normally until a stronger invalidation rule exists.
 
 ## Usage
 
@@ -39,6 +43,7 @@ cargo run -p rebecca-cli -- scan --rule windows.thumbnail-cache
 cargo run -p rebecca-cli -- clean --dry-run
 cargo run -p rebecca-cli -- clean --dry-run --json --category system
 cargo run -p rebecca-cli -- clean --dry-run --no-progress --rule windows.edge-cache
+cargo run -p rebecca-cli -- clean --dry-run --json --scan-cache --rule windows.thumbnail-cache
 cargo run -p rebecca-cli -- clean --dry-run --json --allow-moderate --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --dry-run --json --allow-risky --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --yes --category system
@@ -136,11 +141,13 @@ previews by default, requires `--yes` to delete direct cache contents, keeps the
 cache directory itself, and refuses to run if the cache path overlaps preserved
 configuration, state, or history paths.
 
-Future scan-cache records use a versioned JSON format under the rebuildable
-cache directory's `scan` subdirectory. The current v1 contract stores the
-scanned root path, a root metadata fingerprint, the scan report, and the write
-time; missing, corrupted, stale, or unsupported-version records are treated as
-cache misses and can be rebuilt.
+Scan-cache records use a versioned JSON format under the rebuildable cache
+directory's `scan` subdirectory. The current v1 contract stores the scanned
+root path, a root metadata fingerprint, the scan report, and the write time.
+`clean --scan-cache` explicitly enables planner use of eligible regular-file
+records. Missing, corrupted, stale, or unsupported-version records are treated
+as cache misses and can be rebuilt. Directory-target reuse is deferred until a
+stronger invalidation rule exists.
 
 The config file is human-editable TOML. The current schema version is `1`; if
 `version` is omitted, Rebecca treats the file as version `1`. Unsupported

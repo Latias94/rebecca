@@ -4,16 +4,20 @@ use std::path::PathBuf;
 
 mod common;
 
-use rebecca_core::applications::{StaticApplicationDiscovery, SteamInstallation};
+use rebecca_core::applications::{
+    NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
+};
 use rebecca_core::environment::MapEnvironment;
 use rebecca_core::plan::CleanupPlan;
 use rebecca_core::planner::{
-    PlanProgressEvent, build_cleanup_plan_with_environment,
-    build_cleanup_plan_with_environment_and_applications,
+    PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
+    build_cleanup_plan_with_environment, build_cleanup_plan_with_environment_and_applications,
     build_cleanup_plan_with_environment_and_progress,
     build_cleanup_plan_with_environment_and_progress_and_cancellation,
 };
 use rebecca_core::scan::ScanCancellationToken;
+use rebecca_core::scan::ScanReport;
+use rebecca_core::scan_cache::{ScanCacheLookup, ScanCacheStore};
 use rebecca_core::{
     DeleteMode, DeletePolicy, PlanRequest, Platform, RebeccaError, RuleDefinition, RuleProvenance,
     RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
@@ -198,6 +202,182 @@ fn planner_cancellation_stops_plan_build_during_file_scan() {
     .unwrap_err();
 
     assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+}
+
+#[test]
+fn planner_does_not_use_scan_cache_unless_context_enables_it() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/cached.tmp", b"abc");
+    let path = fixture.root.join("temp").join("cached.tmp");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-file-cache",
+        path.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    cache
+        .store(
+            &path,
+            ScanReport {
+                bytes_scanned: 99,
+                files_scanned: 1,
+                directories_scanned: 0,
+            },
+        )
+        .unwrap();
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.estimated_bytes, 3);
+}
+
+#[test]
+fn planner_uses_scan_cache_when_context_enables_it_for_file_targets() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/cached.tmp", b"abc");
+    let path = fixture.root.join("temp").join("cached.tmp");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-file-cache",
+        path.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    cache
+        .store(
+            &path,
+            ScanReport {
+                bytes_scanned: 99,
+                files_scanned: 1,
+                directories_scanned: 0,
+            },
+        )
+        .unwrap();
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut file_events = 0;
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
+        |event| {
+            if matches!(event, PlanProgressEvent::FileMeasured { .. }) {
+                file_events += 1;
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.estimated_bytes, 99);
+    assert_eq!(file_events, 0);
+}
+
+#[test]
+fn planner_writes_scan_cache_when_context_enables_it_for_file_targets() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/cached.tmp", b"abc");
+    let path = fixture.root.join("temp").join("cached.tmp");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-file-cache",
+        path.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(
+        cache.load(&path),
+        ScanCacheLookup::Hit(ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        })
+    );
+}
+
+#[test]
+fn planner_does_not_reuse_scan_cache_for_directory_targets() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/cached/a.tmp", b"abc");
+    let path = fixture.root.join("temp").join("cached");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-dir-cache",
+        path.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    cache
+        .store(
+            &path,
+            ScanReport {
+                bytes_scanned: 99,
+                files_scanned: 1,
+                directories_scanned: 1,
+            },
+        )
+        .unwrap();
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut file_events = 0;
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
+        |event| {
+            if matches!(event, PlanProgressEvent::FileMeasured { .. }) {
+                file_events += 1;
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(file_events, 1);
+}
+
+#[test]
+fn planner_treats_scan_cache_write_failure_as_soft() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/cached.tmp", b"abc");
+    fixture.write("cache-file", b"not a directory");
+    let path = fixture.root.join("temp").join("cached.tmp");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-file-cache",
+        path.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cache = ScanCacheStore::new(fixture.root.join("cache-file"));
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.estimated_bytes, 3);
 }
 
 #[test]
@@ -846,6 +1026,24 @@ fn dry_run_and_recycle_bin_share_target_set() {
             .iter()
             .all(|target| target.mode == DeleteMode::RecycleBin)
     );
+}
+
+fn custom_exact_path_rule(id: &str, path: PathBuf) -> RuleDefinition {
+    RuleDefinition {
+        id: id.to_string(),
+        platform: Platform::Windows,
+        category: "system".to_string(),
+        name: "Custom exact path rule".to_string(),
+        safety_level: SafetyLevel::Safe,
+        path_templates: vec![RuleTargetSpec::ExactPath(path)],
+        delete_policy: DeletePolicy::RecycleBin,
+        restore_hint: Some("The target can be rebuilt.".to_string()),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
+        },
+    }
 }
 
 fn custom_risky_rule() -> RuleDefinition {

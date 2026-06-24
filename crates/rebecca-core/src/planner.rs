@@ -8,7 +8,10 @@ use crate::error::{RebeccaError, Result};
 use crate::model::{PlanRequest, Platform, RuleDefinition};
 use crate::plan::{CleanupPlan, CleanupTarget};
 use crate::safety::{PathDisposition, assess_existing_path};
-use crate::scan::{ScanCancellationToken, ScanProgressEvent, measure_path_size_with_progress};
+use crate::scan::{
+    ScanCancellationToken, ScanProgressEvent, ScanReport, measure_path_with_progress,
+};
+use crate::scan_cache::{ScanCacheLookup, ScanCacheStore};
 
 #[derive(Debug, Clone, Copy)]
 pub enum PlanProgressEvent<'a> {
@@ -30,6 +33,34 @@ pub enum PlanProgressEvent<'a> {
         files_scanned: u64,
         bytes_scanned: u64,
     },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PlanBuildContext<'a> {
+    cancellation: &'a ScanCancellationToken,
+    scan_cache: Option<&'a ScanCacheStore>,
+}
+
+impl<'a> PlanBuildContext<'a> {
+    pub fn new(cancellation: &'a ScanCancellationToken) -> Self {
+        Self {
+            cancellation,
+            scan_cache: None,
+        }
+    }
+
+    pub fn with_scan_cache(mut self, scan_cache: &'a ScanCacheStore) -> Self {
+        self.scan_cache = Some(scan_cache);
+        self
+    }
+
+    pub fn cancellation(&self) -> &'a ScanCancellationToken {
+        self.cancellation
+    }
+
+    pub fn scan_cache(&self) -> Option<&'a ScanCacheStore> {
+        self.scan_cache
+    }
 }
 
 pub fn build_cleanup_plan(request: &PlanRequest, rules: &[RuleDefinition]) -> Result<CleanupPlan> {
@@ -111,12 +142,12 @@ where
     E: Environment,
     A: ApplicationDiscovery + ?Sized,
 {
-    build_cleanup_plan_with_environment_applications_progress_and_cancellation(
+    build_cleanup_plan_with_context(
         request,
         rules,
         env,
         applications,
-        &ScanCancellationToken::new(),
+        PlanBuildContext::new(&ScanCancellationToken::new()),
         |_| {},
     )
 }
@@ -127,6 +158,29 @@ pub fn build_cleanup_plan_with_environment_applications_progress_and_cancellatio
     env: &E,
     applications: &A,
     cancellation: &ScanCancellationToken,
+    progress: F,
+) -> Result<CleanupPlan>
+where
+    E: Environment,
+    A: ApplicationDiscovery + ?Sized,
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
+    build_cleanup_plan_with_context(
+        request,
+        rules,
+        env,
+        applications,
+        PlanBuildContext::new(cancellation),
+        progress,
+    )
+}
+
+pub fn build_cleanup_plan_with_context<E, A, F>(
+    request: &PlanRequest,
+    rules: &[RuleDefinition],
+    env: &E,
+    applications: &A,
+    context: PlanBuildContext<'_>,
     mut progress: F,
 ) -> Result<CleanupPlan>
 where
@@ -225,7 +279,7 @@ where
 
                 match assess_existing_path(&expanded) {
                     PathDisposition::Allowed => {
-                        match measure_path_size_with_progress(&expanded, cancellation, |event| {
+                        match measure_path_with_optional_scan_cache(&expanded, context, |event| {
                             match event {
                                 ScanProgressEvent::FileMeasured {
                                     path,
@@ -244,7 +298,8 @@ where
                                 }
                             }
                         }) {
-                            Ok(size) => {
+                            Ok(report) => {
+                                let size = report.bytes_scanned;
                                 let target = CleanupTarget::allowed(
                                     rule.id.clone(),
                                     expanded,
@@ -301,6 +356,51 @@ where
     plan.targets = candidates;
     plan.recompute_summary();
     Ok(plan)
+}
+
+fn measure_path_with_optional_scan_cache<F>(
+    path: &Path,
+    context: PlanBuildContext<'_>,
+    progress: F,
+) -> Result<ScanReport>
+where
+    F: for<'a> FnMut(ScanProgressEvent<'a>),
+{
+    if context.cancellation().is_cancelled() {
+        return Err(RebeccaError::OperationCancelled(
+            "scan was cancelled".to_string(),
+        ));
+    }
+
+    let cacheable_file = context.scan_cache().is_some() && is_regular_file(path);
+    if cacheable_file {
+        if let Some(store) = context.scan_cache() {
+            if let ScanCacheLookup::Hit(report) = store.load(path) {
+                return Ok(report);
+            }
+        }
+    }
+
+    let report = measure_path_with_progress(path, context.cancellation(), progress)?;
+    if cacheable_file {
+        if let Some(store) = context.scan_cache() {
+            if let Err(err) = store.store(path, report) {
+                tracing::debug!(
+                    path = %path.display(),
+                    error = %err,
+                    "scan cache write skipped"
+                );
+            }
+        }
+    }
+
+    Ok(report)
+}
+
+fn is_regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
 }
 
 fn emit_target_finished<F>(progress: &mut F, target: &CleanupTarget)
