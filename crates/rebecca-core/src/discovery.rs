@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 
 use globset::{GlobBuilder, GlobMatcher};
 
-use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery, SteamInstallation};
+use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery};
 use crate::environment::Environment;
 use crate::error::{RebeccaError, Result};
 use crate::model::RuleTargetSpec;
@@ -75,20 +75,6 @@ where
     }
 }
 
-fn resolve_with_steam_installation<A, F>(applications: &A, resolve: F) -> Result<TargetResolution>
-where
-    A: ApplicationDiscovery + ?Sized,
-    F: FnOnce(&SteamInstallation) -> Result<TargetResolution>,
-{
-    let Some(steam) = applications.steam_installation()? else {
-        return Ok(TargetResolution::Skipped(
-            "Steam installation was not discovered".to_string(),
-        ));
-    };
-
-    resolve(&steam)
-}
-
 fn resolve_steam_relative_target<A>(
     applications: &A,
     template: &crate::PathTemplate,
@@ -99,44 +85,28 @@ fn resolve_steam_relative_target<A>(
 where
     A: ApplicationDiscovery + ?Sized,
 {
-    resolve_with_steam_installation(applications, |steam| match scope {
-        SteamRootScope::InstallOnly => resolve_steam_relative_targets(
-            std::iter::once(steam.install_path()),
-            template,
-            env,
-            skipped_message,
-        ),
-        SteamRootScope::IncludeLibraries => resolve_steam_relative_targets(
-            std::iter::once(steam.install_path())
-                .chain(steam.library_paths().iter().map(PathBuf::as_path)),
-            template,
-            env,
-            skipped_message,
-        ),
-    })
-}
+    let Some(steam) = applications.steam_installation()? else {
+        return Ok(TargetResolution::Skipped(
+            "Steam installation was not discovered".to_string(),
+        ));
+    };
 
-fn resolve_steam_relative_targets<'a, I>(
-    roots: I,
-    template: &crate::PathTemplate,
-    env: &impl Environment,
-    skipped_message: &str,
-) -> Result<TargetResolution>
-where
-    I: IntoIterator<Item = &'a Path>,
-{
+    let roots = match scope {
+        SteamRootScope::InstallOnly => vec![steam.install_path()],
+        SteamRootScope::IncludeLibraries => std::iter::once(steam.install_path())
+            .chain(steam.library_paths().iter().map(PathBuf::as_path))
+            .collect(),
+    };
+
     let Some(relative) = expand_template(template, env)? else {
         return Ok(TargetResolution::Skipped(skipped_message.to_string()));
     };
 
     ensure_safe_relative_steam_target(&relative)?;
 
-    let mut paths = Vec::new();
-    for root in roots {
-        paths.push(root.join(&relative));
-    }
-
-    Ok(TargetResolution::Paths(paths))
+    Ok(TargetResolution::Paths(
+        roots.into_iter().map(|root| root.join(&relative)).collect(),
+    ))
 }
 
 #[derive(Debug, Clone, Copy)]
