@@ -14,6 +14,7 @@ data categories, rule governance, history/audit behavior, and known limitations.
 Rebecca uses Mole as a safety-posture benchmark: prefer bounded cleanup, preview
 before deleting, block sensitive data categories, and keep the safety model
 auditable. Rebecca does not copy Mole implementation code or rule definitions.
+Security reporting guidance lives in the repository root `SECURITY.md`.
 
 ## Executive Summary
 
@@ -37,11 +38,11 @@ The current design is safety-first:
   codes, issue matrices, target-scoped issue reasons, and restore hints. It
   does not store file contents.
 
-The largest remaining product gap is guardrailed catalog expansion under this
-safety model. The core destructive-operation boundaries, execution
-revalidation, catalog target-shape validation, and protected-result audit
-round-trip are in place; future cleanup families still need to prove they stay
-inside those boundaries.
+The core destructive-operation boundaries, execution revalidation, catalog
+target-shape validation, protected-result audit round-trip, and first
+guardrailed catalog expansion batch are in place. Future cleanup families must
+continue to prove they stay inside those boundaries, but no remaining
+cleanup-system safety gap blocks the current Mole-like Windows-first scope.
 
 ## Threat Surface
 
@@ -217,10 +218,8 @@ Recent targeted verification for this audit baseline:
   updates before new rules are considered complete.
 - Protected category coverage is conservative but not exhaustive for all Windows
   applications.
-- Release artifact attestations, installer integrity, and supply-chain signals
-  are outside the current cleanup-safety slice.
-- Rebecca does not yet have a dedicated public `SECURITY.md` vulnerability
-  reporting policy.
+- Release artifact attestations and installer integrity remain future
+  distribution-layer work beyond the current cleanup-safety slice.
 
-These gaps are tracked by
-`docs/plans/2026-06-24-018-refactor-mole-parity-safety-governance-plan.md`.
+The U8 completion review is recorded in
+`docs/knowledge/engineering/verification/2026-06-24-mole-parity-completion-review.md`.

@@ -42,6 +42,8 @@ Rebecca is designed to preview before deleting.
 The current destructive-operation boundary and known safety gaps are documented
 in [Rebecca Cleanup Safety Audit](docs/security-audit.md).
 
+Security reporting guidance lives in [SECURITY.md](SECURITY.md).
+
 ## Usage
 
 ```powershell
