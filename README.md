@@ -148,9 +148,11 @@ Scan-cache records use a versioned JSON format under the rebuildable cache
 directory's `scan` subdirectory. The current v1 contract stores the scanned
 root path, a root metadata fingerprint, the scan report, and the write time.
 `clean --scan-cache` explicitly enables planner use of eligible regular-file
-records and freshness-bounded directory records. Missing, corrupted, stale,
-expired, or unsupported-version records are treated as cache misses and can be
-rebuilt.
+records and freshness-bounded directory records. Directory freshness is
+governed by an internal policy seam with a current 5-minute default, so the
+window can evolve without changing the on-disk record format. Missing,
+corrupted, stale, expired, or unsupported-version records are treated as cache
+misses and can be rebuilt.
 
 The config file is human-editable TOML. The current schema version is `1`; if
 `version` is omitted, Rebecca treats the file as version `1`. Unsupported

@@ -71,7 +71,9 @@ Use user-scoped storage by default.
   under `cache_dir\scan` for regular-file targets and directory targets with
   fresh records. Missing, corrupted, stale, expired, or unsupported-version
   records are cache misses, not hard failures. Directory target cache reuse is
-  freshness-bounded so stale trees fall back to a full scan.
+  freshness-bounded so stale trees fall back to a full scan. The freshness
+  window is governed by an internal policy seam with a current 5-minute
+  default, rather than by hard-coded record validation logic.
 - Human `clean` output can summarize scan-cache hits, misses, and skipped
   writes as build diagnostics. Cleanup plan JSON remains a cleanup-result
   contract and does not include scan-cache diagnostic counters.

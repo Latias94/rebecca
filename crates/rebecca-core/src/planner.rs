@@ -11,7 +11,7 @@ use crate::safety::{PathDisposition, assess_existing_path};
 use crate::scan::{
     ScanCancellationToken, ScanProgressEvent, ScanReport, measure_path_with_progress,
 };
-use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss, ScanCacheStore};
+use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore};
 
 #[derive(Debug, Clone, Copy)]
 pub enum PlanProgressEvent<'a> {
@@ -53,6 +53,7 @@ pub enum PlanProgressEvent<'a> {
 pub struct PlanBuildContext<'a> {
     cancellation: &'a ScanCancellationToken,
     scan_cache: Option<&'a ScanCacheStore>,
+    scan_cache_policy: ScanCachePolicy,
 }
 
 impl<'a> PlanBuildContext<'a> {
@@ -60,11 +61,17 @@ impl<'a> PlanBuildContext<'a> {
         Self {
             cancellation,
             scan_cache: None,
+            scan_cache_policy: ScanCachePolicy::default(),
         }
     }
 
     pub fn with_scan_cache(mut self, scan_cache: &'a ScanCacheStore) -> Self {
         self.scan_cache = Some(scan_cache);
+        self
+    }
+
+    pub fn with_scan_cache_policy(mut self, scan_cache_policy: ScanCachePolicy) -> Self {
+        self.scan_cache_policy = scan_cache_policy;
         self
     }
 
@@ -74,6 +81,10 @@ impl<'a> PlanBuildContext<'a> {
 
     pub fn scan_cache(&self) -> Option<&'a ScanCacheStore> {
         self.scan_cache
+    }
+
+    pub fn scan_cache_policy(&self) -> ScanCachePolicy {
+        self.scan_cache_policy
     }
 }
 
@@ -411,7 +422,7 @@ where
     let cacheable_target = context.scan_cache().is_some() && is_cacheable_scan_target(path);
     if cacheable_target {
         if let Some(store) = context.scan_cache() {
-            match store.load(path) {
+            match store.load_with_policy(path, context.scan_cache_policy()) {
                 ScanCacheLookup::Hit(report) => {
                     progress(PathMeasureProgressEvent::ScanCacheHit { report });
                     return Ok(report);

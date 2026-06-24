@@ -17,7 +17,7 @@ use rebecca_core::planner::{
 };
 use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::scan::ScanReport;
-use rebecca_core::scan_cache::{ScanCacheLookup, ScanCacheStore};
+use rebecca_core::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 use rebecca_core::{
     DeleteMode, DeletePolicy, PlanRequest, Platform, RebeccaError, RuleDefinition, RuleProvenance,
     RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
@@ -409,7 +409,7 @@ fn planner_uses_scan_cache_when_context_enables_it_for_directory_targets() {
 }
 
 #[test]
-fn planner_rebuilds_expired_scan_cache_for_directory_targets() {
+fn planner_rebuilds_expired_scan_cache_for_directory_targets_with_policy() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/cached/a.tmp", b"abc");
     let path = fixture.root.join("temp").join("cached");
@@ -419,6 +419,7 @@ fn planner_rebuilds_expired_scan_cache_for_directory_targets() {
     )];
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    let policy = ScanCachePolicy::new(1);
     let mut record = cache
         .store(
             &path,
@@ -445,7 +446,9 @@ fn planner_rebuilds_expired_scan_cache_for_directory_targets() {
         &rules,
         &fixture.env,
         &applications,
-        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
+        PlanBuildContext::new(&cancellation)
+            .with_scan_cache(&cache)
+            .with_scan_cache_policy(policy),
         |event| match event {
             PlanProgressEvent::FileMeasured { .. } => {
                 file_events += 1;
