@@ -3,7 +3,6 @@ platform = "windows"
 category = "development"
 name = "Visual Studio Code cache"
 safety_level = "moderate"
-delete_policy = "recycle-bin"
 restore_hint = "Editor caches will be rebuilt on launch."
 
 [[targets]]

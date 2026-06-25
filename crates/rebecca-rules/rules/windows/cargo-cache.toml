@@ -3,7 +3,6 @@ platform = "windows"
 category = "development"
 name = "Cargo dependency cache"
 safety_level = "moderate"
-delete_policy = "recycle-bin"
 restore_hint = "Cargo may need to redownload registry and git dependencies."
 
 [[targets]]

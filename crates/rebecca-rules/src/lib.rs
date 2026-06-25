@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use rebecca_core::{
-    DeletePolicy, Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleSource,
-    RuleTargetSpec, SafetyLevel,
+    Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
+    SafetyLevel,
     planner::validate_rule_catalog,
     protection::{ProtectionAssessment, ProtectionPolicy},
 };
@@ -146,7 +146,6 @@ struct CatalogRule {
     category: String,
     name: String,
     safety_level: SafetyLevel,
-    delete_policy: DeletePolicy,
     restore_hint: Option<String>,
     targets: Vec<CatalogTarget>,
     provenance: RuleProvenance,
@@ -165,7 +164,6 @@ impl CatalogRule {
                 .into_iter()
                 .map(CatalogTarget::into_rule_target_spec)
                 .collect(),
-            delete_policy: self.delete_policy,
             restore_hint: self.restore_hint,
             provenance: self.provenance,
         }
@@ -199,8 +197,7 @@ mod tests {
     use std::collections::HashSet;
 
     use rebecca_core::{
-        DeletePolicy, Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
-        SafetyLevel,
+        Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel,
     };
 
     use super::{builtin_rules, parse_rule_file};
@@ -268,7 +265,6 @@ mod tests {
             name: "Test".to_string(),
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
             provenance: RuleProvenance {
                 source: RuleSource::ReferenceOnly,
@@ -330,7 +326,6 @@ platform = "windows"
 category = "system"
 name = "Test"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 unexpected = "field"
 
 [[targets]]
@@ -358,7 +353,6 @@ platform = "windows"
 category = "system"
 name = "Exact"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 
 [[targets]]
 kind = "exact-path"
@@ -389,7 +383,6 @@ platform = "windows"
 category = "browser"
 name = "Glob"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 
 [[targets]]
 kind = "glob-template"
@@ -419,7 +412,6 @@ platform = "windows"
 category = "application"
 name = "Steam test"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 
 [[targets]]
 kind = "steam-install-template"
@@ -456,7 +448,6 @@ notes = "test"
             name: "Test".to_string(),
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: None,
             provenance: RuleProvenance {
                 source: RuleSource::Owned,
@@ -478,7 +469,6 @@ notes = "test"
             name: "Test".to_string(),
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
             provenance: RuleProvenance {
                 source: RuleSource::Owned,
@@ -492,25 +482,33 @@ notes = "test"
     }
 
     #[test]
-    fn builtin_catalog_rejects_non_windows_platforms() {
-        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
-            id: "linux.test".to_string(),
-            platform: Platform::Linux,
-            category: "system".to_string(),
-            name: "Test".to_string(),
-            safety_level: SafetyLevel::Safe,
-            path_templates: vec![RuleTargetSpec::template("/tmp")],
-            delete_policy: DeletePolicy::RecycleBin,
-            restore_hint: Some("Regenerated automatically.".to_string()),
-            provenance: RuleProvenance {
-                source: RuleSource::Owned,
-                license: "project-owned".to_string(),
-                notes: "test".to_string(),
-            },
-        }])
+    fn catalog_parser_rejects_non_windows_platforms() {
+        let err = parse_rule_file(
+            "test.toml",
+            r#"
+id = "linux.test"
+platform = "linux"
+category = "system"
+name = "Test"
+safety_level = "safe"
+
+[[targets]]
+kind = "template"
+value = "/tmp"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "test"
+"#,
+        )
         .unwrap_err();
 
-        assert!(err.to_string().contains("Windows platform"));
+        let message = err.to_string();
+        assert!(
+            message.contains("unknown variant") || message.contains("invalid value"),
+            "{message}"
+        );
     }
 
     #[test]
@@ -522,7 +520,6 @@ notes = "test"
             name: "Test".to_string(),
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
             provenance: RuleProvenance {
                 source: RuleSource::Owned,
@@ -574,7 +571,6 @@ notes = "test"
             name: "Test".to_string(),
             safety_level: SafetyLevel::Safe,
             path_templates: vec![target],
-            delete_policy: DeletePolicy::RecycleBin,
             restore_hint: Some("Regenerated automatically.".to_string()),
             provenance: RuleProvenance {
                 source: RuleSource::Owned,

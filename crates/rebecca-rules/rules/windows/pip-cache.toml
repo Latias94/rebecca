@@ -3,7 +3,6 @@ platform = "windows"
 category = "development"
 name = "pip cache"
 safety_level = "moderate"
-delete_policy = "recycle-bin"
 restore_hint = "Python packages may need to be downloaded again."
 
 [[targets]]

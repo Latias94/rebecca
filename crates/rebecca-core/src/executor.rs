@@ -82,19 +82,3 @@ fn mark_target_blocked_by_policy(target: &mut CleanupTarget, reason: String) {
     target.freed_bytes = 0;
     target.pending_reclaim_bytes = 0;
 }
-
-pub fn recycle_bin_outcome(estimated_bytes: u64) -> ExecutionOutcome {
-    ExecutionOutcome {
-        freed_bytes: 0,
-        pending_reclaim_bytes: estimated_bytes,
-        note: Some("moved to Recycle Bin".to_string()),
-    }
-}
-
-pub fn permanent_delete_outcome(estimated_bytes: u64) -> ExecutionOutcome {
-    ExecutionOutcome {
-        freed_bytes: estimated_bytes,
-        pending_reclaim_bytes: 0,
-        note: Some("permanently deleted".to_string()),
-    }
-}

@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam install library cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Steam library artwork and metadata will be rebuilt on launch."
 
 [[targets]]

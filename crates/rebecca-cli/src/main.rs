@@ -118,8 +118,6 @@ enum CacheCommand {
 enum DoctorCommand {
     /// Print the current Windows privilege level when available.
     Permissions,
-    /// Print the Steam installation and library discovery results when available.
-    Steam,
 }
 
 fn main() -> Result<()> {
@@ -168,9 +166,6 @@ fn main() -> Result<()> {
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Permissions => info::print_privilege_level(),
-            DoctorCommand::Steam => {
-                info::print_steam_discovery(&*info::steam_application_discovery())
-            }
         },
     }
 }

@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam library shader cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Steam shader caches will be rebuilt by Steam and games."
 
 [[targets]]

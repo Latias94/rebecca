@@ -219,10 +219,6 @@ pub struct CleanupPlan {
 }
 
 impl CleanupPlan {
-    pub fn new(mode: DeleteMode) -> Self {
-        Self::empty(PlanRequest::new(mode))
-    }
-
     pub fn empty(request: PlanRequest) -> Self {
         Self {
             request,

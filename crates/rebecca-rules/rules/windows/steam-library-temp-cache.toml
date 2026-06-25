@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam library temp cache"
 safety_level = "moderate"
-delete_policy = "recycle-bin"
 restore_hint = "Steam temporary staging data will be recreated if needed."
 
 [[targets]]

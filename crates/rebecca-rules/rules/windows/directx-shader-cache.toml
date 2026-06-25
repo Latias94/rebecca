@@ -3,7 +3,6 @@ platform = "windows"
 category = "system"
 name = "DirectX shader cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Shader cache that will be regenerated."
 
 [[targets]]

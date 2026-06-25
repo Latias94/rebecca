@@ -18,8 +18,8 @@ pub mod scan_cache;
 
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use model::{
-    DeleteMode, DeletePolicy, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance,
-    RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
+    DeleteMode, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSelection,
+    RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 pub use plan::{
     CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason,

@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam install appinfo cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Steam app metadata will be rebuilt on launch."
 
 [[targets]]

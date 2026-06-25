@@ -177,27 +177,6 @@ pub fn print_privilege_level() -> Result<()> {
     Ok(())
 }
 
-pub fn print_steam_discovery(discovery: &dyn ApplicationDiscovery) -> Result<()> {
-    match discovery.steam_installation()? {
-        Some(installation) => {
-            println!("Steam install: {}", installation.install_path().display());
-            if installation.library_paths().is_empty() {
-                println!("Steam libraries: none discovered");
-            } else {
-                println!("Steam libraries:");
-                for path in installation.library_paths() {
-                    println!("- {}", path.display());
-                }
-            }
-        }
-        None => {
-            println!("Steam install: not discovered");
-        }
-    }
-
-    Ok(())
-}
-
 pub fn steam_application_discovery() -> Box<dyn ApplicationDiscovery> {
     if let Some(applications) = steam_application_discovery_override() {
         return applications;

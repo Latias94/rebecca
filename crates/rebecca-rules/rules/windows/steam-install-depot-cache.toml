@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam install depot cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Steam depot cache will be rebuilt when Steam runs again."
 
 [[targets]]

@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Steam web caches will be rebuilt on launch."
 
 [[targets]]

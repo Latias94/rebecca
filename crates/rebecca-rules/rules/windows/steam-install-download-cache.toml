@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam install download cache"
 safety_level = "moderate"
-delete_policy = "recycle-bin"
 restore_hint = "Steam download staging data will be recreated if needed."
 
 [[targets]]

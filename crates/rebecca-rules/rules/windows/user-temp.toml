@@ -3,7 +3,6 @@ platform = "windows"
 category = "system"
 name = "User temporary files"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Temporary files owned by the current user."
 
 [[targets]]

@@ -251,7 +251,6 @@ fn test_rule(id: &str) -> RuleDefinition {
         name: "Test rule".to_string(),
         safety_level: SafetyLevel::Safe,
         path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-        delete_policy: rebecca_core::DeletePolicy::RecycleBin,
         restore_hint: Some("Regenerated automatically.".to_string()),
         provenance: RuleProvenance {
             source: RuleSource::Owned,

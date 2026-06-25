@@ -222,10 +222,9 @@ fn doctor_permissions_prints_permission_label() {
 }
 
 #[test]
-fn doctor_steam_prints_discovery_status() {
-    let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
-        .args(["doctor", "steam"])
+fn doctor_help_omits_steam_command() {
+    let output = common::command::rebecca()
+        .args(["doctor", "--help"])
         .output()
         .unwrap();
 
@@ -235,42 +234,6 @@ fn doctor_steam_prints_discovery_status() {
         common::support::stderr(&output)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Steam install:"));
-}
-
-#[test]
-fn doctor_steam_prints_library_list_when_discovered() {
-    let temp = tempfile::tempdir().unwrap();
-    let steam = temp.path().join("Steam");
-    let steamapps = steam.join("steamapps");
-    std::fs::create_dir_all(&steamapps).unwrap();
-    std::fs::write(
-        steamapps.join("libraryfolders.vdf"),
-        r#"
-"libraryfolders"
-{
-    "0"
-    {
-        "path"      "D:\\SteamLibrary"
-    }
-}
-"#,
-    )
-    .unwrap();
-
-    let output = isolated::isolated_rebecca(&temp)
-        .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
-        .env("LOCALAPPDATA", temp.path().join("local"))
-        .args(["doctor", "steam"])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Steam libraries:"));
-    assert!(stdout.contains(r"D:\SteamLibrary"));
+    assert!(stdout.contains("permissions"));
+    assert!(!stdout.contains("steam"));
 }

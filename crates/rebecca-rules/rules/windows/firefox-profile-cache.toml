@@ -3,7 +3,6 @@ platform = "windows"
 category = "browser"
 name = "Firefox profile cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Firefox profile caches will be regenerated."
 
 [[targets]]

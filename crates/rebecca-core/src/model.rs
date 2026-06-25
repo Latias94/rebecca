@@ -8,20 +8,6 @@ pub use crate::path_template::PathTemplate;
 #[serde(rename_all = "kebab-case")]
 pub enum Platform {
     Windows,
-    Linux,
-    Macos,
-}
-
-impl Platform {
-    pub fn current() -> Self {
-        if cfg!(windows) {
-            Self::Windows
-        } else if cfg!(target_os = "macos") {
-            Self::Macos
-        } else {
-            Self::Linux
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,19 +40,9 @@ impl SafetyLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum DeletePolicy {
-    RecycleBin,
-    Permanent,
-    Command,
-    ReviewOnly,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
 pub enum DeleteMode {
     DryRun,
     RecycleBin,
-    Permanent,
 }
 
 impl DeleteMode {
@@ -126,11 +102,7 @@ impl RuleTargetSpec {
         }
         .replace('\\', "/");
 
-        if platform == Platform::Windows {
-            format!("{platform:?}:{}", target.to_ascii_lowercase())
-        } else {
-            format!("{platform:?}:{target}")
-        }
+        format!("{platform:?}:{}", target.to_ascii_lowercase())
     }
 }
 
@@ -204,7 +176,6 @@ pub struct RuleDefinition {
     pub name: String,
     pub safety_level: SafetyLevel,
     pub path_templates: Vec<RuleTargetSpec>,
-    pub delete_policy: DeletePolicy,
     pub restore_hint: Option<String>,
     pub provenance: RuleProvenance,
 }
@@ -221,7 +192,6 @@ pub struct RuleProvenance {
 pub enum RuleSource {
     Owned,
     ReferenceOnly,
-    UserDefined,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -235,10 +205,6 @@ pub struct PlanRequest {
 }
 
 impl PlanRequest {
-    pub fn new(mode: DeleteMode) -> Self {
-        Self::for_platform(Platform::current(), mode)
-    }
-
     pub fn for_platform(platform: Platform, mode: DeleteMode) -> Self {
         Self {
             platform,

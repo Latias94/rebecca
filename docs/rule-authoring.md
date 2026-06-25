@@ -17,7 +17,6 @@ files. Keep each rule small, explicit, and easy to audit.
 - `category`
 - `name`
 - `safety_level`
-- `delete_policy`
 - `restore_hint`
 - `targets`
 - `provenance`

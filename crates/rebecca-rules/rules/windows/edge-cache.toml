@@ -3,7 +3,6 @@ platform = "windows"
 category = "browser"
 name = "Microsoft Edge cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Browser cache that can be regenerated."
 
 [[targets]]

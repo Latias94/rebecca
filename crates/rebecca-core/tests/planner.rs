@@ -20,8 +20,8 @@ use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::scan::ScanReport;
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 use rebecca_core::{
-    DeleteMode, DeletePolicy, PlanRequest, Platform, RebeccaError, RuleDefinition, RuleProvenance,
-    RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
+    DeleteMode, PlanRequest, Platform, RebeccaError, RuleDefinition, RuleProvenance, RuleSource,
+    RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 
 #[test]
@@ -1051,7 +1051,6 @@ fn planner_expands_steam_library_targets_from_application_discovery() {
         path_templates: vec![RuleTargetSpec::steam_library_template(
             "steamapps\\shadercache",
         )],
-        delete_policy: DeletePolicy::RecycleBin,
         restore_hint: Some("Shader caches will be rebuilt.".to_string()),
         provenance: RuleProvenance {
             source: RuleSource::Owned,
@@ -1324,7 +1323,6 @@ fn custom_exact_path_rule(id: &str, path: PathBuf) -> RuleDefinition {
         name: "Custom exact path rule".to_string(),
         safety_level: SafetyLevel::Safe,
         path_templates: vec![RuleTargetSpec::ExactPath(path)],
-        delete_policy: DeletePolicy::RecycleBin,
         restore_hint: Some("The target can be rebuilt.".to_string()),
         provenance: RuleProvenance {
             source: RuleSource::Owned,
@@ -1342,7 +1340,6 @@ fn custom_risky_rule() -> RuleDefinition {
         name: "Custom risky rule".to_string(),
         safety_level: SafetyLevel::Risky,
         path_templates: vec![RuleTargetSpec::template("%TEMP%")],
-        delete_policy: DeletePolicy::RecycleBin,
         restore_hint: Some("The target can be rebuilt.".to_string()),
         provenance: RuleProvenance {
             source: RuleSource::Owned,

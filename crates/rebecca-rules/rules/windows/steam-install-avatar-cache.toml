@@ -3,7 +3,6 @@ platform = "windows"
 category = "application"
 name = "Steam install avatar cache"
 safety_level = "safe"
-delete_policy = "recycle-bin"
 restore_hint = "Steam avatar images will be rebuilt when needed."
 
 [[targets]]

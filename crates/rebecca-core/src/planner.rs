@@ -510,18 +510,14 @@ where
     });
 }
 
-fn dedupe_key(path: &Path, platform: Platform) -> String {
+fn dedupe_key(path: &Path, _platform: Platform) -> String {
     let mut normalized = path.as_os_str().to_string_lossy().replace('\\', "/");
 
     while normalized.ends_with('/') && normalized.len() > 3 {
         normalized.pop();
     }
 
-    if platform == Platform::Windows {
-        normalized.to_ascii_lowercase()
-    } else {
-        normalized
-    }
+    normalized.to_ascii_lowercase()
 }
 
 fn with_rule_restore_hint(target: CleanupTarget, rule: &RuleDefinition) -> CleanupTarget {

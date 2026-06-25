@@ -3,7 +3,6 @@ platform = "windows"
 category = "development"
 name = "JetBrains IDE cache"
 safety_level = "moderate"
-delete_policy = "recycle-bin"
 restore_hint = "JetBrains IDE caches will be rebuilt."
 
 [[targets]]

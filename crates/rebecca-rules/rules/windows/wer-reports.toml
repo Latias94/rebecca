@@ -3,7 +3,6 @@ platform = "windows"
 category = "system"
 name = "Windows Error Reporting data"
 safety_level = "moderate"
-delete_policy = "recycle-bin"
 restore_hint = "Crash reports can be recreated by future failures."
 
 [[targets]]

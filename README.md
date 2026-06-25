@@ -71,7 +71,6 @@ cargo run -p rebecca-cli -- config paths
 cargo run -p rebecca-cli -- cache purge --json
 cargo run -p rebecca-cli -- cache purge --yes
 cargo run -p rebecca-cli -- doctor permissions
-cargo run -p rebecca-cli -- doctor steam
 ```
 
 ## Install
@@ -125,8 +124,8 @@ The starter catalog intentionally stays small and lives in
 
 Rule authoring notes live in [`docs/rule-authoring.md`](docs/rule-authoring.md).
 
-Rule metadata includes platform, category, safety level, delete policy, restore
-hint, and provenance. Built-in rules use `source = "owned"` with
+Rule metadata includes platform, category, safety level, restore hint, and
+provenance. Built-in rules use `source = "owned"` with
 `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface
 restore hints when available, and the JSON forms preserve those fields for
 script consumers. Human `history` output also summarizes the current history
