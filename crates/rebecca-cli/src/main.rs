@@ -94,6 +94,9 @@ enum Command {
         /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
         #[arg(long, value_name = "DAYS")]
         min_age_days: Option<u64>,
+        /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
+        #[arg(long = "artifact", value_name = "ARTIFACT")]
+        artifacts: Vec<String>,
         /// Exclude a path from project artifact purge for this run. Can be repeated.
         #[arg(long = "exclude", value_name = "PATH")]
         exclude_paths: Vec<PathBuf>,
@@ -247,6 +250,7 @@ fn main() -> Result<()> {
             roots,
             max_depth,
             min_age_days,
+            artifacts,
             exclude_paths,
         } => purge::run(purge::PurgeOptions {
             dry_run,
@@ -257,6 +261,7 @@ fn main() -> Result<()> {
             roots,
             max_depth,
             min_age_days,
+            artifacts,
             exclude_paths,
         }),
         Command::History { json, limit } => info::print_history(json, limit),

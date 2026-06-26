@@ -46,6 +46,7 @@ fn purge_help_shows_project_artifact_options() {
     assert!(stdout.contains("--root"));
     assert!(stdout.contains("--max-depth"));
     assert!(stdout.contains("--min-age-days"));
+    assert!(stdout.contains("--artifact"));
     assert!(stdout.contains("--exclude"));
 }
 
@@ -112,6 +113,54 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
             && PathBuf::from(target["path"].as_str().unwrap())
                 .ends_with(Path::new("app").join("target"))
     }));
+}
+
+#[test]
+fn purge_json_filters_selected_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+    write_fixture_file(
+        workspace
+            .join("app")
+            .join("target")
+            .join("debug")
+            .join("app.bin"),
+        b"rust",
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--artifact",
+            "target",
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["request"]["project_artifact_selectors"][0], "target");
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["estimated_bytes"], 4);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["rule_id"], "windows.project-artifact-target");
 }
 
 #[test]
@@ -419,4 +468,28 @@ fn purge_rejects_missing_root() {
     let stderr = common::support::stderr(&output);
     assert!(stderr.contains("purge root"));
     assert!(stderr.contains("not accessible"));
+}
+
+#[test]
+fn purge_rejects_unknown_artifact_selector() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--json",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--artifact",
+            "missing-artifact",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("invalid project artifact selector"));
+    assert!(stderr.contains("missing-artifact"));
 }

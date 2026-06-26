@@ -127,6 +127,7 @@ fn cleanup_plan_serialization_preserves_project_artifacts_request_contract() {
     request.project_artifact_roots = vec![PathBuf::from(r"C:\Projects")];
     request.project_artifact_max_depth = 3;
     request.project_artifact_min_age_days = 0;
+    request.project_artifact_selectors = vec!["node_modules".to_string()];
     let plan = CleanupPlan::empty(request);
 
     let json = serde_json::to_value(&plan).expect("plan should serialize");
@@ -134,6 +135,10 @@ fn cleanup_plan_serialization_preserves_project_artifacts_request_contract() {
     assert_eq!(json["request"]["project_artifact_roots"][0], r"C:\Projects");
     assert_eq!(json["request"]["project_artifact_max_depth"], 3);
     assert_eq!(json["request"]["project_artifact_min_age_days"], 0);
+    assert_eq!(
+        json["request"]["project_artifact_selectors"][0],
+        "node_modules"
+    );
 
     let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
     assert_eq!(decoded.request.workflow, CleanupWorkflow::ProjectArtifacts);
@@ -143,6 +148,10 @@ fn cleanup_plan_serialization_preserves_project_artifacts_request_contract() {
     );
     assert_eq!(decoded.request.project_artifact_max_depth, 3);
     assert_eq!(decoded.request.project_artifact_min_age_days, 0);
+    assert_eq!(
+        decoded.request.project_artifact_selectors,
+        vec!["node_modules"]
+    );
 }
 
 #[test]

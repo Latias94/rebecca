@@ -11,7 +11,8 @@ use crate::model::{CleanupWorkflow, PlanRequest, Platform, RuleDefinition};
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::project_artifacts::{
     ProjectArtifactCandidate, ProjectArtifactScanOptions, discover_project_artifacts,
-    recently_modified_reason,
+    project_artifact_matches_selectors, recently_modified_reason,
+    validate_project_artifact_selectors,
 };
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{PathDisposition, assess_existing_path_with_policy};
@@ -462,12 +463,20 @@ pub fn build_project_artifact_plan_with_context<F>(
 where
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
+    validate_project_artifact_selectors(&request.project_artifact_selectors)?;
     let scan_options = ProjectArtifactScanOptions::new(request.project_artifact_roots.clone())
         .with_max_depth(request.project_artifact_max_depth);
     let artifacts = discover_project_artifacts(&scan_options, context.cancellation())?;
     let mut candidates = Vec::new();
 
     for artifact in artifacts {
+        if !project_artifact_matches_selectors(
+            artifact.definition,
+            &request.project_artifact_selectors,
+        ) {
+            continue;
+        }
+
         progress(PlanProgressEvent::TargetScanning {
             rule_id: artifact.definition.rule_id,
             path: &artifact.path,

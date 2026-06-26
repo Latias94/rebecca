@@ -90,6 +90,7 @@ cargo run -p rebecca-cli -- apps clean --yes
 cargo run -p rebecca-cli -- purge
 cargo run -p rebecca-cli -- purge --json --root . --max-depth 6
 cargo run -p rebecca-cli -- purge --root . --min-age-days 0
+cargo run -p rebecca-cli -- purge --root . --artifact target
 cargo run -p rebecca-cli -- purge --exclude "$PWD\target"
 cargo run -p rebecca-cli -- purge --yes --root . --scan-cache
 
@@ -218,7 +219,9 @@ Windows Recycle Bin, and `--exclude` plus `[protection].protected_paths` can
 block paths before size scanning or deletion. To avoid immediately cleaning
 active build output, `purge` skips artifact directories modified within the last
 7 days by default; pass `--min-age-days 0` to include recent artifacts
-explicitly.
+explicitly. Use repeated `--artifact <NAME>` values to include only selected
+artifact kinds, using either the directory name such as `node_modules` or a rule
+id suffix such as `target`.
 
 Long-lived purge defaults belong in `config.toml`:
 

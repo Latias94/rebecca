@@ -199,6 +199,8 @@ values. It must:
   cache targets;
 - treat `--root` values as explicit workspace boundaries that override
   configured roots for one run, rather than broad user-profile scans;
+- treat repeated `--artifact <NAME>` values as an explicit artifact-kind filter,
+  accepting directory names, full project-artifact rule ids, or rule id suffixes;
 - prune a matched artifact directory from further discovery to avoid nested
   duplicate targets;
 - route all targets through Rebecca-owned storage protection, user protected

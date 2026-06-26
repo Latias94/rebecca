@@ -223,6 +223,69 @@ pub fn project_artifact_definition_for_dir_name(name: &str) -> Option<ProjectArt
         .find(|definition| definition.directory_name.eq_ignore_ascii_case(name))
 }
 
+pub fn validate_project_artifact_selectors(selectors: &[String]) -> Result<()> {
+    for selector in selectors {
+        if selector.trim().is_empty() {
+            return Err(RebeccaError::InvalidProjectArtifactSelector(
+                "selector cannot be empty".to_string(),
+            ));
+        }
+
+        let known = all_project_artifact_definitions()
+            .any(|definition| project_artifact_matches_selector(definition, selector));
+        if !known {
+            return Err(RebeccaError::InvalidProjectArtifactSelector(
+                selector.clone(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn project_artifact_matches_selectors(
+    definition: ProjectArtifactDefinition,
+    selectors: &[String],
+) -> bool {
+    selectors.is_empty()
+        || selectors
+            .iter()
+            .any(|selector| project_artifact_matches_selector(definition, selector))
+}
+
+fn all_project_artifact_definitions() -> impl Iterator<Item = ProjectArtifactDefinition> {
+    PROJECT_ARTIFACT_DEFINITIONS
+        .iter()
+        .copied()
+        .chain(std::iter::once(CACHEDIR_TAG_DEFINITION))
+}
+
+fn project_artifact_matches_selector(
+    definition: ProjectArtifactDefinition,
+    selector: &str,
+) -> bool {
+    let selector = selector.trim();
+    if selector.eq_ignore_ascii_case(definition.rule_id)
+        || selector.eq_ignore_ascii_case(definition.directory_name)
+    {
+        return true;
+    }
+
+    let rule_suffix = definition
+        .rule_id
+        .strip_prefix("windows.project-artifact-")
+        .unwrap_or(definition.rule_id);
+    if selector.eq_ignore_ascii_case(rule_suffix) {
+        return true;
+    }
+
+    selector_alias(selector) == selector_alias(definition.directory_name)
+}
+
+fn selector_alias(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['_', '.'], "-")
+}
+
 pub fn discover_project_artifacts(
     options: &ProjectArtifactScanOptions,
     cancellation: &ScanCancellationToken,

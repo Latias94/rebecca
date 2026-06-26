@@ -18,6 +18,7 @@ pub struct PurgeOptions {
     pub roots: Vec<PathBuf>,
     pub max_depth: Option<usize>,
     pub min_age_days: Option<u64>,
+    pub artifacts: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
 }
 
@@ -36,6 +37,7 @@ pub fn run(options: PurgeOptions) -> Result<()> {
     request.project_artifact_min_age_days = options
         .min_age_days
         .unwrap_or(runtime_config.purge.min_age_days);
+    request.project_artifact_selectors = options.artifacts;
 
     run_workflow_with_runtime_config(
         WorkflowRunOptions {

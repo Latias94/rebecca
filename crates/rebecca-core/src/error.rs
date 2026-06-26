@@ -156,6 +156,9 @@ pub enum RebeccaError {
     #[error("invalid category: {0}")]
     InvalidCategory(String),
 
+    #[error("invalid project artifact selector: {0}")]
+    InvalidProjectArtifactSelector(String),
+
     #[error("invalid rule catalog: {0}")]
     RuleCatalogInvalid(String),
 
