@@ -47,7 +47,60 @@ fn purge_help_shows_project_artifact_options() {
     assert!(stdout.contains("--max-depth"));
     assert!(stdout.contains("--min-age-days"));
     assert!(stdout.contains("--artifact"));
+    assert!(stdout.contains("--list-artifacts"));
     assert!(stdout.contains("--exclude"));
+}
+
+#[test]
+fn purge_list_artifacts_human_reports_supported_selectors_without_loading_config() {
+    let temp = tempfile::tempdir().unwrap();
+    write_config(&temp, "[purge\n");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["purge", "--list-artifacts"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Supported project artifacts:"));
+    assert!(stdout.contains("node_modules"));
+    assert!(stdout.contains("node-modules"));
+    assert!(stdout.contains("windows.project-artifact-node-modules"));
+    assert!(stdout.contains("CACHEDIR.TAG"));
+    assert!(stdout.contains("dotnet-bin"));
+    assert!(stdout.contains("composer-vendor"));
+}
+
+#[test]
+fn purge_list_artifacts_json_reports_machine_readable_catalog() {
+    let output = common::command::rebecca()
+        .args(["purge", "--list-artifacts", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let artifacts = value.as_array().unwrap();
+    assert!(artifacts.iter().any(|artifact| {
+        artifact["artifact"] == "node_modules"
+            && artifact["rule_id"] == "windows.project-artifact-node-modules"
+            && artifact["rule_suffix"] == "node-modules"
+    }));
+    assert!(artifacts.iter().any(|artifact| {
+        artifact["artifact"] == "CACHEDIR.TAG"
+            && artifact["rule_id"] == "windows.project-artifact-cachedir-tag"
+    }));
 }
 
 #[test]

@@ -228,6 +228,14 @@ pub fn project_artifact_definitions() -> &'static [ProjectArtifactDefinition] {
     PROJECT_ARTIFACT_DEFINITIONS
 }
 
+pub fn all_project_artifact_definitions() -> impl Iterator<Item = ProjectArtifactDefinition> {
+    PROJECT_ARTIFACT_DEFINITIONS.iter().copied().chain([
+        CACHEDIR_TAG_DEFINITION,
+        DOTNET_BIN_DEFINITION,
+        COMPOSER_VENDOR_DEFINITION,
+    ])
+}
+
 pub fn project_artifact_definition_for_dir_name(name: &str) -> Option<ProjectArtifactDefinition> {
     PROJECT_ARTIFACT_DEFINITIONS
         .iter()
@@ -263,14 +271,6 @@ pub fn project_artifact_matches_selectors(
         || selectors
             .iter()
             .any(|selector| project_artifact_matches_selector(definition, selector))
-}
-
-fn all_project_artifact_definitions() -> impl Iterator<Item = ProjectArtifactDefinition> {
-    PROJECT_ARTIFACT_DEFINITIONS.iter().copied().chain([
-        CACHEDIR_TAG_DEFINITION,
-        DOTNET_BIN_DEFINITION,
-        COMPOSER_VENDOR_DEFINITION,
-    ])
 }
 
 fn project_artifact_matches_selector(

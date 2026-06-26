@@ -201,6 +201,8 @@ values. It must:
   configured roots for one run, rather than broad user-profile scans;
 - treat repeated `--artifact <NAME>` values as an explicit artifact-kind filter,
   accepting directory names, full project-artifact rule ids, or rule id suffixes;
+- support `--list-artifacts` as a scan-free catalog of accepted artifact
+  selectors, with human and JSON output;
 - group human output by project path and label artifact kinds separately from
   full target paths;
 - prune a matched artifact directory from further discovery to avoid nested

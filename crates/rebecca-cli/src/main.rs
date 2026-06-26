@@ -86,6 +86,9 @@ enum Command {
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,
+        /// List supported project artifact selectors without scanning.
+        #[arg(long)]
+        list_artifacts: bool,
         /// Directory to scan for project artifacts. Overrides configured purge roots.
         #[arg(long = "root", value_name = "PATH")]
         roots: Vec<PathBuf>,
@@ -248,6 +251,7 @@ fn main() -> Result<()> {
             yes,
             no_progress,
             scan_cache,
+            list_artifacts,
             roots,
             max_depth,
             min_age_days,
@@ -259,6 +263,7 @@ fn main() -> Result<()> {
             yes,
             no_progress,
             scan_cache,
+            list_artifacts,
             roots,
             max_depth,
             min_age_days,

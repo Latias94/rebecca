@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use rebecca_core::config::load_runtime_config;
+use rebecca_core::project_artifacts::{
+    ProjectArtifactDefinition, all_project_artifact_definitions,
+};
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
@@ -15,6 +18,7 @@ pub struct PurgeOptions {
     pub yes: bool,
     pub no_progress: bool,
     pub scan_cache: bool,
+    pub list_artifacts: bool,
     pub roots: Vec<PathBuf>,
     pub max_depth: Option<usize>,
     pub min_age_days: Option<u64>,
@@ -23,6 +27,10 @@ pub struct PurgeOptions {
 }
 
 pub fn run(options: PurgeOptions) -> Result<()> {
+    if options.list_artifacts {
+        return print_project_artifact_catalog(options.json);
+    }
+
     let runtime_config = load_runtime_config()?;
     let mode = if options.yes && !options.dry_run {
         DeleteMode::RecycleBin
@@ -54,6 +62,57 @@ pub fn run(options: PurgeOptions) -> Result<()> {
         },
         runtime_config,
     )
+}
+
+fn print_project_artifact_catalog(json: bool) -> Result<()> {
+    let definitions = all_project_artifact_definitions().collect::<Vec<_>>();
+
+    if json {
+        let values = definitions
+            .iter()
+            .map(|definition| {
+                serde_json::json!({
+                    "artifact": definition.directory_name,
+                    "rule_id": definition.rule_id,
+                    "rule_suffix": project_artifact_rule_suffix(definition.rule_id),
+                    "restore_hint": definition.restore_hint,
+                })
+            })
+            .collect::<Vec<_>>();
+        println!("{}", serde_json::to_string_pretty(&values)?);
+        return Ok(());
+    }
+
+    println!("Supported project artifacts: {}", definitions.len());
+    for definition in definitions {
+        println!("- {}", definition.directory_name);
+        println!(
+            "  selectors: {}",
+            project_artifact_selectors_label(definition)
+        );
+        println!("  rule: {}", definition.rule_id);
+        println!("  restore: {}", definition.restore_hint);
+    }
+
+    Ok(())
+}
+
+fn project_artifact_selectors_label(definition: ProjectArtifactDefinition) -> String {
+    let rule_suffix = project_artifact_rule_suffix(definition.rule_id);
+    if definition.directory_name.eq_ignore_ascii_case(rule_suffix) {
+        format!("{}, {}", definition.directory_name, definition.rule_id)
+    } else {
+        format!(
+            "{}, {}, {}",
+            definition.directory_name, rule_suffix, definition.rule_id
+        )
+    }
+}
+
+fn project_artifact_rule_suffix(rule_id: &str) -> &str {
+    rule_id
+        .strip_prefix("windows.project-artifact-")
+        .unwrap_or(rule_id)
 }
 
 fn resolve_roots(cli_roots: Vec<PathBuf>, config_roots: &[PathBuf]) -> Result<Vec<PathBuf>> {
