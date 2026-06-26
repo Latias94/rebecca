@@ -1059,6 +1059,46 @@ fn gradle_and_maven_rules_target_rebuildable_caches() {
 }
 
 #[test]
+fn python_package_manager_rules_target_rebuildable_caches() {
+    let fixture = PlannerFixture::new();
+    fixture.write("local/pip/Cache/http/package.whl", b"pip");
+    fixture.write("local/uv/cache/archive/package", b"uv");
+    fixture.write(
+        "local/pypoetry/Cache/cache/repositories/pypi/index",
+        b"poetry",
+    );
+    fixture.write(
+        "local/pypoetry/Cache/artifacts/aa/bb/package.whl",
+        b"artifact",
+    );
+    fixture.write(
+        "local/pypoetry/Cache/virtualenvs/project/Scripts/python.exe",
+        b"keep",
+    );
+    fixture.write("local/pypoetry/config.toml", b"keep");
+    fixture.write("local/uv/tools/tool/python.exe", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.pip-cache".to_string(),
+        "windows.uv-cache".to_string(),
+        "windows.poetry-cache".to_string(),
+    ];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 4);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 19);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy();
+        !path.contains("virtualenvs") && !path.contains("config.toml") && !path.contains("uv/tools")
+    }));
+}
+
+#[test]
 fn discord_rule_targets_only_browser_cache_directories() {
     let fixture = PlannerFixture::new();
     fixture.write("roaming/discord/Cache/cache.bin", b"ab");

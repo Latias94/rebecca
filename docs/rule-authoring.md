@@ -55,6 +55,13 @@ files. Keep each rule small, explicit, and easy to audit.
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or
   `.crates2.json`.
+- Python package-manager cache rules may target pip's `%LOCALAPPDATA%\pip\Cache`,
+  uv's `%LOCALAPPDATA%\uv\cache`, and Poetry package-cache subdirectories under
+  `%LOCALAPPDATA%\pypoetry\Cache\cache` and
+  `%LOCALAPPDATA%\pypoetry\Cache\artifacts`; do not target Poetry virtualenvs,
+  Python installations, virtual environments, project `.venv`, or project-local
+  tool caches such as `.mypy_cache`, `.pytest_cache`, or `.ruff_cache` from the
+  built-in system catalog.
 - JetBrains IDE caches should point at the product `caches` subdirectory under
   `%LOCALAPPDATA%\JetBrains\<product><version>`, not at the Toolbox app tree.
 - Keep glob roots narrow. Do not start a glob at `%USERPROFILE%` or a drive

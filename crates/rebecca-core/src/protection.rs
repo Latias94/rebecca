@@ -492,7 +492,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_electron_cache_path(&segments)
         || is_jetbrains_cache_path(&segments)
         || is_cargo_cache_path(&segments)
-        || is_pip_cache_path(&segments)
+        || is_python_package_manager_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
         || is_dotnet_package_manager_cache_path(&segments)
         || is_gradle_cache_path(&segments)
@@ -580,8 +580,17 @@ fn is_cargo_cache_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["git", "checkouts"])
 }
 
-fn is_pip_cache_path(segments: &[&str]) -> bool {
+fn is_python_package_manager_cache_path(segments: &[&str]) -> bool {
     has_sequence(segments, &["pip", "cache"])
+        || has_sequence(segments, &["appdata", "local", "uv", "cache"])
+        || has_sequence(
+            segments,
+            &["appdata", "local", "pypoetry", "cache", "cache"],
+        )
+        || has_sequence(
+            segments,
+            &["appdata", "local", "pypoetry", "cache", "artifacts"],
+        )
 }
 
 fn is_npm_cache_path(segments: &[&str]) -> bool {
@@ -766,6 +775,7 @@ fn is_application_durable_data_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["steamapps", "common"])
         || has_sequence(segments, &["steamapps", "workshop"])
         || has_sequence(segments, &["steamapps", "compatdata"])
+        || has_sequence(segments, &["pypoetry", "cache", "virtualenvs"])
         || has_any_segment(
             segments,
             &["local storage", "indexeddb", "service worker", "network"],

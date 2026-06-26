@@ -111,6 +111,10 @@ fn credentials_ai_cloud_runtime_and_startup_data_are_blocked() {
             "C:/Users/Alice/AppData/Roaming/Slack/Local Storage",
             ProtectedCategory::ApplicationDurableData,
         ),
+        (
+            "C:/Users/Alice/AppData/Local/pypoetry/Cache/virtualenvs",
+            ProtectedCategory::ApplicationDurableData,
+        ),
     ] {
         assert!(
             matches!(
@@ -183,6 +187,9 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
         "C:/Users/Alice/.gradle/notifications",
         "C:/Users/Alice/.m2/repository",
         "C:/Users/Alice/AppData/Local/pip/Cache",
+        "C:/Users/Alice/AppData/Local/uv/cache",
+        "C:/Users/Alice/AppData/Local/pypoetry/Cache/cache",
+        "C:/Users/Alice/AppData/Local/pypoetry/Cache/artifacts",
         "C:/Users/Alice/AppData/Local/JetBrains/RustRover2024.3/caches",
         "C:/Users/Alice/AppData/Roaming/Code/Cache",
         "C:/Users/Alice/AppData/Roaming/discord/GPUCache",
@@ -210,6 +217,9 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
         RuleTargetSpec::template("%USERPROFILE%\\.gradle\\caches"),
         RuleTargetSpec::template("%USERPROFILE%\\.gradle\\notifications"),
         RuleTargetSpec::template("%USERPROFILE%\\.m2\\repository"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\uv\\cache"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\pypoetry\\Cache\\cache"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\pypoetry\\Cache\\artifacts"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
         RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
         RuleTargetSpec::template("%APPDATA%\\Slack\\Cache"),

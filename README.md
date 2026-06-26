@@ -150,6 +150,8 @@ The starter catalog intentionally stays small and lives in
 - `windows.directx-shader-cache`
 - `windows.thumbnail-cache`
 - `windows.pip-cache`
+- `windows.uv-cache`
+- `windows.poetry-cache`
 - `windows.cargo-cache`
 - `windows.jetbrains-cache`
 - `windows.npm-cache`
