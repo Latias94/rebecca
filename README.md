@@ -8,6 +8,8 @@ The current MVP supports:
 
 - listing built-in cleanup rules,
 - previewing leftover app cache data from read-only installed-app discovery,
+- previewing project build artifact purges for directories such as `node_modules`
+  and `target`,
 - building dry-run cleanup plans,
 - scanning target sizes,
 - blocking dangerous paths before execution,
@@ -22,11 +24,19 @@ Rebecca is designed to preview before deleting.
 - `apps scan` and `apps clean` use the shared cleanup planner with a dedicated
   app-leftovers workflow. `apps clean` previews by default and requires `--yes`
   before moving leftover cache data to the Recycle Bin.
+- `purge` uses a dedicated project-artifacts workflow. It scans the current
+  directory by default, accepts repeated `--root <PATH>` values for explicit
+  workspaces, previews by default, and requires `--yes` before moving project
+  artifacts to the Recycle Bin.
 - Default execution uses the Windows Recycle Bin.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
 - Moderate rules require `--allow-moderate`; risky and dangerous rules require `--allow-risky`.
+- Use `clean --exclude <PATH>`, `apps scan/clean --exclude <PATH>`, or
+  `purge --exclude <PATH>` to protect an absolute path for one run. Long-lived
+  protected paths can be configured in `config.toml` under
+  `[protection].protected_paths`.
 - Dry-run human output highlights the largest estimated targets first and then
   groups the full target list by status.
 - Cleanup plans persist stable `reason_code` and `issue_matrix` diagnostics
@@ -66,13 +76,20 @@ cargo run -p rebecca-cli -- clean --dry-run --no-progress --rule windows.edge-ca
 cargo run -p rebecca-cli -- clean --dry-run --json --scan-cache --rule windows.thumbnail-cache
 cargo run -p rebecca-cli -- clean --dry-run --json --allow-moderate --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --dry-run --json --allow-risky --rule windows.npm-cache
+cargo run -p rebecca-cli -- clean --dry-run --exclude "$env:APPDATA\Slack\Cache"
 cargo run -p rebecca-cli -- clean --yes --category system
 
 cargo run -p rebecca-cli -- apps scan
 cargo run -p rebecca-cli -- apps scan --json
+cargo run -p rebecca-cli -- apps scan --exclude "$env:LOCALAPPDATA\Example App\Cache"
 cargo run -p rebecca-cli -- apps clean
 cargo run -p rebecca-cli -- apps clean --json --dry-run
 cargo run -p rebecca-cli -- apps clean --yes
+
+cargo run -p rebecca-cli -- purge
+cargo run -p rebecca-cli -- purge --json --root . --max-depth 6
+cargo run -p rebecca-cli -- purge --exclude "$PWD\target"
+cargo run -p rebecca-cli -- purge --yes --root . --scan-cache
 
 cargo run -p rebecca-cli -- history
 cargo run -p rebecca-cli -- history --limit 10
@@ -179,6 +196,24 @@ discovered app leftover cache directories such as `Cache`, `Code Cache`,
 summary, issue matrix, Recycle Bin backend, and JSON/history model used by
 regular cleanup.
 
+## Project Artifacts
+
+`rebecca purge` provides a Mole-inspired project cleanup workflow for heavy
+build artifacts and dependency caches. The current scope is deliberately
+directory-name based and high confidence: `node_modules`, `target`, `build`,
+`dist`, Python virtual environments and tool caches, frontend framework caches,
+coverage output, Gradle caches, Zig/Dart/Expo build caches, CocoaPods `Pods`,
+and .NET `obj`.
+
+Rebecca does not currently auto-scan every common projects directory under the
+user profile. By default it scans the current directory only; pass repeated
+`--root <PATH>` values to scan explicit workspaces. Matching artifact
+directories are pruned from traversal after discovery so nested artifacts are
+not double-counted. Execution uses the same plan-first model as `clean`: preview
+is the default, `--yes` is required to move targets to the Windows Recycle Bin,
+and `--exclude` plus `[protection].protected_paths` can block paths before size
+scanning or deletion.
+
 ## Local State
 
 By default, Rebecca uses standard Windows user directories:
@@ -237,11 +272,15 @@ history_file = 'D:\Rebecca\state\history.jsonl'
 
 [scan_cache]
 directory_record_max_age_seconds = 300
+
+[protection]
+protected_paths = ['D:\Keep\Cache']
 ```
 
 Every `app_paths` field is optional. Omitted fields keep the default Windows
 user-directory location. Omitted `scan_cache` fields keep the default
-directory-record freshness policy.
+directory-record freshness policy. Omitted `protection.protected_paths` means
+no additional user-protected paths beyond Rebecca's built-in safety policy.
 
 For tests or constrained environments, these paths can also be overridden:
 

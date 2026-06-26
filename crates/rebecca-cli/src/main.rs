@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
 mod apps;
 mod cache;
@@ -10,6 +11,7 @@ mod clean_view;
 mod history_view;
 mod info;
 mod output;
+mod purge;
 mod scan;
 
 #[derive(Debug, Parser)]
@@ -56,12 +58,42 @@ enum Command {
         /// Include a specific rule id. Can be repeated.
         #[arg(long = "rule")]
         rules: Vec<String>,
+        /// Exclude a path from cleanup for this run. Can be repeated.
+        #[arg(long = "exclude", value_name = "PATH")]
+        exclude_paths: Vec<PathBuf>,
         /// Include moderate-risk rules.
         #[arg(long)]
         allow_moderate: bool,
         /// Include risky rules.
         #[arg(long)]
         allow_risky: bool,
+    },
+    /// Preview or purge project build artifacts such as node_modules and target.
+    Purge {
+        /// Preview the purge plan without deleting anything.
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+        /// Render machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// Delete project artifacts instead of previewing them.
+        #[arg(long)]
+        yes: bool,
+        /// Disable human progress output while building the purge plan.
+        #[arg(long)]
+        no_progress: bool,
+        /// Use the rebuildable scan cache for eligible target estimates.
+        #[arg(long)]
+        scan_cache: bool,
+        /// Directory to scan for project artifacts. Defaults to the current directory.
+        #[arg(long = "root", value_name = "PATH")]
+        roots: Vec<PathBuf>,
+        /// Maximum directory depth to scan below each root.
+        #[arg(long, default_value_t = purge::default_max_depth())]
+        max_depth: usize,
+        /// Exclude a path from project artifact purge for this run. Can be repeated.
+        #[arg(long = "exclude", value_name = "PATH")]
+        exclude_paths: Vec<PathBuf>,
     },
     /// Show cleanup history.
     History {
@@ -107,6 +139,9 @@ enum AppsCommand {
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,
+        /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
+        #[arg(long = "exclude", value_name = "PATH")]
+        exclude_paths: Vec<PathBuf>,
     },
     /// Preview or move leftover app cache data to the Recycle Bin.
     Clean {
@@ -125,6 +160,9 @@ enum AppsCommand {
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,
+        /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
+        #[arg(long = "exclude", value_name = "PATH")]
+        exclude_paths: Vec<PathBuf>,
     },
 }
 
@@ -182,6 +220,7 @@ fn main() -> Result<()> {
             scan_cache,
             categories,
             rules,
+            exclude_paths,
             allow_moderate,
             allow_risky,
         } => clean::run(clean::CleanOptions {
@@ -192,8 +231,28 @@ fn main() -> Result<()> {
             scan_cache,
             categories,
             rules,
+            exclude_paths,
             allow_moderate,
             allow_risky,
+        }),
+        Command::Purge {
+            dry_run,
+            json,
+            yes,
+            no_progress,
+            scan_cache,
+            roots,
+            max_depth,
+            exclude_paths,
+        } => purge::run(purge::PurgeOptions {
+            dry_run,
+            json,
+            yes,
+            no_progress,
+            scan_cache,
+            roots,
+            max_depth,
+            exclude_paths,
         }),
         Command::History { json, limit } => info::print_history(json, limit),
         Command::Cache { command } => match command {
@@ -206,10 +265,12 @@ fn main() -> Result<()> {
                 json,
                 no_progress,
                 scan_cache,
+                exclude_paths,
             } => apps::scan(apps::AppsScanOptions {
                 json,
                 no_progress,
                 scan_cache,
+                exclude_paths,
             }),
             AppsCommand::Clean {
                 dry_run,
@@ -217,12 +278,14 @@ fn main() -> Result<()> {
                 yes,
                 no_progress,
                 scan_cache,
+                exclude_paths,
             } => apps::clean(apps::AppsCleanOptions {
                 dry_run,
                 json,
                 yes,
                 no_progress,
                 scan_cache,
+                exclude_paths,
             }),
         },
         Command::Config { command } => match command {

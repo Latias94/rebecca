@@ -151,6 +151,75 @@ fn executor_revalidates_rebecca_owned_storage_before_backend_calls() {
 }
 
 #[test]
+fn executor_revalidates_user_protected_paths_before_backend_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_dir = temp.path().join("Slack").join("Cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    fs::write(cache_dir.join("cache.bin"), b"trash").unwrap();
+    let protected_paths = vec![cache_dir.clone()];
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.slack-cache",
+        cache_dir,
+        5,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    let policy = ProtectionPolicy::new().with_protected_paths(&protected_paths);
+    execute_cleanup_plan_with_policy(&mut plan, &backend, policy).unwrap();
+
+    assert_eq!(backend.calls.get(), 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("user-protected path")
+    );
+    assert_eq!(plan.summary.blocked_targets, 1);
+}
+
+#[test]
+fn executor_revalidates_project_artifact_targets_before_backend_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let target_dir = temp.path().join("project").join("target");
+    fs::create_dir_all(&target_dir).unwrap();
+    fs::write(target_dir.join("cache.bin"), b"trash").unwrap();
+    let protected_paths = vec![target_dir.clone()];
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin);
+    request.workflow = CleanupWorkflow::ProjectArtifacts;
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.project-artifact-target",
+        target_dir,
+        5,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    let policy = ProtectionPolicy::new().with_protected_paths(&protected_paths);
+    execute_cleanup_plan_with_policy(&mut plan, &backend, policy).unwrap();
+
+    assert_eq!(backend.calls.get(), 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+}
+
+#[test]
 fn executor_skips_missing_targets_before_backend_calls() {
     let temp = tempfile::tempdir().unwrap();
     let missing_file = temp.path().join("definitely-missing.tmp");

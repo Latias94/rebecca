@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::app_leftovers::{AppLeftoverCandidate, derive_app_leftover_candidates};
 use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery};
@@ -9,6 +9,9 @@ use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
 use crate::model::{CleanupWorkflow, PlanRequest, Platform, RuleDefinition};
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
+use crate::project_artifacts::{
+    ProjectArtifactCandidate, ProjectArtifactScanOptions, discover_project_artifacts,
+};
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{PathDisposition, assess_existing_path_with_policy};
 use crate::scan::{
@@ -84,6 +87,11 @@ impl<'a> PlanBuildContext<'a> {
         self.protection_policy = self
             .protection_policy
             .with_protected_storage(protected_storage);
+        self
+    }
+
+    pub fn with_protected_paths(mut self, protected_paths: &'a [PathBuf]) -> Self {
+        self.protection_policy = self.protection_policy.with_protected_paths(protected_paths);
         self
     }
 
@@ -231,6 +239,9 @@ where
 {
     if request.workflow == CleanupWorkflow::AppLeftovers {
         return build_app_leftover_plan_with_context(request, env, applications, context, progress);
+    }
+    if request.workflow == CleanupWorkflow::ProjectArtifacts {
+        return build_project_artifact_plan_with_context(request, context, progress);
     }
 
     let selection = request.selection();
@@ -442,6 +453,123 @@ where
     Ok(plan)
 }
 
+pub fn build_project_artifact_plan_with_context<F>(
+    request: &PlanRequest,
+    context: PlanBuildContext<'_>,
+    mut progress: F,
+) -> Result<CleanupPlan>
+where
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
+    let scan_options = ProjectArtifactScanOptions::new(request.project_artifact_roots.clone())
+        .with_max_depth(request.project_artifact_max_depth);
+    let artifacts = discover_project_artifacts(&scan_options, context.cancellation())?;
+    let mut candidates = Vec::new();
+
+    for artifact in artifacts {
+        progress(PlanProgressEvent::TargetScanning {
+            rule_id: artifact.definition.rule_id,
+            path: &artifact.path,
+        });
+
+        match assess_existing_path_with_policy(&artifact.path, context.protection_policy()) {
+            PathDisposition::Allowed => {
+                match measure_path_with_optional_scan_cache(&artifact.path, context, |event| {
+                    match event {
+                        PathMeasureProgressEvent::Scan(ScanProgressEvent::FileMeasured {
+                            path,
+                            file_size,
+                            files_scanned,
+                            bytes_scanned,
+                        }) => {
+                            progress(PlanProgressEvent::FileMeasured {
+                                rule_id: artifact.definition.rule_id,
+                                target_path: &artifact.path,
+                                path,
+                                file_size,
+                                files_scanned,
+                                bytes_scanned,
+                            });
+                        }
+                        PathMeasureProgressEvent::ScanCacheHit { report } => {
+                            progress(PlanProgressEvent::ScanCacheHit {
+                                rule_id: artifact.definition.rule_id,
+                                path: &artifact.path,
+                                estimated_bytes: report.bytes_scanned,
+                            });
+                        }
+                        PathMeasureProgressEvent::ScanCacheMiss { reason } => {
+                            progress(PlanProgressEvent::ScanCacheMiss {
+                                rule_id: artifact.definition.rule_id,
+                                path: &artifact.path,
+                                reason,
+                            });
+                        }
+                        PathMeasureProgressEvent::ScanCacheWriteSkipped => {
+                            progress(PlanProgressEvent::ScanCacheWriteSkipped {
+                                rule_id: artifact.definition.rule_id,
+                                path: &artifact.path,
+                            });
+                        }
+                    }
+                }) {
+                    Ok(report) => {
+                        let target = project_artifact_allowed_target(
+                            &artifact,
+                            report.bytes_scanned,
+                            request.mode,
+                        );
+                        emit_target_finished(&mut progress, &target);
+                        candidates.push(target);
+                    }
+                    Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
+                    Err(err) => {
+                        let target = project_artifact_failed_target(
+                            &artifact,
+                            request.mode,
+                            CleanupTargetIssueReason::ScanFailed,
+                            err.to_string(),
+                        );
+                        emit_target_finished(&mut progress, &target);
+                        candidates.push(target);
+                    }
+                }
+            }
+            PathDisposition::Skipped(reason) => {
+                let target = project_artifact_skipped_target(
+                    &artifact,
+                    request.mode,
+                    CleanupTargetIssueReason::SafetyPolicySkipped,
+                    reason,
+                );
+                emit_target_finished(&mut progress, &target);
+                candidates.push(target);
+            }
+            PathDisposition::Blocked(reason) => {
+                let target = project_artifact_blocked_target(
+                    &artifact,
+                    request.mode,
+                    CleanupTargetIssueReason::SafetyPolicyBlocked,
+                    reason,
+                );
+                emit_target_finished(&mut progress, &target);
+                candidates.push(target);
+            }
+        }
+    }
+
+    candidates.sort_by(|left, right| {
+        left.rule_id
+            .cmp(&right.rule_id)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+
+    let mut plan = CleanupPlan::empty(request.clone());
+    plan.targets = candidates;
+    plan.recompute_summary();
+    Ok(plan)
+}
+
 pub fn build_app_leftover_plan_with_context<E, A, F>(
     request: &PlanRequest,
     env: &E,
@@ -568,6 +696,69 @@ where
     plan.targets = candidates;
     plan.recompute_summary();
     Ok(plan)
+}
+
+fn project_artifact_allowed_target(
+    artifact: &ProjectArtifactCandidate,
+    estimated_bytes: u64,
+    mode: crate::DeleteMode,
+) -> CleanupTarget {
+    CleanupTarget::allowed(
+        artifact.definition.rule_id,
+        artifact.path.clone(),
+        estimated_bytes,
+        mode,
+    )
+    .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
+}
+
+fn project_artifact_skipped_target(
+    artifact: &ProjectArtifactCandidate,
+    mode: crate::DeleteMode,
+    reason_code: CleanupTargetIssueReason,
+    reason: impl Into<String>,
+) -> CleanupTarget {
+    CleanupTarget::skipped_with_reason_code(
+        artifact.definition.rule_id,
+        artifact.path.clone(),
+        mode,
+        reason_code,
+        reason,
+    )
+    .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
+}
+
+fn project_artifact_blocked_target(
+    artifact: &ProjectArtifactCandidate,
+    mode: crate::DeleteMode,
+    reason_code: CleanupTargetIssueReason,
+    reason: impl Into<String>,
+) -> CleanupTarget {
+    CleanupTarget::blocked_with_reason_code(
+        artifact.definition.rule_id,
+        artifact.path.clone(),
+        mode,
+        reason_code,
+        reason,
+    )
+    .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
+}
+
+fn project_artifact_failed_target(
+    artifact: &ProjectArtifactCandidate,
+    mode: crate::DeleteMode,
+    reason_code: CleanupTargetIssueReason,
+    reason: impl Into<String>,
+) -> CleanupTarget {
+    CleanupTarget::failed_with_reason_code(
+        artifact.definition.rule_id,
+        artifact.path.clone(),
+        mode,
+        0,
+        reason_code,
+        reason,
+    )
+    .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
 }
 
 fn app_leftover_allowed_target(

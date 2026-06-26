@@ -51,11 +51,15 @@ impl DeleteMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub const DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH: usize = 6;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupWorkflow {
+    #[default]
     Rules,
     AppLeftovers,
+    ProjectArtifacts,
 }
 
 impl CleanupWorkflow {
@@ -63,6 +67,7 @@ impl CleanupWorkflow {
         match self {
             Self::Rules => "cleanup",
             Self::AppLeftovers => "app leftovers",
+            Self::ProjectArtifacts => "project artifacts",
         }
     }
 
@@ -70,13 +75,8 @@ impl CleanupWorkflow {
         match self {
             Self::Rules => "Cleanup",
             Self::AppLeftovers => "App leftovers",
+            Self::ProjectArtifacts => "Project artifacts",
         }
-    }
-}
-
-impl Default for CleanupWorkflow {
-    fn default() -> Self {
-        Self::Rules
     }
 }
 
@@ -229,6 +229,13 @@ pub struct PlanRequest {
     pub mode: DeleteMode,
     #[serde(default)]
     pub workflow: CleanupWorkflow,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub project_artifact_roots: Vec<PathBuf>,
+    #[serde(
+        default = "default_project_artifact_max_depth",
+        skip_serializing_if = "is_default_project_artifact_max_depth"
+    )]
+    pub project_artifact_max_depth: usize,
     pub selected_categories: Vec<String>,
     pub selected_rule_ids: Vec<String>,
     pub allow_moderate: bool,
@@ -241,6 +248,8 @@ impl PlanRequest {
             platform,
             mode,
             workflow: CleanupWorkflow::Rules,
+            project_artifact_roots: Vec::new(),
+            project_artifact_max_depth: DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH,
             selected_categories: Vec::new(),
             selected_rule_ids: Vec::new(),
             allow_moderate: false,
@@ -264,6 +273,14 @@ impl PlanRequest {
             SafetyLevel::Risky | SafetyLevel::Dangerous => self.allow_risky,
         }
     }
+}
+
+fn default_project_artifact_max_depth() -> usize {
+    DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH
+}
+
+fn is_default_project_artifact_max_depth(value: &usize) -> bool {
+    *value == DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

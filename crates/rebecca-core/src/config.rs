@@ -58,6 +58,7 @@ impl AppPaths {
 pub struct AppRuntimeConfig {
     pub app_paths: AppPaths,
     pub scan_cache_policy: ScanCachePolicy,
+    pub protected_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,6 +149,7 @@ pub struct RebeccaConfig {
     pub version: u32,
     pub app_paths: RebeccaAppPathsConfig,
     pub scan_cache: RebeccaScanCacheConfig,
+    pub protection: RebeccaProtectionConfig,
 }
 
 impl Default for RebeccaConfig {
@@ -156,6 +158,7 @@ impl Default for RebeccaConfig {
             version: CONFIG_SCHEMA_VERSION,
             app_paths: RebeccaAppPathsConfig::default(),
             scan_cache: RebeccaScanCacheConfig::default(),
+            protection: RebeccaProtectionConfig::default(),
         }
     }
 }
@@ -173,6 +176,12 @@ pub struct RebeccaAppPathsConfig {
 pub struct RebeccaScanCacheConfig {
     #[serde(default = "default_directory_record_max_age_seconds")]
     pub directory_record_max_age_seconds: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RebeccaProtectionConfig {
+    pub protected_paths: Vec<PathBuf>,
 }
 
 impl RebeccaScanCacheConfig {
@@ -265,6 +274,7 @@ fn resolve_runtime_config_with_config_dir(
     Ok(AppRuntimeConfig {
         app_paths: resolve_app_paths_with_config_dir(config_dir, config_file, config)?,
         scan_cache_policy: config.scan_cache.policy(),
+        protected_paths: config.protection.protected_paths.clone(),
     })
 }
 
@@ -319,7 +329,61 @@ fn validate_config(config_file: &Path, config: &RebeccaConfig) -> Result<()> {
         });
     }
 
+    for protected_path in &config.protection.protected_paths {
+        validate_protected_path_config(config_file, protected_path)?;
+    }
+
     Ok(())
+}
+
+pub fn validate_user_protected_path(path: &Path) -> std::result::Result<(), String> {
+    if path.as_os_str().is_empty() {
+        return Err("path cannot be empty".to_string());
+    }
+
+    if !is_absolute_user_path(path) {
+        return Err(format!("path must be absolute: {}", path.display()));
+    }
+
+    let contains_control_segment = path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir | std::path::Component::CurDir
+        )
+    });
+    if contains_control_segment {
+        return Err(format!(
+            "path cannot contain relative control segments: {}",
+            path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_protected_path_config(config_file: &Path, path: &Path) -> Result<()> {
+    if let Err(message) = validate_user_protected_path(path) {
+        return Err(RebeccaError::ConfigParse {
+            path: config_file.to_path_buf(),
+            message: format!("invalid protection.protected_paths entry: {message}"),
+        });
+    }
+
+    Ok(())
+}
+
+fn is_absolute_user_path(path: &Path) -> bool {
+    if path.is_absolute() {
+        return true;
+    }
+
+    let normalized = path.as_os_str().to_string_lossy().replace('/', "\\");
+    if normalized.starts_with("\\\\") {
+        return true;
+    }
+
+    let bytes = normalized.as_bytes();
+    bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\'
 }
 
 fn default_config_dir() -> Result<PathBuf> {
@@ -549,6 +613,7 @@ unknown = 1
             scan_cache: RebeccaScanCacheConfig {
                 directory_record_max_age_seconds: 42,
             },
+            protection: super::RebeccaProtectionConfig::default(),
         };
 
         let paths = resolve_app_paths(&config).unwrap();
@@ -578,6 +643,7 @@ unknown = 1
                 history_file: Some(std::path::PathBuf::from(r"C:\Rebecca\State\audit.jsonl")),
             },
             scan_cache: RebeccaScanCacheConfig::default(),
+            protection: super::RebeccaProtectionConfig::default(),
         };
         let paths = resolve_app_paths(&config).unwrap();
 
@@ -623,6 +689,7 @@ unknown = 1
             scan_cache: RebeccaScanCacheConfig {
                 directory_record_max_age_seconds: 17,
             },
+            protection: super::RebeccaProtectionConfig::default(),
         };
 
         let runtime_config = resolve_runtime_config(&config).unwrap();
@@ -633,6 +700,72 @@ unknown = 1
                 .directory_record_max_age_seconds(),
             17
         );
+    }
+
+    #[test]
+    fn load_config_accepts_protected_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        let protected_path = temp.path().join("AppData").join("Local").join("Keep");
+        std::fs::write(
+            &config_file,
+            format!(
+                r#"
+[protection]
+protected_paths = ['{}']
+"#,
+                protected_path.display()
+            ),
+        )
+        .unwrap();
+
+        let config = load_config(&config_file).unwrap();
+
+        assert_eq!(config.protection.protected_paths, vec![protected_path]);
+    }
+
+    #[test]
+    fn load_config_rejects_invalid_protected_path_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+[protection]
+protected_paths = ['../Keep']
+"#,
+        )
+        .unwrap();
+
+        let err = load_config(&config_file).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("invalid protection.protected_paths entry")
+        );
+        assert!(err.to_string().contains("config.toml"));
+    }
+
+    #[test]
+    fn load_config_rejects_relative_protected_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+[protection]
+protected_paths = ['Keep/Cache']
+"#,
+        )
+        .unwrap();
+
+        let err = load_config(&config_file).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("invalid protection.protected_paths entry")
+        );
+        assert!(err.to_string().contains("path must be absolute"));
     }
 
     #[test]

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
 
@@ -10,6 +12,7 @@ pub struct AppsScanOptions {
     pub json: bool,
     pub no_progress: bool,
     pub scan_cache: bool,
+    pub exclude_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -19,6 +22,7 @@ pub struct AppsCleanOptions {
     pub yes: bool,
     pub no_progress: bool,
     pub scan_cache: bool,
+    pub exclude_paths: Vec<PathBuf>,
 }
 
 pub fn scan(options: AppsScanOptions) -> Result<()> {
@@ -32,6 +36,7 @@ pub fn scan(options: AppsScanOptions) -> Result<()> {
         yes: false,
         no_progress: options.no_progress,
         scan_cache: options.scan_cache,
+        exclude_paths: options.exclude_paths,
         cancellation_message: "App leftovers scan cancelled.",
         unsupported_execution_message: "app leftovers cleanup execution is Windows-only; use apps scan to preview",
         confirmation_kind: ConfirmationKind::AppLeftovers,
@@ -54,6 +59,7 @@ pub fn clean(options: AppsCleanOptions) -> Result<()> {
         yes: options.yes,
         no_progress: options.no_progress,
         scan_cache: options.scan_cache,
+        exclude_paths: options.exclude_paths,
         cancellation_message: "App leftovers cleanup cancelled.",
         unsupported_execution_message: "app leftovers cleanup execution is Windows-only; use apps clean without --yes to preview",
         confirmation_kind: ConfirmationKind::AppLeftovers,

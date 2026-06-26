@@ -66,17 +66,19 @@ fn execution_target_is_still_allowed(
     policy: ProtectionPolicy<'_>,
 ) -> bool {
     match workflow {
-        CleanupWorkflow::Rules => match assess_existing_path_with_policy(&target.path, policy) {
-            PathDisposition::Allowed => true,
-            PathDisposition::Skipped(reason) => {
-                mark_target_skipped_by_policy(target, reason);
-                false
+        CleanupWorkflow::Rules | CleanupWorkflow::ProjectArtifacts => {
+            match assess_existing_path_with_policy(&target.path, policy) {
+                PathDisposition::Allowed => true,
+                PathDisposition::Skipped(reason) => {
+                    mark_target_skipped_by_policy(target, reason);
+                    false
+                }
+                PathDisposition::Blocked(reason) => {
+                    mark_target_blocked_by_policy(target, reason);
+                    false
+                }
             }
-            PathDisposition::Blocked(reason) => {
-                mark_target_blocked_by_policy(target, reason);
-                false
-            }
-        },
+        }
         CleanupWorkflow::AppLeftovers => {
             match policy.assess_existing_app_leftover_path(&target.path) {
                 AppLeftoverPathDisposition::Allowed => true,

@@ -200,6 +200,46 @@ fn planner_blocks_targets_from_custom_rebecca_storage_paths() {
 }
 
 #[test]
+fn planner_blocks_targets_overlapping_user_protected_paths() {
+    let fixture = PlannerFixture::new();
+    let cache_dir = fixture.root.join("roaming").join("Slack").join("Cache");
+    fixture.write("roaming/Slack/Cache/cache.bin", b"abc");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-slack-cache",
+        cache_dir.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let protected_paths = vec![cache_dir];
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_protected_paths(&protected_paths),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 1);
+    assert_eq!(plan.summary.allowed_targets, 0);
+    assert_eq!(plan.summary.blocked_targets, 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("user-protected path"))
+    );
+}
+
+#[test]
 fn app_leftover_plan_allows_discovered_appdata_cache_paths() {
     let fixture = PlannerFixture::new();
     let local = fixture.root.join("AppData").join("Local");

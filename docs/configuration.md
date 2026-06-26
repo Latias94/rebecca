@@ -35,11 +35,13 @@ flowchart TD
   Schema --> Runtime[AppRuntimeConfig]
   Runtime --> Paths[AppPaths]
   Runtime --> ScanPolicy[ScanCachePolicy]
+  Runtime --> Protection[User protected paths]
   Paths --> ConfigPaths[config paths output]
   Paths --> History[HistoryStore]
   Paths --> CachePurge[cache purge]
   Paths --> ScanCache[cache_dir/scan]
   ScanPolicy --> Planner[clean --scan-cache planner]
+  Protection --> ProjectPurge[purge project-artifacts workflow]
 ```
 
 The CLI must render the resolved model. It must not duplicate path resolution,
@@ -60,6 +62,9 @@ history_file = 'D:\Rebecca\state\history.jsonl'
 
 [scan_cache]
 directory_record_max_age_seconds = 300
+
+[protection]
+protected_paths = ['D:\Keep\Cache']
 ```
 
 All fields except `version` are optional. Missing `version` is treated as
@@ -72,6 +77,7 @@ version `1` so early config files keep working.
 | `app_paths.cache_dir` | path | `%LOCALAPPDATA%\Rebecca\cache` | Parsed as a path | Rebuildable cache root |
 | `app_paths.history_file` | path | `<state_dir>\history.jsonl` | Parsed as a path | Append-only cleanup history |
 | `scan_cache.directory_record_max_age_seconds` | unsigned integer | `300` | Must be at least `1` | Freshness window for directory scan-cache records |
+| `protection.protected_paths` | array of paths | `[]` | Entries must be absolute and cannot be empty or contain `.` / `..` path segments | Extra user-owned paths that cleanup and app-leftovers workflows must skip |
 
 Parsing rules:
 
@@ -80,6 +86,7 @@ Parsing rules:
 - Unknown fields fail clearly.
 - Unsupported `version` values fail clearly and are not partially interpreted.
 - Invalid scan-cache policy values fail before cleanup planning.
+- Invalid protected-path entries fail before cleanup planning.
 
 ## Resolution Precedence
 
@@ -133,6 +140,60 @@ Cleanup rules must not target Rebecca's own config, state, history, or cache
 paths. Rebecca-owned cache cleanup goes through `rebecca cache purge`.
 `rebecca clean` now enforces that boundary in code and blocks any target that
 overlaps Rebecca-owned storage.
+
+## User Protected Paths
+
+Rebecca has built-in protected categories for credentials, browser private
+data, cloud-synced data, application durable data, and other sensitive
+locations. Users can add their own absolute protected paths when a cache-like
+directory should survive cleanup.
+
+Long-lived protection belongs in `config.toml`:
+
+```toml
+[protection]
+protected_paths = [
+  'D:\Keep\Cache',
+  'D:\Work\ImportantTool\Cache',
+]
+```
+
+One-off protection can be passed at runtime:
+
+```powershell
+rebecca clean --dry-run --exclude "$env:APPDATA\Slack\Cache"
+rebecca apps scan --exclude "$env:LOCALAPPDATA\Example App\Cache"
+rebecca purge --root . --exclude "$PWD\target"
+```
+
+Config and CLI protection feed the same `ProtectionPolicy` used by planning and
+execution. If a cleanup target equals, contains, or is contained by a protected
+path, the target is blocked with the `safety-policy-blocked` reason code before
+scanning or deletion proceeds. This applies to regular cleanup, app-leftovers
+cleanup, and project artifact purge.
+
+## Project Artifact Purge Boundary
+
+`rebecca purge` discovers rebuildable project artifact directories under the
+current directory or explicit `--root <PATH>` values. It must:
+
+- preview by default;
+- require `--yes` to move artifacts to the Windows Recycle Bin;
+- scan only bounded directory depths, defaulting to depth `6`;
+- treat `--root` values as explicit workspace boundaries rather than broad
+  user-profile scans;
+- prune a matched artifact directory from further discovery to avoid nested
+  duplicate targets;
+- route all targets through Rebecca-owned storage protection, user protected
+  paths, reparse-point blocking, scan-cache estimation, history, and issue
+  matrix reporting.
+
+The first supported artifact set tracks high-confidence rebuildable project
+directories such as `node_modules`, `target`, `build`, `dist`, frontend
+framework caches, Python virtual environments and caches, Gradle caches,
+coverage output, CocoaPods `Pods`, and .NET `obj`. Ambiguous directories such as
+generic `bin` and non-Composer `vendor` are intentionally outside the automatic
+target set until Rebecca has context-specific guards for them.
 
 ## History And Privacy
 

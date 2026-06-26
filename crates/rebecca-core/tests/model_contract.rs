@@ -121,6 +121,28 @@ fn cleanup_plan_serialization_preserves_workflow_contract() {
 }
 
 #[test]
+fn cleanup_plan_serialization_preserves_project_artifacts_request_contract() {
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    request.project_artifact_roots = vec![PathBuf::from(r"C:\Projects")];
+    request.project_artifact_max_depth = 3;
+    let plan = CleanupPlan::empty(request);
+
+    let json = serde_json::to_value(&plan).expect("plan should serialize");
+    assert_eq!(json["request"]["workflow"], "project-artifacts");
+    assert_eq!(json["request"]["project_artifact_roots"][0], r"C:\Projects");
+    assert_eq!(json["request"]["project_artifact_max_depth"], 3);
+
+    let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
+    assert_eq!(decoded.request.workflow, CleanupWorkflow::ProjectArtifacts);
+    assert_eq!(
+        decoded.request.project_artifact_roots,
+        vec![PathBuf::from(r"C:\Projects")]
+    );
+    assert_eq!(decoded.request.project_artifact_max_depth, 3);
+}
+
+#[test]
 fn cleanup_plan_deserializes_legacy_request_without_workflow() {
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     let plan = CleanupPlan::empty(request);

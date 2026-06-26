@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::AppStorageEntry;
 use crate::model::RuleTargetSpec;
@@ -10,12 +10,14 @@ const ELECTRON_CACHE_DIRS: &[&str] = &["cache", "code cache", "gpucache", "cache
 #[derive(Debug, Clone, Copy)]
 pub struct ProtectionPolicy<'a> {
     protected_storage: Option<&'a [AppStorageEntry]>,
+    protected_paths: Option<&'a [PathBuf]>,
 }
 
 impl<'a> ProtectionPolicy<'a> {
     pub fn new() -> Self {
         Self {
             protected_storage: None,
+            protected_paths: None,
         }
     }
 
@@ -24,8 +26,17 @@ impl<'a> ProtectionPolicy<'a> {
         self
     }
 
+    pub fn with_protected_paths(mut self, protected_paths: &'a [PathBuf]) -> Self {
+        self.protected_paths = Some(protected_paths);
+        self
+    }
+
     pub fn protected_storage(&self) -> Option<&'a [AppStorageEntry]> {
         self.protected_storage
+    }
+
+    pub fn protected_paths(&self) -> Option<&'a [PathBuf]> {
+        self.protected_paths
     }
 
     pub fn assess_path(&self, path: &Path) -> ProtectionAssessment {
@@ -73,6 +84,16 @@ impl<'a> ProtectionPolicy<'a> {
                     "target overlaps Rebecca-owned {} at {}",
                     entry.id.label(),
                     entry.path.display()
+                ),
+            );
+        }
+
+        if let Some(protected_path) = self.protected_path_overlap(path) {
+            return blocked(
+                ProtectionBlockKind::UserProtectedPath,
+                format!(
+                    "target overlaps user-protected path at {}",
+                    protected_path.display()
                 ),
             );
         }
@@ -199,6 +220,12 @@ impl<'a> ProtectionPolicy<'a> {
             .find(|entry| paths_overlap(path, &entry.path))
     }
 
+    fn protected_path_overlap(&self, path: &Path) -> Option<&'a PathBuf> {
+        self.protected_paths?
+            .iter()
+            .find(|protected_path| paths_overlap(path, protected_path))
+    }
+
     fn assess_steam_catalog_shape(
         &self,
         scope: &'static str,
@@ -261,6 +288,7 @@ pub enum ProtectionBlockKind {
     WindowsCriticalPath,
     UserProfileRoot,
     RebeccaOwnedStorage,
+    UserProtectedPath,
     ProtectedCategory(ProtectedCategory),
 }
 
@@ -273,6 +301,7 @@ impl ProtectionBlockKind {
             Self::WindowsCriticalPath => "windows-critical-path",
             Self::UserProfileRoot => "user-profile-root",
             Self::RebeccaOwnedStorage => "rebecca-owned-storage",
+            Self::UserProtectedPath => "user-protected-path",
             Self::ProtectedCategory(category) => category.label(),
         }
     }

@@ -9,7 +9,6 @@ publish = false
 directories.workspace = true
 globset.workspace = true
 ignore.workspace = true
-jwalk.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true

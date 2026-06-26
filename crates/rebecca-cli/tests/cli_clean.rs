@@ -150,6 +150,131 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
 }
 
 #[test]
+fn clean_dry_run_json_honors_exclude_flag() {
+    let temp = tempfile::tempdir().unwrap();
+    write_slack_cache_fixture(&temp);
+    let protected_cache = temp.path().join("roaming").join("Slack").join("Cache");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.slack-cache",
+            "--exclude",
+            protected_cache.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["total_targets"], 3);
+    assert_eq!(value["summary"]["allowed_targets"], 2);
+    assert_eq!(value["summary"]["blocked_targets"], 1);
+    assert_eq!(value["summary"]["estimated_bytes"], 7);
+
+    let blocked = value["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|target| target["status"] == "blocked")
+        .expect("expected excluded target to be blocked");
+    assert_eq!(blocked["rule_id"], "windows.slack-cache");
+    assert_eq!(blocked["reason_code"], "safety-policy-blocked");
+    assert!(
+        blocked["reason"]
+            .as_str()
+            .unwrap()
+            .contains("user-protected path")
+    );
+    assert!(
+        PathBuf::from(blocked["path"].as_str().unwrap())
+            .ends_with(Path::new("Slack").join("Cache"))
+    );
+}
+
+#[test]
+fn clean_dry_run_json_honors_config_protected_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    write_slack_cache_fixture(&temp);
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    let protected_cache = temp.path().join("roaming").join("Slack").join("GPUCache");
+    fs::write(
+        config_dir.join("config.toml"),
+        format!(
+            r#"
+version = 1
+
+[protection]
+protected_paths = ['{}']
+"#,
+            protected_cache.display()
+        ),
+    )
+    .unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["allowed_targets"], 2);
+    assert_eq!(value["summary"]["blocked_targets"], 1);
+    assert!(value["targets"].as_array().unwrap().iter().any(|target| {
+        target["status"] == "blocked"
+            && target["reason"]
+                .as_str()
+                .unwrap()
+                .contains("user-protected path")
+            && PathBuf::from(target["path"].as_str().unwrap())
+                .ends_with(Path::new("Slack").join("GPUCache"))
+    }));
+}
+
+#[test]
+fn clean_exclude_rejects_relative_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.user-temp",
+            "--exclude",
+            "relative/cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("invalid protected path"));
+    assert!(stderr.contains("path must be absolute"));
+}
+
+#[test]
 fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
     let temp = tempfile::tempdir().unwrap();
     let local = temp.path().join("local");

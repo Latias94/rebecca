@@ -85,6 +85,50 @@ fn apps_scan_json_builds_app_leftovers_plan() {
 }
 
 #[test]
+fn apps_scan_json_honors_exclude_flag() {
+    let temp = tempfile::tempdir().unwrap();
+    let (local, roaming) = appdata_roots(&temp);
+    let cache = local.join("Example App").join("Cache");
+    write_fixture_file(cache.join("cache.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .args([
+            "apps",
+            "scan",
+            "--json",
+            "--no-progress",
+            "--exclude",
+            cache.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["allowed_targets"], 0);
+    assert_eq!(value["summary"]["blocked_targets"], 1);
+
+    let blocked = &value["targets"].as_array().unwrap()[0];
+    assert_eq!(blocked["status"], "blocked");
+    assert_eq!(blocked["reason_code"], "safety-policy-blocked");
+    assert!(
+        blocked["reason"]
+            .as_str()
+            .unwrap()
+            .contains("user-protected path")
+    );
+}
+
+#[test]
 fn apps_scan_human_output_names_app_leftovers_workflow() {
     let temp = tempfile::tempdir().unwrap();
     let (local, roaming) = appdata_roots(&temp);

@@ -1,6 +1,7 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
 use rebecca_core::config::load_runtime_config;
 use rebecca_core::executor::execute_cleanup_plan_with_policy;
@@ -26,6 +27,7 @@ pub struct CleanOptions {
     pub scan_cache: bool,
     pub categories: Vec<String>,
     pub rules: Vec<String>,
+    pub exclude_paths: Vec<PathBuf>,
     pub allow_moderate: bool,
     pub allow_risky: bool,
 }
@@ -37,6 +39,7 @@ pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) yes: bool,
     pub(crate) no_progress: bool,
     pub(crate) scan_cache: bool,
+    pub(crate) exclude_paths: Vec<PathBuf>,
     pub(crate) cancellation_message: &'static str,
     #[cfg_attr(windows, allow(dead_code))]
     pub(crate) unsupported_execution_message: &'static str,
@@ -47,6 +50,7 @@ pub(crate) struct WorkflowRunOptions<'a> {
 pub(crate) enum ConfirmationKind {
     Cleanup,
     AppLeftovers,
+    ProjectArtifacts,
 }
 
 pub fn run(options: CleanOptions) -> Result<()> {
@@ -70,6 +74,7 @@ pub fn run(options: CleanOptions) -> Result<()> {
         yes: options.yes,
         no_progress: options.no_progress,
         scan_cache: options.scan_cache,
+        exclude_paths: options.exclude_paths,
         cancellation_message: "Cleanup cancelled.",
         unsupported_execution_message: "cleanup execution is Windows-only at this stage; use --dry-run to preview",
         confirmation_kind: ConfirmationKind::Cleanup,
@@ -83,11 +88,18 @@ pub(crate) fn run_workflow(options: WorkflowRunOptions<'_>) -> Result<()> {
     let applications = info::application_discovery();
     let runtime_config = load_runtime_config()?;
     let protected_storage = runtime_config.app_paths.storage_entries();
+    let protected_paths = merged_protected_paths(
+        runtime_config.protected_paths.as_slice(),
+        options.exclude_paths.as_slice(),
+    )?;
     let scan_cache_store = options
         .scan_cache
         .then(|| ScanCacheStore::from_app_paths(&runtime_config.app_paths));
     let mut context =
         PlanBuildContext::new(&cancellation).with_protected_storage(&protected_storage);
+    if !protected_paths.is_empty() {
+        context = context.with_protected_paths(&protected_paths);
+    }
     if options.scan_cache {
         context = context.with_scan_cache_policy(runtime_config.scan_cache_policy);
         if let Some(store) = &scan_cache_store {
@@ -141,13 +153,29 @@ pub(crate) fn run_workflow(options: WorkflowRunOptions<'_>) -> Result<()> {
         }
 
         let backend = rebecca_windows::WindowsRecycleBinBackend::new();
-        let execution_policy = ProtectionPolicy::new().with_protected_storage(&protected_storage);
+        let mut execution_policy =
+            ProtectionPolicy::new().with_protected_storage(&protected_storage);
+        if !protected_paths.is_empty() {
+            execution_policy = execution_policy.with_protected_paths(&protected_paths);
+        }
         execute_cleanup_plan_with_policy(&mut plan, &backend, execution_policy)?;
 
         HistoryStore::new(runtime_config.app_paths.history_file).append_plan(&plan)?;
 
         output::print_plan(&plan, options.json, scan_cache_summary)
     }
+}
+
+fn merged_protected_paths(config_paths: &[PathBuf], cli_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut merged = Vec::with_capacity(config_paths.len() + cli_paths.len());
+    for path in config_paths.iter().chain(cli_paths) {
+        rebecca_core::config::validate_user_protected_path(path)
+            .map_err(|message| anyhow!("invalid protected path {}: {message}", path.display()))?;
+        if merged.iter().all(|existing| existing != path) {
+            merged.push(path.clone());
+        }
+    }
+    Ok(merged)
 }
 
 fn install_cancellation_handler(token: ScanCancellationToken) -> Result<()> {
@@ -280,6 +308,10 @@ fn confirm_cleanup(plan: &CleanupPlan, kind: ConfirmationKind) -> Result<bool> {
         ),
         ConfirmationKind::AppLeftovers => format!(
             "Move {} app leftover target(s), {} bytes, to the Recycle Bin?",
+            plan.summary.allowed_targets, plan.summary.estimated_bytes
+        ),
+        ConfirmationKind::ProjectArtifacts => format!(
+            "Move {} project artifact target(s), {} bytes, to the Recycle Bin?",
             plan.summary.allowed_targets, plan.summary.estimated_bytes
         ),
     };

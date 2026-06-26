@@ -148,6 +148,33 @@ fn rebecca_owned_storage_is_blocked_even_when_the_path_exists_only_logically() {
 }
 
 #[test]
+fn user_protected_paths_block_overlapping_cleanup_targets() {
+    let protected_paths = vec![PathBuf::from("C:/Users/Alice/AppData/Roaming/Slack/Cache")];
+    let policy = ProtectionPolicy::new().with_protected_paths(&protected_paths);
+
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Roaming/Slack/Cache"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::UserProtectedPath
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Roaming/Slack/Cache/index.bin"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::UserProtectedPath
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Roaming/Slack/GPUCache"
+        )),
+        ProtectionAssessment::Allowed
+    ));
+}
+
+#[test]
 fn maintenance_allowlists_keep_known_cache_paths_open() {
     let policy = ProtectionPolicy::new();
 

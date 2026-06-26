@@ -207,7 +207,7 @@ fn application_discovery_override() -> Option<Box<dyn ApplicationDiscovery>> {
         value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("disabled")
     }) {
         has_override = true;
-    } else if let Some(path) = std::env::var("REBECCA_STEAM_DISCOVERY_PATH").ok() {
+    } else if let Ok(path) = std::env::var("REBECCA_STEAM_DISCOVERY_PATH") {
         let path = path.trim();
         has_override = true;
         if !path.is_empty() {
