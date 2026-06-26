@@ -42,6 +42,7 @@ impl SteamRuleCase {
 }
 
 pub const BUILTIN_RULE_IDS: &[&str] = &[
+    "windows.brave-cache",
     "windows.chrome-cache",
     "windows.cargo-cache",
     "windows.directx-shader-cache",

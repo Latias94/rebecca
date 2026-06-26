@@ -26,6 +26,7 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
     "rules/windows/edge-cache.toml",
     "rules/windows/firefox-profile-cache.toml",
     "rules/windows/chrome-cache.toml",
+    "rules/windows/brave-cache.toml",
     "rules/windows/directx-shader-cache.toml",
     "rules/windows/discord-cache.toml",
     "rules/windows/slack-cache.toml",
@@ -287,6 +288,7 @@ mod tests {
 
         for expected in [
             "windows.chrome-cache",
+            "windows.brave-cache",
             "windows.cargo-cache",
             "windows.directx-shader-cache",
             "windows.discord-cache",

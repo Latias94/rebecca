@@ -1,0 +1,35 @@
+id = "windows.brave-cache"
+platform = "windows"
+category = "browser"
+name = "Brave browser cache"
+safety_level = "safe"
+restore_hint = "Browser cache that can be regenerated."
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Default\\GPUCache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Profile *\\Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Profile *\\Code Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\Profile *\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

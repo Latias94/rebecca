@@ -1327,18 +1327,43 @@ fn chromium_rules_expand_profile_cache_patterns() {
         "local/Microsoft/Edge/User Data/Profile 2/GPUCache/profile-gpu.bin",
         b"123456789012",
     );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Default/Cache/default.bin",
+        &[b'a'; 13],
+    );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Default/Code Cache/default-code.bin",
+        &[b'b'; 14],
+    );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Default/GPUCache/default-gpu.bin",
+        &[b'c'; 15],
+    );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Profile 3/Cache/profile-cache.bin",
+        &[b'd'; 16],
+    );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Profile 3/Code Cache/profile-code.bin",
+        &[b'e'; 17],
+    );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Profile 3/GPUCache/profile-gpu.bin",
+        &[b'f'; 18],
+    );
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_rule_ids = vec![
         "windows.chrome-cache".to_string(),
         "windows.edge-cache".to_string(),
+        "windows.brave-cache".to_string(),
     ];
 
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
-    assert_eq!(plan.summary.allowed_targets, 12);
-    assert_eq!(plan.summary.estimated_bytes, 78);
+    assert_eq!(plan.summary.allowed_targets, 18);
+    assert_eq!(plan.summary.estimated_bytes, 171);
     assert!(plan.targets.iter().any(|target| {
         target
             .path
@@ -1348,6 +1373,11 @@ fn chromium_rules_expand_profile_cache_patterns() {
         target
             .path
             .ends_with(Path::new("Profile 2").join("GPUCache"))
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("Profile 3").join("GPUCache"))
     }));
 }
 

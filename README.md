@@ -167,8 +167,8 @@ runs for quick review. The catalog is embedded from TOML
 files and validated before it reaches the CLI. Reference projects under
 `repo-ref/` are research inputs; their GPL code and cleaner definitions are not
 copied into Rebecca.
-Chromium-family browser cache rules cover `Default` and bounded `Profile *`
-directories when they exist.
+Chromium-family browser cache rules for Chrome, Edge, and Brave cover `Default`
+and bounded `Profile *` directories when they exist.
 Steam support currently discovers the install root from a small ordered set of
 Windows registry locations, then library roots from `steamapps\libraryfolders.vdf`.
 That lets future Steam rules target install-root-relative or library-root-relative
