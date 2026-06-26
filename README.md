@@ -342,10 +342,10 @@ For tests or constrained environments, these paths can also be overridden:
 
 ## Release Integrity
 
-Rebecca's release workflow publishes a Windows x86_64 ZIP artifact and
-`SHA256SUMS`, then generates GitHub build-provenance attestations for release
-assets. Users should verify both the checksum and the attestation when the
-GitHub CLI is available.
+Rebecca's release workflow publishes a Windows x86_64 ZIP artifact, an SPDX
+SBOM, and `SHA256SUMS`, then generates GitHub build-provenance attestations for
+release assets. Users should verify both the checksum and the attestation when
+the GitHub CLI is available.
 
 See [Release Integrity](docs/release.md) for the exact verification commands.
 
@@ -358,6 +358,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace
 cargo bench -p rebecca-core --bench scan_baseline
 .\scripts\release\build-release.ps1 -Tag v0.1.0 -OutDir target\release-smoke
+.\scripts\release\write-sbom.ps1 -Tag v0.1.0 -DistDir target\release-smoke
 .\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
 .\scripts\install.ps1 -AssetPath target\release-smoke\rebecca-0.1.0-windows-x86_64-msvc.zip -ChecksumsPath target\release-smoke\SHA256SUMS -InstallDir target\install-smoke -SkipAttestation
 ```

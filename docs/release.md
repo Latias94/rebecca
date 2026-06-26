@@ -2,38 +2,45 @@
 
 Rebecca publishes release artifacts through the repository's GitHub Actions
 release workflow. The current distribution target is a Windows x86_64 MSVC ZIP
-archive plus a `SHA256SUMS` file.
+archive, an SPDX SBOM, and a `SHA256SUMS` file.
 
 The release workflow is intentionally small:
 
 - build `rebecca-cli` with locked Cargo dependencies;
 - package `rebecca.exe`, README, security policy, release guide, install
   script, VERSION metadata, and safety audit into a ZIP archive;
+- generate an SPDX 2.3 tag-value SBOM from locked Cargo metadata and the
+  release ZIP checksum;
 - generate SHA-256 checksums for final downloadable assets;
 - publish the assets to GitHub Releases;
 - generate GitHub build-provenance attestations for the released files.
 
 ## Artifact Names
 
-For tag `v0.1.0`, the current artifact name is:
+For tag `v0.1.0`, the current artifact names are:
 
 ```text
 rebecca-0.1.0-windows-x86_64-msvc.zip
+rebecca-0.1.0-windows-x86_64-msvc.spdx
 ```
 
 The tag prefix may be `v` or `V`; the artifact version omits that prefix.
 
 ## Verify The Checksum
 
-Download the ZIP and `SHA256SUMS` from the same GitHub Release, then verify the
-asset hash in PowerShell:
+Download the ZIP, SBOM, and `SHA256SUMS` from the same GitHub Release, then
+verify the asset hashes in PowerShell:
 
 ```powershell
-$asset = "rebecca-0.1.0-windows-x86_64-msvc.zip"
-$expected = (Select-String -LiteralPath .\SHA256SUMS -Pattern "  $asset$").Line.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)[0]
-$actual = (Get-FileHash -LiteralPath ".\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actual -ne $expected) {
-    throw "Checksum mismatch for $asset"
+foreach ($asset in @(
+    "rebecca-0.1.0-windows-x86_64-msvc.zip",
+    "rebecca-0.1.0-windows-x86_64-msvc.spdx"
+)) {
+    $expected = (Select-String -LiteralPath .\SHA256SUMS -Pattern "  $asset$").Line.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)[0]
+    $actual = (Get-FileHash -LiteralPath ".\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) {
+        throw "Checksum mismatch for $asset"
+    }
 }
 ```
 
@@ -47,6 +54,7 @@ attestation:
 
 ```powershell
 gh attestation verify .\rebecca-0.1.0-windows-x86_64-msvc.zip --repo OWNER/REPO --deny-self-hosted-runners
+gh attestation verify .\rebecca-0.1.0-windows-x86_64-msvc.spdx --repo OWNER/REPO --deny-self-hosted-runners
 gh attestation verify .\SHA256SUMS --repo OWNER/REPO --deny-self-hosted-runners
 ```
 
@@ -62,6 +70,7 @@ Maintainers can run the same package and checksum scripts locally:
 
 ```powershell
 .\scripts\release\build-release.ps1 -Tag v0.1.0 -OutDir target\release-smoke
+.\scripts\release\write-sbom.ps1 -Tag v0.1.0 -DistDir target\release-smoke
 .\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
 Get-Content target\release-smoke\SHA256SUMS
 ```
@@ -109,5 +118,4 @@ your user PATH if you want to run `rebecca` from any terminal.
 - The first supported downloadable target is Windows x86_64 MSVC.
 - Package-manager publishing is not implemented.
 - MSI/MSIX and in-CLI update commands are not implemented.
-- SBOM generation is not implemented.
 - Fully pinned GitHub Action commit SHAs are a follow-up hardening step.

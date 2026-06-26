@@ -41,6 +41,10 @@ jobs:
           -Target "x86_64-pc-windows-msvc"
           -OutDir "dist"
 
+      - name: Generate SBOM
+        shell: pwsh
+        run: ./scripts/release/write-sbom.ps1 -Tag "${{ github.ref_name }}" -Repository "${{ github.repository }}" -DistDir "dist"
+
       - name: Generate checksums
         shell: pwsh
         run: ./scripts/release/write-checksums.ps1 -DistDir "dist"
@@ -51,6 +55,7 @@ jobs:
           name: release-assets
           path: |
             dist/*.zip
+            dist/*.spdx
             dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 5

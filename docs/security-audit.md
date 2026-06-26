@@ -46,8 +46,8 @@ guardrailed catalog expansion batch are in place. Future cleanup families must
 continue to prove they stay inside those boundaries, but no remaining
 cleanup-system safety gap blocks the current Mole-like Windows-first scope.
 Release integrity is tracked separately from cleanup-runtime safety: the
-repository now has a GitHub Release workflow, checksum generation, and
-build-provenance attestation path for official artifacts.
+repository now has a GitHub Release workflow, SPDX SBOM generation, checksum
+generation, and build-provenance attestation path for official artifacts.
 
 ## Threat Surface
 
@@ -304,9 +304,9 @@ Recent targeted verification for this audit baseline:
   applications.
 - The release workflow has not yet been exercised by a public version tag in
   this repository.
-- MSI/MSIX installer UX, package-manager publishing, SBOM generation, Windows
-  ARM64 artifacts, and fully pinned GitHub Action SHAs remain distribution-layer
-  follow-up work beyond the current cleanup-safety slice.
+- MSI/MSIX installer UX, package-manager publishing, Windows ARM64 artifacts,
+  and fully pinned GitHub Action SHAs remain distribution-layer follow-up work
+  beyond the current cleanup-safety slice.
 
 The U8 completion review is recorded in
 `docs/knowledge/engineering/verification/2026-06-24-mole-parity-completion-review.md`.
