@@ -96,7 +96,7 @@ rules. These are narrow subpaths, not broad app roots:
 
 - user temp directories;
 - Chromium-family cache directories: `Cache`, `Code Cache`, and `GPUCache`
-  under `Default` or bounded `Profile *` profiles;
+  under `Default` or bounded `Profile *` profiles for Chrome, Edge, and Brave;
 - Firefox `cache2` and `startupCache` directories;
 - Electron/VS Code cache directories such as `Cache`, `Code Cache`,
   `GPUCache`, and `CachedData` for explicitly allowlisted app roots including
@@ -244,6 +244,13 @@ Focused coverage currently includes:
   `cli_history.rs`
   for user-facing and JSON contract behavior, including protected issue target
   replay.
+- `crates/rebecca-cli/tests/cli_purge.rs` for project-artifact purge output,
+  selector catalog listing, and recent-artifact messaging.
+- `crates/rebecca-cli/tests/cli_scan.rs` for builtin rule listing and scan
+  filter coverage.
+- `crates/rebecca-core/tests/project_artifacts.rs` for project-artifact
+  discovery, context-sensitive cache detection, selector filtering, and recent
+  artifact skipping.
 
 Recent targeted verification for this audit baseline:
 
@@ -253,10 +260,12 @@ Recent targeted verification for this audit baseline:
 - `cargo nextest run -p rebecca-core --test model_contract`
 - `cargo nextest run -p rebecca-core --test history`
 - `cargo nextest run -p rebecca-cli --test cli_scan`
+- `cargo nextest run -p rebecca-cli --test cli_purge`
 - `cargo nextest run -p rebecca-cli --test cli_apps`
 - `cargo nextest run -p rebecca-cli --test scan`
 - `cargo nextest run -p rebecca-cli --test cli_clean`
 - `cargo nextest run -p rebecca-cli --test cli_history`
+- `cargo nextest run -p rebecca-core --test project_artifacts`
 - `cargo nextest run -p rebecca-windows`
 - `cargo nextest run -p rebecca-rules`
 
@@ -265,6 +274,9 @@ Recent targeted verification for this audit baseline:
 - Future cleanup-rule expansion must stay batch-sized and include
   family-specific unsafe-near-miss tests, CLI contract coverage, and audit
   updates before new rules are considered complete.
+- `rebecca purge --list-artifacts` is the supported scan-free selector catalog
+  surface; new project-artifact selectors should keep it and the JSON catalog in
+  sync.
 - Protected category coverage is conservative but not exhaustive for all Windows
   applications.
 - The release workflow has not yet been exercised by a public version tag in
