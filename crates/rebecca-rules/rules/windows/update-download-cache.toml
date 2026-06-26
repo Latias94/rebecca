@@ -1,0 +1,15 @@
+id = "windows.update-download-cache"
+platform = "windows"
+category = "system"
+name = "Windows Update download cache"
+safety_level = "moderate"
+restore_hint = "Windows Update will download replacement files when needed."
+
+[[targets]]
+kind = "template"
+value = "%WINDIR%\\SoftwareDistribution\\Download"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from windows-cleaner-cli (src/scanners/windows-update.ts and src/utils/paths.ts, MIT, ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5). Rewritten for Rebecca; behavior-only reference."

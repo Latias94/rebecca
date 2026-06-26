@@ -1,0 +1,23 @@
+id = "windows.media-player-cache"
+platform = "windows"
+category = "application"
+name = "Windows Media Player cache"
+safety_level = "safe"
+restore_hint = "Windows Media Player caches will be rebuilt on launch."
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Media Player\\Cache*"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Media Player\\Grafikcache\\LocalMLS"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Media Player\\Transcoded Files Cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from BleachBit (cleaners/windows_media_player.xml, GPL-3.0-or-later, 1517daf22201e4f8b05fbffcc4f89c992ba06375). Rewritten for Rebecca; behavior-only reference."

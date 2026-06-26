@@ -108,6 +108,8 @@ rules. These are narrow subpaths, not broad app roots:
 - ccache cache buckets under `%CCACHE_DIR%`, `%USERPROFILE%\.ccache`,
   `%LOCALAPPDATA%\ccache`, and `%APPDATA%\ccache`, plus `tmp`; `ccache.conf`,
   `CACHEDIR.TAG`, and `stats` stay outside the cleanup surface;
+- Windows maintenance caches under `%WINDIR%\Temp`, `%WINDIR%\Prefetch`, and
+  `%WINDIR%\SoftwareDistribution\Download`;
 - pip, uv, Poetry package-cache, Conda package-cache, Go build/module, Cargo,
   rustup, npm, pnpm,
   Yarn, Bun, Corepack, NuGet, Gradle, and Maven cache directories;
@@ -164,9 +166,15 @@ from TOML files. The catalog loader and validators enforce:
 - unique rule ids and target specs;
 - Windows platform and `windows.` id prefix for built-ins;
 - non-empty restore hints;
-- owned source and `project-owned` provenance license.
+- owned source and `project-owned` provenance license;
 - target shapes that overlap protected categories or unallowlisted Steam
   install/library relative paths.
+
+When external projects inform a rule family, keep the upstream project name,
+repository or file path, license, and revision reference in
+`provenance.notes`. GPL references such as Mole and BleachBit remain behavior
+references only; do not copy rule definitions or code from them into the
+catalog.
 
 Rule authoring guidance lives in `docs/rule-authoring.md`. Reference projects
 under `repo-ref/` are research inputs only; their GPL code and rules are not

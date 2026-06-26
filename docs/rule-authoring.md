@@ -61,6 +61,10 @@ files. Keep each rule small, explicit, and easy to audit.
 - sccache cache rules should target the Windows local disk cache root under
   `%LOCALAPPDATA%\Mozilla\sccache` and the configurable `%SCCACHE_DIR%` cache
   root; do not target compiler wrapper binaries, server logs, or config state.
+- Windows maintenance cache rules may target `%WINDIR%\Temp`,
+  `%WINDIR%\Prefetch`, and `%WINDIR%\SoftwareDistribution\Download`; do not
+  target broader system roots or `ProgramData` outside a narrowly justified
+  cache family.
 - Rustup cache rules may target `%RUSTUP_HOME%\downloads`,
   `%RUSTUP_HOME%\tmp`, and the matching default `%USERPROFILE%\.rustup`
   cache leaves; never target `toolchains`, `settings.toml`, `overrides`, or
@@ -121,3 +125,17 @@ files. Keep each rule small, explicit, and easy to audit.
 - Built-in rules must include a concise non-empty `restore_hint`, because dry-run,
   history, and grouped human output surface it as part of the safety contract.
 - Document the source of each rule in `provenance.notes`.
+- When a rule family is derived from an external reference, keep the reference
+  in `provenance.notes` with the upstream project name, repository or file path,
+  license, and any relevant commit or release tag. Treat GPL sources such as
+  Mole and BleachBit as behavior references only, not rule-data sources.
+- `windows-cleaner-cli` can inform Windows maintenance-cache families such as
+  temp files, Prefetch, Windows Update downloads, and related system cache
+  comparisons.
+- `null-e` can inform developer-cache families such as Cargo, npm, pnpm, Yarn,
+  pip, uv, Poetry, Conda, Gradle, Maven, Docker, and IDE caches.
+- `Bulk Crap Uninstaller` is useful for uninstall and leftovers modeling, not
+  for built-in cleanup target paths.
+- Prefer permissive or clearly scoped reference sources when possible. If the
+  upstream license or reuse terms are unclear, record the source for behavior
+  comparison only and rewrite the rule from scratch.

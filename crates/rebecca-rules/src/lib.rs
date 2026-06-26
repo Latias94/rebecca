@@ -67,6 +67,10 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
     "rules/windows/thumbnail-cache.toml",
     "rules/windows/vscode-cache.toml",
     "rules/windows/wer-reports.toml",
+    "rules/windows/system-temp.toml",
+    "rules/windows/prefetch.toml",
+    "rules/windows/update-download-cache.toml",
+    "rules/windows/media-player-cache.toml",
 );
 
 pub fn builtin_rules() -> Result<Vec<RuleDefinition>> {
@@ -343,6 +347,10 @@ mod tests {
             "windows.vscode-cache",
             "windows.wer-reports",
             "windows.yarn-cache",
+            "windows.system-temp",
+            "windows.prefetch",
+            "windows.update-download-cache",
+            "windows.media-player-cache",
         ] {
             assert!(ids.contains(expected), "missing built-in rule: {expected}");
         }

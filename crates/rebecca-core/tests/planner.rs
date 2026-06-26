@@ -50,6 +50,10 @@ fn category_filter_includes_only_matching_rules() {
             target.rule_id.as_str(),
             "windows.user-temp"
                 | "windows.directx-shader-cache"
+                | "windows.system-temp"
+                | "windows.prefetch"
+                | "windows.update-download-cache"
+                | "windows.media-player-cache"
                 | "windows.thumbnail-cache"
                 | "windows.wer-reports"
         )
@@ -1706,6 +1710,10 @@ fn category_selection_is_case_insensitive() {
         target.rule_id.as_str(),
         "windows.user-temp"
             | "windows.directx-shader-cache"
+            | "windows.system-temp"
+            | "windows.prefetch"
+            | "windows.update-download-cache"
+            | "windows.media-player-cache"
             | "windows.thumbnail-cache"
             | "windows.wer-reports"
     )));

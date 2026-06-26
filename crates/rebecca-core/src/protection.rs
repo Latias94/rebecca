@@ -63,13 +63,6 @@ impl<'a> ProtectionPolicy<'a> {
             );
         }
 
-        if is_windows_critical_path(&normalized.lower) {
-            return blocked(
-                ProtectionBlockKind::WindowsCriticalPath,
-                "critical Windows path is protected".to_string(),
-            );
-        }
-
         if is_user_profile_root(&normalized.lower) {
             return blocked(
                 ProtectionBlockKind::UserProfileRoot,
@@ -100,6 +93,13 @@ impl<'a> ProtectionPolicy<'a> {
 
         if is_allowlisted_maintenance_path(&normalized) {
             return ProtectionAssessment::Allowed;
+        }
+
+        if is_windows_critical_path(&normalized.lower) {
+            return blocked(
+                ProtectionBlockKind::WindowsCriticalPath,
+                "critical Windows path is protected".to_string(),
+            );
         }
 
         if let Some(category) = protected_category(&normalized) {
@@ -502,6 +502,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_dotnet_package_manager_cache_path(&segments)
         || is_gradle_cache_path(&segments)
         || is_maven_cache_path(&segments)
+        || is_windows_maintenance_cache_path(&segments)
         || is_known_temp_or_report_path(&segments)
 }
 
@@ -664,6 +665,12 @@ fn is_known_temp_or_report_path(segments: &[&str]) -> bool {
     has_sequence(segments, &["appdata", "local", "temp"])
         || has_sequence(segments, &["microsoft", "windows", "wer", "reportarchive"])
         || has_sequence(segments, &["microsoft", "windows", "wer", "reportqueue"])
+}
+
+fn is_windows_maintenance_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["windows", "temp"])
+        || has_sequence(segments, &["windows", "prefetch"])
+        || has_sequence(segments, &["windows", "softwaredistribution", "download"])
 }
 
 fn is_app_leftover_cache_path(path: &NormalizedPath) -> bool {

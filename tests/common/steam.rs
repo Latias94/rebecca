@@ -81,11 +81,15 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.steam-library-downloading-cache",
     "windows.steam-library-shader-cache",
     "windows.steam-library-temp-cache",
+    "windows.system-temp",
     "windows.thumbnail-cache",
     "windows.user-temp",
     "windows.uv-cache",
     "windows.vscode-cache",
     "windows.wer-reports",
+    "windows.prefetch",
+    "windows.update-download-cache",
+    "windows.media-player-cache",
     "windows.yarn-cache",
 ];
 

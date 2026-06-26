@@ -13,3 +13,4 @@
 * [Subagents](subagents/) - Distilled findings from spawned agents.
 * [Verification](verification/) - Test, build, lint, benchmark, and manual evidence.
 * [Conventions](conventions/) - Local repo rules and reusable agent contracts.
+* [Rule Sources](conventions/rule-sources.md) - Upstream projects and datasets used as behavior or license references for rule authoring.

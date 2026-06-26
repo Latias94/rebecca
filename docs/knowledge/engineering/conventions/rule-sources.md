@@ -1,0 +1,56 @@
+# Rule Sources
+
+This directory records upstream projects and datasets that can inform Rebecca
+rule authoring. It is a reference index, not a copy of external rule data.
+
+## Usage Rules
+
+- Record the upstream project name, repository or file path, license, and
+  revision reference for every external source you use.
+- Put the same source summary in the rule's `provenance.notes`.
+- GPL sources may inform behavior and safety boundaries, but their rule
+  definitions and code must not be copied into Rebecca.
+- If reuse terms are unclear, treat the source as behavior-only reference and
+  rewrite the rule from scratch.
+
+## Current Sources
+
+| Source | License | Repository / file path | Revision | Notes |
+|--------|---------|------------------------|----------|-------|
+| Mole | GPL-3.0-or-later | `repo-ref/Mole` | `6be20eaa1eacc78d0355b4ed4744bb7a08447704` | Behavior and safety benchmark only. Reference paths and UX, not rule text. |
+| BleachBit | GPL-3.0-or-later | `repo-ref/bleachbit/cleaners/*.xml` | `1517daf22201e4f8b05fbffcc4f89c992ba06375` | Cleaner behavior reference only. Use `cleaners/*.xml` and docs for path ideas, not copied rule data. |
+| Winapp2.ini | Unclear / reference-only | discovery index only | n/a | Use as a discovery index for Windows cleanup candidates only; rewrite every rule from scratch. |
+| windows-cleaner-cli | MIT | `repo-ref/windows-cleaner-cli` | `ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5` | Useful for Windows maintenance cache categories such as temp files, Prefetch, update downloads, and browser/system cache comparisons. |
+| null-e | WTFPL-2.0 | `repo-ref/null-e` | `079a038f71159dab07c4d2bd8bd700cb5647972d` | Useful batch reference for developer-cache families such as npm, pip, cargo, uv, Poetry, Docker, Android, IDE, and ML/AI caches. Behavior reference only. |
+| Bulk Crap Uninstaller | Apache-2.0 | `repo-ref/Bulk-Crap-Uninstaller/Licence.txt` | `f39663316ad5d593c4d160b0445841ce7eb6a35f` | Useful for uninstall and leftovers modeling; not a rule source. |
+
+## BleachBit Windows Coverage Notes
+
+BleachBit's Windows cleaners are the highest-signal external reference for
+future rule batches. The reusable families are browser caches, Electron-like
+apps, Office-style application caches, and a smaller set of Windows utility
+cleaners. Linux-only cleaners are generally not relevant to Rebecca's current
+scope.
+
+Candidates worth batch review:
+
+- Developer cache families such as Cargo, npm, pnpm, Yarn, pip, uv, Poetry, Conda, Gradle, Maven, and IDE caches
+- Chromium-family browsers and derivatives
+- Firefox-family profile caches
+- Electron-based apps such as Discord, Slack, Teams-like apps, and editor
+  shells
+- Office and document-app caches when they are stable and user-scoped
+- Windows utilities such as Explorer, Media Player, Defender, and similar
+  regenerated caches
+- Windows maintenance caches such as temp files, Prefetch, and update
+  download directories
+- Uninstall leftovers and app inventory modeling
+
+## Rule Family Trace Template
+
+Use this shape in `provenance.notes`:
+
+```text
+Derived from <upstream project> (<repo or file path>, <license>, <revision>).
+Rewritten for Rebecca; behavior-only reference.
+```
