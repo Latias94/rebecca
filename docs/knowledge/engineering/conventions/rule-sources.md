@@ -1,3 +1,11 @@
+---
+type: "Repo Convention"
+title: "Rule Sources"
+description: "Reference sources and license boundaries for Rebecca built-in cleanup rule authoring."
+tags: ["engineering-memory", "rule-authoring", "provenance"]
+status: "active"
+---
+
 # Rule Sources
 
 This directory records upstream projects and datasets that can inform Rebecca
