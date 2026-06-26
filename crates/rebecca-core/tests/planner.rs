@@ -1175,6 +1175,63 @@ fn gradle_and_maven_rules_target_rebuildable_caches() {
 }
 
 #[test]
+fn android_rule_targets_build_and_ide_caches_only() {
+    let fixture = PlannerFixture::new();
+    fixture.write("user/.android/cache/build.bin", b"cache");
+    fixture.write("user/.android/build-cache/task.bin", b"build");
+    fixture.write("android-home/cache/alt.bin", b"alt");
+    fixture.write("android-home/build-cache/alt.bin", b"alt2");
+    fixture.write("legacy-android-home/.android/cache/legacy.bin", b"old");
+    fixture.write(
+        "legacy-android-home/.android/build-cache/legacy.bin",
+        b"old2",
+    );
+    fixture.write("local/Google/AndroidStudio2024.2/caches/index.bin", b"ide");
+    fixture.write("user/.android/avd/Pixel.avd/userdata-qemu.img", b"keep");
+    fixture.write("user/.android/adbkey", b"keep");
+    fixture.write("user/.android/debug.keystore", b"keep");
+    fixture.write(
+        "user/Android/Sdk/system-images/android-35/google_apis/x86_64.img",
+        b"keep",
+    );
+    fixture.write("user/Android/Sdk/platform-tools/adb.exe", b"keep");
+    fixture.write(
+        "local/Google/AndroidStudio2024.2/options/options.xml",
+        b"keep",
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.android-cache".to_string()];
+    request.allow_moderate = true;
+
+    let env = fixture
+        .env
+        .clone()
+        .with_var(
+            "ANDROID_USER_HOME",
+            fixture.root.join("android-home").into_os_string(),
+        )
+        .with_var(
+            "ANDROID_SDK_HOME",
+            fixture.root.join("legacy-android-home").into_os_string(),
+        );
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 7);
+    assert_eq!(plan.summary.estimated_bytes, 27);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy().replace('\\', "/");
+        !path.contains("/avd/")
+            && !path.ends_with("/adbkey")
+            && !path.ends_with("/debug.keystore")
+            && !path.contains("/Android/Sdk/")
+            && !path.contains("/options/")
+    }));
+}
+
+#[test]
 fn python_package_manager_rules_target_rebuildable_caches() {
     let fixture = PlannerFixture::new();
     fixture.write("local/pip/Cache/http/package.whl", b"pip");

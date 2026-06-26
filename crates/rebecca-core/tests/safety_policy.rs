@@ -123,6 +123,18 @@ fn credentials_ai_cloud_runtime_and_startup_data_are_blocked() {
             "C:/Users/Alice/.rustup/toolchains/stable-x86_64-pc-windows-msvc",
             ProtectedCategory::ApplicationDurableData,
         ),
+        (
+            "C:/Users/Alice/.android/avd/Pixel.avd",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/.android/adbkey",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/Android/Sdk/platforms/android-35",
+            ProtectedCategory::ApplicationDurableData,
+        ),
     ] {
         assert!(
             matches!(
@@ -198,6 +210,9 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
         "C:/Users/Alice/AppData/Local/uv/cache",
         "C:/Users/Alice/AppData/Local/pypoetry/Cache/cache",
         "C:/Users/Alice/AppData/Local/pypoetry/Cache/artifacts",
+        "C:/Users/Alice/.android/cache",
+        "C:/Users/Alice/.android/build-cache",
+        "C:/Users/Alice/AppData/Local/Google/AndroidStudio2024.2/caches",
         "C:/Users/Alice/.cache/huggingface/hub",
         "C:/Users/Alice/.cache/huggingface/datasets",
         "C:/Users/Alice/.cache/huggingface/assets",
@@ -257,6 +272,13 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
         RuleTargetSpec::template("%LOCALAPPDATA%\\uv\\cache"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\pypoetry\\Cache\\cache"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\pypoetry\\Cache\\artifacts"),
+        RuleTargetSpec::template("%ANDROID_USER_HOME%\\cache"),
+        RuleTargetSpec::template("%ANDROID_USER_HOME%\\build-cache"),
+        RuleTargetSpec::template("%ANDROID_SDK_HOME%\\.android\\cache"),
+        RuleTargetSpec::template("%ANDROID_SDK_HOME%\\.android\\build-cache"),
+        RuleTargetSpec::template("%USERPROFILE%\\.android\\cache"),
+        RuleTargetSpec::template("%USERPROFILE%\\.android\\build-cache"),
+        RuleTargetSpec::glob_template("%LOCALAPPDATA%\\Google\\AndroidStudio*\\caches"),
         RuleTargetSpec::template("%HF_HOME%\\hub"),
         RuleTargetSpec::template("%HF_HOME%\\datasets"),
         RuleTargetSpec::template("%HF_HOME%\\assets"),
@@ -341,6 +363,22 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
         ),
         (
             RuleTargetSpec::template("%APPDATA%\\Slack\\Local Storage"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%USERPROFILE%\\.android\\avd"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%USERPROFILE%\\.android\\adbkey"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%USERPROFILE%\\.android\\debug.keystore"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%USERPROFILE%\\Android\\Sdk\\system-images"),
             ProtectedCategory::ApplicationDurableData,
         ),
         (

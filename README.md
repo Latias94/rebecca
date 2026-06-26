@@ -166,6 +166,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.bun-cache`
 - `windows.corepack-cache`
 - `windows.gradle-cache`
+- `windows.android-cache`
 - `windows.nuget-cache`
 - `windows.maven-cache`
 - `windows.vscode-cache`

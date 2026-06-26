@@ -497,6 +497,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_rustup_cache_path(&segments)
         || is_sccache_cache_path(&segments)
         || is_go_cache_path(&segments)
+        || is_android_cache_path(&segments)
         || is_python_package_manager_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
         || is_dotnet_package_manager_cache_path(&segments)
@@ -576,6 +577,21 @@ fn is_jetbrains_cache_path(segments: &[&str]) -> bool {
             .get(index + 2)
             .is_some_and(|segment| *segment == "caches")
     })
+}
+
+fn is_android_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".android", "cache"])
+        || has_sequence(segments, &[".android", "build-cache"])
+        || has_sequence(segments, &["%android_user_home%", "cache"])
+        || has_sequence(segments, &["%android_user_home%", "build-cache"])
+        || find_segment(segments, "google").is_some_and(|index| {
+            segments
+                .get(index + 1)
+                .is_some_and(|segment| segment.starts_with("androidstudio"))
+                && segments
+                    .get(index + 2)
+                    .is_some_and(|segment| *segment == "caches")
+        })
 }
 
 fn is_cargo_cache_path(segments: &[&str]) -> bool {
@@ -825,6 +841,7 @@ fn is_application_durable_data_path(segments: &[&str]) -> bool {
         || is_ccache_durable_state_path(segments)
         || is_conda_durable_state_path(segments)
         || is_rustup_durable_state_path(segments)
+        || is_android_durable_state_path(segments)
         || has_any_segment(
             segments,
             &["local storage", "indexeddb", "service worker", "network"],
@@ -857,6 +874,20 @@ fn is_rustup_durable_state_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["%rustup_home%", "settings.toml"])
         || has_sequence(segments, &["%rustup_home%", "overrides"])
         || has_sequence(segments, &["%rustup_home%", "update-hashes"])
+}
+
+fn is_android_durable_state_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".android", "avd"])
+        || has_sequence(segments, &[".android", "adbkey"])
+        || has_sequence(segments, &[".android", "adbkey.pub"])
+        || has_sequence(segments, &[".android", "debug.keystore"])
+        || has_sequence(segments, &[".android", "repositories.cfg"])
+        || has_sequence(segments, &["android", "sdk", "platforms"])
+        || has_sequence(segments, &["android", "sdk", "platform-tools"])
+        || has_sequence(segments, &["android", "sdk", "build-tools"])
+        || has_sequence(segments, &["android", "sdk", "system-images"])
+        || has_sequence(segments, &["android", "sdk", "ndk"])
+        || has_sequence(segments, &["android", "sdk", "licenses"])
 }
 
 fn same_or_descendant(path: &str, prefix: &str) -> bool {

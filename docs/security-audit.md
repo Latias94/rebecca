@@ -102,6 +102,9 @@ rules. These are narrow subpaths, not broad app roots:
   `GPUCache`, and `CachedData` for explicitly allowlisted app roots including
   Discord and Slack;
 - JetBrains product `caches` directories;
+- Android user cache leaves under `.android\cache` and
+  `.android\build-cache`, plus Android Studio
+  `%LOCALAPPDATA%\Google\AndroidStudio*\caches` directories;
 - Cargo cache subdirectories under `registry` and `git`; sccache local disk
   compiler-cache roots under `%LOCALAPPDATA%\Mozilla\sccache` and
   `%SCCACHE_DIR%`;
@@ -154,7 +157,7 @@ system-owned install roots.
 | Cloud-synced data | OneDrive, iCloud Drive, iCloud Photos, Dropbox, Google Drive, Box, MEGA |
 | Container/VM runtime state | Docker, Docker Desktop, Podman, Rancher Desktop, WSL config, `.docker`, `.podman`, `.kube` |
 | Startup automation | Windows Startup folder paths |
-| Application durable data | Steam `userdata`, `steamapps\common`, `steamapps\workshop`, `steamapps\compatdata`, Conda environments, browser-like durable storage roots |
+| Application durable data | Steam `userdata`, `steamapps\common`, `steamapps\workshop`, `steamapps\compatdata`, Conda environments, Android AVDs, SDK packages, adb/debug keys, browser-like durable storage roots |
 
 These categories are intentionally conservative. False negatives where Rebecca
 refuses to clean a path are acceptable safety outcomes; false positives that

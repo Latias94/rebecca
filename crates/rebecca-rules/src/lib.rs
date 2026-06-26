@@ -51,6 +51,7 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
     "rules/windows/bun-cache.toml",
     "rules/windows/corepack-cache.toml",
     "rules/windows/gradle-cache.toml",
+    "rules/windows/android-cache.toml",
     "rules/windows/nuget-cache.toml",
     "rules/windows/maven-cache.toml",
     "rules/windows/pip-cache.toml",
@@ -309,6 +310,7 @@ mod tests {
 
         for expected in [
             "windows.chrome-cache",
+            "windows.android-cache",
             "windows.brave-cache",
             "windows.bun-cache",
             "windows.cargo-cache",

@@ -26,6 +26,7 @@ rule authoring. It is a reference index, not a copy of external rule data.
 | Hugging Face Hub | Apache-2.0 | `huggingface/huggingface_hub/src/huggingface_hub/constants.py` and `package_reference/environment_variables` | `1e41293da4a0b1e5ea1afab85d3701843aa4b3bc` | Verified cache-root behavior for HF_HOME, HF_HUB_CACHE, HF_ASSETS_CACHE, and HF_XET_CACHE. |
 | Hugging Face Datasets | Apache-2.0 | `huggingface/datasets/src/datasets/config.py` | `b713dcdffa92ada37c569e6f1419ce94fc170b0c` | Verified HF_DATASETS_CACHE and the dataset cache layout under HF_HOME. |
 | PyTorch | BSD-style | `pytorch/pytorch/torch/hub.py` | `0a8f331c4de50a57643fb72b692dbc6a41b12297` | Verified Torch Hub cache root behavior and the default checkpoints subdirectory via get_dir and load_state_dict_from_url. |
+| Android Studio / Android tools | Android docs license / JetBrains reference-only | Android tool environment variable docs and JetBrains IDE cache directory docs | 2026-06-26 docs review | Verified the `.android` user-home cache boundary and Android Studio cache directory shape; SDK packages, AVDs, keys, licenses, and IDE settings are durable state. |
 
 ## BleachBit Windows Coverage Notes
 

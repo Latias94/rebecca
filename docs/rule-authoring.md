@@ -71,6 +71,15 @@ files. Keep each rule small, explicit, and easy to audit.
   and the default `%USERPROFILE%\.cache\torch\hub` equivalent; the default
   `checkpoints` subdirectory lives under that hub root, so do not split it into
   a separate top-level target unless you have a strong reason to do so.
+- Android cache rules should target only `.android` cache leaves
+  (`%ANDROID_USER_HOME%\cache`, `%ANDROID_USER_HOME%\build-cache`,
+  `%ANDROID_SDK_HOME%\.android\cache`,
+  `%ANDROID_SDK_HOME%\.android\build-cache`,
+  `%USERPROFILE%\.android\cache`, and
+  `%USERPROFILE%\.android\build-cache`) plus Android Studio's
+  `%LOCALAPPDATA%\Google\AndroidStudio*\caches` directories. Do not target AVDs,
+  SDK packages, system images, licenses, adb keys, debug keystores, or IDE
+  settings/plugins.
 - Windows maintenance cache rules may target `%WINDIR%\Temp`,
   `%WINDIR%\Prefetch`, and `%WINDIR%\SoftwareDistribution\Download`; do not
   target broader system roots or `ProgramData` outside a narrowly justified
@@ -143,8 +152,8 @@ files. Keep each rule small, explicit, and easy to audit.
   temp files, Prefetch, Windows Update downloads, and related system cache
   comparisons.
 - `null-e` can inform developer-cache families such as Cargo, npm, pnpm, Yarn,
-  pip, uv, Poetry, Conda, Gradle, Maven, Docker, IDE caches, and ML/AI caches
-  such as Hugging Face and PyTorch.
+  pip, uv, Poetry, Conda, Gradle, Maven, Docker, Android, IDE caches, and ML/AI
+  caches such as Hugging Face and PyTorch.
 - `Bulk Crap Uninstaller` is useful for uninstall and leftovers modeling, not
   for built-in cleanup target paths.
 - Prefer permissive or clearly scoped reference sources when possible. If the
