@@ -116,6 +116,80 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
 }
 
 #[test]
+fn purge_human_output_groups_project_artifacts_by_project_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+    write_fixture_file(
+        workspace
+            .join("app")
+            .join("target")
+            .join("debug")
+            .join("app.bin"),
+        b"rust",
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Workflow: Project artifacts"));
+    assert!(stdout.contains("Project artifact details:"));
+    assert!(stdout.contains(&workspace.join("app").display().to_string()));
+    assert!(stdout.contains("- node_modules [allowed]"));
+    assert!(stdout.contains("- target [allowed]"));
+}
+
+#[test]
+fn purge_human_output_highlights_recently_modified_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Recently modified artifacts:"));
+    assert!(stdout.contains("- node_modules [skipped]"));
+    assert!(stdout.contains("modified within the last 7 days"));
+}
+
+#[test]
 fn purge_json_filters_selected_artifacts() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");

@@ -12,6 +12,7 @@ mod history_view;
 mod info;
 mod output;
 mod purge;
+mod purge_view;
 mod scan;
 
 #[derive(Debug, Parser)]

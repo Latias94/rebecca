@@ -1,8 +1,9 @@
 use anyhow::Result;
-use rebecca_core::RuleDefinition;
 use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan};
+use rebecca_core::{CleanupWorkflow, RuleDefinition};
 
 use crate::clean_view::{CleanPlanProjection, CleanTargetRow, ScanCacheProgressSummary};
+use crate::purge_view::{ProjectArtifactPlanProjection, ProjectArtifactRow};
 
 pub fn print_rule_catalog(rules: &[&RuleDefinition]) {
     println!("Rebecca rules: {}", rules.len());
@@ -116,6 +117,11 @@ pub(crate) fn print_plan(
         );
     }
 
+    if plan.request.workflow == CleanupWorkflow::ProjectArtifacts {
+        print_project_artifact_details(plan);
+        return Ok(());
+    }
+
     if !projection.largest_targets().is_empty() {
         println!();
         println!("Largest estimated targets:");
@@ -136,6 +142,66 @@ pub(crate) fn print_plan(
     }
 
     Ok(())
+}
+
+fn print_project_artifact_details(plan: &CleanupPlan) {
+    let projection = ProjectArtifactPlanProjection::new(plan);
+
+    if !projection.recently_modified().is_empty() {
+        println!();
+        println!("Recently modified artifacts:");
+        for target in projection.recently_modified() {
+            print_recent_project_artifact_line(target, "  -");
+        }
+    }
+
+    if projection.project_groups().is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Project artifact details:");
+    for group in projection.project_groups() {
+        println!(
+            "{} ({}, {} bytes ({}) estimated)",
+            group.project_path.display(),
+            group.targets_label,
+            group.estimated_bytes,
+            format_bytes(group.estimated_bytes)
+        );
+        for target in &group.targets {
+            print_project_artifact_line(target, "  -");
+        }
+    }
+}
+
+fn print_recent_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
+    println!(
+        "{prefix} {} [{}] {}{}",
+        target.artifact_type,
+        target.status_label,
+        target.path.display(),
+        target
+            .reason
+            .map(|reason| format!(" - {reason}"))
+            .unwrap_or_default(),
+    );
+}
+
+fn print_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
+    println!(
+        "{prefix} {} [{}] {} bytes ({}) - {}{}{}",
+        target.artifact_type,
+        target.status_label,
+        target.estimated_bytes,
+        format_bytes(target.estimated_bytes),
+        target.path.display(),
+        target
+            .reason
+            .map(|reason| format!(" (reason: {reason})"))
+            .unwrap_or_default(),
+        restore_hint_suffix(target.restore_hint)
+    );
 }
 
 fn print_target_line(target: &CleanTargetRow<'_>, prefix: &str) {

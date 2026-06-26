@@ -225,7 +225,8 @@ active build output, `purge` skips artifact directories modified within the last
 7 days by default; pass `--min-age-days 0` to include recent artifacts
 explicitly. Use repeated `--artifact <NAME>` values to include only selected
 artifact kinds, using either the directory name such as `node_modules` or a rule
-id suffix such as `target`.
+id suffix such as `target`. Human output groups artifact targets by project path
+and labels each artifact type so large purge plans are easier to scan.
 
 Long-lived purge defaults belong in `config.toml`:
 
