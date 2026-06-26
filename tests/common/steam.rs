@@ -52,6 +52,8 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.discord-cache",
     "windows.edge-cache",
     "windows.firefox-profile-cache",
+    "windows.go-build-cache",
+    "windows.go-module-cache",
     "windows.jetbrains-cache",
     "windows.maven-cache",
     "windows.npm-cache",

@@ -492,6 +492,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_electron_cache_path(&segments)
         || is_jetbrains_cache_path(&segments)
         || is_cargo_cache_path(&segments)
+        || is_go_cache_path(&segments)
         || is_python_package_manager_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
         || is_dotnet_package_manager_cache_path(&segments)
@@ -578,6 +579,11 @@ fn is_cargo_cache_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["registry", "src"])
         || has_sequence(segments, &["git", "db"])
         || has_sequence(segments, &["git", "checkouts"])
+}
+
+fn is_go_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["appdata", "local", "go-build"])
+        || has_sequence(segments, &["go", "pkg", "mod"])
 }
 
 fn is_python_package_manager_cache_path(segments: &[&str]) -> bool {

@@ -62,6 +62,10 @@ files. Keep each rule small, explicit, and easy to audit.
   Python installations, virtual environments, project `.venv`, or project-local
   tool caches such as `.mypy_cache`, `.pytest_cache`, or `.ruff_cache` from the
   built-in system catalog.
+- Go cache rules may target the default Windows build cache
+  `%LOCALAPPDATA%\go-build` and default GOPATH module cache
+  `%USERPROFILE%\go\pkg\mod`; do not target GOPATH `bin`, `src`, or broad
+  `%USERPROFILE%\go\pkg` compiled package output.
 - JetBrains IDE caches should point at the product `caches` subdirectory under
   `%LOCALAPPDATA%\JetBrains\<product><version>`, not at the Toolbox app tree.
 - Keep glob roots narrow. Do not start a glob at `%USERPROFILE%` or a drive

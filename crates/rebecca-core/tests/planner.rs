@@ -1099,6 +1099,40 @@ fn python_package_manager_rules_target_rebuildable_caches() {
 }
 
 #[test]
+fn go_rules_target_build_and_module_caches_only() {
+    let fixture = PlannerFixture::new();
+    fixture.write("local/go-build/action/cache.a", b"build");
+    fixture.write("user/go/pkg/mod/cache/download/example.zip", b"mod");
+    fixture.write(
+        "user/go/pkg/mod/github.com/example/pkg@v1.0.0/file.go",
+        b"src",
+    );
+    fixture.write("user/go/bin/tool.exe", b"keep");
+    fixture.write("user/go/src/app/main.go", b"keep");
+    fixture.write("user/go/pkg/windows_amd64/example.a", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.go-build-cache".to_string(),
+        "windows.go-module-cache".to_string(),
+    ];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 11);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy().replace('\\', "/");
+        !path.contains("/go/bin/")
+            && !path.contains("/go/src/")
+            && !path.contains("/go/pkg/windows_amd64/")
+    }));
+}
+
+#[test]
 fn discord_rule_targets_only_browser_cache_directories() {
     let fixture = PlannerFixture::new();
     fixture.write("roaming/discord/Cache/cache.bin", b"ab");
