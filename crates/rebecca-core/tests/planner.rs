@@ -994,6 +994,34 @@ fn node_package_manager_rules_target_rebuildable_caches() {
 }
 
 #[test]
+fn nuget_rule_targets_package_caches_only() {
+    let fixture = PlannerFixture::new();
+    fixture.write("user/.nuget/packages/example/lib.dll", b"pkg");
+    fixture.write("local/NuGet/v3-cache/index.dat", b"v3");
+    fixture.write("local/NuGet/plugins-cache/provider.dat", b"plug");
+    fixture.write("local/NuGet/Cache/package.nupkg", b"http");
+    fixture.write("roaming/NuGet/NuGet.Config", b"keep");
+    fixture.write("user/.nuget/NuGet/NuGet.Config", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.nuget-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 4);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 13);
+    assert!(plan.targets.iter().all(|target| {
+        target
+            .path
+            .file_name()
+            .is_none_or(|name| name != "NuGet.Config")
+    }));
+}
+
+#[test]
 fn discord_rule_targets_only_browser_cache_directories() {
     let fixture = PlannerFixture::new();
     fixture.write("roaming/discord/Cache/cache.bin", b"ab");

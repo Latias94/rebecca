@@ -1,0 +1,27 @@
+id = "windows.nuget-cache"
+platform = "windows"
+category = "development"
+name = "NuGet package cache"
+safety_level = "moderate"
+restore_hint = "NuGet may need to redownload packages during restore."
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.nuget\\packages"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\NuGet\\v3-cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\NuGet\\plugins-cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\NuGet\\Cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets NuGet's user-scoped package and HTTP/plugin caches only, intentionally avoiding NuGet.Config, credential providers, and project bin/obj output."

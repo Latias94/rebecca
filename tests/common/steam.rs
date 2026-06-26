@@ -53,6 +53,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.firefox-profile-cache",
     "windows.jetbrains-cache",
     "windows.npm-cache",
+    "windows.nuget-cache",
     "windows.pip-cache",
     "windows.pnpm-cache",
     "windows.slack-cache",

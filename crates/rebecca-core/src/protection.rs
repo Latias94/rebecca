@@ -494,6 +494,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_cargo_cache_path(&segments)
         || is_pip_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
+        || is_dotnet_package_manager_cache_path(&segments)
         || is_known_temp_or_report_path(&segments)
 }
 
@@ -591,6 +592,13 @@ fn is_node_package_manager_cache_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["appdata", "local", "yarn", "cache"])
         || has_sequence(segments, &[".bun", "install", "cache"])
         || has_sequence(segments, &["appdata", "local", "node", "corepack"])
+}
+
+fn is_dotnet_package_manager_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".nuget", "packages"])
+        || has_sequence(segments, &["appdata", "local", "nuget", "v3-cache"])
+        || has_sequence(segments, &["appdata", "local", "nuget", "plugins-cache"])
+        || has_sequence(segments, &["appdata", "local", "nuget", "cache"])
 }
 
 fn is_known_temp_or_report_path(segments: &[&str]) -> bool {
