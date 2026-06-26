@@ -9,12 +9,21 @@ use rebecca_core::project_artifacts::{ProjectArtifactScanOptions, discover_proje
 use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, TargetStatus};
 
+const CACHEDIR_TAG_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
+
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
     }
     fs::write(path, bytes).unwrap();
+}
+
+fn write_cachedir_tag(dir: impl AsRef<Path>) {
+    write_fixture_file(
+        dir.as_ref().join("CACHEDIR.TAG"),
+        format!("{CACHEDIR_TAG_SIGNATURE}\n# cache directory\n").as_bytes(),
+    );
 }
 
 #[test]
@@ -62,6 +71,33 @@ fn discovers_known_project_artifacts_and_prunes_nested_artifacts() {
             .iter()
             .all(|path| !path.ends_with(Path::new("target").join("node_modules")))
     );
+}
+
+#[test]
+fn discovers_valid_cachedir_tag_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let cache = workspace.join("app").join("custom-cache");
+    let invalid_cache = workspace.join("app").join("invalid-cache");
+    write_fixture_file(cache.join("entry.bin"), b"abc");
+    write_cachedir_tag(&cache);
+    write_fixture_file(invalid_cache.join("entry.bin"), b"keep");
+    write_fixture_file(
+        invalid_cache.join("CACHEDIR.TAG"),
+        b"not the standard signature",
+    );
+    write_cachedir_tag(&workspace);
+
+    let options = ProjectArtifactScanOptions::new(vec![workspace.clone()]).with_max_depth(4);
+    let artifacts = discover_project_artifacts(&options, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(artifacts.len(), 1);
+    assert_eq!(
+        artifacts[0].definition.rule_id,
+        "windows.project-artifact-cachedir-tag"
+    );
+    assert_eq!(artifacts[0].path, cache);
+    assert_ne!(artifacts[0].path, workspace);
 }
 
 #[test]

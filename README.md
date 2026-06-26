@@ -204,7 +204,7 @@ build artifacts and dependency caches. The current scope is deliberately
 directory-name based and high confidence: `node_modules`, `target`, `build`,
 `dist`, Python virtual environments and tool caches, frontend framework caches,
 coverage output, Gradle caches, Zig/Dart/Expo build caches, CocoaPods `Pods`,
-and .NET `obj`.
+and .NET `obj`, plus directories carrying a valid `CACHEDIR.TAG` cache marker.
 
 Rebecca does not currently auto-scan every common projects directory under the
 user profile. By default it scans the current directory only; pass repeated

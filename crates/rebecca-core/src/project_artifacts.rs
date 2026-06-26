@@ -193,6 +193,15 @@ const PROJECT_ARTIFACT_DEFINITIONS: &[ProjectArtifactDefinition] = &[
     },
 ];
 
+const CACHEDIR_TAG_DEFINITION: ProjectArtifactDefinition = ProjectArtifactDefinition {
+    directory_name: "CACHEDIR.TAG",
+    rule_id: "windows.project-artifact-cachedir-tag",
+    restore_hint: "CACHEDIR.TAG marks this directory as rebuildable cache data.",
+};
+
+const CACHEDIR_TAG_FILE_NAME: &str = "CACHEDIR.TAG";
+const CACHEDIR_TAG_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
+
 const PRUNED_SCAN_DIRS: &[&str] = &[
     ".git",
     ".hg",
@@ -304,6 +313,11 @@ fn scan_root(
             }
         }
 
+        if depth > 0 && has_valid_cachedir_tag(&dir) {
+            push_candidate(CACHEDIR_TAG_DEFINITION, dir, seen_paths, candidates);
+            continue;
+        }
+
         if depth >= max_depth {
             continue;
         }
@@ -358,6 +372,23 @@ fn scan_root(
     }
 
     Ok(())
+}
+
+fn has_valid_cachedir_tag(dir: &Path) -> bool {
+    let tag = dir.join(CACHEDIR_TAG_FILE_NAME);
+    let Ok(metadata) = fs::symlink_metadata(&tag) else {
+        return false;
+    };
+
+    if !metadata.is_file() || crate::safety::is_reparse_like(&metadata) {
+        return false;
+    }
+
+    let Ok(contents) = fs::read_to_string(&tag) else {
+        return false;
+    };
+
+    contents.starts_with(CACHEDIR_TAG_SIGNATURE)
 }
 
 fn push_candidate(

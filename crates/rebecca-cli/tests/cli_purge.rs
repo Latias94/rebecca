@@ -5,12 +5,22 @@ mod common;
 #[path = "common/isolated.rs"]
 mod isolated;
 
+const CACHEDIR_TAG_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
+
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
     }
     fs::write(path, bytes).unwrap();
+}
+
+fn write_cachedir_tag(dir: impl AsRef<Path>) {
+    write_fixture_file(dir.as_ref().join("CACHEDIR.TAG"), &cachedir_tag_bytes());
+}
+
+fn cachedir_tag_bytes() -> Vec<u8> {
+    format!("{CACHEDIR_TAG_SIGNATURE}\n# cache directory\n").into_bytes()
 }
 
 #[test]
@@ -137,6 +147,49 @@ fn purge_json_skips_recent_artifacts_by_default() {
             .as_str()
             .unwrap()
             .contains("modified within the last 7 days")
+    );
+}
+
+#[test]
+fn purge_json_reports_cachedir_tag_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let cache = workspace.join("app").join("tool-cache");
+    write_fixture_file(cache.join("entry.bin"), b"abc");
+    write_cachedir_tag(&cache);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(
+        value["summary"]["estimated_bytes"],
+        3 + cachedir_tag_bytes().len() as u64
+    );
+
+    let target = &value["targets"].as_array().unwrap()[0];
+    assert_eq!(target["rule_id"], "windows.project-artifact-cachedir-tag");
+    assert_eq!(target["status"], "allowed");
+    assert!(
+        PathBuf::from(target["path"].as_str().unwrap())
+            .ends_with(Path::new("app").join("tool-cache"))
     );
 }
 

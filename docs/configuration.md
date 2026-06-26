@@ -182,6 +182,8 @@ current directory or explicit `--root <PATH>` values. It must:
 - scan only bounded directory depths, defaulting to depth `6`;
 - skip artifact directories modified within the last `7` days unless the user
   lowers `--min-age-days`;
+- recognize directories carrying a valid `CACHEDIR.TAG` marker as rebuildable
+  cache targets;
 - treat `--root` values as explicit workspace boundaries rather than broad
   user-profile scans;
 - prune a matched artifact directory from further discovery to avoid nested
@@ -193,9 +195,10 @@ current directory or explicit `--root <PATH>` values. It must:
 The first supported artifact set tracks high-confidence rebuildable project
 directories such as `node_modules`, `target`, `build`, `dist`, frontend
 framework caches, Python virtual environments and caches, Gradle caches,
-coverage output, CocoaPods `Pods`, and .NET `obj`. Ambiguous directories such as
-generic `bin` and non-Composer `vendor` are intentionally outside the automatic
-target set until Rebecca has context-specific guards for them.
+coverage output, CocoaPods `Pods`, .NET `obj`, and valid `CACHEDIR.TAG`
+directories. Ambiguous directories such as generic `bin` and non-Composer
+`vendor` are intentionally outside the automatic target set until Rebecca has
+context-specific guards for them.
 
 ## History And Privacy
 
