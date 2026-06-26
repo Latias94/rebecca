@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use rebecca_core::{
-    CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DeleteMode, PlanRequest, Platform,
-    RuleDefinition,
+    CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
+    DeleteMode, PlanRequest, Platform, RuleDefinition,
 };
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow};
@@ -19,6 +19,7 @@ pub struct PurgeOptions {
     pub scan_cache: bool,
     pub roots: Vec<PathBuf>,
     pub max_depth: usize,
+    pub min_age_days: u64,
     pub exclude_paths: Vec<PathBuf>,
 }
 
@@ -32,6 +33,7 @@ pub fn run(options: PurgeOptions) -> Result<()> {
         .with_workflow(CleanupWorkflow::ProjectArtifacts);
     request.project_artifact_roots = resolve_roots(options.roots)?;
     request.project_artifact_max_depth = options.max_depth;
+    request.project_artifact_min_age_days = options.min_age_days;
 
     run_workflow(WorkflowRunOptions {
         request,
@@ -95,4 +97,8 @@ fn resolve_root(root: PathBuf) -> Result<PathBuf> {
 
 pub(crate) fn default_max_depth() -> usize {
     DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH
+}
+
+pub(crate) fn default_min_age_days() -> u64 {
+    DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS
 }

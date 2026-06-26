@@ -52,6 +52,7 @@ impl DeleteMode {
 }
 
 pub const DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH: usize = 6;
+pub const DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS: u64 = 7;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -236,6 +237,11 @@ pub struct PlanRequest {
         skip_serializing_if = "is_default_project_artifact_max_depth"
     )]
     pub project_artifact_max_depth: usize,
+    #[serde(
+        default = "default_project_artifact_min_age_days",
+        skip_serializing_if = "is_default_project_artifact_min_age_days"
+    )]
+    pub project_artifact_min_age_days: u64,
     pub selected_categories: Vec<String>,
     pub selected_rule_ids: Vec<String>,
     pub allow_moderate: bool,
@@ -250,6 +256,7 @@ impl PlanRequest {
             workflow: CleanupWorkflow::Rules,
             project_artifact_roots: Vec::new(),
             project_artifact_max_depth: DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH,
+            project_artifact_min_age_days: DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
             selected_categories: Vec::new(),
             selected_rule_ids: Vec::new(),
             allow_moderate: false,
@@ -281,6 +288,14 @@ fn default_project_artifact_max_depth() -> usize {
 
 fn is_default_project_artifact_max_depth(value: &usize) -> bool {
     *value == DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH
+}
+
+fn default_project_artifact_min_age_days() -> u64 {
+    DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS
+}
+
+fn is_default_project_artifact_min_age_days(value: &u64) -> bool {
+    *value == DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

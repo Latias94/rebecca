@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use crate::error::{RebeccaError, Result};
 use crate::model::DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH;
@@ -236,6 +237,37 @@ pub fn discover_project_artifacts(
             .then_with(|| left.definition.rule_id.cmp(right.definition.rule_id))
     });
     Ok(candidates)
+}
+
+pub fn recently_modified_reason(path: &Path, min_age_days: u64) -> Option<String> {
+    if min_age_days == 0 || !is_recently_modified(path, min_age_days, SystemTime::now()) {
+        return None;
+    }
+
+    Some(format!(
+        "project artifact was modified within the last {}",
+        format_days(min_age_days)
+    ))
+}
+
+fn is_recently_modified(path: &Path, min_age_days: u64, now: SystemTime) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+
+    let age = now.duration_since(modified).unwrap_or(Duration::ZERO);
+    age.as_secs() < min_age_days.saturating_mul(24 * 60 * 60)
+}
+
+fn format_days(days: u64) -> String {
+    if days == 1 {
+        "1 day".to_string()
+    } else {
+        format!("{days} days")
+    }
 }
 
 fn scan_root(

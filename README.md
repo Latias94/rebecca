@@ -88,6 +88,7 @@ cargo run -p rebecca-cli -- apps clean --yes
 
 cargo run -p rebecca-cli -- purge
 cargo run -p rebecca-cli -- purge --json --root . --max-depth 6
+cargo run -p rebecca-cli -- purge --root . --min-age-days 0
 cargo run -p rebecca-cli -- purge --exclude "$PWD\target"
 cargo run -p rebecca-cli -- purge --yes --root . --scan-cache
 
@@ -212,7 +213,9 @@ directories are pruned from traversal after discovery so nested artifacts are
 not double-counted. Execution uses the same plan-first model as `clean`: preview
 is the default, `--yes` is required to move targets to the Windows Recycle Bin,
 and `--exclude` plus `[protection].protected_paths` can block paths before size
-scanning or deletion.
+scanning or deletion. To avoid immediately cleaning active build output,
+`purge` skips artifact directories modified within the last 7 days by default;
+pass `--min-age-days 0` to include recent artifacts explicitly.
 
 ## Local State
 

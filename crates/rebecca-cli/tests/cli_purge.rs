@@ -29,6 +29,7 @@ fn purge_help_shows_project_artifact_options() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("--root"));
     assert!(stdout.contains("--max-depth"));
+    assert!(stdout.contains("--min-age-days"));
     assert!(stdout.contains("--exclude"));
 }
 
@@ -52,6 +53,8 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
             "--no-progress",
             "--root",
             workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
         ])
         .output()
         .unwrap();
@@ -70,6 +73,7 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["request"]["workflow"], "project-artifacts");
     assert_eq!(value["request"]["mode"], "dry-run");
+    assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
     assert_eq!(
         PathBuf::from(
             value["request"]["project_artifact_roots"][0]
@@ -92,6 +96,48 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
             && PathBuf::from(target["path"].as_str().unwrap())
                 .ends_with(Path::new("app").join("target"))
     }));
+}
+
+#[test]
+fn purge_json_skips_recent_artifacts_by_default() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["allowed_targets"], 0);
+    assert_eq!(value["summary"]["skipped_targets"], 1);
+    assert_eq!(value["summary"]["estimated_bytes"], 0);
+
+    let target = &value["targets"].as_array().unwrap()[0];
+    assert_eq!(target["status"], "skipped");
+    assert_eq!(target["reason_code"], "project-artifact-recently-modified");
+    assert!(
+        target["reason"]
+            .as_str()
+            .unwrap()
+            .contains("modified within the last 7 days")
+    );
 }
 
 #[test]

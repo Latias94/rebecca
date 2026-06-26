@@ -11,6 +11,7 @@ use crate::model::{CleanupWorkflow, PlanRequest, Platform, RuleDefinition};
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::project_artifacts::{
     ProjectArtifactCandidate, ProjectArtifactScanOptions, discover_project_artifacts,
+    recently_modified_reason,
 };
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{PathDisposition, assess_existing_path_with_policy};
@@ -474,6 +475,20 @@ where
 
         match assess_existing_path_with_policy(&artifact.path, context.protection_policy()) {
             PathDisposition::Allowed => {
+                if let Some(reason) =
+                    recently_modified_reason(&artifact.path, request.project_artifact_min_age_days)
+                {
+                    let target = project_artifact_skipped_target(
+                        &artifact,
+                        request.mode,
+                        CleanupTargetIssueReason::ProjectArtifactRecentlyModified,
+                        reason,
+                    );
+                    emit_target_finished(&mut progress, &target);
+                    candidates.push(target);
+                    continue;
+                }
+
                 match measure_path_with_optional_scan_cache(&artifact.path, context, |event| {
                     match event {
                         PathMeasureProgressEvent::Scan(ScanProgressEvent::FileMeasured {

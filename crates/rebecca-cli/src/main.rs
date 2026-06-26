@@ -91,6 +91,9 @@ enum Command {
         /// Maximum directory depth to scan below each root.
         #[arg(long, default_value_t = purge::default_max_depth())]
         max_depth: usize,
+        /// Skip artifact directories modified more recently than N days. Use 0 to include recent artifacts.
+        #[arg(long, default_value_t = purge::default_min_age_days())]
+        min_age_days: u64,
         /// Exclude a path from project artifact purge for this run. Can be repeated.
         #[arg(long = "exclude", value_name = "PATH")]
         exclude_paths: Vec<PathBuf>,
@@ -243,6 +246,7 @@ fn main() -> Result<()> {
             scan_cache,
             roots,
             max_depth,
+            min_age_days,
             exclude_paths,
         } => purge::run(purge::PurgeOptions {
             dry_run,
@@ -252,6 +256,7 @@ fn main() -> Result<()> {
             scan_cache,
             roots,
             max_depth,
+            min_age_days,
             exclude_paths,
         }),
         Command::History { json, limit } => info::print_history(json, limit),

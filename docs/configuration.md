@@ -180,6 +180,8 @@ current directory or explicit `--root <PATH>` values. It must:
 - preview by default;
 - require `--yes` to move artifacts to the Windows Recycle Bin;
 - scan only bounded directory depths, defaulting to depth `6`;
+- skip artifact directories modified within the last `7` days unless the user
+  lowers `--min-age-days`;
 - treat `--root` values as explicit workspace boundaries rather than broad
   user-profile scans;
 - prune a matched artifact directory from further discovery to avoid nested

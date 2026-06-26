@@ -106,6 +106,7 @@ fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_path
         .with_workflow(CleanupWorkflow::ProjectArtifacts);
     request.project_artifact_roots = vec![workspace];
     request.project_artifact_max_depth = 4;
+    request.project_artifact_min_age_days = 0;
     let protected_paths = vec![target.clone()];
     let cancellation = ScanCancellationToken::new();
     let applications = NoopApplicationDiscovery::new();
@@ -148,5 +149,48 @@ fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_path
             .reason
             .as_deref()
             .is_some_and(|reason| reason.contains("user-protected path"))
+    );
+}
+
+#[test]
+fn project_artifact_plan_skips_recent_targets_before_sizing() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    request.project_artifact_roots = vec![workspace];
+    request.project_artifact_max_depth = 4;
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &SystemEnvironment,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 1);
+    assert_eq!(plan.summary.allowed_targets, 0);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::ProjectArtifactRecentlyModified)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("modified within the last 7 days"))
     );
 }
