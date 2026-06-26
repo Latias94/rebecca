@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 
+use crate::model::{DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS};
 use crate::scan_cache::{DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, ScanCachePolicy};
 use crate::{RebeccaError, Result};
 
@@ -59,6 +60,14 @@ pub struct AppRuntimeConfig {
     pub app_paths: AppPaths,
     pub scan_cache_policy: ScanCachePolicy,
     pub protected_paths: Vec<PathBuf>,
+    pub purge: PurgeRuntimeConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurgeRuntimeConfig {
+    pub roots: Vec<PathBuf>,
+    pub max_depth: usize,
+    pub min_age_days: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,6 +159,7 @@ pub struct RebeccaConfig {
     pub app_paths: RebeccaAppPathsConfig,
     pub scan_cache: RebeccaScanCacheConfig,
     pub protection: RebeccaProtectionConfig,
+    pub purge: RebeccaPurgeConfig,
 }
 
 impl Default for RebeccaConfig {
@@ -159,6 +169,7 @@ impl Default for RebeccaConfig {
             app_paths: RebeccaAppPathsConfig::default(),
             scan_cache: RebeccaScanCacheConfig::default(),
             protection: RebeccaProtectionConfig::default(),
+            purge: RebeccaPurgeConfig::default(),
         }
     }
 }
@@ -184,6 +195,16 @@ pub struct RebeccaProtectionConfig {
     pub protected_paths: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RebeccaPurgeConfig {
+    pub roots: Vec<PathBuf>,
+    #[serde(default = "default_project_artifact_max_depth")]
+    pub max_depth: usize,
+    #[serde(default = "default_project_artifact_min_age_days")]
+    pub min_age_days: u64,
+}
+
 impl RebeccaScanCacheConfig {
     pub fn policy(&self) -> ScanCachePolicy {
         ScanCachePolicy::new(self.directory_record_max_age_seconds)
@@ -198,8 +219,36 @@ impl Default for RebeccaScanCacheConfig {
     }
 }
 
+impl RebeccaPurgeConfig {
+    pub fn runtime(&self) -> PurgeRuntimeConfig {
+        PurgeRuntimeConfig {
+            roots: self.roots.clone(),
+            max_depth: self.max_depth,
+            min_age_days: self.min_age_days,
+        }
+    }
+}
+
+impl Default for RebeccaPurgeConfig {
+    fn default() -> Self {
+        Self {
+            roots: Vec::new(),
+            max_depth: default_project_artifact_max_depth(),
+            min_age_days: default_project_artifact_min_age_days(),
+        }
+    }
+}
+
 fn default_directory_record_max_age_seconds() -> u64 {
     DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS
+}
+
+fn default_project_artifact_max_depth() -> usize {
+    DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH
+}
+
+fn default_project_artifact_min_age_days() -> u64 {
+    DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS
 }
 
 pub fn default_app_paths() -> Result<AppPaths> {
@@ -275,6 +324,7 @@ fn resolve_runtime_config_with_config_dir(
         app_paths: resolve_app_paths_with_config_dir(config_dir, config_file, config)?,
         scan_cache_policy: config.scan_cache.policy(),
         protected_paths: config.protection.protected_paths.clone(),
+        purge: config.purge.runtime(),
     })
 }
 
@@ -333,6 +383,10 @@ fn validate_config(config_file: &Path, config: &RebeccaConfig) -> Result<()> {
         validate_protected_path_config(config_file, protected_path)?;
     }
 
+    for root in &config.purge.roots {
+        validate_purge_root_config(config_file, root)?;
+    }
+
     Ok(())
 }
 
@@ -366,6 +420,17 @@ fn validate_protected_path_config(config_file: &Path, path: &Path) -> Result<()>
         return Err(RebeccaError::ConfigParse {
             path: config_file.to_path_buf(),
             message: format!("invalid protection.protected_paths entry: {message}"),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_purge_root_config(config_file: &Path, path: &Path) -> Result<()> {
+    if let Err(message) = validate_user_protected_path(path) {
+        return Err(RebeccaError::ConfigParse {
+            path: config_file.to_path_buf(),
+            message: format!("invalid purge.roots entry: {message}"),
         });
     }
 
@@ -426,10 +491,11 @@ fn env_path(key: &str) -> Option<PathBuf> {
 mod tests {
     use super::{
         AppStorageId, AppStorageLifecycle, AppStorageRetention, CONFIG_SCHEMA_VERSION,
-        RebeccaAppPathsConfig, RebeccaConfig, RebeccaScanCacheConfig, default_app_paths,
-        load_app_paths_from, load_config, load_runtime_config_from, resolve_app_paths,
-        resolve_runtime_config,
+        RebeccaAppPathsConfig, RebeccaConfig, RebeccaPurgeConfig, RebeccaScanCacheConfig,
+        default_app_paths, load_app_paths_from, load_config, load_runtime_config_from,
+        resolve_app_paths, resolve_runtime_config,
     };
+    use crate::model::{DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS};
     use crate::scan_cache::DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS;
 
     #[test]
@@ -484,6 +550,12 @@ state_dir = "C:\\Rebecca\\State"
             config.scan_cache.directory_record_max_age_seconds,
             DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS
         );
+        assert!(config.purge.roots.is_empty());
+        assert_eq!(config.purge.max_depth, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH);
+        assert_eq!(
+            config.purge.min_age_days,
+            DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS
+        );
     }
 
     #[test]
@@ -500,6 +572,11 @@ state_dir = "C:\\Rebecca\\State"
 
 [scan_cache]
 directory_record_max_age_seconds = 42
+
+[purge]
+roots = ['C:\Projects', 'D:\Work']
+max_depth = 4
+min_age_days = 0
 "#,
         )
         .unwrap();
@@ -512,6 +589,15 @@ directory_record_max_age_seconds = 42
             Some(std::path::PathBuf::from(r"C:\Rebecca\State"))
         );
         assert_eq!(config.scan_cache.directory_record_max_age_seconds, 42);
+        assert_eq!(
+            config.purge.roots,
+            vec![
+                std::path::PathBuf::from(r"C:\Projects"),
+                std::path::PathBuf::from(r"D:\Work")
+            ]
+        );
+        assert_eq!(config.purge.max_depth, 4);
+        assert_eq!(config.purge.min_age_days, 0);
     }
 
     #[test]
@@ -589,6 +675,70 @@ unknown = 1
     }
 
     #[test]
+    fn load_config_accepts_purge_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        let root = temp.path().join("workspace");
+        std::fs::write(
+            &config_file,
+            format!(
+                r#"
+[purge]
+roots = ['{}']
+max_depth = 3
+min_age_days = 14
+"#,
+                root.display()
+            ),
+        )
+        .unwrap();
+
+        let config = load_config(&config_file).unwrap();
+
+        assert_eq!(config.purge.roots, vec![root]);
+        assert_eq!(config.purge.max_depth, 3);
+        assert_eq!(config.purge.min_age_days, 14);
+    }
+
+    #[test]
+    fn load_config_rejects_unknown_purge_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+[purge]
+unknown = 1
+"#,
+        )
+        .unwrap();
+
+        let err = load_config(&config_file).unwrap_err();
+
+        assert!(err.to_string().contains("unknown field"));
+        assert!(err.to_string().contains("config.toml"));
+    }
+
+    #[test]
+    fn load_config_rejects_relative_purge_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_file = temp.path().join("config.toml");
+        std::fs::write(
+            &config_file,
+            r#"
+[purge]
+roots = ['workspace']
+"#,
+        )
+        .unwrap();
+
+        let err = load_config(&config_file).unwrap_err();
+
+        assert!(err.to_string().contains("invalid purge.roots entry"));
+        assert!(err.to_string().contains("path must be absolute"));
+    }
+
+    #[test]
     fn load_config_reports_read_errors() {
         let temp = tempfile::tempdir().unwrap();
         let config_file = temp.path().join("config.toml");
@@ -614,6 +764,7 @@ unknown = 1
                 directory_record_max_age_seconds: 42,
             },
             protection: super::RebeccaProtectionConfig::default(),
+            purge: RebeccaPurgeConfig::default(),
         };
 
         let paths = resolve_app_paths(&config).unwrap();
@@ -644,6 +795,7 @@ unknown = 1
             },
             scan_cache: RebeccaScanCacheConfig::default(),
             protection: super::RebeccaProtectionConfig::default(),
+            purge: RebeccaPurgeConfig::default(),
         };
         let paths = resolve_app_paths(&config).unwrap();
 
@@ -683,6 +835,7 @@ unknown = 1
 
     #[test]
     fn resolve_runtime_config_derives_scan_cache_policy() {
+        let purge_root = std::path::PathBuf::from(r"C:\Projects");
         let config = RebeccaConfig {
             version: CONFIG_SCHEMA_VERSION,
             app_paths: RebeccaAppPathsConfig::default(),
@@ -690,6 +843,11 @@ unknown = 1
                 directory_record_max_age_seconds: 17,
             },
             protection: super::RebeccaProtectionConfig::default(),
+            purge: RebeccaPurgeConfig {
+                roots: vec![purge_root.clone()],
+                max_depth: 5,
+                min_age_days: 0,
+            },
         };
 
         let runtime_config = resolve_runtime_config(&config).unwrap();
@@ -700,6 +858,9 @@ unknown = 1
                 .directory_record_max_age_seconds(),
             17
         );
+        assert_eq!(runtime_config.purge.roots, vec![purge_root]);
+        assert_eq!(runtime_config.purge.max_depth, 5);
+        assert_eq!(runtime_config.purge.min_age_days, 0);
     }
 
     #[test]

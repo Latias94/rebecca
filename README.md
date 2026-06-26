@@ -24,10 +24,11 @@ Rebecca is designed to preview before deleting.
 - `apps scan` and `apps clean` use the shared cleanup planner with a dedicated
   app-leftovers workflow. `apps clean` previews by default and requires `--yes`
   before moving leftover cache data to the Recycle Bin.
-- `purge` uses a dedicated project-artifacts workflow. It scans the current
-  directory by default, accepts repeated `--root <PATH>` values for explicit
-  workspaces, previews by default, and requires `--yes` before moving project
-  artifacts to the Recycle Bin.
+- `purge` uses a dedicated project-artifacts workflow. It scans configured
+  purge roots when present, otherwise the current directory, and accepts
+  repeated `--root <PATH>` values to override configured roots for one run.
+  It previews by default and requires `--yes` before moving project artifacts
+  to the Recycle Bin.
 - Default execution uses the Windows Recycle Bin.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
@@ -207,15 +208,26 @@ coverage output, Gradle caches, Zig/Dart/Expo build caches, CocoaPods `Pods`,
 and .NET `obj`, plus directories carrying a valid `CACHEDIR.TAG` cache marker.
 
 Rebecca does not currently auto-scan every common projects directory under the
-user profile. By default it scans the current directory only; pass repeated
-`--root <PATH>` values to scan explicit workspaces. Matching artifact
-directories are pruned from traversal after discovery so nested artifacts are
-not double-counted. Execution uses the same plan-first model as `clean`: preview
-is the default, `--yes` is required to move targets to the Windows Recycle Bin,
-and `--exclude` plus `[protection].protected_paths` can block paths before size
-scanning or deletion. To avoid immediately cleaning active build output,
-`purge` skips artifact directories modified within the last 7 days by default;
-pass `--min-age-days 0` to include recent artifacts explicitly.
+user profile. By default it scans configured `[purge].roots` when present and
+falls back to the current directory when no roots are configured; pass repeated
+`--root <PATH>` values to override configured roots for one run. Matching
+artifact directories are pruned from traversal after discovery so nested
+artifacts are not double-counted. Execution uses the same plan-first model as
+`clean`: preview is the default, `--yes` is required to move targets to the
+Windows Recycle Bin, and `--exclude` plus `[protection].protected_paths` can
+block paths before size scanning or deletion. To avoid immediately cleaning
+active build output, `purge` skips artifact directories modified within the last
+7 days by default; pass `--min-age-days 0` to include recent artifacts
+explicitly.
+
+Long-lived purge defaults belong in `config.toml`:
+
+```toml
+[purge]
+roots = ['D:\SourceCodes', 'D:\Work']
+max_depth = 6
+min_age_days = 7
+```
 
 ## Local State
 

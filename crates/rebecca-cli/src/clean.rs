@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
-use rebecca_core::config::load_runtime_config;
+use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca_core::executor::execute_cleanup_plan_with_policy;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::CleanupPlan;
@@ -82,11 +82,18 @@ pub fn run(options: CleanOptions) -> Result<()> {
 }
 
 pub(crate) fn run_workflow(options: WorkflowRunOptions<'_>) -> Result<()> {
+    let runtime_config = load_runtime_config()?;
+    run_workflow_with_runtime_config(options, runtime_config)
+}
+
+pub(crate) fn run_workflow_with_runtime_config(
+    options: WorkflowRunOptions<'_>,
+    runtime_config: AppRuntimeConfig,
+) -> Result<()> {
     let cancellation = ScanCancellationToken::new();
     install_cancellation_handler(cancellation.clone())?;
     let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
     let applications = info::application_discovery();
-    let runtime_config = load_runtime_config()?;
     let protected_storage = runtime_config.app_paths.storage_entries();
     let protected_paths = merged_protected_paths(
         runtime_config.protected_paths.as_slice(),

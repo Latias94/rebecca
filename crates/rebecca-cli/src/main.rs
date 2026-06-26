@@ -85,15 +85,15 @@ enum Command {
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,
-        /// Directory to scan for project artifacts. Defaults to the current directory.
+        /// Directory to scan for project artifacts. Overrides configured purge roots.
         #[arg(long = "root", value_name = "PATH")]
         roots: Vec<PathBuf>,
-        /// Maximum directory depth to scan below each root.
-        #[arg(long, default_value_t = purge::default_max_depth())]
-        max_depth: usize,
-        /// Skip artifact directories modified more recently than N days. Use 0 to include recent artifacts.
-        #[arg(long, default_value_t = purge::default_min_age_days())]
-        min_age_days: u64,
+        /// Maximum directory depth to scan below each root. Defaults to config or 6.
+        #[arg(long, value_name = "N")]
+        max_depth: Option<usize>,
+        /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
+        #[arg(long, value_name = "DAYS")]
+        min_age_days: Option<u64>,
         /// Exclude a path from project artifact purge for this run. Can be repeated.
         #[arg(long = "exclude", value_name = "PATH")]
         exclude_paths: Vec<PathBuf>,

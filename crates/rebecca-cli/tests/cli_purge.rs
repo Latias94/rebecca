@@ -19,6 +19,12 @@ fn write_cachedir_tag(dir: impl AsRef<Path>) {
     write_fixture_file(dir.as_ref().join("CACHEDIR.TAG"), &cachedir_tag_bytes());
 }
 
+fn write_config(temp: &tempfile::TempDir, contents: impl AsRef<str>) {
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("config.toml"), contents.as_ref()).unwrap();
+}
+
 fn cachedir_tag_bytes() -> Vec<u8> {
     format!("{CACHEDIR_TAG_SIGNATURE}\n# cache directory\n").into_bytes()
 }
@@ -106,6 +112,170 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
             && PathBuf::from(target["path"].as_str().unwrap())
                 .ends_with(Path::new("app").join("target"))
     }));
+}
+
+#[test]
+fn purge_uses_configured_roots_when_root_flag_is_absent() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}']
+max_depth = 2
+min_age_days = 0
+"#,
+            workspace.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["purge", "--json", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        PathBuf::from(
+            value["request"]["project_artifact_roots"][0]
+                .as_str()
+                .unwrap()
+        ),
+        workspace
+    );
+    assert_eq!(value["request"]["project_artifact_max_depth"], 2);
+    assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+}
+
+#[test]
+fn purge_root_flag_overrides_configured_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let configured_workspace = temp.path().join("configured-workspace");
+    let cli_workspace = temp.path().join("cli-workspace");
+    write_fixture_file(
+        configured_workspace
+            .join("app")
+            .join("node_modules")
+            .join("pkg.bin"),
+        b"configured",
+    );
+    write_fixture_file(
+        cli_workspace
+            .join("app")
+            .join("target")
+            .join("debug")
+            .join("app.bin"),
+        b"cli",
+    );
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}']
+max_depth = 2
+min_age_days = 0
+"#,
+            configured_workspace.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--json",
+            "--no-progress",
+            "--root",
+            cli_workspace.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        PathBuf::from(
+            value["request"]["project_artifact_roots"][0]
+                .as_str()
+                .unwrap()
+        ),
+        cli_workspace
+    );
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["rule_id"], "windows.project-artifact-target");
+    assert!(!targets.iter().any(|target| {
+        PathBuf::from(target["path"].as_str().unwrap()).starts_with(&configured_workspace)
+    }));
+}
+
+#[test]
+fn purge_depth_and_min_age_flags_override_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace
+            .join("level1")
+            .join("level2")
+            .join("node_modules")
+            .join("pkg.bin"),
+        b"abc",
+    );
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}']
+max_depth = 1
+min_age_days = 30
+"#,
+            workspace.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--json",
+            "--no-progress",
+            "--max-depth",
+            "3",
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["request"]["project_artifact_max_depth"], 3);
+    assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
 }
 
 #[test]

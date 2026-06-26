@@ -1,12 +1,10 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
-use rebecca_core::{
-    CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
-    DeleteMode, PlanRequest, Platform, RuleDefinition,
-};
+use rebecca_core::config::load_runtime_config;
+use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
 
-use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow};
+use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
 
 const PROJECT_ARTIFACT_RULES: &[RuleDefinition] = &[];
 
@@ -18,12 +16,13 @@ pub struct PurgeOptions {
     pub no_progress: bool,
     pub scan_cache: bool,
     pub roots: Vec<PathBuf>,
-    pub max_depth: usize,
-    pub min_age_days: u64,
+    pub max_depth: Option<usize>,
+    pub min_age_days: Option<u64>,
     pub exclude_paths: Vec<PathBuf>,
 }
 
 pub fn run(options: PurgeOptions) -> Result<()> {
+    let runtime_config = load_runtime_config()?;
     let mode = if options.yes && !options.dry_run {
         DeleteMode::RecycleBin
     } else {
@@ -31,30 +30,37 @@ pub fn run(options: PurgeOptions) -> Result<()> {
     };
     let mut request = PlanRequest::for_platform(Platform::Windows, mode)
         .with_workflow(CleanupWorkflow::ProjectArtifacts);
-    request.project_artifact_roots = resolve_roots(options.roots)?;
-    request.project_artifact_max_depth = options.max_depth;
-    request.project_artifact_min_age_days = options.min_age_days;
+    request.project_artifact_roots = resolve_roots(options.roots, &runtime_config.purge.roots)?;
+    request.project_artifact_max_depth =
+        options.max_depth.unwrap_or(runtime_config.purge.max_depth);
+    request.project_artifact_min_age_days = options
+        .min_age_days
+        .unwrap_or(runtime_config.purge.min_age_days);
 
-    run_workflow(WorkflowRunOptions {
-        request,
-        rules: PROJECT_ARTIFACT_RULES,
-        json: options.json,
-        yes: options.yes,
-        no_progress: options.no_progress,
-        scan_cache: options.scan_cache,
-        exclude_paths: options.exclude_paths,
-        cancellation_message: "Project artifact purge cancelled.",
-        unsupported_execution_message: "project artifact purge execution is Windows-only; omit --yes to preview",
-        confirmation_kind: ConfirmationKind::ProjectArtifacts,
-    })
+    run_workflow_with_runtime_config(
+        WorkflowRunOptions {
+            request,
+            rules: PROJECT_ARTIFACT_RULES,
+            json: options.json,
+            yes: options.yes,
+            no_progress: options.no_progress,
+            scan_cache: options.scan_cache,
+            exclude_paths: options.exclude_paths,
+            cancellation_message: "Project artifact purge cancelled.",
+            unsupported_execution_message: "project artifact purge execution is Windows-only; omit --yes to preview",
+            confirmation_kind: ConfirmationKind::ProjectArtifacts,
+        },
+        runtime_config,
+    )
 }
 
-fn resolve_roots(roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
-    let current_dir = std::env::current_dir().context("failed to resolve current directory")?;
-    let roots = if roots.is_empty() {
-        vec![current_dir]
+fn resolve_roots(cli_roots: Vec<PathBuf>, config_roots: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let roots = if !cli_roots.is_empty() {
+        cli_roots
+    } else if !config_roots.is_empty() {
+        config_roots.to_vec()
     } else {
-        roots
+        vec![std::env::current_dir().context("failed to resolve current directory")?]
     };
 
     roots
@@ -93,12 +99,4 @@ fn resolve_root(root: PathBuf) -> Result<PathBuf> {
     }
 
     Ok(absolute)
-}
-
-pub(crate) fn default_max_depth() -> usize {
-    DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH
-}
-
-pub(crate) fn default_min_age_days() -> u64 {
-    DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS
 }

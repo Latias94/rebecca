@@ -36,12 +36,14 @@ flowchart TD
   Runtime --> Paths[AppPaths]
   Runtime --> ScanPolicy[ScanCachePolicy]
   Runtime --> Protection[User protected paths]
+  Runtime --> PurgeDefaults[Project purge defaults]
   Paths --> ConfigPaths[config paths output]
   Paths --> History[HistoryStore]
   Paths --> CachePurge[cache purge]
   Paths --> ScanCache[cache_dir/scan]
   ScanPolicy --> Planner[clean --scan-cache planner]
   Protection --> ProjectPurge[purge project-artifacts workflow]
+  PurgeDefaults --> ProjectPurge
 ```
 
 The CLI must render the resolved model. It must not duplicate path resolution,
@@ -65,6 +67,11 @@ directory_record_max_age_seconds = 300
 
 [protection]
 protected_paths = ['D:\Keep\Cache']
+
+[purge]
+roots = ['D:\SourceCodes', 'D:\Work']
+max_depth = 6
+min_age_days = 7
 ```
 
 All fields except `version` are optional. Missing `version` is treated as
@@ -77,7 +84,10 @@ version `1` so early config files keep working.
 | `app_paths.cache_dir` | path | `%LOCALAPPDATA%\Rebecca\cache` | Parsed as a path | Rebuildable cache root |
 | `app_paths.history_file` | path | `<state_dir>\history.jsonl` | Parsed as a path | Append-only cleanup history |
 | `scan_cache.directory_record_max_age_seconds` | unsigned integer | `300` | Must be at least `1` | Freshness window for directory scan-cache records |
-| `protection.protected_paths` | array of paths | `[]` | Entries must be absolute and cannot be empty or contain `.` / `..` path segments | Extra user-owned paths that cleanup and app-leftovers workflows must skip |
+| `protection.protected_paths` | array of paths | `[]` | Entries must be absolute and cannot be empty or contain `.` / `..` path segments | Extra user-owned paths that cleanup, app-leftovers, and project-purge workflows must skip |
+| `purge.roots` | array of paths | `[]` | Entries must be absolute and cannot be empty or contain `.` / `..` path segments | Long-lived project artifact scan roots |
+| `purge.max_depth` | unsigned integer | `6` | Parsed as a depth value | Default project artifact scan depth |
+| `purge.min_age_days` | unsigned integer | `7` | `0` is allowed | Default recent-artifact skip window; `0` includes recently modified artifacts |
 
 Parsing rules:
 
@@ -87,6 +97,7 @@ Parsing rules:
 - Unsupported `version` values fail clearly and are not partially interpreted.
 - Invalid scan-cache policy values fail before cleanup planning.
 - Invalid protected-path entries fail before cleanup planning.
+- Invalid purge root entries fail before cleanup planning.
 
 ## Resolution Precedence
 
@@ -174,18 +185,20 @@ cleanup, and project artifact purge.
 
 ## Project Artifact Purge Boundary
 
-`rebecca purge` discovers rebuildable project artifact directories under the
-current directory or explicit `--root <PATH>` values. It must:
+`rebecca purge` discovers rebuildable project artifact directories under
+configured `[purge].roots`, the current directory, or explicit `--root <PATH>`
+values. It must:
 
 - preview by default;
 - require `--yes` to move artifacts to the Windows Recycle Bin;
-- scan only bounded directory depths, defaulting to depth `6`;
-- skip artifact directories modified within the last `7` days unless the user
-  lowers `--min-age-days`;
+- scan only bounded directory depths, defaulting to `[purge].max_depth` or
+  depth `6`;
+- skip artifact directories modified within `[purge].min_age_days` or the last
+  `7` days unless the user lowers `--min-age-days`;
 - recognize directories carrying a valid `CACHEDIR.TAG` marker as rebuildable
   cache targets;
-- treat `--root` values as explicit workspace boundaries rather than broad
-  user-profile scans;
+- treat `--root` values as explicit workspace boundaries that override
+  configured roots for one run, rather than broad user-profile scans;
 - prune a matched artifact directory from further discovery to avoid nested
   duplicate targets;
 - route all targets through Rebecca-owned storage protection, user protected
