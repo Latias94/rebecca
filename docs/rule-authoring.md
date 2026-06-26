@@ -61,6 +61,16 @@ files. Keep each rule small, explicit, and easy to audit.
 - sccache cache rules should target the Windows local disk cache root under
   `%LOCALAPPDATA%\Mozilla\sccache` and the configurable `%SCCACHE_DIR%` cache
   root; do not target compiler wrapper binaries, server logs, or config state.
+- Hugging Face cache rules should target `%HF_HUB_CACHE%`,
+  `%HF_DATASETS_CACHE%`, `%HF_ASSETS_CACHE%`, `%HF_XET_CACHE%`,
+  `%HUGGINGFACE_HUB_CACHE%`, `%HUGGINGFACE_ASSETS_CACHE%`, and the documented
+  `%HF_HOME%\hub`, `%HF_HOME%\datasets`, `%HF_HOME%\assets`, and
+  `%HF_HOME%\xet` subdirectories; do not target the surrounding token or
+  account-state files.
+- PyTorch cache rules should target `%TORCH_HOME%\hub`,
+  and the default `%USERPROFILE%\.cache\torch\hub` equivalent; the default
+  `checkpoints` subdirectory lives under that hub root, so do not split it into
+  a separate top-level target unless you have a strong reason to do so.
 - Windows maintenance cache rules may target `%WINDIR%\Temp`,
   `%WINDIR%\Prefetch`, and `%WINDIR%\SoftwareDistribution\Download`; do not
   target broader system roots or `ProgramData` outside a narrowly justified
@@ -133,7 +143,8 @@ files. Keep each rule small, explicit, and easy to audit.
   temp files, Prefetch, Windows Update downloads, and related system cache
   comparisons.
 - `null-e` can inform developer-cache families such as Cargo, npm, pnpm, Yarn,
-  pip, uv, Poetry, Conda, Gradle, Maven, Docker, and IDE caches.
+  pip, uv, Poetry, Conda, Gradle, Maven, Docker, IDE caches, and ML/AI caches
+  such as Hugging Face and PyTorch.
 - `Bulk Crap Uninstaller` is useful for uninstall and leftovers modeling, not
   for built-in cleanup target paths.
 - Prefer permissive or clearly scoped reference sources when possible. If the

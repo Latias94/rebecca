@@ -1215,6 +1215,82 @@ fn python_package_manager_rules_target_rebuildable_caches() {
 }
 
 #[test]
+fn huggingface_and_torch_rules_target_rebuildable_model_caches() {
+    let fixture = PlannerFixture::new();
+    fixture.write("user/.cache/huggingface/hub/models.bin", b"hub");
+    fixture.write("user/.cache/huggingface/datasets/dataset.arrow", b"data");
+    fixture.write("user/.cache/huggingface/assets/asset.bin", b"asset");
+    fixture.write("user/.cache/huggingface/xet/xet.bin", b"xet");
+    fixture.write("hf-hub-cache/model.bin", b"hh");
+    fixture.write("hf-datasets-cache/dataset.arrow", b"hd");
+    fixture.write("hf-assets-cache/asset.bin", b"ha");
+    fixture.write("hf-xet-cache/xet.bin", b"hx");
+    fixture.write("legacy-hf-hub-cache/legacy.bin", b"lh");
+    fixture.write("legacy-hf-assets-cache/legacy.bin", b"la");
+    fixture.write("hf-home/hub/alt-model.bin", b"alt");
+    fixture.write("hf-home/datasets/alt-dataset.arrow", b"alt2");
+    fixture.write("hf-home/assets/alt-asset.bin", b"alt3");
+    fixture.write("hf-home/xet/alt-xet.bin", b"alt4");
+    fixture.write("user/.cache/torch/hub/checkpoint.bin", b"torch");
+    fixture.write("torch-home/hub/other.bin", b"torch2");
+    fixture.write("user/.cache/torch/hub/checkpoints/checkpoint.bin", b"ck");
+    fixture.write("torch-home/hub/checkpoints/other.bin", b"ck2");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.huggingface-cache".to_string(),
+        "windows.pytorch-cache".to_string(),
+    ];
+    request.allow_moderate = true;
+
+    let env = fixture
+        .env
+        .clone()
+        .with_var("HF_HOME", fixture.root.join("hf-home").into_os_string())
+        .with_var(
+            "HF_HUB_CACHE",
+            fixture.root.join("hf-hub-cache").into_os_string(),
+        )
+        .with_var(
+            "HF_DATASETS_CACHE",
+            fixture.root.join("hf-datasets-cache").into_os_string(),
+        )
+        .with_var(
+            "HF_ASSETS_CACHE",
+            fixture.root.join("hf-assets-cache").into_os_string(),
+        )
+        .with_var(
+            "HF_XET_CACHE",
+            fixture.root.join("hf-xet-cache").into_os_string(),
+        )
+        .with_var(
+            "HUGGINGFACE_HUB_CACHE",
+            fixture.root.join("legacy-hf-hub-cache").into_os_string(),
+        )
+        .with_var(
+            "HUGGINGFACE_ASSETS_CACHE",
+            fixture.root.join("legacy-hf-assets-cache").into_os_string(),
+        )
+        .with_var(
+            "TORCH_HOME",
+            fixture.root.join("torch-home").into_os_string(),
+        );
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 16);
+    assert_eq!(plan.summary.estimated_bytes, 58);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy().replace('\\', "/");
+        !path.contains("virtualenvs")
+            && !path.contains("/config.toml")
+            && !path.contains("/tools/")
+            && !path.contains("/models/")
+    }));
+}
+
+#[test]
 fn go_rules_target_build_and_module_caches_only() {
     let fixture = PlannerFixture::new();
     fixture.write("local/go-build/action/cache.a", b"build");

@@ -23,6 +23,9 @@ rule authoring. It is a reference index, not a copy of external rule data.
 | windows-cleaner-cli | MIT | `repo-ref/windows-cleaner-cli` | `ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5` | Useful for Windows maintenance cache categories such as temp files, Prefetch, update downloads, and browser/system cache comparisons. |
 | null-e | WTFPL-2.0 | `repo-ref/null-e` | `079a038f71159dab07c4d2bd8bd700cb5647972d` | Useful batch reference for developer-cache families such as npm, pip, cargo, uv, Poetry, Docker, Android, IDE, and ML/AI caches. Behavior reference only. |
 | Bulk Crap Uninstaller | Apache-2.0 | `repo-ref/Bulk-Crap-Uninstaller/Licence.txt` | `f39663316ad5d593c4d160b0445841ce7eb6a35f` | Useful for uninstall and leftovers modeling; not a rule source. |
+| Hugging Face Hub | Apache-2.0 | `huggingface/huggingface_hub/src/huggingface_hub/constants.py` and `package_reference/environment_variables` | `1e41293da4a0b1e5ea1afab85d3701843aa4b3bc` | Verified cache-root behavior for HF_HOME, HF_HUB_CACHE, HF_ASSETS_CACHE, and HF_XET_CACHE. |
+| Hugging Face Datasets | Apache-2.0 | `huggingface/datasets/src/datasets/config.py` | `b713dcdffa92ada37c569e6f1419ce94fc170b0c` | Verified HF_DATASETS_CACHE and the dataset cache layout under HF_HOME. |
+| PyTorch | BSD-style | `pytorch/pytorch/torch/hub.py` | `0a8f331c4de50a57643fb72b692dbc6a41b12297` | Verified Torch Hub cache root behavior and the default checkpoints subdirectory via get_dir and load_state_dict_from_url. |
 
 ## BleachBit Windows Coverage Notes
 

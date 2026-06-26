@@ -105,6 +105,11 @@ rules. These are narrow subpaths, not broad app roots:
 - Cargo cache subdirectories under `registry` and `git`; sccache local disk
   compiler-cache roots under `%LOCALAPPDATA%\Mozilla\sccache` and
   `%SCCACHE_DIR%`;
+- Hugging Face cache roots under `%HF_HOME%` and `%HF_*%`, plus the default
+  `%USERPROFILE%\.cache\huggingface\hub`, `datasets`, `assets`, and `xet`
+  subdirectories; PyTorch Hub cache roots under `%TORCH_HOME%\hub` and
+  `%USERPROFILE%\.cache\torch\hub`, including the default `checkpoints`
+  subdirectory beneath those roots;
 - ccache cache buckets under `%CCACHE_DIR%`, `%USERPROFILE%\.ccache`,
   `%LOCALAPPDATA%\ccache`, and `%APPDATA%\ccache`, plus `tmp`; `ccache.conf`,
   `CACHEDIR.TAG`, and `stats` stay outside the cleanup surface;
