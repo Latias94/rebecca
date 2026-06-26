@@ -1,0 +1,15 @@
+id = "windows.bun-cache"
+platform = "windows"
+category = "development"
+name = "Bun package cache"
+safety_level = "moderate"
+restore_hint = "Bun may need to redownload packages into its install cache."
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.bun\\install\\cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Bun's user-scoped package install cache and intentionally avoids Bun binaries, config, and project dependencies."

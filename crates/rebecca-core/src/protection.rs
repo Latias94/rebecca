@@ -493,7 +493,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_jetbrains_cache_path(&segments)
         || is_cargo_cache_path(&segments)
         || is_pip_cache_path(&segments)
-        || is_npm_cache_path(&segments)
+        || is_node_package_manager_cache_path(&segments)
         || is_known_temp_or_report_path(&segments)
 }
 
@@ -583,6 +583,14 @@ fn is_pip_cache_path(segments: &[&str]) -> bool {
 
 fn is_npm_cache_path(segments: &[&str]) -> bool {
     has_sequence(segments, &["npm-cache", "_cacache"])
+}
+
+fn is_node_package_manager_cache_path(segments: &[&str]) -> bool {
+    is_npm_cache_path(segments)
+        || has_sequence(segments, &["appdata", "local", "pnpm", "store"])
+        || has_sequence(segments, &["appdata", "local", "yarn", "cache"])
+        || has_sequence(segments, &[".bun", "install", "cache"])
+        || has_sequence(segments, &["appdata", "local", "node", "corepack"])
 }
 
 fn is_known_temp_or_report_path(segments: &[&str]) -> bool {

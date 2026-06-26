@@ -960,6 +960,40 @@ fn cargo_rule_targets_custom_cargo_home_cache_directories() {
 }
 
 #[test]
+fn node_package_manager_rules_target_rebuildable_caches() {
+    let fixture = PlannerFixture::new();
+    fixture.write("local/npm-cache/_cacache/index.bin", b"npm");
+    fixture.write("roaming/npm-cache/_cacache/legacy.bin", b"npm2");
+    fixture.write("local/pnpm/store/v3/files/pkg", b"pnpm");
+    fixture.write("local/Yarn/Cache/pkg.tgz", b"yarn");
+    fixture.write("user/.bun/install/cache/pkg", b"bun");
+    fixture.write("local/node/corepack/shim.json", b"corepack");
+    fixture.write("user/.bun/bin/bun.exe", b"keep");
+    fixture.write("local/Yarn/Data/global/package.json", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.npm-cache".to_string(),
+        "windows.pnpm-cache".to_string(),
+        "windows.yarn-cache".to_string(),
+        "windows.bun-cache".to_string(),
+        "windows.corepack-cache".to_string(),
+    ];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 6);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 26);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy();
+        !path.contains(".bun/bin") && !path.contains("Yarn/Data")
+    }));
+}
+
+#[test]
 fn discord_rule_targets_only_browser_cache_directories() {
     let fixture = PlannerFixture::new();
     fixture.write("roaming/discord/Cache/cache.bin", b"ab");
@@ -1429,7 +1463,8 @@ fn category_selection_is_case_insensitive() {
 #[test]
 fn moderate_rule_is_skipped_without_opt_in() {
     let fixture = PlannerFixture::new();
-    fixture.write("roaming/npm-cache/_cacache/index.bin", b"npm");
+    fixture.write("local/npm-cache/_cacache/index.bin", b"npm");
+    fixture.write("roaming/npm-cache/_cacache/legacy.bin", b"npm2");
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
@@ -1437,14 +1472,19 @@ fn moderate_rule_is_skipped_without_opt_in() {
 
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
-    assert_eq!(plan.summary.skipped_targets, 1);
-    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
+    assert_eq!(plan.summary.skipped_targets, 2);
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| target.status == TargetStatus::Skipped)
+    );
 }
 
 #[test]
 fn moderate_rule_is_allowed_with_opt_in() {
     let fixture = PlannerFixture::new();
-    fixture.write("roaming/npm-cache/_cacache/index.bin", b"npm");
+    fixture.write("local/npm-cache/_cacache/index.bin", b"npm");
+    fixture.write("roaming/npm-cache/_cacache/legacy.bin", b"npm2");
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
@@ -1453,11 +1493,15 @@ fn moderate_rule_is_allowed_with_opt_in() {
 
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
-    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.allowed_targets, 2);
     assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 3);
-    assert_eq!(plan.targets.len(), 1);
-    assert_eq!(plan.targets[0].status, TargetStatus::Allowed);
+    assert_eq!(plan.summary.estimated_bytes, 7);
+    assert_eq!(plan.targets.len(), 2);
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| target.status == TargetStatus::Allowed)
+    );
 }
 
 #[test]

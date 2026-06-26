@@ -43,8 +43,10 @@ impl SteamRuleCase {
 
 pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.brave-cache",
+    "windows.bun-cache",
     "windows.chrome-cache",
     "windows.cargo-cache",
+    "windows.corepack-cache",
     "windows.directx-shader-cache",
     "windows.discord-cache",
     "windows.edge-cache",
@@ -52,6 +54,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.jetbrains-cache",
     "windows.npm-cache",
     "windows.pip-cache",
+    "windows.pnpm-cache",
     "windows.slack-cache",
     "windows.steam-cache",
     "windows.steam-install-cache",
@@ -72,6 +75,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.user-temp",
     "windows.vscode-cache",
     "windows.wer-reports",
+    "windows.yarn-cache",
 ];
 
 pub const HUMAN_SCAN_LINES: &[&str] = &[

@@ -46,6 +46,10 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
     "rules/windows/steam-library-downloading-cache.toml",
     "rules/windows/steam-library-temp-cache.toml",
     "rules/windows/npm-cache.toml",
+    "rules/windows/pnpm-cache.toml",
+    "rules/windows/yarn-cache.toml",
+    "rules/windows/bun-cache.toml",
+    "rules/windows/corepack-cache.toml",
     "rules/windows/pip-cache.toml",
     "rules/windows/cargo-cache.toml",
     "rules/windows/jetbrains-cache.toml",
@@ -289,12 +293,15 @@ mod tests {
         for expected in [
             "windows.chrome-cache",
             "windows.brave-cache",
+            "windows.bun-cache",
             "windows.cargo-cache",
+            "windows.corepack-cache",
             "windows.directx-shader-cache",
             "windows.discord-cache",
             "windows.firefox-profile-cache",
             "windows.jetbrains-cache",
             "windows.pip-cache",
+            "windows.pnpm-cache",
             "windows.slack-cache",
             "windows.steam-cache",
             "windows.steam-install-cache",
@@ -313,6 +320,7 @@ mod tests {
             "windows.thumbnail-cache",
             "windows.vscode-cache",
             "windows.wer-reports",
+            "windows.yarn-cache",
         ] {
             assert!(ids.contains(expected), "missing built-in rule: {expected}");
         }

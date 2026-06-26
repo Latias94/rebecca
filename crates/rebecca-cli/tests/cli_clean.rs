@@ -992,13 +992,16 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
 #[test]
 fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
     let roaming = temp.path().join("roaming");
+    let local_npm_cache = local.join("npm-cache").join("_cacache");
     let npm_cache = roaming.join("npm-cache").join("_cacache");
+    fs::create_dir_all(&local_npm_cache).unwrap();
     fs::create_dir_all(&npm_cache).unwrap();
+    fs::write(local_npm_cache.join("index.bin"), b"abcd").unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
     let output = isolated::isolated_rebecca(&temp)
-        .env("APPDATA", &roaming)
         .args([
             "clean",
             "--dry-run",
@@ -1017,27 +1020,31 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value["summary"]["total_targets"], 1);
-    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["total_targets"], 2);
+    assert_eq!(value["summary"]["allowed_targets"], 2);
     assert_eq!(value["summary"]["skipped_targets"], 0);
-    assert_eq!(value["summary"]["estimated_bytes"], 4);
+    assert_eq!(value["summary"]["estimated_bytes"], 8);
 
     let targets = value["targets"].as_array().unwrap();
-    assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.npm-cache");
-    assert_eq!(targets[0]["status"], "allowed");
+    assert_eq!(targets.len(), 2);
+    assert!(targets.iter().all(|target| {
+        target["rule_id"] == "windows.npm-cache" && target["status"] == "allowed"
+    }));
 }
 
 #[test]
 fn clean_dry_run_json_accepts_allow_risky_flag() {
     let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
     let roaming = temp.path().join("roaming");
+    let local_npm_cache = local.join("npm-cache").join("_cacache");
     let npm_cache = roaming.join("npm-cache").join("_cacache");
+    fs::create_dir_all(&local_npm_cache).unwrap();
     fs::create_dir_all(&npm_cache).unwrap();
+    fs::write(local_npm_cache.join("index.bin"), b"abcd").unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
     let output = isolated::isolated_rebecca(&temp)
-        .env("APPDATA", &roaming)
         .args([
             "clean",
             "--dry-run",
@@ -1056,16 +1063,17 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
     );
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value["summary"]["total_targets"], 1);
-    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["total_targets"], 2);
+    assert_eq!(value["summary"]["allowed_targets"], 2);
     assert_eq!(value["summary"]["skipped_targets"], 0);
-    assert_eq!(value["summary"]["estimated_bytes"], 4);
+    assert_eq!(value["summary"]["estimated_bytes"], 8);
     assert_eq!(value["request"]["allow_risky"], true);
 
     let targets = value["targets"].as_array().unwrap();
-    assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.npm-cache");
-    assert_eq!(targets[0]["status"], "allowed");
+    assert_eq!(targets.len(), 2);
+    assert!(targets.iter().all(|target| {
+        target["rule_id"] == "windows.npm-cache" && target["status"] == "allowed"
+    }));
 }
 
 #[test]

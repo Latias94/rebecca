@@ -129,6 +129,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.user-temp`
 - `windows.edge-cache`
 - `windows.chrome-cache`
+- `windows.brave-cache`
 - `windows.firefox-profile-cache`
 - `windows.discord-cache`
 - `windows.slack-cache`
@@ -152,6 +153,10 @@ The starter catalog intentionally stays small and lives in
 - `windows.cargo-cache`
 - `windows.jetbrains-cache`
 - `windows.npm-cache`
+- `windows.pnpm-cache`
+- `windows.yarn-cache`
+- `windows.bun-cache`
+- `windows.corepack-cache`
 - `windows.vscode-cache`
 - `windows.wer-reports`
 
