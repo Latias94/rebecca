@@ -132,6 +132,9 @@ The starter catalog intentionally stays small and lives in
 - `windows.brave-cache`
 - `windows.firefox-profile-cache`
 - `windows.discord-cache`
+- `windows.postman-cache`
+- `windows.notion-cache`
+- `windows.figma-cache`
 - `windows.slack-cache`
 - `windows.steam-cache`
 - `windows.steam-install-cache`
@@ -185,7 +188,11 @@ files and validated before it reaches the CLI. Reference projects under
 `repo-ref/` are research inputs; their GPL code and cleaner definitions are not
 copied into Rebecca.
 Chromium-family browser cache rules for Chrome, Edge, and Brave cover `Default`
-and bounded `Profile *` directories when they exist.
+and bounded `Profile *` directories when they exist. Electron app cache rules
+for Discord, Slack, Postman, Notion, and Figma cover only `Cache`,
+`Code Cache`, and `GPUCache` under each allowlisted Roaming app root; they do
+not target application roots, `Local Storage`, `IndexedDB`, `Service Worker`,
+cookies, settings, workspaces, or session data.
 Steam support currently discovers the install root from a small ordered set of
 Windows registry locations, then library roots from `steamapps\libraryfolders.vdf`.
 That lets future Steam rules target install-root-relative or library-root-relative

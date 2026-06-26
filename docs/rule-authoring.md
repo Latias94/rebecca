@@ -32,7 +32,10 @@ files. Keep each rule small, explicit, and easy to audit.
 - Electron app cache rules should keep `Cache`, `Code Cache`, and `GPUCache`
   targets explicit, and should not target `Local Storage`, `IndexedDB`, or the
   application data root. Add each Electron app root to the shared protection
-  policy allowlist before adding its built-in rule.
+  policy allowlist before adding its built-in rule. Prefer stable
+  `%APPDATA%\\<App>\\<cache leaf>` layouts; avoid app roots with path variants
+  or mixed account/session state unless the durable-state boundary is proven
+  with tests.
 - Steam client cache rules should stay under `%LOCALAPPDATA%\Steam\htmlcache`
   unless the rule also implements explicit Steam install/library discovery.
   Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,

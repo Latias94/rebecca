@@ -1449,6 +1449,50 @@ fn slack_rule_targets_only_electron_cache_directories() {
 }
 
 #[test]
+fn electron_app_rules_target_only_cache_directories() {
+    let fixture = PlannerFixture::new();
+    for app in ["Postman", "Notion", "Figma"] {
+        fixture.write(format!("roaming/{app}/Cache/cache.bin"), b"ab");
+        fixture.write(format!("roaming/{app}/Code Cache/code.bin"), b"cde");
+        fixture.write(format!("roaming/{app}/GPUCache/gpu.bin"), b"fghi");
+        fixture.write(format!("roaming/{app}/Local Storage/leveldb/LOG"), b"keep");
+        fixture.write(
+            format!("roaming/{app}/IndexedDB/indexeddb.leveldb/LOG"),
+            b"keep",
+        );
+        fixture.write(
+            format!("roaming/{app}/Service Worker/CacheStorage/index.bin"),
+            b"keep",
+        );
+    }
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.postman-cache".to_string(),
+        "windows.notion-cache".to_string(),
+        "windows.figma-cache".to_string(),
+    ];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 9);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 27);
+    assert!(plan.targets.iter().all(|target| {
+        target.path.ends_with(Path::new("Cache"))
+            || target.path.ends_with(Path::new("Code Cache"))
+            || target.path.ends_with(Path::new("GPUCache"))
+    }));
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy();
+        !path.contains("Local Storage")
+            && !path.contains("IndexedDB")
+            && !path.contains("Service Worker")
+    }));
+}
+
+#[test]
 fn steam_rule_targets_only_client_browser_cache_directories() {
     let fixture = PlannerFixture::new();
     fixture.write("local/Steam/htmlcache/Default/Cache/cache.bin", b"ab");

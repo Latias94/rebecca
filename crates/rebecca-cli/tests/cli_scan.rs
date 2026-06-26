@@ -77,6 +77,9 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("- browser ("));
     assert!(stdout.contains("  - windows.chrome-cache [safe] Google Chrome cache"));
     assert!(stdout.contains("  - windows.firefox-profile-cache [safe] Firefox profile cache"));
+    assert!(stdout.contains("  - windows.postman-cache [safe] Postman cache"));
+    assert!(stdout.contains("  - windows.notion-cache [safe] Notion cache"));
+    assert!(stdout.contains("  - windows.figma-cache [safe] Figma cache"));
     assert!(stdout.contains("  - windows.slack-cache [safe] Slack cache"));
     assert!(stdout.contains("- development ("));
     assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));

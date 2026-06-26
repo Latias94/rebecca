@@ -4,7 +4,16 @@ use crate::config::AppStorageEntry;
 use crate::model::RuleTargetSpec;
 use crate::path_overlap::paths_overlap;
 
-const ELECTRON_CACHE_APPS: &[&str] = &["code", "discord", "discordptb", "discordcanary", "slack"];
+const ELECTRON_CACHE_APPS: &[&str] = &[
+    "code",
+    "discord",
+    "discordptb",
+    "discordcanary",
+    "figma",
+    "notion",
+    "postman",
+    "slack",
+];
 const ELECTRON_CACHE_DIRS: &[&str] = &["cache", "code cache", "gpucache", "cacheddata"];
 
 #[derive(Debug, Clone, Copy)]

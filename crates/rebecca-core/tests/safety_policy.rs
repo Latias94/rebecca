@@ -238,6 +238,9 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
         "C:/Users/Alice/AppData/Local/JetBrains/RustRover2024.3/caches",
         "C:/Users/Alice/AppData/Roaming/Code/Cache",
         "C:/Users/Alice/AppData/Roaming/discord/GPUCache",
+        "C:/Users/Alice/AppData/Roaming/Figma/Cache",
+        "C:/Users/Alice/AppData/Roaming/Notion/Code Cache",
+        "C:/Users/Alice/AppData/Roaming/Postman/GPUCache",
         "C:/Users/Alice/AppData/Roaming/Slack/Cache",
         "C:/Users/Alice/AppData/Roaming/Slack/Code Cache",
         "C:/Users/Alice/AppData/Roaming/Slack/GPUCache",
@@ -318,6 +321,9 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
         RuleTargetSpec::template("%USERPROFILE%\\.rustup\\tmp"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
         RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
+        RuleTargetSpec::template("%APPDATA%\\Figma\\Cache"),
+        RuleTargetSpec::template("%APPDATA%\\Notion\\Code Cache"),
+        RuleTargetSpec::template("%APPDATA%\\Postman\\GPUCache"),
         RuleTargetSpec::template("%APPDATA%\\Slack\\Cache"),
         RuleTargetSpec::template("%WINDIR%\\Temp"),
         RuleTargetSpec::template("%WINDIR%\\Prefetch"),
@@ -363,6 +369,18 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
         ),
         (
             RuleTargetSpec::template("%APPDATA%\\Slack\\Local Storage"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Postman\\IndexedDB"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Notion\\Service Worker"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Figma\\Network"),
             ProtectedCategory::ApplicationDurableData,
         ),
         (

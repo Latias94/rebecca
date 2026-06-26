@@ -1,0 +1,23 @@
+id = "windows.postman-cache"
+platform = "windows"
+category = "application"
+name = "Postman cache"
+safety_level = "safe"
+restore_hint = "Postman caches will be rebuilt on launch."
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Postman\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Postman\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Postman\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on Postman's Windows Roaming app data layout and common Electron cache directory conventions, with null-e's Electron app list used as behavior-only reference. The rule targets cache subdirectories only and intentionally avoids Local Storage, IndexedDB, Service Worker, cookies, settings, workspace data, and session data."
