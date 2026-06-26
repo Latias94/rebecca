@@ -55,6 +55,9 @@ files. Keep each rule small, explicit, and easy to audit.
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or
   `.crates2.json`.
+- ccache cache rules should target the cache buckets under `%CCACHE_DIR%`,
+  `%USERPROFILE%\.ccache`, `%LOCALAPPDATA%\ccache`, and `%APPDATA%\ccache`,
+  plus `tmp`; never target `ccache.conf`, `CACHEDIR.TAG`, or `stats`.
 - sccache cache rules should target the Windows local disk cache root under
   `%LOCALAPPDATA%\Mozilla\sccache` and the configurable `%SCCACHE_DIR%` cache
   root; do not target compiler wrapper binaries, server logs, or config state.

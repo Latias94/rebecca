@@ -492,6 +492,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_electron_cache_path(&segments)
         || is_jetbrains_cache_path(&segments)
         || is_cargo_cache_path(&segments)
+        || is_ccache_cache_path(&segments)
         || is_conda_cache_path(&segments)
         || is_rustup_cache_path(&segments)
         || is_sccache_cache_path(&segments)
@@ -582,6 +583,19 @@ fn is_cargo_cache_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["registry", "src"])
         || has_sequence(segments, &["git", "db"])
         || has_sequence(segments, &["git", "checkouts"])
+}
+
+fn is_ccache_cache_path(segments: &[&str]) -> bool {
+    ccache_root_index(segments).is_some_and(|index| {
+        segments.get(index + 1).is_some_and(|segment| {
+            *segment == "tmp"
+                || segments.get(index + 2).is_some_and(|segment2| {
+                    (is_hex_bucket_segment(segment) && is_hex_bucket_segment(segment2))
+                        || (is_hex_bucket_shape_segment(segment)
+                            && is_hex_bucket_shape_segment(segment2))
+                })
+        })
+    })
 }
 
 fn is_go_cache_path(segments: &[&str]) -> bool {
@@ -801,12 +815,22 @@ fn is_application_durable_data_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["steamapps", "workshop"])
         || has_sequence(segments, &["steamapps", "compatdata"])
         || has_sequence(segments, &["pypoetry", "cache", "virtualenvs"])
+        || is_ccache_durable_state_path(segments)
         || is_conda_durable_state_path(segments)
         || is_rustup_durable_state_path(segments)
         || has_any_segment(
             segments,
             &["local storage", "indexeddb", "service worker", "network"],
         )
+}
+
+fn is_ccache_durable_state_path(segments: &[&str]) -> bool {
+    ccache_root_index(segments).is_some_and(|index| {
+        segments
+            .iter()
+            .skip(index + 1)
+            .any(|segment| matches!(*segment, "ccache.conf" | "stats" | "cachedir.tag"))
+    })
 }
 
 fn is_conda_durable_state_path(segments: &[&str]) -> bool {
@@ -857,4 +881,18 @@ fn has_any_segment(segments: &[&str], needles: &[&str]) -> bool {
     segments
         .iter()
         .any(|segment| needles.iter().any(|needle| segment == needle))
+}
+
+fn ccache_root_index(segments: &[&str]) -> Option<usize> {
+    find_segment(segments, "%ccache_dir%")
+        .or_else(|| find_segment(segments, "ccache"))
+        .or_else(|| find_segment(segments, ".ccache"))
+}
+
+fn is_hex_bucket_segment(segment: &str) -> bool {
+    segment.len() == 1 && segment.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn is_hex_bucket_shape_segment(segment: &str) -> bool {
+    matches!(segment, "[0-9a-f]" | "[0-9A-F]")
 }

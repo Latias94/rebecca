@@ -1,0 +1,43 @@
+id = "windows.ccache-cache"
+platform = "windows"
+category = "development"
+name = "ccache compiler cache"
+safety_level = "moderate"
+restore_hint = "ccache will rebuild cached compiler outputs on demand; cache configuration is left in place."
+
+[[targets]]
+kind = "glob-template"
+value = "%CCACHE_DIR%\\[0-9a-f]\\[0-9a-f]"
+
+[[targets]]
+kind = "template"
+value = "%CCACHE_DIR%\\tmp"
+
+[[targets]]
+kind = "glob-template"
+value = "%USERPROFILE%\\.ccache\\[0-9a-f]\\[0-9a-f]"
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.ccache\\tmp"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\ccache\\[0-9a-f]\\[0-9a-f]"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\ccache\\tmp"
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\ccache\\[0-9a-f]\\[0-9a-f]"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\ccache\\tmp"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on ccache's cache_dir and local storage layout docs. The rule targets user-configured CCACHE_DIR, current Windows defaults, and the legacy Roaming AppData cache location, but only clears the two-level 0-9a-f cache buckets and tmp directory so ccache.conf is preserved."

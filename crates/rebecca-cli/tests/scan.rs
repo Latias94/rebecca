@@ -77,6 +77,7 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("  - windows.slack-cache [safe] Slack cache"));
     assert!(stdout.contains("- development ("));
     assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));
+    assert!(stdout.contains("  - windows.ccache-cache [moderate] ccache compiler cache"));
     assert!(stdout.contains("  - windows.sccache-cache [moderate] sccache compiler cache"));
     for expected in common::steam::HUMAN_SCAN_LINES {
         assert!(stdout.contains(expected), "{expected}");

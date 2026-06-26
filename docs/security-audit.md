@@ -105,6 +105,9 @@ rules. These are narrow subpaths, not broad app roots:
 - Cargo cache subdirectories under `registry` and `git`; sccache local disk
   compiler-cache roots under `%LOCALAPPDATA%\Mozilla\sccache` and
   `%SCCACHE_DIR%`;
+- ccache cache buckets under `%CCACHE_DIR%`, `%USERPROFILE%\.ccache`,
+  `%LOCALAPPDATA%\ccache`, and `%APPDATA%\ccache`, plus `tmp`; `ccache.conf`,
+  `CACHEDIR.TAG`, and `stats` stay outside the cleanup surface;
 - pip, uv, Poetry package-cache, Conda package-cache, Go build/module, Cargo,
   rustup, npm, pnpm,
   Yarn, Bun, Corepack, NuGet, Gradle, and Maven cache directories;

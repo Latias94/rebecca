@@ -46,6 +46,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.bun-cache",
     "windows.chrome-cache",
     "windows.cargo-cache",
+    "windows.ccache-cache",
     "windows.corepack-cache",
     "windows.gradle-cache",
     "windows.directx-shader-cache",

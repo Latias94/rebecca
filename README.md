@@ -156,6 +156,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.go-build-cache`
 - `windows.go-module-cache`
 - `windows.cargo-cache`
+- `windows.ccache-cache`
 - `windows.rustup-cache`
 - `windows.sccache-cache`
 - `windows.jetbrains-cache`

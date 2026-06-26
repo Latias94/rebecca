@@ -960,6 +960,41 @@ fn cargo_rule_targets_custom_cargo_home_cache_directories() {
 }
 
 #[test]
+fn ccache_rule_targets_default_and_configured_cache_roots() {
+    let fixture = PlannerFixture::with_ccache_dir();
+    fixture.write("user/.ccache/0/a/default.bin", b"abc");
+    fixture.write("user/.ccache/tmp/staging.tmp", b"tmp");
+    fixture.write("local/ccache/1/b/local.bin", b"de");
+    fixture.write("local/ccache/tmp/staging.tmp", b"tmp");
+    fixture.write("roaming/ccache/2/c/roaming.bin", b"f");
+    fixture.write("roaming/ccache/tmp/staging.tmp", b"tmp");
+    fixture.write("ccache-dir/3/d/custom.bin", b"gh");
+    fixture.write("ccache-dir/tmp/staging.tmp", b"tmp");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.ccache-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 8);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 20);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy().replace('\\', "/");
+        path.ends_with("/user/.ccache/0/a")
+            || path.ends_with("/user/.ccache/tmp")
+            || path.ends_with("/local/ccache/1/b")
+            || path.ends_with("/local/ccache/tmp")
+            || path.ends_with("/roaming/ccache/2/c")
+            || path.ends_with("/roaming/ccache/tmp")
+            || path.ends_with("/ccache-dir/3/d")
+            || path.ends_with("/ccache-dir/tmp")
+    }));
+}
+
+#[test]
 fn conda_rule_targets_package_caches_only() {
     let fixture = PlannerFixture::new();
     fixture.write("user/.conda/pkgs/pkg1/data.bin", b"aa");
@@ -1891,6 +1926,20 @@ impl PlannerFixture {
         let env = fixture.env.clone().with_var(
             "CARGO_HOME",
             fixture.root.join("cargo-home").into_os_string(),
+        );
+
+        Self {
+            _temp: fixture._temp,
+            root: fixture.root,
+            env,
+        }
+    }
+
+    fn with_ccache_dir() -> Self {
+        let fixture = Self::new();
+        let env = fixture.env.clone().with_var(
+            "CCACHE_DIR",
+            fixture.root.join("ccache-dir").into_os_string(),
         );
 
         Self {
