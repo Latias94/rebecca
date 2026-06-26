@@ -116,6 +116,10 @@ fn credentials_ai_cloud_runtime_and_startup_data_are_blocked() {
             ProtectedCategory::ApplicationDurableData,
         ),
         (
+            "C:/Users/Alice/.conda/envs/base",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
             "C:/Users/Alice/.rustup/toolchains/stable-x86_64-pc-windows-msvc",
             ProtectedCategory::ApplicationDurableData,
         ),
@@ -194,6 +198,11 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
         "C:/Users/Alice/AppData/Local/uv/cache",
         "C:/Users/Alice/AppData/Local/pypoetry/Cache/cache",
         "C:/Users/Alice/AppData/Local/pypoetry/Cache/artifacts",
+        "C:/Users/Alice/.conda/pkgs",
+        "C:/Users/Alice/anaconda3/pkgs",
+        "C:/Users/Alice/miniconda3/pkgs",
+        "C:/Users/Alice/miniforge3/pkgs",
+        "C:/Users/Alice/mambaforge/pkgs",
         "C:/Users/Alice/AppData/Local/go-build",
         "C:/Users/Alice/go/pkg/mod",
         "C:/Users/Alice/.rustup/downloads",
@@ -228,6 +237,11 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
         RuleTargetSpec::template("%LOCALAPPDATA%\\uv\\cache"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\pypoetry\\Cache\\cache"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\pypoetry\\Cache\\artifacts"),
+        RuleTargetSpec::template("%USERPROFILE%\\.conda\\pkgs"),
+        RuleTargetSpec::template("%USERPROFILE%\\anaconda3\\pkgs"),
+        RuleTargetSpec::template("%USERPROFILE%\\miniconda3\\pkgs"),
+        RuleTargetSpec::template("%USERPROFILE%\\miniforge3\\pkgs"),
+        RuleTargetSpec::template("%USERPROFILE%\\mambaforge\\pkgs"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\go-build"),
         RuleTargetSpec::template("%USERPROFILE%\\go\\pkg\\mod"),
         RuleTargetSpec::template("%RUSTUP_HOME%\\downloads"),
@@ -274,6 +288,10 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
         ),
         (
             RuleTargetSpec::template("%APPDATA%\\Slack\\Local Storage"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%USERPROFILE%\\.conda\\envs"),
             ProtectedCategory::ApplicationDurableData,
         ),
         (

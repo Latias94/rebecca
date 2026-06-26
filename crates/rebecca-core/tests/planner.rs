@@ -960,6 +960,34 @@ fn cargo_rule_targets_custom_cargo_home_cache_directories() {
 }
 
 #[test]
+fn conda_rule_targets_package_caches_only() {
+    let fixture = PlannerFixture::new();
+    fixture.write("user/.conda/pkgs/pkg1/data.bin", b"aa");
+    fixture.write("user/anaconda3/pkgs/pkg2/data.bin", b"bbb");
+    fixture.write("user/miniconda3/pkgs/pkg3/data.bin", b"cccc");
+    fixture.write("user/miniforge3/pkgs/pkg4/data.bin", b"ddddd");
+    fixture.write("user/mambaforge/pkgs/pkg5/data.bin", b"eeeeee");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.conda-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 5);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 20);
+    assert!(plan.targets.iter().all(|target| {
+        target
+            .path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .ends_with("/pkgs")
+    }));
+}
+
+#[test]
 fn rustup_rule_targets_download_and_temp_caches_only() {
     let fixture = PlannerFixture::with_rustup_home();
     fixture.write("user/.rustup/downloads/stable.tar.xz", b"download");

@@ -152,6 +152,7 @@ The starter catalog intentionally stays small and lives in
 - `windows.pip-cache`
 - `windows.uv-cache`
 - `windows.poetry-cache`
+- `windows.conda-cache`
 - `windows.go-build-cache`
 - `windows.go-module-cache`
 - `windows.cargo-cache`

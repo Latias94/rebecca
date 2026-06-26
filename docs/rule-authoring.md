@@ -59,6 +59,10 @@ files. Keep each rule small, explicit, and easy to audit.
   `%RUSTUP_HOME%\tmp`, and the matching default `%USERPROFILE%\.rustup`
   cache leaves; never target `toolchains`, `settings.toml`, `overrides`, or
   installed components.
+- Conda cache rules may target `%USERPROFILE%\.conda\pkgs`,
+  `%USERPROFILE%\anaconda3\pkgs`, `%USERPROFILE%\miniconda3\pkgs`,
+  `%USERPROFILE%\miniforge3\pkgs`, and `%USERPROFILE%\mambaforge\pkgs`;
+  never target environments, configuration, or installed tools.
 - Python package-manager cache rules may target pip's `%LOCALAPPDATA%\pip\Cache`,
   uv's `%LOCALAPPDATA%\uv\cache`, and Poetry package-cache subdirectories under
   `%LOCALAPPDATA%\pypoetry\Cache\cache` and

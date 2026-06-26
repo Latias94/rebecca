@@ -492,6 +492,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_electron_cache_path(&segments)
         || is_jetbrains_cache_path(&segments)
         || is_cargo_cache_path(&segments)
+        || is_conda_cache_path(&segments)
         || is_rustup_cache_path(&segments)
         || is_go_cache_path(&segments)
         || is_python_package_manager_cache_path(&segments)
@@ -589,6 +590,14 @@ fn is_go_cache_path(segments: &[&str]) -> bool {
 
 fn is_rustup_cache_path(segments: &[&str]) -> bool {
     has_sequence(segments, &[".rustup", "downloads"]) || has_sequence(segments, &[".rustup", "tmp"])
+}
+
+fn is_conda_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".conda", "pkgs"])
+        || has_sequence(segments, &["anaconda3", "pkgs"])
+        || has_sequence(segments, &["miniconda3", "pkgs"])
+        || has_sequence(segments, &["miniforge3", "pkgs"])
+        || has_sequence(segments, &["mambaforge", "pkgs"])
 }
 
 fn is_python_package_manager_cache_path(segments: &[&str]) -> bool {
@@ -787,11 +796,20 @@ fn is_application_durable_data_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["steamapps", "workshop"])
         || has_sequence(segments, &["steamapps", "compatdata"])
         || has_sequence(segments, &["pypoetry", "cache", "virtualenvs"])
+        || is_conda_durable_state_path(segments)
         || is_rustup_durable_state_path(segments)
         || has_any_segment(
             segments,
             &["local storage", "indexeddb", "service worker", "network"],
         )
+}
+
+fn is_conda_durable_state_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".conda", "envs"])
+        || has_sequence(segments, &["anaconda3", "envs"])
+        || has_sequence(segments, &["miniconda3", "envs"])
+        || has_sequence(segments, &["miniforge3", "envs"])
+        || has_sequence(segments, &["mambaforge", "envs"])
 }
 
 fn is_rustup_durable_state_path(segments: &[&str]) -> bool {

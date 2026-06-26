@@ -103,7 +103,8 @@ rules. These are narrow subpaths, not broad app roots:
   Discord and Slack;
 - JetBrains product `caches` directories;
 - Cargo cache subdirectories under `registry` and `git`;
-- pip, uv, Poetry package-cache, Go build/module, Cargo, rustup, npm, pnpm,
+- pip, uv, Poetry package-cache, Conda package-cache, Go build/module, Cargo,
+  rustup, npm, pnpm,
   Yarn, Bun, Corepack, NuGet, Gradle, and Maven cache directories;
 - Windows Error Reporting `ReportArchive` and `ReportQueue`;
 - Steam client web cache directories.
@@ -141,7 +142,7 @@ system-owned install roots.
 | Cloud-synced data | OneDrive, iCloud Drive, iCloud Photos, Dropbox, Google Drive, Box, MEGA |
 | Container/VM runtime state | Docker, Docker Desktop, Podman, Rancher Desktop, WSL config, `.docker`, `.podman`, `.kube` |
 | Startup automation | Windows Startup folder paths |
-| Application durable data | Steam `userdata`, `steamapps\common`, `steamapps\workshop`, `steamapps\compatdata`, browser-like durable storage roots |
+| Application durable data | Steam `userdata`, `steamapps\common`, `steamapps\workshop`, `steamapps\compatdata`, Conda environments, browser-like durable storage roots |
 
 These categories are intentionally conservative. False negatives where Rebecca
 refuses to clean a path are acceptable safety outcomes; false positives that
