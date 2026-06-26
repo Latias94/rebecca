@@ -179,6 +179,9 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
     let policy = ProtectionPolicy::new();
 
     for path in [
+        "C:/Users/Alice/.gradle/caches",
+        "C:/Users/Alice/.gradle/notifications",
+        "C:/Users/Alice/.m2/repository",
         "C:/Users/Alice/AppData/Local/pip/Cache",
         "C:/Users/Alice/AppData/Local/JetBrains/RustRover2024.3/caches",
         "C:/Users/Alice/AppData/Roaming/Code/Cache",
@@ -204,6 +207,9 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
     let policy = ProtectionPolicy::new();
 
     for target in [
+        RuleTargetSpec::template("%USERPROFILE%\\.gradle\\caches"),
+        RuleTargetSpec::template("%USERPROFILE%\\.gradle\\notifications"),
+        RuleTargetSpec::template("%USERPROFILE%\\.m2\\repository"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
         RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
         RuleTargetSpec::template("%APPDATA%\\Slack\\Cache"),

@@ -1,0 +1,19 @@
+id = "windows.gradle-cache"
+platform = "windows"
+category = "development"
+name = "Gradle cache"
+safety_level = "moderate"
+restore_hint = "Gradle may need to rebuild caches and notifications."
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.gradle\\caches"
+
+[[targets]]
+kind = "template"
+value = "%USERPROFILE%\\.gradle\\notifications"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Gradle's user cache and notification directories only; project .gradle directories and daemon runtime state are handled elsewhere."

@@ -495,6 +495,8 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_pip_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
         || is_dotnet_package_manager_cache_path(&segments)
+        || is_gradle_cache_path(&segments)
+        || is_maven_cache_path(&segments)
         || is_known_temp_or_report_path(&segments)
 }
 
@@ -599,6 +601,15 @@ fn is_dotnet_package_manager_cache_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["appdata", "local", "nuget", "v3-cache"])
         || has_sequence(segments, &["appdata", "local", "nuget", "plugins-cache"])
         || has_sequence(segments, &["appdata", "local", "nuget", "cache"])
+}
+
+fn is_gradle_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".gradle", "caches"])
+        || has_sequence(segments, &[".gradle", "notifications"])
+}
+
+fn is_maven_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".m2", "repository"])
 }
 
 fn is_known_temp_or_report_path(segments: &[&str]) -> bool {

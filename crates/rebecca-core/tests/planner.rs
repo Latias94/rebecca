@@ -1022,6 +1022,43 @@ fn nuget_rule_targets_package_caches_only() {
 }
 
 #[test]
+fn gradle_and_maven_rules_target_rebuildable_caches() {
+    let fixture = PlannerFixture::new();
+    fixture.write(
+        "user/.gradle/caches/modules-2/files-2.1/example/lib.jar",
+        b"gradle",
+    );
+    fixture.write("user/.gradle/notifications/notice.bin", b"notify");
+    fixture.write(
+        "user/.gradle/wrapper/dists/gradle-8.7-bin/gradle.zip",
+        b"keep",
+    );
+    fixture.write(
+        "user/.m2/repository/com/example/demo/1.0/demo.jar",
+        b"maven",
+    );
+    fixture.write("user/.m2/settings.xml", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.gradle-cache".to_string(),
+        "windows.maven-cache".to_string(),
+    ];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 3);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 17);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy();
+        !path.contains("wrapper") && !path.ends_with("settings.xml")
+    }));
+}
+
+#[test]
 fn discord_rule_targets_only_browser_cache_directories() {
     let fixture = PlannerFixture::new();
     fixture.write("roaming/discord/Cache/cache.bin", b"ab");
