@@ -102,7 +102,9 @@ rules. These are narrow subpaths, not broad app roots:
   `GPUCache`, and `CachedData` for explicitly allowlisted app roots including
   Discord and Slack;
 - JetBrains product `caches` directories;
-- Cargo cache subdirectories under `registry` and `git`;
+- Cargo cache subdirectories under `registry` and `git`; sccache local disk
+  compiler-cache roots under `%LOCALAPPDATA%\Mozilla\sccache` and
+  `%SCCACHE_DIR%`;
 - pip, uv, Poetry package-cache, Conda package-cache, Go build/module, Cargo,
   rustup, npm, pnpm,
   Yarn, Bun, Corepack, NuGet, Gradle, and Maven cache directories;

@@ -55,6 +55,9 @@ files. Keep each rule small, explicit, and easy to audit.
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or
   `.crates2.json`.
+- sccache cache rules should target the Windows local disk cache root under
+  `%LOCALAPPDATA%\Mozilla\sccache` and the configurable `%SCCACHE_DIR%` cache
+  root; do not target compiler wrapper binaries, server logs, or config state.
 - Rustup cache rules may target `%RUSTUP_HOME%\downloads`,
   `%RUSTUP_HOME%\tmp`, and the matching default `%USERPROFILE%\.rustup`
   cache leaves; never target `toolchains`, `settings.toml`, `overrides`, or

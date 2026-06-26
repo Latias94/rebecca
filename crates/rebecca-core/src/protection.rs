@@ -494,6 +494,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_cargo_cache_path(&segments)
         || is_conda_cache_path(&segments)
         || is_rustup_cache_path(&segments)
+        || is_sccache_cache_path(&segments)
         || is_go_cache_path(&segments)
         || is_python_package_manager_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
@@ -590,6 +591,10 @@ fn is_go_cache_path(segments: &[&str]) -> bool {
 
 fn is_rustup_cache_path(segments: &[&str]) -> bool {
     has_sequence(segments, &[".rustup", "downloads"]) || has_sequence(segments, &[".rustup", "tmp"])
+}
+
+fn is_sccache_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["appdata", "local", "mozilla", "sccache"])
 }
 
 fn is_conda_cache_path(segments: &[&str]) -> bool {

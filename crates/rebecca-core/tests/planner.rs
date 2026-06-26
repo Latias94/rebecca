@@ -1015,6 +1015,28 @@ fn rustup_rule_targets_download_and_temp_caches_only() {
 }
 
 #[test]
+fn sccache_rule_targets_default_and_configured_cache_roots() {
+    let fixture = PlannerFixture::with_sccache_dir();
+    fixture.write("local/Mozilla/sccache/default.bin", b"abc");
+    fixture.write("sccache-dir/custom.bin", b"de");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.sccache-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy().replace('\\', "/");
+        path.ends_with("/Mozilla/sccache") || path.ends_with("/sccache-dir")
+    }));
+}
+
+#[test]
 fn node_package_manager_rules_target_rebuildable_caches() {
     let fixture = PlannerFixture::new();
     fixture.write("local/npm-cache/_cacache/index.bin", b"npm");
@@ -1883,6 +1905,20 @@ impl PlannerFixture {
         let env = fixture.env.clone().with_var(
             "RUSTUP_HOME",
             fixture.root.join("rustup-home").into_os_string(),
+        );
+
+        Self {
+            _temp: fixture._temp,
+            root: fixture.root,
+            env,
+        }
+    }
+
+    fn with_sccache_dir() -> Self {
+        let fixture = Self::new();
+        let env = fixture.env.clone().with_var(
+            "SCCACHE_DIR",
+            fixture.root.join("sccache-dir").into_os_string(),
         );
 
         Self {
