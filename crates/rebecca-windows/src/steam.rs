@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rebecca_core::applications::{ApplicationDiscovery, SteamInstallation};
+use rebecca_core::applications::{ApplicationDiscovery, InstalledApplication, SteamInstallation};
 use rebecca_core::error::{RebeccaError, Result};
 
 #[cfg(windows)]
@@ -65,12 +65,20 @@ impl ApplicationDiscovery for WindowsApplicationDiscovery {
     fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
         discover_steam_installation()
     }
+
+    fn installed_applications(&self) -> Result<Vec<InstalledApplication>> {
+        crate::apps::discover_installed_applications()
+    }
 }
 
 #[cfg(not(windows))]
 impl ApplicationDiscovery for WindowsApplicationDiscovery {
     fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
         Ok(None)
+    }
+
+    fn installed_applications(&self) -> Result<Vec<InstalledApplication>> {
+        Ok(Vec::new())
     }
 }
 

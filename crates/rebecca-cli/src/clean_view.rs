@@ -7,6 +7,7 @@ const LARGEST_TARGET_LIMIT: usize = 5;
 
 #[derive(Debug, Clone)]
 pub(crate) struct CleanPlanProjection<'a> {
+    pub(crate) workflow_title: &'static str,
     pub(crate) mode_label: &'static str,
     pub(crate) summary: CleanPlanSummary,
     issue_matrix: Vec<CleanIssueRow>,
@@ -71,6 +72,7 @@ impl<'a> CleanPlanProjection<'a> {
         scan_cache_summary: Option<ScanCacheProgressSummary>,
     ) -> Self {
         Self {
+            workflow_title: plan.request.workflow.title(),
             mode_label: cleanup_mode_label(plan.request.mode),
             summary: CleanPlanSummary::from(&plan.summary),
             issue_matrix: issue_matrix_rows(plan),

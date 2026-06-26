@@ -8,7 +8,7 @@ use rebecca_core::executor::{
 };
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::protection::ProtectionPolicy;
-use rebecca_core::{DeleteMode, PlanRequest, Platform, Result, TargetStatus};
+use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, Result, TargetStatus};
 
 #[test]
 fn executor_marks_allowed_targets_completed_and_keeps_blocked_targets() {
@@ -183,6 +183,70 @@ fn executor_skips_missing_targets_before_backend_calls() {
             .contains("path does not exist")
     );
     assert_eq!(plan.summary.skipped_targets, 1);
+}
+
+#[test]
+fn executor_allows_app_leftover_cache_targets_after_revalidation() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_dir = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("Example App")
+        .join("Cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    fs::write(cache_dir.join("cache.bin"), b"trash").unwrap();
+    let mut plan = CleanupPlan::empty(
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
+            .with_workflow(CleanupWorkflow::AppLeftovers),
+    );
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.app-leftover-local-cache",
+        cache_dir,
+        5,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    execute_cleanup_plan_with_policy(&mut plan, &backend, ProtectionPolicy::new()).unwrap();
+
+    assert_eq!(backend.calls.get(), 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Completed);
+    assert_eq!(plan.targets[0].pending_reclaim_bytes, 5);
+}
+
+#[test]
+fn executor_blocks_app_leftover_durable_paths_before_backend_calls() {
+    let mut plan = CleanupPlan::empty(
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
+            .with_workflow(CleanupWorkflow::AppLeftovers),
+    );
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.app-leftover-local-cache",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Example App/Local Storage"),
+        10,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    execute_cleanup_plan_with_policy(&mut plan, &backend, ProtectionPolicy::new()).unwrap();
+
+    assert_eq!(backend.calls.get(), 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("application durable data")
+    );
+    assert_eq!(plan.summary.blocked_targets, 1);
 }
 
 struct FakeBackend {

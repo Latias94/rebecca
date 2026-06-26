@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::num::NonZeroUsize;
 
+mod apps;
 mod cache;
 mod cache_view;
 mod clean;
@@ -76,6 +77,11 @@ enum Command {
         #[command(subcommand)]
         command: CacheCommand,
     },
+    /// Scan or clean leftover app cache data.
+    Apps {
+        #[command(subcommand)]
+        command: AppsCommand,
+    },
     /// Inspect configuration and local state locations.
     Config {
         #[command(subcommand)]
@@ -85,6 +91,40 @@ enum Command {
     Doctor {
         #[command(subcommand)]
         command: DoctorCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AppsCommand {
+    /// Preview leftover app cache data discovered from installed applications.
+    Scan {
+        /// Render machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// Disable human progress output while building the app leftovers plan.
+        #[arg(long)]
+        no_progress: bool,
+        /// Use the rebuildable scan cache for eligible target estimates.
+        #[arg(long)]
+        scan_cache: bool,
+    },
+    /// Preview or move leftover app cache data to the Recycle Bin.
+    Clean {
+        /// Preview the app leftovers plan without deleting anything.
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+        /// Render machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// Delete leftover app cache data instead of previewing it.
+        #[arg(long)]
+        yes: bool,
+        /// Disable human progress output while building the app leftovers plan.
+        #[arg(long)]
+        no_progress: bool,
+        /// Use the rebuildable scan cache for eligible target estimates.
+        #[arg(long)]
+        scan_cache: bool,
     },
 }
 
@@ -160,6 +200,30 @@ fn main() -> Result<()> {
             CacheCommand::Purge { dry_run, json, yes } => {
                 cache::purge(cache::CachePurgeOptions { dry_run, json, yes })
             }
+        },
+        Command::Apps { command } => match command {
+            AppsCommand::Scan {
+                json,
+                no_progress,
+                scan_cache,
+            } => apps::scan(apps::AppsScanOptions {
+                json,
+                no_progress,
+                scan_cache,
+            }),
+            AppsCommand::Clean {
+                dry_run,
+                json,
+                yes,
+                no_progress,
+                scan_cache,
+            } => apps::clean(apps::AppsCleanOptions {
+                dry_run,
+                json,
+                yes,
+                no_progress,
+                scan_cache,
+            }),
         },
         Command::Config { command } => match command {
             ConfigCommand::Paths { json } => info::print_config_paths(json),

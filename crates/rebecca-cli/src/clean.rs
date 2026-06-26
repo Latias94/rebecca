@@ -10,7 +10,7 @@ use rebecca_core::planner::{PlanBuildContext, PlanProgressEvent, build_cleanup_p
 use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::scan_cache::ScanCacheStore;
-use rebecca_core::{DeleteMode, PlanRequest, Platform};
+use rebecca_core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::output::format_bytes;
@@ -30,6 +30,25 @@ pub struct CleanOptions {
     pub allow_risky: bool,
 }
 
+pub(crate) struct WorkflowRunOptions<'a> {
+    pub(crate) request: PlanRequest,
+    pub(crate) rules: &'a [RuleDefinition],
+    pub(crate) json: bool,
+    pub(crate) yes: bool,
+    pub(crate) no_progress: bool,
+    pub(crate) scan_cache: bool,
+    pub(crate) cancellation_message: &'static str,
+    #[cfg_attr(windows, allow(dead_code))]
+    pub(crate) unsupported_execution_message: &'static str,
+    pub(crate) confirmation_kind: ConfirmationKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ConfirmationKind {
+    Cleanup,
+    AppLeftovers,
+}
+
 pub fn run(options: CleanOptions) -> Result<()> {
     let mode = if options.dry_run {
         DeleteMode::DryRun
@@ -44,10 +63,24 @@ pub fn run(options: CleanOptions) -> Result<()> {
     request.allow_risky = options.allow_risky;
 
     let catalog = rebecca_rules::builtin_rules()?;
+    run_workflow(WorkflowRunOptions {
+        request,
+        rules: &catalog,
+        json: options.json,
+        yes: options.yes,
+        no_progress: options.no_progress,
+        scan_cache: options.scan_cache,
+        cancellation_message: "Cleanup cancelled.",
+        unsupported_execution_message: "cleanup execution is Windows-only at this stage; use --dry-run to preview",
+        confirmation_kind: ConfirmationKind::Cleanup,
+    })
+}
+
+pub(crate) fn run_workflow(options: WorkflowRunOptions<'_>) -> Result<()> {
     let cancellation = ScanCancellationToken::new();
     install_cancellation_handler(cancellation.clone())?;
     let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
-    let applications = info::steam_application_discovery();
+    let applications = info::application_discovery();
     let runtime_config = load_runtime_config()?;
     let protected_storage = runtime_config.app_paths.storage_entries();
     let scan_cache_store = options
@@ -62,8 +95,8 @@ pub fn run(options: CleanOptions) -> Result<()> {
         }
     }
     let plan_result = build_cleanup_plan_with_context(
-        &request,
-        &catalog,
+        &options.request,
+        options.rules,
         &SystemEnvironment,
         applications.as_ref(),
         context,
@@ -74,7 +107,7 @@ pub fn run(options: CleanOptions) -> Result<()> {
         Ok(plan) => plan,
         Err(err) => {
             if matches!(&err, rebecca_core::RebeccaError::OperationCancelled(_)) {
-                println!("Cleanup cancelled.");
+                println!("{}", options.cancellation_message);
                 return Ok(());
             }
 
@@ -84,14 +117,14 @@ pub fn run(options: CleanOptions) -> Result<()> {
 
     let scan_cache_summary = (!options.json).then(|| progress.scan_cache_summary());
 
-    if options.dry_run {
+    if options.request.mode.is_dry_run() {
         return output::print_plan(&plan, options.json, scan_cache_summary);
     }
 
     #[cfg(not(windows))]
     {
         return Err(rebecca_core::RebeccaError::PlatformUnavailable(
-            "cleanup execution is Windows-only at this stage; use --dry-run to preview".to_string(),
+            options.unsupported_execution_message.to_string(),
         )
         .into());
     }
@@ -102,8 +135,8 @@ pub fn run(options: CleanOptions) -> Result<()> {
             return output::print_plan(&plan, options.json, scan_cache_summary);
         }
 
-        if !options.yes && !confirm_cleanup(&plan)? {
-            println!("Cleanup cancelled.");
+        if !options.yes && !confirm_cleanup(&plan, options.confirmation_kind)? {
+            println!("{}", options.cancellation_message);
             return Ok(());
         }
 
@@ -239,12 +272,20 @@ impl PlanProgressReporter {
 }
 
 #[cfg(windows)]
-fn confirm_cleanup(plan: &CleanupPlan) -> Result<bool> {
-    dialoguer::Confirm::new()
-        .with_prompt(format!(
+fn confirm_cleanup(plan: &CleanupPlan, kind: ConfirmationKind) -> Result<bool> {
+    let prompt = match kind {
+        ConfirmationKind::Cleanup => format!(
             "Move {} target(s), {} bytes, to the Recycle Bin?",
             plan.summary.allowed_targets, plan.summary.estimated_bytes
-        ))
+        ),
+        ConfirmationKind::AppLeftovers => format!(
+            "Move {} app leftover target(s), {} bytes, to the Recycle Bin?",
+            plan.summary.allowed_targets, plan.summary.estimated_bytes
+        ),
+    };
+
+    dialoguer::Confirm::new()
+        .with_prompt(prompt)
         .default(false)
         .interact()
         .context("cleanup confirmation failed")

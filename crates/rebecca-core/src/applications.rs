@@ -3,10 +3,66 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::{RebeccaError, Result};
 
 pub trait ApplicationDiscovery {
     fn steam_installation(&self) -> Result<Option<SteamInstallation>>;
+
+    fn installed_applications(&self) -> Result<Vec<InstalledApplication>> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstalledApplication {
+    pub stable_id: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub install_locations: Vec<PathBuf>,
+}
+
+impl InstalledApplication {
+    pub fn new(
+        stable_id: impl Into<String>,
+        display_name: impl Into<String>,
+        install_locations: impl IntoIterator<Item = PathBuf>,
+    ) -> Self {
+        Self {
+            stable_id: stable_id.into(),
+            display_name: display_name.into(),
+            publisher: None,
+            install_locations: dedupe_paths(install_locations),
+        }
+    }
+
+    pub fn with_publisher(mut self, publisher: impl Into<String>) -> Self {
+        let publisher = publisher.into();
+        if !publisher.trim().is_empty() {
+            self.publisher = Some(publisher);
+        }
+        self
+    }
+
+    pub fn with_install_location(mut self, install_location: impl Into<PathBuf>) -> Self {
+        push_deduped_path(&mut self.install_locations, install_location.into());
+        self
+    }
+
+    pub fn stable_id(&self) -> &str {
+        &self.stable_id
+    }
+
+    pub fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    pub fn install_locations(&self) -> &[PathBuf] {
+        &self.install_locations
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -22,11 +78,16 @@ impl ApplicationDiscovery for NoopApplicationDiscovery {
     fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
         Ok(None)
     }
+
+    fn installed_applications(&self) -> Result<Vec<InstalledApplication>> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct StaticApplicationDiscovery {
     steam_installation: Option<SteamInstallation>,
+    installed_applications: Vec<InstalledApplication>,
 }
 
 impl StaticApplicationDiscovery {
@@ -38,11 +99,23 @@ impl StaticApplicationDiscovery {
         self.steam_installation = Some(installation);
         self
     }
+
+    pub fn with_installed_applications(
+        mut self,
+        applications: impl IntoIterator<Item = InstalledApplication>,
+    ) -> Self {
+        self.installed_applications = dedupe_applications(applications);
+        self
+    }
 }
 
 impl ApplicationDiscovery for StaticApplicationDiscovery {
     fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
         Ok(self.steam_installation.clone())
+    }
+
+    fn installed_applications(&self) -> Result<Vec<InstalledApplication>> {
+        Ok(self.installed_applications.clone())
     }
 }
 
@@ -293,6 +366,46 @@ fn dedupe_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
     }
 
     deduped
+}
+
+fn dedupe_applications(
+    applications: impl IntoIterator<Item = InstalledApplication>,
+) -> Vec<InstalledApplication> {
+    let mut seen = BTreeSet::new();
+    let mut deduped = Vec::new();
+
+    for application in applications {
+        if seen.insert(application_key(&application)) {
+            deduped.push(application);
+        }
+    }
+
+    deduped
+}
+
+fn application_key(application: &InstalledApplication) -> String {
+    let mut key = application.stable_id.trim().to_ascii_lowercase();
+    key.push('|');
+    key.push_str(&application.display_name.trim().to_ascii_lowercase());
+    key.push('|');
+    key.push_str(
+        &application
+            .install_locations
+            .iter()
+            .map(|path| path_key(path))
+            .collect::<Vec<_>>()
+            .join(";"),
+    );
+    key
+}
+
+fn push_deduped_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if paths
+        .iter()
+        .all(|existing| !same_path_ignore_case(existing, &path))
+    {
+        paths.push(path);
+    }
 }
 
 fn path_key(path: &Path) -> String {

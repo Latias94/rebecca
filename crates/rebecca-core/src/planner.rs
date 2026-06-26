@@ -1,14 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use crate::app_leftovers::{AppLeftoverCandidate, derive_app_leftover_candidates};
 use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery};
 use crate::config::AppStorageEntry;
 use crate::discovery::{TargetResolution, resolve_rule_target_with_applications};
 use crate::environment::{Environment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
-use crate::model::{PlanRequest, Platform, RuleDefinition};
+use crate::model::{CleanupWorkflow, PlanRequest, Platform, RuleDefinition};
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
-use crate::protection::ProtectionPolicy;
+use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{PathDisposition, assess_existing_path_with_policy};
 use crate::scan::{
     ScanCancellationToken, ScanProgressEvent, ScanReport, measure_path_with_progress,
@@ -228,6 +229,10 @@ where
     A: ApplicationDiscovery + ?Sized,
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
+    if request.workflow == CleanupWorkflow::AppLeftovers {
+        return build_app_leftover_plan_with_context(request, env, applications, context, progress);
+    }
+
     let selection = request.selection();
     selection.validate_against_rules(rules)?;
 
@@ -435,6 +440,217 @@ where
     plan.targets = candidates;
     plan.recompute_summary();
     Ok(plan)
+}
+
+pub fn build_app_leftover_plan_with_context<E, A, F>(
+    request: &PlanRequest,
+    env: &E,
+    applications: &A,
+    context: PlanBuildContext<'_>,
+    mut progress: F,
+) -> Result<CleanupPlan>
+where
+    E: Environment,
+    A: ApplicationDiscovery + ?Sized,
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
+    let installed = applications.installed_applications()?;
+    let leftovers = derive_app_leftover_candidates(&installed, env);
+    let mut candidates = Vec::new();
+    let mut seen_paths = BTreeSet::new();
+
+    for leftover in leftovers {
+        let path_key = dedupe_key(&leftover.path, request.platform);
+        if !seen_paths.insert(path_key) {
+            let target = app_leftover_skipped_target(
+                &leftover,
+                request.mode,
+                CleanupTargetIssueReason::DuplicateTargetPath,
+                "duplicate target path already covered",
+            );
+            emit_target_finished(&mut progress, &target);
+            candidates.push(target);
+            continue;
+        }
+
+        match context
+            .protection_policy()
+            .assess_existing_app_leftover_path(&leftover.path)
+        {
+            AppLeftoverPathDisposition::Allowed => {
+                progress(PlanProgressEvent::TargetScanning {
+                    rule_id: app_leftover_rule_id(&leftover),
+                    path: &leftover.path,
+                });
+
+                match measure_path_with_optional_scan_cache(&leftover.path, context, |event| {
+                    match event {
+                        PathMeasureProgressEvent::Scan(ScanProgressEvent::FileMeasured {
+                            path,
+                            file_size,
+                            files_scanned,
+                            bytes_scanned,
+                        }) => {
+                            progress(PlanProgressEvent::FileMeasured {
+                                rule_id: app_leftover_rule_id(&leftover),
+                                target_path: &leftover.path,
+                                path,
+                                file_size,
+                                files_scanned,
+                                bytes_scanned,
+                            });
+                        }
+                        PathMeasureProgressEvent::ScanCacheHit { report } => {
+                            progress(PlanProgressEvent::ScanCacheHit {
+                                rule_id: app_leftover_rule_id(&leftover),
+                                path: &leftover.path,
+                                estimated_bytes: report.bytes_scanned,
+                            });
+                        }
+                        PathMeasureProgressEvent::ScanCacheMiss { reason } => {
+                            progress(PlanProgressEvent::ScanCacheMiss {
+                                rule_id: app_leftover_rule_id(&leftover),
+                                path: &leftover.path,
+                                reason,
+                            });
+                        }
+                        PathMeasureProgressEvent::ScanCacheWriteSkipped => {
+                            progress(PlanProgressEvent::ScanCacheWriteSkipped {
+                                rule_id: app_leftover_rule_id(&leftover),
+                                path: &leftover.path,
+                            });
+                        }
+                    }
+                }) {
+                    Ok(report) => {
+                        let target = app_leftover_allowed_target(
+                            &leftover,
+                            report.bytes_scanned,
+                            request.mode,
+                        );
+                        emit_target_finished(&mut progress, &target);
+                        candidates.push(target);
+                    }
+                    Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
+                    Err(err) => {
+                        let target = app_leftover_failed_target(
+                            &leftover,
+                            request.mode,
+                            CleanupTargetIssueReason::ScanFailed,
+                            err.to_string(),
+                        );
+                        emit_target_finished(&mut progress, &target);
+                        candidates.push(target);
+                    }
+                }
+            }
+            AppLeftoverPathDisposition::Missing => {}
+            AppLeftoverPathDisposition::Blocked(reason) => {
+                let target = app_leftover_blocked_target(
+                    &leftover,
+                    request.mode,
+                    CleanupTargetIssueReason::SafetyPolicyBlocked,
+                    reason,
+                );
+                emit_target_finished(&mut progress, &target);
+                candidates.push(target);
+            }
+        }
+    }
+
+    candidates.sort_by(|left, right| {
+        left.rule_id
+            .cmp(&right.rule_id)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+
+    let mut plan = CleanupPlan::empty(request.clone());
+    plan.targets = candidates;
+    plan.recompute_summary();
+    Ok(plan)
+}
+
+fn app_leftover_allowed_target(
+    leftover: &AppLeftoverCandidate,
+    estimated_bytes: u64,
+    mode: crate::DeleteMode,
+) -> CleanupTarget {
+    CleanupTarget::allowed(
+        app_leftover_rule_id(leftover),
+        leftover.path.clone(),
+        estimated_bytes,
+        mode,
+    )
+    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
+}
+
+fn app_leftover_skipped_target(
+    leftover: &AppLeftoverCandidate,
+    mode: crate::DeleteMode,
+    reason_code: CleanupTargetIssueReason,
+    reason: impl Into<String>,
+) -> CleanupTarget {
+    CleanupTarget::skipped_with_reason_code(
+        app_leftover_rule_id(leftover),
+        leftover.path.clone(),
+        mode,
+        reason_code,
+        reason,
+    )
+    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
+}
+
+fn app_leftover_blocked_target(
+    leftover: &AppLeftoverCandidate,
+    mode: crate::DeleteMode,
+    reason_code: CleanupTargetIssueReason,
+    reason: impl Into<String>,
+) -> CleanupTarget {
+    CleanupTarget::blocked_with_reason_code(
+        app_leftover_rule_id(leftover),
+        leftover.path.clone(),
+        mode,
+        reason_code,
+        reason,
+    )
+    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
+}
+
+fn app_leftover_failed_target(
+    leftover: &AppLeftoverCandidate,
+    mode: crate::DeleteMode,
+    reason_code: CleanupTargetIssueReason,
+    reason: impl Into<String>,
+) -> CleanupTarget {
+    CleanupTarget::failed_with_reason_code(
+        app_leftover_rule_id(leftover),
+        leftover.path.clone(),
+        mode,
+        0,
+        reason_code,
+        reason,
+    )
+    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
+}
+
+fn app_leftover_rule_id(leftover: &AppLeftoverCandidate) -> &'static str {
+    match leftover.source {
+        crate::app_leftovers::AppLeftoverSource::LocalAppData => "windows.app-leftover-local-cache",
+        crate::app_leftovers::AppLeftoverSource::RoamingAppData => {
+            "windows.app-leftover-roaming-cache"
+        }
+        crate::app_leftovers::AppLeftoverSource::LocalLowAppData => {
+            "windows.app-leftover-local-low-cache"
+        }
+    }
+}
+
+fn app_leftover_restore_hint(leftover: &AppLeftoverCandidate) -> String {
+    format!(
+        "{} {} cache data is rebuildable.",
+        leftover.app.display_name(),
+        leftover.source.label()
+    )
 }
 
 fn measure_path_with_optional_scan_cache<F>(

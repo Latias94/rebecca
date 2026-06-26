@@ -2,7 +2,7 @@
 title: "Rebecca Cleanup Safety Audit"
 status: "active"
 created: "2026-06-24"
-last_updated: "2026-06-24"
+last_updated: "2026-06-26"
 ---
 
 # Rebecca Cleanup Safety Audit
@@ -24,6 +24,8 @@ loss from cleanup targets that are too broad, stale, or misclassified.
 The current design is safety-first:
 
 - `clean --dry-run` and real cleanup share the same planner.
+- `apps scan` and `apps clean` share the planner through an app-leftovers
+  workflow that is separate from full uninstall behavior.
 - The planner validates paths through `rebecca-core::protection::ProtectionPolicy`.
 - The executor revalidates executable targets through the same policy before a
   backend delete runs.
@@ -53,14 +55,15 @@ Rebecca's highest-risk areas are:
 
 - path template expansion from rule TOML;
 - glob and application-discovery target expansion;
+- read-only installed-app inventory from Windows uninstall registry locations;
 - directory size scanning;
 - Recycle Bin execution;
 - history and scan-cache persistence;
 - future rule catalog expansion.
 
 The current product intentionally excludes permanent deletion by default,
-administrator auto-elevation, uninstall flows, optimize flows, disk mapping,
-and broad orphan-data cleanup.
+administrator auto-elevation, vendor uninstaller execution, registry removal
+flows, optimize flows, disk mapping, and broad orphan-data cleanup.
 
 ## Destructive Operation Boundaries
 
@@ -103,9 +106,26 @@ rules. These are narrow subpaths, not broad app roots:
 - pip and npm cache directories;
 - Windows Error Reporting `ReportArchive` and `ReportQueue`;
 - Steam client web cache directories.
+- app-leftover cache directories derived from discovered installed apps, limited
+  to `Cache`, `Code Cache`, `GPUCache`, and `CachedData` under
+  `AppData\Local`, `AppData\Roaming`, or `AppData\LocalLow`.
 
 The allowlist exists so protected categories can be conservative without
 blocking known rebuildable caches.
+
+## App Leftovers Boundary
+
+The app-leftovers workflow is discovery-assisted cleanup, not an uninstaller.
+On Windows, Rebecca reads uninstall inventory and install hints from registry
+locations in read-only mode. Missing keys, unreadable entries, empty display
+names, and system-component entries are skipped.
+
+Inventory records are used only to derive user-scoped leftover cache paths from
+the app display name. The workflow then applies the same protection policy,
+directory scan, issue matrix, execution revalidation, Recycle Bin backend, and
+history model as ordinary cleanup. It does not write registry data, remove
+uninstall metadata, execute vendor uninstallers, kill app processes, or delete
+system-owned install roots.
 
 ## Protected Categories
 
@@ -211,14 +231,17 @@ Focused coverage currently includes:
   protection;
 - `crates/rebecca-core/tests/planner.rs` for rule selection, target expansion,
   scan-cache behavior, protected storage blocking, protected category blocking,
-  and Steam target behavior;
+  Steam target behavior, and app-leftover planning;
 - `crates/rebecca-core/tests/executor_contract.rs` for executor status updates,
   backend failure handling, and execution-time revalidation;
 - `crates/rebecca-core/tests/model_contract.rs` for plan serialization,
   protected issue contracts, and backwards compatibility;
 - `crates/rebecca-core/tests/history.rs` for append/load history JSONL
   round-trips, including protected issue reason preservation;
-- `crates/rebecca-cli/tests/cli_clean.rs`, `cli_scan.rs`, and `cli_history.rs`
+- `crates/rebecca-windows/tests/apps_inventory.rs` for best-effort Windows app
+  inventory discovery;
+- `crates/rebecca-cli/tests/cli_clean.rs`, `cli_scan.rs`, `cli_apps.rs`, and
+  `cli_history.rs`
   for user-facing and JSON contract behavior, including protected issue target
   replay.
 
@@ -230,9 +253,11 @@ Recent targeted verification for this audit baseline:
 - `cargo nextest run -p rebecca-core --test model_contract`
 - `cargo nextest run -p rebecca-core --test history`
 - `cargo nextest run -p rebecca-cli --test cli_scan`
+- `cargo nextest run -p rebecca-cli --test cli_apps`
 - `cargo nextest run -p rebecca-cli --test scan`
 - `cargo nextest run -p rebecca-cli --test cli_clean`
 - `cargo nextest run -p rebecca-cli --test cli_history`
+- `cargo nextest run -p rebecca-windows`
 - `cargo nextest run -p rebecca-rules`
 
 ## Known Limitations And Planned Hardening

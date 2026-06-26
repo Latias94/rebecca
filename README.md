@@ -1,11 +1,13 @@
 # Rebecca
 
 Rebecca is a Windows-first cleanup CLI written in Rust. It focuses on a safe,
-plan-first cleanup flow for system junk and application caches.
+plan-first cleanup flow for system junk, application caches, and leftover app
+cache data.
 
 The current MVP supports:
 
 - listing built-in cleanup rules,
+- previewing leftover app cache data from read-only installed-app discovery,
 - building dry-run cleanup plans,
 - scanning target sizes,
 - blocking dangerous paths before execution,
@@ -17,6 +19,9 @@ The current MVP supports:
 Rebecca is designed to preview before deleting.
 
 - `clean --dry-run` and real cleanup use the same plan builder.
+- `apps scan` and `apps clean` use the shared cleanup planner with a dedicated
+  app-leftovers workflow. `apps clean` previews by default and requires `--yes`
+  before moving leftover cache data to the Recycle Bin.
 - Default execution uses the Windows Recycle Bin.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
@@ -62,6 +67,12 @@ cargo run -p rebecca-cli -- clean --dry-run --json --scan-cache --rule windows.t
 cargo run -p rebecca-cli -- clean --dry-run --json --allow-moderate --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --dry-run --json --allow-risky --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --yes --category system
+
+cargo run -p rebecca-cli -- apps scan
+cargo run -p rebecca-cli -- apps scan --json
+cargo run -p rebecca-cli -- apps clean
+cargo run -p rebecca-cli -- apps clean --json --dry-run
+cargo run -p rebecca-cli -- apps clean --yes
 
 cargo run -p rebecca-cli -- history
 cargo run -p rebecca-cli -- history --limit 10
@@ -151,6 +162,22 @@ Steam browser cache rule intentionally stays on
 target `Local Storage`, `IndexedDB`, `Service Worker`, or `Network` state. The
 Steam install-root cache rules stay limited to disposable subdirectories and do
 not touch `userdata`, `steamapps`, or unlisted appcache metadata.
+
+## App Leftovers
+
+`rebecca apps scan` and `rebecca apps clean` provide a bounded app-residue
+workflow. Rebecca reads installed-app inventory from Windows uninstall registry
+locations and uses the display name only to derive conservative user-scoped
+leftover cache targets under `AppData\Local`, `AppData\Roaming`, and
+`AppData\LocalLow`.
+
+The workflow deliberately does not uninstall applications, execute vendor
+uninstallers, remove uninstall metadata, write registry keys, kill processes,
+or delete broad `Program Files` or application data roots. It only routes
+discovered app leftover cache directories such as `Cache`, `Code Cache`,
+`GPUCache`, and `CachedData` through the same protection policy, dry-run
+summary, issue matrix, Recycle Bin backend, and JSON/history model used by
+regular cleanup.
 
 ## Local State
 

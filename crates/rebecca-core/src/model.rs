@@ -51,6 +51,35 @@ impl DeleteMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CleanupWorkflow {
+    Rules,
+    AppLeftovers,
+}
+
+impl CleanupWorkflow {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rules => "cleanup",
+            Self::AppLeftovers => "app leftovers",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Rules => "Cleanup",
+            Self::AppLeftovers => "App leftovers",
+        }
+    }
+}
+
+impl Default for CleanupWorkflow {
+    fn default() -> Self {
+        Self::Rules
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "kebab-case")]
 pub enum RuleTargetSpec {
@@ -198,6 +227,8 @@ pub enum RuleSource {
 pub struct PlanRequest {
     pub platform: Platform,
     pub mode: DeleteMode,
+    #[serde(default)]
+    pub workflow: CleanupWorkflow,
     pub selected_categories: Vec<String>,
     pub selected_rule_ids: Vec<String>,
     pub allow_moderate: bool,
@@ -209,6 +240,7 @@ impl PlanRequest {
         Self {
             platform,
             mode,
+            workflow: CleanupWorkflow::Rules,
             selected_categories: Vec::new(),
             selected_rule_ids: Vec::new(),
             allow_moderate: false,
@@ -218,6 +250,11 @@ impl PlanRequest {
 
     pub fn selection(&self) -> RuleSelection {
         RuleSelection::from_request(self)
+    }
+
+    pub fn with_workflow(mut self, workflow: CleanupWorkflow) -> Self {
+        self.workflow = workflow;
+        self
     }
 
     pub fn allows_safety_level(&self, level: SafetyLevel) -> bool {

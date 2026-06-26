@@ -63,6 +63,11 @@ files. Keep each rule small, explicit, and easy to audit.
   or `cache_dir` from built-in cleanup rules. Rebecca-owned cache cleanup must
   go through `rebecca cache purge`, which preserves configuration, durable
   state, and append-only history.
+- Do not model app-leftover cleanup as broad built-in TOML rules. The
+  app-leftovers workflow is inventory-derived, read-only on registry data, and
+  limited to rebuildable user-scoped cache leaves under `AppData`. Full
+  uninstall behavior, vendor uninstallers, registry writes, `Program Files`,
+  and broad application data roots are out of scope for rule authoring.
 
 ## Safety Guidance
 
@@ -79,6 +84,7 @@ files. Keep each rule small, explicit, and easy to audit.
 ## Verification
 
 - `cargo nextest run -p rebecca-rules`
+- `cargo nextest run -p rebecca-cli --test cli_apps`
 - `cargo nextest run --workspace`
 - `cargo run -p rebecca-cli -- scan`
 

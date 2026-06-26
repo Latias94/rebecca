@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::{CleanupPlan, CleanupTarget};
-use rebecca_core::{DeleteMode, PlanRequest, Platform};
+use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
 #[test]
 fn append_and_load_history_entries_in_order() {
@@ -58,6 +58,33 @@ fn append_and_load_history_entries_preserve_protected_issue_details() {
     assert_eq!(
         entries[0].targets[0].reason.as_deref(),
         Some("browser private data is protected")
+    );
+}
+
+#[test]
+fn append_and_load_history_entries_preserve_app_leftovers_workflow() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = HistoryStore::new(temp.path().join("history.jsonl"));
+    let mut plan = CleanupPlan::empty(
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+            .with_workflow(CleanupWorkflow::AppLeftovers),
+    );
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.app-leftover-local-cache",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Example App/Cache"),
+        10,
+        DeleteMode::DryRun,
+    ));
+    plan.recompute_summary();
+
+    store.append_plan(&plan).unwrap();
+
+    let entries = store.load().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].request.workflow, CleanupWorkflow::AppLeftovers);
+    assert_eq!(
+        entries[0].targets[0].rule_id,
+        "windows.app-leftover-local-cache"
     );
 }
 

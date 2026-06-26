@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::{
-    DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSelection, RuleSource,
-    RuleTargetSpec, SafetyLevel,
+    CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance,
+    RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel,
 };
 
 #[test]
@@ -105,6 +105,34 @@ fn cleanup_plan_deserializes_legacy_issue_fields() {
     assert_eq!(decoded.summary.skipped_targets, 1);
     assert!(decoded.summary.issue_matrix.is_empty());
     assert_eq!(decoded.targets[0].reason_code, None);
+}
+
+#[test]
+fn cleanup_plan_serialization_preserves_workflow_contract() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::AppLeftovers);
+    let plan = CleanupPlan::empty(request);
+
+    let json = serde_json::to_value(&plan).expect("plan should serialize");
+    assert_eq!(json["request"]["workflow"], "app-leftovers");
+
+    let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
+    assert_eq!(decoded.request.workflow, CleanupWorkflow::AppLeftovers);
+}
+
+#[test]
+fn cleanup_plan_deserializes_legacy_request_without_workflow() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let plan = CleanupPlan::empty(request);
+    let mut value = serde_json::to_value(&plan).expect("plan should serialize");
+    value["request"]
+        .as_object_mut()
+        .expect("request should be object")
+        .remove("workflow");
+
+    let decoded: CleanupPlan = serde_json::from_value(value).expect("legacy plan should load");
+
+    assert_eq!(decoded.request.workflow, CleanupWorkflow::Rules);
 }
 
 #[test]

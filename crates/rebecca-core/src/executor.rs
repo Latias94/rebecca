@@ -1,6 +1,7 @@
 use crate::error::Result;
+use crate::model::CleanupWorkflow;
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
-use crate::protection::ProtectionPolicy;
+use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{PathDisposition, assess_existing_path_with_policy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,16 +34,8 @@ pub fn execute_cleanup_plan_with_policy<B: CleanupBackend>(
             continue;
         }
 
-        match assess_existing_path_with_policy(&target.path, policy) {
-            PathDisposition::Allowed => {}
-            PathDisposition::Skipped(reason) => {
-                mark_target_skipped_by_policy(target, reason);
-                continue;
-            }
-            PathDisposition::Blocked(reason) => {
-                mark_target_blocked_by_policy(target, reason);
-                continue;
-            }
+        if !execution_target_is_still_allowed(plan.request.workflow, target, policy) {
+            continue;
         }
 
         match backend.delete(target) {
@@ -65,6 +58,39 @@ pub fn execute_cleanup_plan_with_policy<B: CleanupBackend>(
 
     plan.recompute_summary();
     Ok(())
+}
+
+fn execution_target_is_still_allowed(
+    workflow: CleanupWorkflow,
+    target: &mut CleanupTarget,
+    policy: ProtectionPolicy<'_>,
+) -> bool {
+    match workflow {
+        CleanupWorkflow::Rules => match assess_existing_path_with_policy(&target.path, policy) {
+            PathDisposition::Allowed => true,
+            PathDisposition::Skipped(reason) => {
+                mark_target_skipped_by_policy(target, reason);
+                false
+            }
+            PathDisposition::Blocked(reason) => {
+                mark_target_blocked_by_policy(target, reason);
+                false
+            }
+        },
+        CleanupWorkflow::AppLeftovers => {
+            match policy.assess_existing_app_leftover_path(&target.path) {
+                AppLeftoverPathDisposition::Allowed => true,
+                AppLeftoverPathDisposition::Missing => {
+                    mark_target_skipped_by_policy(target, "path does not exist".to_string());
+                    false
+                }
+                AppLeftoverPathDisposition::Blocked(reason) => {
+                    mark_target_blocked_by_policy(target, reason);
+                    false
+                }
+            }
+        }
+    }
 }
 
 fn mark_target_skipped_by_policy(target: &mut CleanupTarget, reason: String) {

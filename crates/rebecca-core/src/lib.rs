@@ -1,3 +1,4 @@
+pub mod app_leftovers;
 pub mod applications;
 pub mod cache;
 pub mod config;
@@ -18,8 +19,8 @@ pub mod scan_cache;
 
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use model::{
-    DeleteMode, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSelection,
-    RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
+    CleanupWorkflow, DeleteMode, PathTemplate, PlanRequest, Platform, RuleDefinition,
+    RuleProvenance, RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 pub use plan::{
     CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason,

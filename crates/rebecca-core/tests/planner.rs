@@ -5,7 +5,7 @@ use std::path::PathBuf;
 mod common;
 
 use rebecca_core::applications::{
-    NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
+    InstalledApplication, NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
 use rebecca_core::config::AppPaths;
 use rebecca_core::environment::MapEnvironment;
@@ -20,8 +20,8 @@ use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::scan::ScanReport;
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 use rebecca_core::{
-    DeleteMode, PlanRequest, Platform, RebeccaError, RuleDefinition, RuleProvenance, RuleSource,
-    RuleTargetSpec, SafetyLevel, TargetStatus,
+    CleanupWorkflow, DeleteMode, PlanRequest, Platform, RebeccaError, RuleDefinition,
+    RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 
 #[test]
@@ -197,6 +197,156 @@ fn planner_blocks_targets_from_custom_rebecca_storage_paths() {
     let reason = plan.targets[0].reason.as_deref().unwrap();
     assert!(reason.contains("Rebecca-owned State dir"));
     assert!(reason.contains("custom-state"));
+}
+
+#[test]
+fn app_leftover_plan_allows_discovered_appdata_cache_paths() {
+    let fixture = PlannerFixture::new();
+    let local = fixture.root.join("AppData").join("Local");
+    let roaming = fixture.root.join("AppData").join("Roaming");
+    fixture.write("AppData/Local/Example App/Cache/cache.bin", b"abc");
+    fixture.write("AppData/Local/Example App/Code Cache/code.bin", b"de");
+    fixture.write("AppData/Local/Example App/Local Storage/state.bin", b"keep");
+    let applications =
+        StaticApplicationDiscovery::new().with_installed_applications([app("example")]);
+    let env = fixture
+        .env
+        .clone()
+        .with_var("LOCALAPPDATA", local.as_os_str().to_os_string())
+        .with_var("APPDATA", roaming.as_os_str().to_os_string())
+        .with_var("USERPROFILE", fixture.root.as_os_str().to_os_string());
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::AppLeftovers);
+    let cancellation = ScanCancellationToken::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &env,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.request.workflow, CleanupWorkflow::AppLeftovers);
+    assert_eq!(plan.summary.total_targets, 2);
+    assert_eq!(plan.summary.allowed_targets, 2);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert!(plan.targets.iter().all(|target| {
+        target.status == TargetStatus::Allowed
+            && target.rule_id == "windows.app-leftover-local-cache"
+            && target.restore_hint.is_some()
+            && !target
+                .path
+                .as_os_str()
+                .to_string_lossy()
+                .contains("Local Storage")
+    }));
+}
+
+#[test]
+fn app_leftover_plan_blocks_rebecca_owned_storage_overlap() {
+    let fixture = PlannerFixture::new();
+    let app_paths = app_paths_for_fixture(&fixture);
+    fixture.write(
+        "rebecca-cache/AppData/Local/Example App/Cache/cache.bin",
+        b"abc",
+    );
+    let env = fixture
+        .env
+        .clone()
+        .with_var(
+            "LOCALAPPDATA",
+            app_paths
+                .cache_dir
+                .join("AppData")
+                .join("Local")
+                .into_os_string(),
+        )
+        .with_var(
+            "APPDATA",
+            fixture
+                .root
+                .join("AppData")
+                .join("Roaming")
+                .into_os_string(),
+        )
+        .with_var("USERPROFILE", fixture.root.as_os_str().to_os_string());
+    let applications =
+        StaticApplicationDiscovery::new().with_installed_applications([app("example")]);
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::AppLeftovers);
+    let storage_entries = app_paths.storage_entries();
+    let cancellation = ScanCancellationToken::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &env,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_protected_storage(&storage_entries),
+        |_| {},
+    )
+    .unwrap();
+
+    assert!(plan.summary.total_targets > 0);
+    assert_eq!(plan.summary.allowed_targets, 0);
+    assert_eq!(plan.summary.blocked_targets, plan.summary.total_targets);
+    assert!(plan.targets.iter().all(|target| {
+        target.status == TargetStatus::Blocked
+            && target.reason_code == Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+            && target
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("Rebecca-owned Cache dir"))
+    }));
+}
+
+#[test]
+fn app_leftover_plan_deduplicates_duplicate_discovery_entries() {
+    let fixture = PlannerFixture::new();
+    let local = fixture.root.join("AppData").join("Local");
+    fixture.write("AppData/Local/Example App/Cache/cache.bin", b"abc");
+    let applications = StaticApplicationDiscovery::new()
+        .with_installed_applications([app("example-one"), app("example-two")]);
+    let env = fixture
+        .env
+        .clone()
+        .with_var("LOCALAPPDATA", local.as_os_str().to_os_string())
+        .with_var(
+            "APPDATA",
+            fixture
+                .root
+                .join("AppData")
+                .join("Roaming")
+                .into_os_string(),
+        )
+        .with_var("USERPROFILE", fixture.root.as_os_str().to_os_string());
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::AppLeftovers);
+    let cancellation = ScanCancellationToken::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &env,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 2);
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(
+        plan.targets
+            .iter()
+            .find(|target| target.status == TargetStatus::Skipped)
+            .and_then(|target| target.reason_code),
+        Some(CleanupTargetIssueReason::DuplicateTargetPath)
+    );
 }
 
 #[test]
@@ -1357,6 +1507,14 @@ fn app_paths_for_fixture(fixture: &PlannerFixture) -> AppPaths {
         cache_dir: fixture.root.join("rebecca-cache"),
         history_file: fixture.root.join("rebecca-state").join("history.jsonl"),
     }
+}
+
+fn app(stable_suffix: &str) -> InstalledApplication {
+    InstalledApplication::new(
+        format!("hklm/example/{stable_suffix}"),
+        "Example App",
+        Vec::new(),
+    )
 }
 
 struct PlannerFixture {

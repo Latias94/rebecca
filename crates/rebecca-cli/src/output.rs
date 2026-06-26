@@ -72,6 +72,7 @@ pub(crate) fn print_plan(
 
     let projection = CleanPlanProjection::new(plan, scan_cache_summary);
 
+    println!("Workflow: {}", projection.workflow_title);
     println!("Cleanup mode: {}", projection.mode_label);
     println!("Targets: {}", projection.summary.total_targets);
     println!("Allowed: {}", projection.summary.allowed_targets);

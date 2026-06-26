@@ -91,6 +91,62 @@ impl<'a> ProtectionPolicy<'a> {
         ProtectionAssessment::Allowed
     }
 
+    pub fn assess_app_leftover_path(&self, path: &Path) -> ProtectionAssessment {
+        let normalized = NormalizedPath::new(path);
+        let base_assessment = self.assess_path(path);
+
+        match base_assessment {
+            ProtectionAssessment::Allowed => {
+                if is_app_leftover_cache_path(&normalized) {
+                    ProtectionAssessment::Allowed
+                } else {
+                    blocked(
+                        ProtectionBlockKind::ProtectedCategory(
+                            ProtectedCategory::ApplicationDurableData,
+                        ),
+                        format!(
+                            "app leftover target {} is not a recognized rebuildable cache path",
+                            path.display()
+                        ),
+                    )
+                }
+            }
+            ProtectionAssessment::Blocked(block)
+                if matches!(
+                    block.kind,
+                    ProtectionBlockKind::ProtectedCategory(
+                        ProtectedCategory::ApplicationDurableData
+                    )
+                ) && is_app_leftover_cache_path(&normalized) =>
+            {
+                ProtectionAssessment::Allowed
+            }
+            ProtectionAssessment::Blocked(block) => ProtectionAssessment::Blocked(block),
+        }
+    }
+
+    pub fn assess_existing_app_leftover_path(&self, path: &Path) -> AppLeftoverPathDisposition {
+        match self.assess_app_leftover_path(path) {
+            ProtectionAssessment::Allowed => {}
+            ProtectionAssessment::Blocked(block) => {
+                return AppLeftoverPathDisposition::Blocked(block.message);
+            }
+        }
+
+        match std::fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                if crate::safety::is_reparse_like(&metadata) {
+                    return AppLeftoverPathDisposition::Blocked(
+                        "reparse-point traversal is disabled".to_string(),
+                    );
+                }
+
+                AppLeftoverPathDisposition::Allowed
+            }
+            Err(_) => AppLeftoverPathDisposition::Missing,
+        }
+    }
+
     pub fn assess_relative_target_shape(&self, path: &Path) -> ProtectionAssessment {
         let normalized = normalize_shape_path(path);
 
@@ -170,6 +226,13 @@ impl Default for ProtectionPolicy<'_> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AppLeftoverPathDisposition {
+    Allowed,
+    Missing,
+    Blocked(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -497,6 +560,28 @@ fn is_known_temp_or_report_path(segments: &[&str]) -> bool {
     has_sequence(segments, &["appdata", "local", "temp"])
         || has_sequence(segments, &["microsoft", "windows", "wer", "reportarchive"])
         || has_sequence(segments, &["microsoft", "windows", "wer", "reportqueue"])
+}
+
+fn is_app_leftover_cache_path(path: &NormalizedPath) -> bool {
+    let segments = path.segments();
+    segments.windows(4).any(|window| {
+        matches!(window[0], "appdata")
+            && matches!(window[1], "local" | "roaming" | "locallow")
+            && is_specific_leftover_app_segment(window[2])
+            && is_rebuildable_leftover_leaf(window[3])
+    })
+}
+
+fn is_specific_leftover_app_segment(segment: &str) -> bool {
+    segment.chars().filter(|ch| ch.is_alphanumeric()).count() >= 3
+        && !matches!(
+            segment,
+            "microsoft" | "windows" | "programs" | "packages" | "temp" | "cache" | "data"
+        )
+}
+
+fn is_rebuildable_leftover_leaf(segment: &str) -> bool {
+    matches!(segment, "cache" | "code cache" | "gpucache" | "cacheddata")
 }
 
 fn is_browser_cache_segment(segment: &str) -> bool {
