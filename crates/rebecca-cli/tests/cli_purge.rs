@@ -164,6 +164,59 @@ fn purge_json_filters_selected_artifacts() {
 }
 
 #[test]
+fn purge_json_filters_context_sensitive_vendor_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let composer_vendor = workspace.join("php-app").join("vendor");
+    write_fixture_file(composer_vendor.join("pkg").join("autoload.php"), b"php");
+    write_fixture_file(workspace.join("php-app").join("composer.json"), b"{}");
+    write_fixture_file(
+        workspace
+            .join("go-app")
+            .join("vendor")
+            .join("pkg")
+            .join("dep.go"),
+        b"go",
+    );
+    write_fixture_file(workspace.join("go-app").join("go.mod"), b"module example");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--artifact",
+            "vendor",
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(
+        targets[0]["rule_id"],
+        "windows.project-artifact-composer-vendor"
+    );
+    assert_eq!(
+        PathBuf::from(targets[0]["path"].as_str().unwrap()),
+        composer_vendor
+    );
+}
+
+#[test]
 fn purge_uses_configured_roots_when_root_flag_is_absent() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");

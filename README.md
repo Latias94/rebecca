@@ -206,7 +206,11 @@ build artifacts and dependency caches. The current scope is deliberately
 directory-name based and high confidence: `node_modules`, `target`, `build`,
 `dist`, Python virtual environments and tool caches, frontend framework caches,
 coverage output, Gradle caches, Zig/Dart/Expo build caches, CocoaPods `Pods`,
-and .NET `obj`, plus directories carrying a valid `CACHEDIR.TAG` cache marker.
+Composer `vendor`, .NET `bin`/`obj`, plus directories carrying a valid
+`CACHEDIR.TAG` cache marker. Ambiguous `vendor` and `bin` directories are
+included only with strong project context: Composer `vendor` requires
+`composer.json`, and .NET `bin` requires a sibling `.csproj`, `.fsproj`, or
+`.vbproj` plus `Debug` or `Release` output.
 
 Rebecca does not currently auto-scan every common projects directory under the
 user profile. By default it scans configured `[purge].roots` when present and

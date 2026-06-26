@@ -101,6 +101,60 @@ fn discovers_valid_cachedir_tag_directories() {
 }
 
 #[test]
+fn discovers_context_sensitive_bin_and_vendor_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let dotnet_bin = workspace.join("dotnet-app").join("bin");
+    let composer_vendor = workspace.join("php-app").join("vendor");
+    let generic_bin = workspace.join("generic-tool").join("bin");
+    let go_vendor = workspace.join("go-app").join("vendor");
+    let rails_vendor = workspace.join("rails-app").join("vendor");
+    let unknown_vendor = workspace.join("unknown-app").join("vendor");
+
+    write_fixture_file(dotnet_bin.join("Debug").join("app.dll"), b"dotnet");
+    write_fixture_file(
+        workspace.join("dotnet-app").join("App.csproj"),
+        b"<Project />",
+    );
+    write_fixture_file(generic_bin.join("Release").join("tool.exe"), b"generic");
+    write_fixture_file(composer_vendor.join("pkg").join("autoload.php"), b"php");
+    write_fixture_file(workspace.join("php-app").join("composer.json"), b"{}");
+    write_fixture_file(go_vendor.join("pkg").join("dep.go"), b"go");
+    write_fixture_file(workspace.join("go-app").join("go.mod"), b"module example");
+    write_fixture_file(rails_vendor.join("javascript").join("dep.js"), b"rails");
+    write_fixture_file(workspace.join("rails-app").join("Gemfile"), b"source");
+    write_fixture_file(unknown_vendor.join("dep.bin"), b"unknown");
+
+    let options = ProjectArtifactScanOptions::new(vec![workspace]).with_max_depth(4);
+    let artifacts = discover_project_artifacts(&options, &ScanCancellationToken::new()).unwrap();
+
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.definition.rule_id == "windows.project-artifact-dotnet-bin"
+            && artifact.path == dotnet_bin
+    }));
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.definition.rule_id == "windows.project-artifact-composer-vendor"
+            && artifact.path == composer_vendor
+    }));
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == generic_bin)
+    );
+    assert!(!artifacts.iter().any(|artifact| artifact.path == go_vendor));
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == rails_vendor)
+    );
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == unknown_vendor)
+    );
+}
+
+#[test]
 fn project_artifact_scan_respects_max_depth() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");

@@ -210,10 +210,12 @@ values. It must:
 The first supported artifact set tracks high-confidence rebuildable project
 directories such as `node_modules`, `target`, `build`, `dist`, frontend
 framework caches, Python virtual environments and caches, Gradle caches,
-coverage output, CocoaPods `Pods`, .NET `obj`, and valid `CACHEDIR.TAG`
-directories. Ambiguous directories such as generic `bin` and non-Composer
-`vendor` are intentionally outside the automatic target set until Rebecca has
-context-specific guards for them.
+coverage output, CocoaPods `Pods`, Composer `vendor`, .NET `bin`/`obj`, and
+valid `CACHEDIR.TAG` directories. Ambiguous directories such as generic `bin`
+and non-Composer `vendor` are intentionally outside the automatic target set;
+Rebecca only includes `vendor` with a sibling `composer.json`, and only includes
+`bin` with a sibling `.csproj`, `.fsproj`, or `.vbproj` plus `Debug` or
+`Release` output.
 
 ## History And Privacy
 
