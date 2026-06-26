@@ -492,6 +492,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_electron_cache_path(&segments)
         || is_jetbrains_cache_path(&segments)
         || is_cargo_cache_path(&segments)
+        || is_rustup_cache_path(&segments)
         || is_go_cache_path(&segments)
         || is_python_package_manager_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
@@ -584,6 +585,10 @@ fn is_cargo_cache_path(segments: &[&str]) -> bool {
 fn is_go_cache_path(segments: &[&str]) -> bool {
     has_sequence(segments, &["appdata", "local", "go-build"])
         || has_sequence(segments, &["go", "pkg", "mod"])
+}
+
+fn is_rustup_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".rustup", "downloads"]) || has_sequence(segments, &[".rustup", "tmp"])
 }
 
 fn is_python_package_manager_cache_path(segments: &[&str]) -> bool {
@@ -782,10 +787,22 @@ fn is_application_durable_data_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["steamapps", "workshop"])
         || has_sequence(segments, &["steamapps", "compatdata"])
         || has_sequence(segments, &["pypoetry", "cache", "virtualenvs"])
+        || is_rustup_durable_state_path(segments)
         || has_any_segment(
             segments,
             &["local storage", "indexeddb", "service worker", "network"],
         )
+}
+
+fn is_rustup_durable_state_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &[".rustup", "toolchains"])
+        || has_sequence(segments, &[".rustup", "settings.toml"])
+        || has_sequence(segments, &[".rustup", "overrides"])
+        || has_sequence(segments, &[".rustup", "update-hashes"])
+        || has_sequence(segments, &["%rustup_home%", "toolchains"])
+        || has_sequence(segments, &["%rustup_home%", "settings.toml"])
+        || has_sequence(segments, &["%rustup_home%", "overrides"])
+        || has_sequence(segments, &["%rustup_home%", "update-hashes"])
 }
 
 fn same_or_descendant(path: &str, prefix: &str) -> bool {

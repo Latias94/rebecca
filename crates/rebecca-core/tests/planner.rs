@@ -960,6 +960,33 @@ fn cargo_rule_targets_custom_cargo_home_cache_directories() {
 }
 
 #[test]
+fn rustup_rule_targets_download_and_temp_caches_only() {
+    let fixture = PlannerFixture::with_rustup_home();
+    fixture.write("user/.rustup/downloads/stable.tar.xz", b"download");
+    fixture.write("user/.rustup/tmp/install.tmp", b"tmp");
+    fixture.write("rustup-home/downloads/nightly.tar.xz", b"custom");
+    fixture.write("rustup-home/tmp/staging.tmp", b"stage");
+    fixture.write("user/.rustup/toolchains/stable/bin/rustc.exe", b"keep");
+    fixture.write("user/.rustup/settings.toml", b"keep");
+    fixture.write("rustup-home/toolchains/nightly/bin/rustc.exe", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.rustup-cache".to_string()];
+    request.allow_moderate = true;
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 4);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 22);
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy().replace('\\', "/");
+        !path.contains("/toolchains/") && !path.ends_with("/settings.toml")
+    }));
+}
+
+#[test]
 fn node_package_manager_rules_target_rebuildable_caches() {
     let fixture = PlannerFixture::new();
     fixture.write("local/npm-cache/_cacache/index.bin", b"npm");
@@ -1814,6 +1841,20 @@ impl PlannerFixture {
         let env = fixture.env.clone().with_var(
             "CARGO_HOME",
             fixture.root.join("cargo-home").into_os_string(),
+        );
+
+        Self {
+            _temp: fixture._temp,
+            root: fixture.root,
+            env,
+        }
+    }
+
+    fn with_rustup_home() -> Self {
+        let fixture = Self::new();
+        let env = fixture.env.clone().with_var(
+            "RUSTUP_HOME",
+            fixture.root.join("rustup-home").into_os_string(),
         );
 
         Self {

@@ -103,8 +103,8 @@ rules. These are narrow subpaths, not broad app roots:
   Discord and Slack;
 - JetBrains product `caches` directories;
 - Cargo cache subdirectories under `registry` and `git`;
-- pip, uv, Poetry package-cache, Go build/module, npm, pnpm, Yarn, Bun,
-  Corepack, NuGet, Gradle, and Maven cache directories;
+- pip, uv, Poetry package-cache, Go build/module, Cargo, rustup, npm, pnpm,
+  Yarn, Bun, Corepack, NuGet, Gradle, and Maven cache directories;
 - Windows Error Reporting `ReportArchive` and `ReportQueue`;
 - Steam client web cache directories.
 - app-leftover cache directories derived from discovered installed apps, limited

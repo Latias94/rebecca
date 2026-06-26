@@ -55,6 +55,10 @@ files. Keep each rule small, explicit, and easy to audit.
   and the default `%USERPROFILE%\.cargo`, not Cargo Home as a whole; never
   target `bin`, `config.toml`, `credentials.toml`, `.crates.toml`, or
   `.crates2.json`.
+- Rustup cache rules may target `%RUSTUP_HOME%\downloads`,
+  `%RUSTUP_HOME%\tmp`, and the matching default `%USERPROFILE%\.rustup`
+  cache leaves; never target `toolchains`, `settings.toml`, `overrides`, or
+  installed components.
 - Python package-manager cache rules may target pip's `%LOCALAPPDATA%\pip\Cache`,
   uv's `%LOCALAPPDATA%\uv\cache`, and Poetry package-cache subdirectories under
   `%LOCALAPPDATA%\pypoetry\Cache\cache` and

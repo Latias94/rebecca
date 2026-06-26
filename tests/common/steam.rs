@@ -61,6 +61,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.pip-cache",
     "windows.poetry-cache",
     "windows.pnpm-cache",
+    "windows.rustup-cache",
     "windows.slack-cache",
     "windows.steam-cache",
     "windows.steam-install-cache",

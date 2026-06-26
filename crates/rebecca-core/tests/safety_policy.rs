@@ -115,6 +115,10 @@ fn credentials_ai_cloud_runtime_and_startup_data_are_blocked() {
             "C:/Users/Alice/AppData/Local/pypoetry/Cache/virtualenvs",
             ProtectedCategory::ApplicationDurableData,
         ),
+        (
+            "C:/Users/Alice/.rustup/toolchains/stable-x86_64-pc-windows-msvc",
+            ProtectedCategory::ApplicationDurableData,
+        ),
     ] {
         assert!(
             matches!(
@@ -192,6 +196,8 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
         "C:/Users/Alice/AppData/Local/pypoetry/Cache/artifacts",
         "C:/Users/Alice/AppData/Local/go-build",
         "C:/Users/Alice/go/pkg/mod",
+        "C:/Users/Alice/.rustup/downloads",
+        "C:/Users/Alice/.rustup/tmp",
         "C:/Users/Alice/AppData/Local/JetBrains/RustRover2024.3/caches",
         "C:/Users/Alice/AppData/Roaming/Code/Cache",
         "C:/Users/Alice/AppData/Roaming/discord/GPUCache",
@@ -224,6 +230,10 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
         RuleTargetSpec::template("%LOCALAPPDATA%\\pypoetry\\Cache\\artifacts"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\go-build"),
         RuleTargetSpec::template("%USERPROFILE%\\go\\pkg\\mod"),
+        RuleTargetSpec::template("%RUSTUP_HOME%\\downloads"),
+        RuleTargetSpec::template("%RUSTUP_HOME%\\tmp"),
+        RuleTargetSpec::template("%USERPROFILE%\\.rustup\\downloads"),
+        RuleTargetSpec::template("%USERPROFILE%\\.rustup\\tmp"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
         RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
         RuleTargetSpec::template("%APPDATA%\\Slack\\Cache"),
@@ -264,6 +274,10 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
         ),
         (
             RuleTargetSpec::template("%APPDATA%\\Slack\\Local Storage"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%RUSTUP_HOME%\\toolchains"),
             ProtectedCategory::ApplicationDurableData,
         ),
         (
