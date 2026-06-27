@@ -1,0 +1,15 @@
+id = "windows.tencent-video-cache"
+platform = "windows"
+category = "application"
+name = "Tencent Video cache"
+safety_level = "safe"
+restore_hint = "Tencent Video caches will be rebuilt on launch."
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\QQLive\\Image"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from public Windows QQLive cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids account data, downloaded videos, Local Storage, IndexedDB, and session data."

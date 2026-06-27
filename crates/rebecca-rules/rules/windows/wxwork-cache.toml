@@ -1,0 +1,19 @@
+id = "windows.wxwork-cache"
+platform = "windows"
+category = "application"
+name = "Enterprise WeChat cache"
+safety_level = "safe"
+restore_hint = "Enterprise WeChat caches will be rebuilt on launch."
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Tencent\\WXWork\\Data\\*\\Cache\\File\\*\\MEMORY.DMP"
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Tencent\\WXWork\\Data\\*\\Cache\\Image\\*\\WXWorkCapture_*.jpg"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from Winapp2's Tencent WeChat Work entry and Windows WXWork cache-path observations. Rewritten for Rebecca; specific cache artifacts only and intentionally avoids logs, account data, document data, and session data."

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +12,7 @@ pub struct AppLeftoverCandidate {
     pub app: InstalledApplication,
     pub path: PathBuf,
     pub source: AppLeftoverSource,
+    pub modified_at_unix_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,10 +83,12 @@ pub fn derive_app_leftover_candidates(
                     }
                     let key = format!("{}|{}", app.stable_id(), path_key(&path));
                     if seen.insert(key) {
+                        let modified_at_unix_seconds = modified_at_unix_seconds(&path);
                         candidates.push(AppLeftoverCandidate {
                             app: app.clone(),
                             path,
                             source: root.source,
+                            modified_at_unix_seconds,
                         });
                     }
                 }
@@ -177,6 +181,15 @@ fn path_key(path: &Path) -> String {
         normalized.pop();
     }
     normalized.to_ascii_lowercase()
+}
+
+fn modified_at_unix_seconds(path: &Path) -> Option<u64> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
 }
 
 #[cfg(test)]

@@ -132,6 +132,16 @@ The starter catalog intentionally stays small and lives in
 - `windows.brave-cache`
 - `windows.firefox-profile-cache`
 - `windows.discord-cache`
+- `windows.wechat-cache`
+- `windows.wxwork-cache`
+- `windows.qq-cache`
+- `windows.feishu-cache`
+- `windows.dingtalk-cache`
+- `windows.wps-cache`
+- `windows.baidunetdisk-cache`
+- `windows.tencent-meeting-cache`
+- `windows.qqmusic-cache`
+- `windows.tencent-video-cache`
 - `windows.postman-cache`
 - `windows.notion-cache`
 - `windows.figma-cache`
@@ -193,6 +203,13 @@ for Discord, Slack, Postman, Notion, and Figma cover only `Cache`,
 `Code Cache`, and `GPUCache` under each allowlisted Roaming app root; they do
 not target application roots, `Local Storage`, `IndexedDB`, `Service Worker`,
 cookies, settings, workspaces, or session data.
+The first domestic desktop-app cache batch covers WeChat, Enterprise WeChat,
+QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and
+Tencent Video. Those rules stay on AppData cache leaves such as `Cache`,
+`Code Cache`, `Cache_Data`, `filecache`, `resource_cache`, and comparable
+vendor cache directories; they intentionally avoid account state, document
+state, sync state, downloaded media, `Local Storage`, `IndexedDB`, and session
+data.
 Steam support currently discovers the install root from a small ordered set of
 Windows registry locations, then library roots from `steamapps\libraryfolders.vdf`.
 That lets future Steam rules target install-root-relative or library-root-relative

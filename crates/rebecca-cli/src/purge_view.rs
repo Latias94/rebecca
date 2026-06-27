@@ -23,6 +23,7 @@ pub(crate) struct ProjectArtifactRow<'a> {
     pub(crate) status_label: &'static str,
     pub(crate) path: &'a Path,
     pub(crate) estimated_bytes: u64,
+    pub(crate) modified_at_unix_seconds: Option<u64>,
     pub(crate) reason: Option<&'a str>,
     pub(crate) restore_hint: Option<&'a str>,
 }
@@ -98,6 +99,7 @@ impl<'a> From<&'a CleanupTarget> for ProjectArtifactRow<'a> {
             status_label: target.status.label(),
             path: target.path.as_path(),
             estimated_bytes: target.estimated_bytes,
+            modified_at_unix_seconds: target.modified_at_unix_seconds,
             reason: target.reason.as_deref(),
             restore_hint: target.restore_hint.as_deref(),
         }

@@ -36,6 +36,14 @@ files. Keep each rule small, explicit, and easy to audit.
   `%APPDATA%\\<App>\\<cache leaf>` layouts; avoid app roots with path variants
   or mixed account/session state unless the durable-state boundary is proven
   with tests.
+- Domestic desktop-app cache rules must be app-specific and conservative. Use
+  only observed AppData cache leaves such as WeChat `radium\cache`, Feishu
+  `Cache`/`Code Cache`/shader-cache leaves, DingTalk `resource_cache`, WPS
+  `filecache`/HTTP cache leaves, Baidu Netdisk `cache`, and Tencent media app
+  cache leaves. Do not target the vendor root, account directories, document
+  stores, sync state, downloaded media, `Local Storage`, `IndexedDB`,
+  `Service Worker`, or session data. Add positive allowlist tests and negative
+  near-miss durable-state tests with every new app.
 - Steam client cache rules should stay under `%LOCALAPPDATA%\Steam\htmlcache`
   unless the rule also implements explicit Steam install/library discovery.
   Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,
@@ -151,6 +159,10 @@ files. Keep each rule small, explicit, and easy to audit.
   in `provenance.notes` with the upstream project name, repository or file path,
   license, and any relevant commit or release tag. Treat GPL sources such as
   Mole and BleachBit as behavior references only, not rule-data sources.
+- Winapp2 can inform Windows application cache candidates, especially for
+  WeChat, Enterprise WeChat, and Kingsoft/WPS. Keep it as a reference input,
+  rewrite the rule from scratch, and preserve the cache-vs-state boundary in
+  tests.
 - `windows-cleaner-cli` can inform Windows maintenance-cache families such as
   temp files, Prefetch, Windows Update downloads, and related system cache
   comparisons.

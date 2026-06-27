@@ -1,0 +1,15 @@
+id = "windows.baidunetdisk-cache"
+platform = "windows"
+category = "application"
+name = "Baidu Netdisk cache"
+safety_level = "safe"
+restore_hint = "Baidu Netdisk cache files will be rebuilt on launch."
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Baidu\\BaiduNetdisk\\cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from public Windows Baidu Netdisk cache-path observations. Rewritten for Rebecca; cache leaf only and intentionally avoids sync state, account data, document content, and transfer databases."

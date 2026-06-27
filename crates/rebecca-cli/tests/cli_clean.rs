@@ -68,6 +68,35 @@ fn write_slack_cache_fixture(temp: &tempfile::TempDir) {
     );
 }
 
+fn write_wechat_cache_fixture(temp: &tempfile::TempDir) {
+    let wechat = temp.path().join("roaming").join("Tencent").join("WeChat");
+    write_fixture_file(wechat.join("radium").join("cache").join("cache.bin"), b"ab");
+    write_fixture_file(wechat.join("WmpfCache").join("wmpf.bin"), b"cde");
+    write_fixture_file(
+        wechat
+            .join("radium")
+            .join("web")
+            .join("profiles")
+            .join("multitab_abc")
+            .join("Cache")
+            .join("Cache_Data")
+            .join("multitab.bin"),
+        b"fghi",
+    );
+    write_fixture_file(
+        wechat
+            .join("radium")
+            .join("web")
+            .join("profiles")
+            .join("web_shell")
+            .join("Cache")
+            .join("Cache_Data")
+            .join("webshell.bin"),
+        b"jklmn",
+    );
+    write_fixture_file(wechat.join("bak").join("backup.bin"), b"keep");
+}
+
 #[test]
 fn clean_dry_run_json_builds_plan_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
@@ -147,6 +176,75 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
             && !target["path"].as_str().unwrap().contains("IndexedDB")
             && !target["path"].as_str().unwrap().contains("Service Worker")
     }));
+}
+
+#[test]
+fn clean_dry_run_json_reports_wechat_cache_rule() {
+    let temp = tempfile::tempdir().unwrap();
+    write_wechat_cache_fixture(&temp);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("APPDATA", temp.path().join("roaming"))
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--rule",
+            "windows.wechat-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["summary"]["total_targets"], 4);
+    assert_eq!(value["summary"]["allowed_targets"], 4);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 14);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 4);
+    assert!(targets.iter().all(|target| {
+        target["rule_id"] == "windows.wechat-cache"
+            && target["status"] == "allowed"
+            && !target["path"].as_str().unwrap().contains("bak")
+    }));
+
+    for expected in [
+        Path::new("Tencent")
+            .join("WeChat")
+            .join("radium")
+            .join("cache"),
+        Path::new("Tencent").join("WeChat").join("WmpfCache"),
+        Path::new("Tencent")
+            .join("WeChat")
+            .join("radium")
+            .join("web")
+            .join("profiles")
+            .join("multitab_abc")
+            .join("Cache")
+            .join("Cache_Data"),
+        Path::new("Tencent")
+            .join("WeChat")
+            .join("radium")
+            .join("web")
+            .join("profiles")
+            .join("web_shell")
+            .join("Cache")
+            .join("Cache_Data"),
+    ] {
+        assert!(
+            targets.iter().any(|target| {
+                PathBuf::from(target["path"].as_str().unwrap()).ends_with(&expected)
+            }),
+            "missing WeChat target {expected:?}"
+        );
+    }
 }
 
 #[test]

@@ -1,0 +1,15 @@
+id = "windows.qq-cache"
+platform = "windows"
+category = "application"
+name = "QQ cache"
+safety_level = "safe"
+restore_hint = "QQ caches will be rebuilt on launch."
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Tencent\\QQ\\Cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from public Windows QQ cache-path observations. Rewritten for Rebecca; cache leaf only and intentionally avoids account state, login data, document data, and durable profile data."

@@ -1,0 +1,23 @@
+id = "windows.wps-cache"
+platform = "windows"
+category = "application"
+name = "WPS cache"
+safety_level = "safe"
+restore_hint = "WPS caches will be rebuilt when needed."
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Kingsoft\\*\\cache\\http*"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Kingsoft\\WPS Cloud Files\\userdata\\*\\filecache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Kingsoft\\WPS Cloud Files\\UserData\\Default\\WebCache\\http*"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from Winapp2's Kingsoft Office entry and public WPS Cloud Files cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids document state, sync state, cookies, and account data."

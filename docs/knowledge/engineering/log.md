@@ -1,5 +1,8 @@
 # Engineering Memory Update Log
 
+## 2026-06-27
+* **Domestic desktop-app cache batch**: Added conservative Windows cache rules for WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video. Tightened `ProtectionPolicy` with app-specific cache allowlists and durable-state blockers, expanded safety-policy coverage for both positive cache leaves and nearby account/sync/session data, updated the builtin catalog and shared builtin-rule ID expectations, and refreshed the README, rule-authoring guidance, safety audit, and rule-source index to describe the new cache-vs-state boundary. Verified with `cargo fmt --all`, `cargo nextest run -p rebecca-core --test safety_policy`, `cargo nextest run -p rebecca-rules`, `cargo nextest run -p rebecca-cli --test cli_scan -p rebecca-cli --test scan`, `cargo nextest run -p rebecca-cli --test cli_clean`, `cargo nextest run --workspace` (314 passing tests), `cargo clippy --workspace --all-targets -- -D warnings`, and `git diff --check`.
+
 ## 2026-06-23
 * **Initialization**: Created engineering wiki memory bundle.
 * **Documentation baseline**: Collected reference projects and started Windows-first ADR drafting for the Rust CLI cleaner.

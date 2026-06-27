@@ -27,7 +27,7 @@ rule authoring. It is a reference index, not a copy of external rule data.
 |--------|---------|------------------------|----------|-------|
 | Mole | GPL-3.0-or-later | `repo-ref/Mole` | `6be20eaa1eacc78d0355b4ed4744bb7a08447704` | Behavior and safety benchmark only. Reference paths and UX, not rule text. |
 | BleachBit | GPL-3.0-or-later | `repo-ref/bleachbit/cleaners/*.xml` | `1517daf22201e4f8b05fbffcc4f89c992ba06375` | Cleaner behavior reference only. Use `cleaners/*.xml` and docs for path ideas, not copied rule data. |
-| Winapp2.ini | Unclear / reference-only | discovery index only | n/a | Use as a discovery index for Windows cleanup candidates only; rewrite every rule from scratch. |
+| Winapp2.ini | CC-BY-SA-4.0 / reference-only | `MoscaDotTo/Winapp2/Non-CCleaner/Winapp2.ini` | 2026-06-27 review | Use as a discovery index for Windows cleanup candidates only; rewrite every rule from scratch. Useful domestic-app entries include Tencent WeChat, Tencent WeChat Work, and Kingsoft Office. |
 | windows-cleaner-cli | MIT | `repo-ref/windows-cleaner-cli` | `ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5` | Useful for Windows maintenance cache categories such as temp files, Prefetch, update downloads, and browser/system cache comparisons. |
 | null-e | WTFPL-2.0 | `repo-ref/null-e` | `079a038f71159dab07c4d2bd8bd700cb5647972d` | Useful batch reference for developer-cache families such as npm, pip, cargo, uv, Poetry, Docker, Android, IDE, ML/AI caches, and Electron app candidates including Postman, Notion, and Figma. Behavior reference only. |
 | Bulk Crap Uninstaller | Apache-2.0 | `repo-ref/Bulk-Crap-Uninstaller/Licence.txt` | `f39663316ad5d593c4d160b0445841ce7eb6a35f` | Useful for uninstall and leftovers modeling; not a rule source. |
@@ -57,6 +57,25 @@ Candidates worth batch review:
 - Windows maintenance caches such as temp files, Prefetch, and update
   download directories
 - Uninstall leftovers and app inventory modeling
+
+## Domestic Windows Desktop App Notes
+
+The first domestic desktop-app cache batch used Winapp2 as a discovery index,
+Mole as a behavior benchmark where it has comparable macOS app-cache coverage,
+Bulk Crap Uninstaller as an uninstall-leftover boundary reference, and local
+Windows AppData layout inspection for cache-leaf confirmation. Rebecca keeps
+the resulting rules project-owned and intentionally narrow:
+
+- Tencent apps: WeChat `radium`/mini-program cache leaves, WXWork cache crash
+  artifacts, QQ `Cache`, Tencent Meeting / WeMeet dynamic-resource caches,
+  QQ Music cache leaves, and Tencent Video / QQLive cache leaves.
+- Collaboration apps: Feishu `LarkShell` cache and shader-cache leaves, plus
+  DingTalk `Cache` and `resource_cache`.
+- Document and sync apps: WPS HTTP/file-cache leaves and Baidu Netdisk's
+  Local AppData `cache` leaf only.
+
+Do not turn these into app-root, account-root, document-root, sync-root, or
+session-storage cleanup rules.
 
 ## Rule Family Trace Template
 

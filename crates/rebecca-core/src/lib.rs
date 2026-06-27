@@ -25,5 +25,6 @@ pub use model::{
     RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 pub use plan::{
-    CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason,
+    CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetDeletionStyle,
+    CleanupTargetIssueReason,
 };

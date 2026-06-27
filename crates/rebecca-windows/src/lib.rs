@@ -27,7 +27,7 @@ impl WindowsRecycleBinBackend {
 
 impl CleanupBackend for WindowsRecycleBinBackend {
     fn delete(&self, target: &CleanupTarget) -> Result<ExecutionOutcome> {
-        platform::delete_to_recycle_bin(&target.path, target.estimated_bytes)
+        platform::delete_to_recycle_bin(&target.path, target.estimated_bytes, target.deletion_style)
     }
 }
 
@@ -50,15 +50,28 @@ mod platform {
         }
     }
 
-    pub fn delete_to_recycle_bin(path: &Path, estimated_bytes: u64) -> Result<ExecutionOutcome> {
-        if path.is_dir() {
-            for entry in fs::read_dir(path)? {
-                let entry = entry?;
-                trash::delete(entry.path())
+    pub fn delete_to_recycle_bin(
+        path: &Path,
+        estimated_bytes: u64,
+        deletion_style: rebecca_core::CleanupTargetDeletionStyle,
+    ) -> Result<ExecutionOutcome> {
+        match deletion_style {
+            rebecca_core::CleanupTargetDeletionStyle::DeleteWholePath => {
+                trash::delete(path)
                     .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
             }
-        } else {
-            trash::delete(path).map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
+            rebecca_core::CleanupTargetDeletionStyle::PreserveRootContents => {
+                if path.is_dir() {
+                    for entry in fs::read_dir(path)? {
+                        let entry = entry?;
+                        trash::delete(entry.path())
+                            .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
+                    }
+                } else {
+                    trash::delete(path)
+                        .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
+                }
+            }
         }
 
         Ok(ExecutionOutcome {
@@ -80,7 +93,11 @@ mod platform {
         super::PrivilegeLevel::Unknown
     }
 
-    pub fn delete_to_recycle_bin(_path: &Path, _estimated_bytes: u64) -> Result<ExecutionOutcome> {
+    pub fn delete_to_recycle_bin(
+        _path: &Path,
+        _estimated_bytes: u64,
+        _deletion_style: rebecca_core::CleanupTargetDeletionStyle,
+    ) -> Result<ExecutionOutcome> {
         Err(RebeccaError::PlatformUnavailable(
             "Windows recycle bin deletion is not available on this platform".to_string(),
         ))

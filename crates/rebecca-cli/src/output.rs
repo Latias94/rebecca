@@ -177,10 +177,14 @@ fn print_project_artifact_details(plan: &CleanupPlan) {
 
 fn print_recent_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
     println!(
-        "{prefix} {} [{}] {}{}",
+        "{prefix} {} [{}] {}{}{}",
         target.artifact_type,
         target.status_label,
         target.path.display(),
+        target
+            .modified_at_unix_seconds
+            .map(|seconds| format!(" (modified at {seconds})"))
+            .unwrap_or_default(),
         target
             .reason
             .map(|reason| format!(" - {reason}"))
@@ -190,12 +194,16 @@ fn print_recent_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &
 
 fn print_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
     println!(
-        "{prefix} {} [{}] {} bytes ({}) - {}{}{}",
+        "{prefix} {} [{}] {} bytes ({}) - {}{}{}{}",
         target.artifact_type,
         target.status_label,
         target.estimated_bytes,
         format_bytes(target.estimated_bytes),
         target.path.display(),
+        target
+            .modified_at_unix_seconds
+            .map(|seconds| format!(" (modified at {seconds})"))
+            .unwrap_or_default(),
         target
             .reason
             .map(|reason| format!(" (reason: {reason})"))

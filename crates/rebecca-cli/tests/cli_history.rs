@@ -81,6 +81,36 @@ fn protected_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
     entry
 }
 
+fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
+    let mut plan = CleanupPlan {
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+            .with_workflow(rebecca_core::CleanupWorkflow::AppLeftovers),
+        summary: CleanupSummary {
+            completed_targets: 1,
+            failed_targets: 0,
+            pending_reclaim_bytes: 12,
+            ..CleanupSummary::default()
+        },
+        targets: vec![
+            rebecca_core::CleanupTarget::allowed(
+                "windows.app-leftover-local-cache",
+                std::path::PathBuf::from(r"C:\Users\Alice\AppData\Local\WeChat\Cache"),
+                12,
+                DeleteMode::DryRun,
+            )
+            .with_restore_hint(Some(
+                "App leftovers will be rebuilt when the app runs again.".to_string(),
+            )),
+        ],
+    };
+    plan.targets[0].status = TargetStatus::Completed;
+    plan.targets[0].pending_reclaim_bytes = 12;
+
+    let mut entry = HistoryEntry::from_plan(&plan);
+    entry.recorded_at_unix_seconds = recorded_at_unix_seconds;
+    entry
+}
+
 #[test]
 fn history_json_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
@@ -188,6 +218,40 @@ fn history_json_preserves_restore_hints() {
     assert_eq!(
         entries[0]["targets"][0]["restore_hint"].as_str().unwrap(),
         "Temporary files can be recreated."
+    );
+}
+
+#[test]
+fn history_json_preserves_app_leftovers_workflow() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(&history_path, &[app_leftovers_history_entry(42)]);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entry = &value.as_array().unwrap()[0];
+
+    assert_eq!(entry["request"]["workflow"], "app-leftovers");
+    assert_eq!(entry["summary"]["completed_targets"], 1);
+    assert_eq!(
+        entry["targets"][0]["rule_id"],
+        "windows.app-leftover-local-cache"
+    );
+    assert!(
+        entry["targets"][0]["path"]
+            .as_str()
+            .unwrap()
+            .contains("WeChat\\Cache")
     );
 }
 

@@ -394,6 +394,97 @@ fn app_leftover_plan_deduplicates_duplicate_discovery_entries() {
 }
 
 #[test]
+fn app_leftover_plan_uses_source_based_rule_ids_for_all_appdata_roots() {
+    let fixture = PlannerFixture::new();
+    let local = fixture.root.join("AppData").join("Local");
+    let roaming = fixture.root.join("AppData").join("Roaming");
+    let local_low = fixture.root.join("AppData").join("LocalLow");
+
+    for relative in [
+        "AppData/Local/WeChat/Cache/cache.bin",
+        "AppData/Local/WeChat/Code Cache/code.bin",
+        "AppData/Local/WeChat/GPUCache/gpu.bin",
+        "AppData/Local/WeChat/CachedData/data.bin",
+        "AppData/Roaming/WeChat/Cache/cache.bin",
+        "AppData/Roaming/WeChat/Code Cache/code.bin",
+        "AppData/Roaming/WeChat/GPUCache/gpu.bin",
+        "AppData/Roaming/WeChat/CachedData/data.bin",
+        "AppData/LocalLow/WeChat/Cache/cache.bin",
+        "AppData/Local/WeChat/Local Storage/state.bin",
+    ] {
+        fixture.write(relative, b"abc");
+    }
+
+    let applications =
+        StaticApplicationDiscovery::new().with_installed_applications([InstalledApplication::new(
+            "hklm/wechat",
+            "WeChat",
+            Vec::new(),
+        )]);
+    let env = fixture
+        .env
+        .clone()
+        .with_var("LOCALAPPDATA", local.as_os_str().to_os_string())
+        .with_var("APPDATA", roaming.as_os_str().to_os_string())
+        .with_var("USERPROFILE", fixture.root.as_os_str().to_os_string());
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::AppLeftovers);
+    let cancellation = ScanCancellationToken::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &env,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.request.workflow, CleanupWorkflow::AppLeftovers);
+    assert_eq!(plan.summary.total_targets, 9);
+    assert_eq!(plan.summary.allowed_targets, 9);
+    assert_eq!(plan.summary.estimated_bytes, 27);
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| target.restore_hint.is_some()
+                && !target.path.to_string_lossy().contains("Local Storage"))
+    );
+    assert_eq!(
+        plan.targets
+            .iter()
+            .filter(|target| target.rule_id == "windows.app-leftover-local-cache")
+            .count(),
+        4
+    );
+    assert_eq!(
+        plan.targets
+            .iter()
+            .filter(|target| target.rule_id == "windows.app-leftover-roaming-cache")
+            .count(),
+        4
+    );
+    assert_eq!(
+        plan.targets
+            .iter()
+            .filter(|target| target.rule_id == "windows.app-leftover-local-low-cache")
+            .count(),
+        1
+    );
+    assert!(
+        plan.targets
+            .iter()
+            .any(|target| target.path.ends_with(local.join("WeChat").join("Cache")))
+    );
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(local_low.join("WeChat").join("Cache"))
+    }));
+}
+
+#[test]
 fn planner_blocks_protected_category_targets_before_sizing() {
     let fixture = PlannerFixture::new();
     let rules = vec![custom_exact_path_rule(

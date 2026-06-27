@@ -18,6 +18,7 @@ pub struct ProjectArtifactDefinition {
 pub struct ProjectArtifactCandidate {
     pub definition: ProjectArtifactDefinition,
     pub path: PathBuf,
+    pub modified_at_unix_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -555,8 +556,21 @@ fn push_candidate(
 ) {
     let key = path.as_os_str().to_string_lossy().replace('\\', "/");
     if seen_paths.insert(key.to_ascii_lowercase()) {
-        candidates.push(ProjectArtifactCandidate { definition, path });
+        candidates.push(ProjectArtifactCandidate {
+            definition,
+            path: path.clone(),
+            modified_at_unix_seconds: modified_at_unix_seconds(&path),
+        });
     }
+}
+
+fn modified_at_unix_seconds(path: &Path) -> Option<u64> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
 }
 
 fn should_prune_scan_dir(name: &str) -> bool {

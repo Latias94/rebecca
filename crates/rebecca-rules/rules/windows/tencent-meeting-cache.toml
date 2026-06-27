@@ -1,0 +1,23 @@
+id = "windows.tencent-meeting-cache"
+platform = "windows"
+category = "application"
+name = "Tencent Meeting cache"
+safety_level = "safe"
+restore_hint = "Tencent Meeting caches will be rebuilt on launch."
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\Meeting\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\WeMeet\\Global\\Data\\DynamicResourcePackage"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\WeMeet\\Global\\Data\\DynamicResource"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from public Windows Tencent Meeting and WeMeet cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids meeting history, account data, recordings, and session data."

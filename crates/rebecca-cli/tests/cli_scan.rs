@@ -81,6 +81,11 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("  - windows.notion-cache [safe] Notion cache"));
     assert!(stdout.contains("  - windows.figma-cache [safe] Figma cache"));
     assert!(stdout.contains("  - windows.slack-cache [safe] Slack cache"));
+    assert!(stdout.contains("- application ("));
+    assert!(stdout.contains("  - windows.wechat-cache [safe] WeChat cache"));
+    assert!(stdout.contains("  - windows.wxwork-cache [safe] Enterprise WeChat cache"));
+    assert!(stdout.contains("  - windows.qqmusic-cache [safe] QQ Music cache"));
+    assert!(stdout.contains("  - windows.dingtalk-cache [safe] DingTalk cache"));
     assert!(stdout.contains("- development ("));
     assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));
     assert!(stdout.contains("  - windows.ccache-cache [moderate] ccache compiler cache"));

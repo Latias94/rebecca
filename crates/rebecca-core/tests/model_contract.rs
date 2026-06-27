@@ -31,6 +31,11 @@ fn cleanup_plan_serialization_preserves_target_contract() {
         decoded.targets[0].restore_hint.as_deref(),
         Some("Temporary files can be recreated.")
     );
+    assert_eq!(
+        decoded.targets[0].deletion_style,
+        rebecca_core::CleanupTargetDeletionStyle::PreserveRootContents
+    );
+    assert_eq!(decoded.targets[0].modified_at_unix_seconds, None);
     assert!(decoded.summary.issue_matrix.is_empty());
     assert!(decoded.targets[0].reason_code.is_none());
 }

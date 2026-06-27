@@ -2,7 +2,7 @@
 title: "Rebecca Cleanup Safety Audit"
 status: "active"
 created: "2026-06-24"
-last_updated: "2026-06-26"
+last_updated: "2026-06-27"
 ---
 
 # Rebecca Cleanup Safety Audit
@@ -101,6 +101,13 @@ rules. These are narrow subpaths, not broad app roots:
 - Electron/VS Code cache directories such as `Cache`, `Code Cache`,
   `GPUCache`, and `CachedData` for explicitly allowlisted app roots including
   Discord, Slack, Postman, Notion, and Figma;
+- domestic desktop-app cache leaves for WeChat, Enterprise WeChat, QQ,
+  Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent
+  Video. These rules stay on observed AppData cache leaves such as `Cache`,
+  `Code Cache`, `Cache_Data`, `filecache`, `resource_cache`, `Image`, and
+  vendor dynamic-resource caches; app roots, account state, document
+  state, sync state, downloaded media, `Local Storage`, `IndexedDB`, and
+  session data remain outside the cleanup surface;
 - JetBrains product `caches` directories;
 - Android user cache leaves under `.android\cache` and
   `.android\build-cache`, plus Android Studio
@@ -157,7 +164,7 @@ system-owned install roots.
 | Cloud-synced data | OneDrive, iCloud Drive, iCloud Photos, Dropbox, Google Drive, Box, MEGA |
 | Container/VM runtime state | Docker, Docker Desktop, Podman, Rancher Desktop, WSL config, `.docker`, `.podman`, `.kube` |
 | Startup automation | Windows Startup folder paths |
-| Application durable data | Steam `userdata`, `steamapps\common`, `steamapps\workshop`, `steamapps\compatdata`, Conda environments, Android AVDs, SDK packages, adb/debug keys, browser-like durable storage roots such as `Local Storage`, `IndexedDB`, `Service Worker`, and `Network` |
+| Application durable data | Steam `userdata`, `steamapps\common`, `steamapps\workshop`, `steamapps\compatdata`, Conda environments, Android AVDs, SDK packages, adb/debug keys, domestic desktop-app roots and account/sync/session leaves, browser-like durable storage roots such as `Local Storage`, `IndexedDB`, `Service Worker`, and `Network` |
 
 These categories are intentionally conservative. False negatives where Rebecca
 refuses to clean a path are acceptable safety outcomes; false positives that
@@ -251,7 +258,7 @@ Focused coverage currently includes:
 
 - `crates/rebecca-core/tests/safety_policy.rs` for path validation, protected
   categories, allowlisted maintenance paths, and Rebecca-owned storage
-  protection;
+  protection, including domestic app cache leaves and unsafe near-misses;
 - `crates/rebecca-core/tests/planner.rs` for rule selection, target expansion,
   scan-cache behavior, protected storage blocking, protected category blocking,
   Steam target behavior, and app-leftover planning;

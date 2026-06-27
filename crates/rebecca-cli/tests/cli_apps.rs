@@ -20,6 +20,12 @@ fn appdata_roots(temp: &tempfile::TempDir) -> (PathBuf, PathBuf) {
     )
 }
 
+fn write_app_leftover_fixture(temp: &tempfile::TempDir, app_name: &str) {
+    let app = temp.path().join("AppData").join("Local").join(app_name);
+    write_fixture_file(app.join("Cache").join("cache.bin"), b"abc");
+    write_fixture_file(app.join("Local Storage").join("state.bin"), b"keep");
+}
+
 #[test]
 fn apps_help_shows_scan_and_clean_subcommands() {
     let output = common::command::rebecca()
@@ -82,6 +88,172 @@ fn apps_scan_json_builds_app_leftovers_plan() {
             .unwrap()
             .contains("Local Storage")
     );
+}
+
+#[test]
+fn apps_scan_json_builds_wechat_leftovers_plan() {
+    let temp = tempfile::tempdir().unwrap();
+    let (local, roaming) = appdata_roots(&temp);
+    write_app_leftover_fixture(&temp, "WeChat");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .args(["apps", "scan", "--json", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["request"]["workflow"], "app-leftovers");
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["estimated_bytes"], 3);
+
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0]["rule_id"], "windows.app-leftover-local-cache");
+    assert_eq!(targets[0]["status"], "allowed");
+    assert!(
+        PathBuf::from(targets[0]["path"].as_str().unwrap())
+            .ends_with(Path::new("WeChat").join("Cache"))
+    );
+    assert!(
+        !targets[0]["path"]
+            .as_str()
+            .unwrap()
+            .contains("Local Storage")
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn apps_clean_yes_deletes_wechat_leftover_cache_contents() {
+    let temp = tempfile::tempdir().unwrap();
+    let (local, roaming) = appdata_roots(&temp);
+    write_app_leftover_fixture(&temp, "WeChat");
+    let cache_dir = local.join("WeChat").join("Cache");
+    let durable_state = local.join("WeChat").join("Local Storage").join("state.bin");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .args(["apps", "clean", "--yes", "--json", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    assert!(
+        cache_dir.exists(),
+        "app cache directory should be preserved"
+    );
+    assert_eq!(
+        fs::read_dir(&cache_dir).unwrap().count(),
+        0,
+        "app cache directory should be emptied"
+    );
+    assert!(
+        durable_state.exists(),
+        "durable app state must remain untouched"
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["request"]["workflow"], "app-leftovers");
+    assert_eq!(value["request"]["mode"], "recycle-bin");
+    assert_eq!(value["summary"]["completed_targets"], 1);
+    assert_eq!(value["summary"]["blocked_targets"], 0);
+    assert_eq!(value["targets"].as_array().unwrap().len(), 1);
+    assert_eq!(value["targets"][0]["status"], "completed");
+    assert_eq!(
+        value["targets"][0]["rule_id"],
+        "windows.app-leftover-local-cache"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn apps_clean_yes_respects_exclude_path_during_execution() {
+    let temp = tempfile::tempdir().unwrap();
+    let (local, roaming) = appdata_roots(&temp);
+    write_app_leftover_fixture(&temp, "WeChat");
+    let code_cache_dir = local.join("WeChat").join("Code Cache");
+    write_fixture_file(code_cache_dir.join("code.bin"), b"def");
+    let cache_dir = local.join("WeChat").join("Cache");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .args([
+            "apps",
+            "clean",
+            "--yes",
+            "--json",
+            "--no-progress",
+            "--exclude",
+            cache_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    assert!(
+        cache_dir.exists(),
+        "excluded app cache directory should be preserved"
+    );
+    assert_eq!(fs::read_dir(&cache_dir).unwrap().count(), 1);
+    assert!(
+        code_cache_dir.exists(),
+        "allowed app cache directory should still exist"
+    );
+    assert_eq!(
+        fs::read_dir(&code_cache_dir).unwrap().count(),
+        0,
+        "allowed app cache directory should be emptied"
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["request"]["workflow"], "app-leftovers");
+    assert_eq!(value["request"]["mode"], "recycle-bin");
+    assert_eq!(value["summary"]["total_targets"], 2);
+    assert_eq!(value["summary"]["completed_targets"], 1);
+    assert_eq!(value["summary"]["blocked_targets"], 1);
+    assert_eq!(value["targets"].as_array().unwrap().len(), 2);
+    assert!(value["targets"].as_array().unwrap().iter().any(|target| {
+        target["status"] == "blocked"
+            && target["reason_code"] == "safety-policy-blocked"
+            && target["path"]
+                .as_str()
+                .unwrap()
+                .contains(r"AppData\Local\WeChat\Cache")
+    }));
+    assert!(value["targets"].as_array().unwrap().iter().any(|target| {
+        target["status"] == "completed"
+            && target["rule_id"] == "windows.app-leftover-local-cache"
+            && target["path"]
+                .as_str()
+                .unwrap()
+                .contains(r"AppData\Local\WeChat\Code Cache")
+    }));
 }
 
 #[test]

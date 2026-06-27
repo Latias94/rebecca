@@ -5,6 +5,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{DeleteMode, PlanRequest, TargetStatus};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CleanupTargetDeletionStyle {
+    #[default]
+    PreserveRootContents,
+    DeleteWholePath,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CleanupSummary {
     pub total_targets: usize,
@@ -39,6 +47,10 @@ pub struct CleanupTarget {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason_code: Option<CleanupTargetIssueReason>,
     pub restore_hint: Option<String>,
+    #[serde(default)]
+    pub deletion_style: CleanupTargetDeletionStyle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_at_unix_seconds: Option<u64>,
     pub freed_bytes: u64,
     pub pending_reclaim_bytes: u64,
 }
@@ -91,6 +103,8 @@ impl CleanupTarget {
             reason: None,
             reason_code: None,
             restore_hint: None,
+            deletion_style: CleanupTargetDeletionStyle::default(),
+            modified_at_unix_seconds: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -127,6 +141,8 @@ impl CleanupTarget {
             reason: Some(reason.into()),
             reason_code: Some(reason_code),
             restore_hint: None,
+            deletion_style: CleanupTargetDeletionStyle::default(),
+            modified_at_unix_seconds: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -163,6 +179,8 @@ impl CleanupTarget {
             reason: Some(reason.into()),
             reason_code: Some(reason_code),
             restore_hint: None,
+            deletion_style: CleanupTargetDeletionStyle::default(),
+            modified_at_unix_seconds: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -202,9 +220,21 @@ impl CleanupTarget {
             reason: Some(reason.into()),
             reason_code: Some(reason_code),
             restore_hint: None,
+            deletion_style: CleanupTargetDeletionStyle::default(),
+            modified_at_unix_seconds: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
+    }
+
+    pub fn with_deletion_style(mut self, deletion_style: CleanupTargetDeletionStyle) -> Self {
+        self.deletion_style = deletion_style;
+        self
+    }
+
+    pub fn with_modified_at_unix_seconds(mut self, modified_at_unix_seconds: Option<u64>) -> Self {
+        self.modified_at_unix_seconds = modified_at_unix_seconds;
+        self
     }
 
     pub fn with_restore_hint(mut self, restore_hint: Option<String>) -> Self {

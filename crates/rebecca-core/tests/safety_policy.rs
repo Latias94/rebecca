@@ -135,6 +135,62 @@ fn credentials_ai_cloud_runtime_and_startup_data_are_blocked() {
             "C:/Users/Alice/Android/Sdk/platforms/android-35",
             ProtectedCategory::ApplicationDurableData,
         ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Tencent/WeChat/bak",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Tencent/WXWork/Data/account-1/Profile",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Local/Tencent/QQ/webkit_cache",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/LarkShell/sdk_storage",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/DingTalk/userdata",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Local/Kingsoft/WPS Cloud Files/userdata/qing/cookie",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Local/Baidu/BaiduNetdisk/users/account-1/BaiduYunCacheFileV0.db",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Tencent/QQMusic/mmkv",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Tencent/QQLive/Local Storage",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Local/Tencent/QQMusic/WebkitCache",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Tencent/WeMeet/Global/Data/IndexedDB",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/LarkShell/Local Storage",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Roaming/Tencent/QQLive/Cache",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "C:/Users/Alice/AppData/Local/Baidu/BaiduNetdisk/users/account-1/cache",
+            ProtectedCategory::ApplicationDurableData,
+        ),
     ] {
         assert!(
             matches!(
@@ -244,6 +300,37 @@ fn maintenance_allowlists_keep_known_cache_paths_open() {
         "C:/Users/Alice/AppData/Roaming/Slack/Cache",
         "C:/Users/Alice/AppData/Roaming/Slack/Code Cache",
         "C:/Users/Alice/AppData/Roaming/Slack/GPUCache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WeChat/radium/cache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WeChat/WmpfCache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WeChat/radium/web/profiles/multitab_abc/Cache/Cache_Data",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WeChat/radium/web/profiles/web_shell/Cache/Cache_Data",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WXWork/Data/account-1/Cache/File/crash/MEMORY.DMP",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WXWork/Data/account-1/Cache/Image/capture/WXWorkCapture_1.jpg",
+        "C:/Users/Alice/AppData/Local/Tencent/QQ/Cache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/Cache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/Code Cache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/CodeCache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/GPUCache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/DawnCache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/GraphiteDawnCache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/GrShaderCache",
+        "C:/Users/Alice/AppData/Roaming/LarkShell/ShaderCache",
+        "C:/Users/Alice/AppData/Local/DingTalk_87/Cache",
+        "C:/Users/Alice/AppData/Roaming/DingTalk/Cache",
+        "C:/Users/Alice/AppData/Roaming/DingTalk/account-1/resource_cache",
+        "C:/Users/Alice/AppData/Local/Kingsoft/Office6/cache/httpcache",
+        "C:/Users/Alice/AppData/Local/Kingsoft/WPS Cloud Files/userdata/qing/filecache",
+        "C:/Users/Alice/AppData/Local/Kingsoft/WPS Cloud Files/UserData/Default/WebCache/httpcache",
+        "C:/Users/Alice/AppData/Local/Baidu/BaiduNetdisk/cache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/Meeting/Cache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WeMeet/Global/Data/DynamicResourcePackage",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WeMeet/Global/Data/DynamicResource",
+        "C:/Users/Alice/AppData/Roaming/Tencent/QQMusic/Cache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/QQMusic/musiccache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/QQMusic/updatecache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/QQMusic/WhirlCache",
+        "C:/Users/Alice/AppData/Roaming/Tencent/QQLive/Image",
+        "C:/Users/Alice/AppData/Roaming/Tencent/WeChat/radium/web/profiles/web_shell/Cache/Cache_Data",
         "C:/Users/Alice/AppData/Local/Steam/htmlcache/Default/Cache",
         "C:/Windows/Prefetch",
         "C:/Windows/SoftwareDistribution/Download",
@@ -325,6 +412,43 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
         RuleTargetSpec::template("%APPDATA%\\Notion\\Code Cache"),
         RuleTargetSpec::template("%APPDATA%\\Postman\\GPUCache"),
         RuleTargetSpec::template("%APPDATA%\\Slack\\Cache"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\WeChat\\radium\\cache"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\WeChat\\WmpfCache"),
+        RuleTargetSpec::glob_template(
+            "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\multitab_*\\Cache\\Cache_Data",
+        ),
+        RuleTargetSpec::glob_template(
+            "%APPDATA%\\Tencent\\WXWork\\Data\\*\\Cache\\File\\*\\MEMORY.DMP",
+        ),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Tencent\\QQ\\Cache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\Cache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\Code Cache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\CodeCache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\GPUCache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\DawnCache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\GraphiteDawnCache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\GrShaderCache"),
+        RuleTargetSpec::template("%APPDATA%\\LarkShell\\ShaderCache"),
+        RuleTargetSpec::glob_template("%LOCALAPPDATA%\\DingTalk*\\Cache"),
+        RuleTargetSpec::glob_template("%APPDATA%\\DingTalk\\*\\resource_cache"),
+        RuleTargetSpec::glob_template("%LOCALAPPDATA%\\Kingsoft\\*\\cache\\http*"),
+        RuleTargetSpec::glob_template(
+            "%LOCALAPPDATA%\\Kingsoft\\WPS Cloud Files\\userdata\\*\\filecache",
+        ),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Baidu\\BaiduNetdisk\\cache"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\Meeting\\Cache"),
+        RuleTargetSpec::template(
+            "%APPDATA%\\Tencent\\WeMeet\\Global\\Data\\DynamicResourcePackage",
+        ),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\WeMeet\\Global\\Data\\DynamicResource"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\QQMusic\\Cache"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\QQMusic\\musiccache"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\QQMusic\\updatecache"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\QQMusic\\WhirlCache"),
+        RuleTargetSpec::template("%APPDATA%\\Tencent\\QQLive\\Image"),
+        RuleTargetSpec::template(
+            "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\web_shell\\Cache\\Cache_Data",
+        ),
         RuleTargetSpec::template("%WINDIR%\\Temp"),
         RuleTargetSpec::template("%WINDIR%\\Prefetch"),
         RuleTargetSpec::template("%WINDIR%\\SoftwareDistribution\\Download"),
@@ -381,6 +505,56 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
         ),
         (
             RuleTargetSpec::template("%APPDATA%\\Figma\\Network"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Tencent\\WeChat\\bak"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Tencent\\WXWork\\Data"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Tencent\\QQ\\webkit_cache"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\LarkShell\\sdk_storage"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\DingTalk\\userdata"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template(
+                "%LOCALAPPDATA%\\Kingsoft\\WPS Cloud Files\\userdata\\qing\\cookie",
+            ),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Baidu\\BaiduNetdisk\\users"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Tencent\\QQMusic\\mmkv"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Tencent\\QQMusic\\WebkitCache"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Tencent\\QQLive\\IndexedDB"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Tencent\\WeMeet\\Global\\Data\\IndexedDB"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%APPDATA%\\Tencent\\QQLive\\Cache"),
             ProtectedCategory::ApplicationDurableData,
         ),
         (

@@ -1,0 +1,43 @@
+id = "windows.feishu-cache"
+platform = "windows"
+category = "application"
+name = "Feishu cache"
+safety_level = "safe"
+restore_hint = "Feishu caches will be rebuilt on launch."
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\CodeCache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\GPUCache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\DawnCache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\GraphiteDawnCache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\GrShaderCache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\ShaderCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from Mole's Feishu cache behavior reference and Windows LarkShell cache-directory inspection. Rewritten for Rebecca; cache leaves only and intentionally avoids sdk_storage, Local Storage, IndexedDB, Session Storage, account data, and document data."

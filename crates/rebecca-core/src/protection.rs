@@ -507,6 +507,7 @@ fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
         || is_sccache_cache_path(&segments)
         || is_go_cache_path(&segments)
         || is_android_cache_path(&segments)
+        || is_domestic_desktop_app_cache_path(&segments)
         || is_python_package_manager_cache_path(&segments)
         || is_node_package_manager_cache_path(&segments)
         || is_dotnet_package_manager_cache_path(&segments)
@@ -601,6 +602,140 @@ fn is_android_cache_path(segments: &[&str]) -> bool {
                     .get(index + 2)
                     .is_some_and(|segment| *segment == "caches")
         })
+}
+
+fn is_domestic_desktop_app_cache_path(segments: &[&str]) -> bool {
+    is_wechat_cache_path(segments)
+        || is_wxwork_cache_path(segments)
+        || is_qq_cache_path(segments)
+        || is_feishu_cache_path(segments)
+        || is_dingtalk_cache_path(segments)
+        || is_wps_cache_path(segments)
+        || is_baidu_netdisk_cache_path(segments)
+        || is_tencent_meeting_cache_path(segments)
+        || is_qqmusic_cache_path(segments)
+        || is_tencent_video_cache_path(segments)
+}
+
+fn is_wechat_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["tencent", "wechat", "radium", "cache"])
+        || has_sequence(segments, &["tencent", "wechat", "wmpfcache"])
+        || find_sequence(
+            segments,
+            &["tencent", "wechat", "radium", "web", "profiles"],
+        )
+        .is_some_and(|index| {
+            segments
+                .get(index + 5)
+                .is_some_and(|segment| segment.starts_with("multitab_") || *segment == "web_shell")
+                && segments
+                    .get(index + 6)
+                    .is_some_and(|segment| *segment == "cache")
+                && segments
+                    .get(index + 7)
+                    .is_some_and(|segment| *segment == "cache_data")
+        })
+}
+
+fn is_wxwork_cache_path(segments: &[&str]) -> bool {
+    find_sequence(segments, &["tencent", "wxwork", "data"]).is_some_and(|index| {
+        segments
+            .get(index + 4)
+            .is_some_and(|segment| *segment == "cache")
+            && segments
+                .get(index + 5)
+                .is_some_and(|segment| matches!(*segment, "file" | "image"))
+    })
+}
+
+fn is_qq_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["tencent", "qq", "cache"])
+}
+
+fn is_feishu_cache_path(segments: &[&str]) -> bool {
+    find_segment(segments, "larkshell").is_some_and(|index| {
+        segments.get(index + 1).is_some_and(|segment| {
+            matches!(
+                *segment,
+                "cache"
+                    | "code cache"
+                    | "codecache"
+                    | "gpucache"
+                    | "dawncache"
+                    | "graphitedawncache"
+                    | "grshadercache"
+                    | "shadercache"
+            )
+        })
+    })
+}
+
+fn is_dingtalk_cache_path(segments: &[&str]) -> bool {
+    segments.iter().enumerate().any(|(index, segment)| {
+        segment.starts_with("dingtalk")
+            && (segments.get(index + 1).is_some_and(|next| *next == "cache")
+                || segments
+                    .get(index + 2)
+                    .is_some_and(|next| *next == "resource_cache"))
+    })
+}
+
+fn is_wps_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["kingsoft", "wps cloud files", "userdata"])
+        && segments.contains(&"filecache")
+        || find_segment(segments, "kingsoft").is_some_and(|index| {
+            segments
+                .get(index + 2)
+                .is_some_and(|segment| *segment == "cache")
+                && segments
+                    .get(index + 3)
+                    .is_some_and(|segment| segment.starts_with("http"))
+        })
+        || has_sequence(
+            segments,
+            &[
+                "kingsoft",
+                "wps cloud files",
+                "userdata",
+                "default",
+                "webcache",
+            ],
+        ) && segments
+            .last()
+            .is_some_and(|segment| segment.starts_with("http"))
+}
+
+fn is_baidu_netdisk_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["baidu", "baidunetdisk", "cache"])
+}
+
+fn is_tencent_meeting_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["tencent", "meeting", "cache"])
+        || has_sequence(
+            segments,
+            &[
+                "tencent",
+                "wemeet",
+                "global",
+                "data",
+                "dynamicresourcepackage",
+            ],
+        )
+        || has_sequence(
+            segments,
+            &["tencent", "wemeet", "global", "data", "dynamicresource"],
+        )
+}
+
+fn is_qqmusic_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["tencent", "qqmusic", "cache"])
+        || has_sequence(segments, &["tencent", "qqmusic", "musiccache"])
+        || has_sequence(segments, &["tencent", "qqmusic", "updatecache"])
+        || has_sequence(segments, &["tencent", "qqmusic", "whirlcache"])
+}
+
+fn is_tencent_video_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["tencent", "qqlive", "image"])
 }
 
 fn is_cargo_cache_path(segments: &[&str]) -> bool {
@@ -847,6 +982,7 @@ fn is_application_durable_data_path(segments: &[&str]) -> bool {
         || has_sequence(segments, &["steamapps", "workshop"])
         || has_sequence(segments, &["steamapps", "compatdata"])
         || has_sequence(segments, &["pypoetry", "cache", "virtualenvs"])
+        || is_domestic_desktop_app_durable_state_path(segments)
         || is_ccache_durable_state_path(segments)
         || is_conda_durable_state_path(segments)
         || is_rustup_durable_state_path(segments)
@@ -855,6 +991,23 @@ fn is_application_durable_data_path(segments: &[&str]) -> bool {
             segments,
             &["local storage", "indexeddb", "service worker", "network"],
         )
+}
+
+fn is_domestic_desktop_app_durable_state_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["tencent", "wechat"])
+        || has_sequence(segments, &["tencent", "wxwork"])
+        || has_sequence(segments, &["tencent", "qq"])
+        || has_sequence(segments, &["tencent", "meeting"])
+        || has_sequence(segments, &["tencent", "wemeet"])
+        || has_sequence(segments, &["tencent", "qqmusic"])
+        || has_sequence(segments, &["tencent", "qqlive"])
+        || has_sequence(segments, &["baidu", "baidunetdisk"])
+        || has_sequence(segments, &["kingsoft", "wps cloud files"])
+        || has_sequence(segments, &["kingsoft", "office"])
+        || has_sequence(segments, &["larkshell"])
+        || segments
+            .iter()
+            .any(|segment| segment.starts_with("dingtalk"))
 }
 
 fn is_ccache_durable_state_path(segments: &[&str]) -> bool {

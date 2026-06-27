@@ -593,6 +593,37 @@ fn purge_json_reports_cachedir_tag_artifacts() {
 }
 
 #[test]
+fn purge_human_output_shows_modified_time_for_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("modified at"));
+}
+
+#[test]
 fn purge_json_honors_exclude_flag() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");

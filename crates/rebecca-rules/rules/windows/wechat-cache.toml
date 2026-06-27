@@ -1,0 +1,27 @@
+id = "windows.wechat-cache"
+platform = "windows"
+category = "application"
+name = "WeChat cache"
+safety_level = "safe"
+restore_hint = "WeChat caches will be rebuilt when needed."
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\WeChat\\radium\\cache"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\WeChat\\WmpfCache"
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\multitab_*\\Cache\\Cache_Data"
+
+[[targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\web_shell\\Cache\\Cache_Data"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from Winapp2's Tencent WeChat entry, Mole's WeChat cache behavior reference, and Windows WeChat radium cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids account, backup, document, Local Storage, IndexedDB, and session data."

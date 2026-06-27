@@ -5,7 +5,7 @@ use std::fs;
 use rebecca_core::DeleteMode;
 use rebecca_core::applications::ApplicationDiscovery;
 use rebecca_core::executor::CleanupBackend;
-use rebecca_core::plan::CleanupTarget;
+use rebecca_core::plan::{CleanupTarget, CleanupTargetDeletionStyle};
 use rebecca_windows::{PrivilegeLevel, WindowsRecycleBinBackend};
 
 #[test]
@@ -52,6 +52,29 @@ fn recycle_bin_backend_preserves_target_directory() {
 
     assert_eq!(outcome.pending_reclaim_bytes, 5);
     assert!(cache.exists());
+    assert!(!child.exists());
+}
+
+#[test]
+fn recycle_bin_backend_deletes_whole_path_when_requested() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache = temp.path().join("cache");
+    let child = cache.join("entry.tmp");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(&child, b"trash").unwrap();
+
+    let target = CleanupTarget::allowed(
+        "windows.user-temp",
+        cache.clone(),
+        5,
+        DeleteMode::RecycleBin,
+    )
+    .with_deletion_style(CleanupTargetDeletionStyle::DeleteWholePath);
+    let backend = WindowsRecycleBinBackend::new();
+    let outcome = backend.delete(&target).unwrap();
+
+    assert_eq!(outcome.pending_reclaim_bytes, 5);
+    assert!(!cache.exists());
     assert!(!child.exists());
 }
 
