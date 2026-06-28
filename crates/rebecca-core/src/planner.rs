@@ -454,6 +454,7 @@ where
     let mut plan = CleanupPlan::empty(request.clone());
     plan.targets = candidates;
     plan.recompute_summary();
+    prune_scan_cache(context);
     Ok(plan)
 }
 
@@ -517,6 +518,7 @@ where
     let mut plan = CleanupPlan::empty(request.clone());
     plan.targets = plan_candidates;
     plan.recompute_summary();
+    prune_scan_cache(context);
     Ok(plan)
 }
 
@@ -583,6 +585,7 @@ where
     let mut plan = CleanupPlan::empty(request.clone());
     plan.targets = candidates;
     plan.recompute_summary();
+    prune_scan_cache(context);
     Ok(plan)
 }
 
@@ -992,6 +995,12 @@ where
     }
 
     Ok(report)
+}
+
+fn prune_scan_cache(context: PlanBuildContext<'_>) {
+    if let Some(scan_cache) = context.scan_cache() {
+        let _ = scan_cache.prune_with_policy(context.scan_cache_policy());
+    }
 }
 
 enum PathMeasureProgressEvent<'a> {

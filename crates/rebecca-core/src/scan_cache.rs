@@ -10,6 +10,7 @@ use crate::scan::ScanReport;
 
 pub const SCAN_CACHE_VERSION: u32 = 1;
 pub const DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS: u64 = 5 * 60;
+const SCAN_CACHE_PRUNE_BATCH_LIMIT: usize = 64;
 const SCAN_CACHE_DIR: &str = "scan";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +141,13 @@ pub enum ScanCacheLookup {
     Miss(ScanCacheMiss),
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScanCachePruneReport {
+    pub inspected: usize,
+    pub pruned: usize,
+    pub retained: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanCacheMiss {
     Missing,
@@ -191,6 +199,111 @@ impl ScanCacheStore {
 
     pub fn load(&self, root: &Path) -> ScanCacheLookup {
         self.load_with_policy(root, ScanCachePolicy::default())
+    }
+
+    pub fn prune(&self) -> ScanCachePruneReport {
+        self.prune_with_policy(ScanCachePolicy::default())
+    }
+
+    pub fn prune_with_policy(&self, policy: ScanCachePolicy) -> ScanCachePruneReport {
+        let mut report = ScanCachePruneReport::default();
+
+        let entries = match std::fs::read_dir(&self.root_dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return report;
+            }
+            Err(err) => {
+                tracing::debug!(
+                    path = %self.root_dir.display(),
+                    error = %err,
+                    "scan cache prune skipped"
+                );
+                return report;
+            }
+        };
+
+        for entry in entries.take(SCAN_CACHE_PRUNE_BATCH_LIMIT) {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(err) => {
+                    tracing::debug!(
+                        path = %self.root_dir.display(),
+                        error = %err,
+                        "scan cache prune skipped"
+                    );
+                    continue;
+                }
+            };
+
+            let cache_file = entry.path();
+            let is_json_cache = cache_file
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+            if !is_json_cache {
+                continue;
+            }
+
+            report.inspected = report.inspected.saturating_add(1);
+
+            let raw = match std::fs::read_to_string(&cache_file) {
+                Ok(raw) => raw,
+                Err(err) => {
+                    prune_cache_file(&cache_file);
+                    report.pruned = report.pruned.saturating_add(1);
+                    tracing::debug!(
+                        path = %cache_file.display(),
+                        error = %err,
+                        "scan cache prune removed unreadable record"
+                    );
+                    continue;
+                }
+            };
+
+            let record: ScanCacheRecord = match serde_json::from_str(&raw) {
+                Ok(record) => record,
+                Err(err) => {
+                    prune_cache_file(&cache_file);
+                    report.pruned = report.pruned.saturating_add(1);
+                    tracing::debug!(
+                        path = %cache_file.display(),
+                        error = %err,
+                        "scan cache prune removed corrupted record"
+                    );
+                    continue;
+                }
+            };
+
+            if self.cache_file_for(&record.root) != cache_file {
+                prune_cache_file(&cache_file);
+                report.pruned = report.pruned.saturating_add(1);
+                continue;
+            }
+
+            let fingerprint = match ScanCacheFingerprint::from_path(&record.root) {
+                Ok(fingerprint) => fingerprint,
+                Err(_) => {
+                    report.retained = report.retained.saturating_add(1);
+                    continue;
+                }
+            };
+
+            match record.miss_reason(&record.root, &fingerprint, policy, unix_now()) {
+                Some(reason) if reason.should_prune_cache_file() => {
+                    prune_cache_file(&cache_file);
+                    report.pruned = report.pruned.saturating_add(1);
+                }
+                Some(_) => {
+                    report.retained = report.retained.saturating_add(1);
+                }
+                None => {
+                    report.retained = report.retained.saturating_add(1);
+                }
+            }
+        }
+
+        report
     }
 
     pub fn load_with_policy(&self, root: &Path, policy: ScanCachePolicy) -> ScanCacheLookup {
@@ -529,6 +642,40 @@ mod tests {
 
         assert_eq!(lookup, ScanCacheLookup::Hit(report));
         assert!(store.cache_file_for(&root).exists());
+    }
+
+    #[test]
+    fn scan_cache_prune_removes_expired_directory_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let fresh_root = temp.path().join("fresh");
+        let stale_root = temp.path().join("stale");
+        std::fs::create_dir_all(&fresh_root).unwrap();
+        std::fs::create_dir_all(&stale_root).unwrap();
+        std::fs::write(fresh_root.join("file.bin"), b"fresh").unwrap();
+        std::fs::write(stale_root.join("file.bin"), b"stale").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let policy = ScanCachePolicy::new(1);
+        let report = ScanReport {
+            bytes_scanned: 5,
+            files_scanned: 1,
+            directories_scanned: 1,
+        };
+        store.store(&fresh_root, report).unwrap();
+        let mut stale_record = store.store(&stale_root, report).unwrap();
+        stale_record.written_at_unix_seconds = 0;
+        std::fs::write(
+            store.cache_file_for(&stale_root),
+            serde_json::to_vec_pretty(&stale_record).unwrap(),
+        )
+        .unwrap();
+
+        let prune_report = store.prune_with_policy(policy);
+
+        assert_eq!(prune_report.inspected, 2);
+        assert_eq!(prune_report.pruned, 1);
+        assert_eq!(prune_report.retained, 1);
+        assert!(store.cache_file_for(&fresh_root).exists());
+        assert!(!store.cache_file_for(&stale_root).exists());
     }
 
     #[test]

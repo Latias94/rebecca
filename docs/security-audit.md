@@ -2,7 +2,7 @@
 title: "Rebecca Cleanup Safety Audit"
 status: "active"
 created: "2026-06-24"
-last_updated: "2026-06-27"
+last_updated: "2026-06-28"
 ---
 
 # Rebecca Cleanup Safety Audit
@@ -42,11 +42,12 @@ The current design is safety-first:
   does not store file contents.
 
 The core destructive-operation boundaries, execution revalidation, bounded
-scan-cache lifecycle, catalog target-shape validation, protected-result audit
-round-trip, and first guardrailed catalog expansion batch are in place. Future
-cleanup families must continue to prove they stay inside those boundaries, but
-no remaining cleanup-system safety gap blocks the current Mole-like
-Windows-first scope.
+scan-cache lifecycle, including best-effort directory pruning after plan
+builds, catalog target-shape validation, protected-result audit round-trip,
+and first guardrailed catalog expansion batch are in place. Future cleanup
+families must continue to prove they stay inside those boundaries, but no
+remaining cleanup-system safety gap blocks the current Mole-like Windows-first
+scope.
 Release integrity is tracked separately from cleanup-runtime safety: the
 repository now has a GitHub Release workflow, SPDX SBOM generation, checksum
 generation, and build-provenance attestation path for official artifacts.

@@ -878,6 +878,54 @@ fn planner_rebuilds_expired_scan_cache_for_directory_targets_with_policy() {
 }
 
 #[test]
+fn planner_prunes_stale_scan_cache_records_before_plan_building() {
+    let fixture = PlannerFixture::new();
+    let fresh_root = fixture.root.join("fresh-target");
+    let stale_root = fixture.root.join("stale-target");
+    fixture.write("fresh-target/file.bin", b"fresh");
+    fixture.write("stale-target/file.bin", b"stale");
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    let policy = ScanCachePolicy::new(1);
+    let report = ScanReport {
+        bytes_scanned: 5,
+        files_scanned: 1,
+        directories_scanned: 1,
+    };
+    cache.store(&fresh_root, report).unwrap();
+    let mut stale_record = cache.store(&stale_root, report).unwrap();
+    stale_record.written_at_unix_seconds = 0;
+    fs::write(
+        cache.cache_file_for(&stale_root),
+        serde_json::to_vec_pretty(&stale_record).unwrap(),
+    )
+    .unwrap();
+
+    let rules = vec![custom_exact_path_rule(
+        "windows.fresh-target",
+        fresh_root.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation)
+            .with_scan_cache(&cache)
+            .with_scan_cache_policy(policy),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert!(cache.cache_file_for(&fresh_root).exists());
+    assert!(!cache.cache_file_for(&stale_root).exists());
+}
+
+#[test]
 fn planner_treats_scan_cache_write_failure_as_soft() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/cached.tmp", b"abc");
