@@ -4,7 +4,13 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "rebecca", version, about = "Windows-first cleanup CLI")]
+#[command(
+    name = "rebecca",
+    version,
+    about = "Windows-first cleanup CLI",
+    subcommand_required = true,
+    arg_required_else_help = true
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
