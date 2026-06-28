@@ -5,12 +5,13 @@ use rebecca_core::cache::{CachePurgeMode, CachePurgeReport, purge_app_cache};
 use rebecca_core::config::load_app_paths;
 
 use crate::cache_view::CachePurgeProjection;
+use crate::cli::OutputMode;
 use crate::output::format_bytes;
 
 #[derive(Debug)]
 pub struct CachePurgeOptions {
     pub dry_run: bool,
-    pub json: bool,
+    pub output_mode: OutputMode,
     pub yes: bool,
 }
 
@@ -23,9 +24,12 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
     };
     let report = purge_app_cache(&paths, mode)?;
 
-    if options.json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
-        return Ok(());
+    if options.output_mode.is_json() {
+        return crate::output::print_success("cache purge", "cache-purge-report", &report);
+    }
+
+    if options.output_mode.is_ndjson() {
+        return crate::output::print_success_event("cache purge", "cache-purge-report", &report);
     }
 
     print!("{}", render_cache_purge_report(&report));

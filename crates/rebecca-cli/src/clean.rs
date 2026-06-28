@@ -14,14 +14,15 @@ use rebecca_core::scan_cache::ScanCacheStore;
 use rebecca_core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean_view::ScanCacheProgressSummary;
-use crate::output::format_bytes;
+use crate::cli::OutputMode;
+use crate::output::{MachineErrorRendered, NdjsonEventWriter, format_bytes};
 use crate::{info, output};
 use rebecca_core::environment::SystemEnvironment;
 
 #[derive(Debug)]
 pub struct CleanOptions {
     pub dry_run: bool,
-    pub json: bool,
+    pub output_mode: OutputMode,
     pub yes: bool,
     pub no_progress: bool,
     pub scan_cache: bool,
@@ -35,7 +36,7 @@ pub struct CleanOptions {
 pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) request: PlanRequest,
     pub(crate) rules: &'a [RuleDefinition],
-    pub(crate) json: bool,
+    pub(crate) output_mode: OutputMode,
     pub(crate) yes: bool,
     pub(crate) no_progress: bool,
     pub(crate) scan_cache: bool,
@@ -70,7 +71,7 @@ pub fn run(options: CleanOptions) -> Result<()> {
     run_workflow(WorkflowRunOptions {
         request,
         rules: &catalog,
-        json: options.json,
+        output_mode: options.output_mode,
         yes: options.yes,
         no_progress: options.no_progress,
         scan_cache: options.scan_cache,
@@ -92,7 +93,13 @@ pub(crate) fn run_workflow_with_runtime_config(
 ) -> Result<()> {
     let cancellation = ScanCancellationToken::new();
     install_cancellation_handler(cancellation.clone())?;
-    let mut progress = PlanProgressReporter::new(!options.json && !options.no_progress);
+    let mut progress = PlanProgressReporter::new(
+        options.output_mode.is_human() && !options.no_progress,
+        options
+            .output_mode
+            .is_ndjson()
+            .then(|| NdjsonEventWriter::new("clean")),
+    );
     let applications = info::application_discovery();
     let protected_storage = runtime_config.app_paths.storage_entries();
     let protected_paths = merged_protected_paths(
@@ -113,6 +120,7 @@ pub(crate) fn run_workflow_with_runtime_config(
             context = context.with_scan_cache(store);
         }
     }
+    progress.started()?;
     let plan_result = build_cleanup_plan_with_context(
         &options.request,
         options.rules,
@@ -122,41 +130,66 @@ pub(crate) fn run_workflow_with_runtime_config(
         |event| progress.on_event(event),
     );
     progress.finish();
+    if let Some(err) = progress.take_event_error() {
+        return Err(err);
+    }
     let mut plan = match plan_result {
         Ok(plan) => plan,
         Err(err) => {
+            let event_writer = progress.into_event_writer();
             if matches!(&err, rebecca_core::RebeccaError::OperationCancelled(_)) {
-                println!("{}", options.cancellation_message);
-                return Ok(());
+                return finish_stream_with_cancellation(event_writer, options.cancellation_message);
             }
 
-            return Err(err.into());
+            return finish_stream_with_error(event_writer, err.into());
         }
     };
 
-    let scan_cache_summary = (!options.json).then(|| progress.scan_cache_summary());
+    let scan_cache_summary = options
+        .output_mode
+        .is_human()
+        .then(|| progress.scan_cache_summary());
+    let event_writer = progress.into_event_writer();
 
     if options.request.mode.is_dry_run() {
-        return output::print_plan(&plan, options.json, scan_cache_summary);
+        return output::print_plan_with_events(
+            &plan,
+            options.output_mode,
+            scan_cache_summary,
+            event_writer,
+        );
     }
 
     #[cfg(not(windows))]
     {
-        return Err(rebecca_core::RebeccaError::PlatformUnavailable(
+        let err = rebecca_core::RebeccaError::PlatformUnavailable(
             options.unsupported_execution_message.to_string(),
         )
-        .into());
+        .into();
+        return finish_stream_with_error(event_writer, err);
     }
 
     #[cfg(windows)]
     {
         if plan.summary.allowed_targets == 0 {
-            return output::print_plan(&plan, options.json, scan_cache_summary);
+            return output::print_plan_with_events(
+                &plan,
+                options.output_mode,
+                scan_cache_summary,
+                event_writer,
+            );
         }
 
-        if !options.yes && !confirm_cleanup(&plan, options.confirmation_kind)? {
-            println!("{}", options.cancellation_message);
-            return Ok(());
+        let confirmed = if options.yes {
+            true
+        } else {
+            match confirm_cleanup(&plan, options.confirmation_kind) {
+                Ok(confirmed) => confirmed,
+                Err(err) => return finish_stream_with_error(event_writer, err),
+            }
+        };
+        if !confirmed {
+            return finish_stream_with_cancellation(event_writer, options.cancellation_message);
         }
 
         let backend = rebecca_windows::WindowsRecycleBinBackend::new();
@@ -165,12 +198,45 @@ pub(crate) fn run_workflow_with_runtime_config(
         if !protected_paths.is_empty() {
             execution_policy = execution_policy.with_protected_paths(&protected_paths);
         }
-        execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy)?;
+        if let Err(err) =
+            execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy)
+        {
+            return finish_stream_with_error(event_writer, err.into());
+        }
 
-        HistoryStore::new(runtime_config.app_paths.history_file).append_plan(&plan)?;
+        if let Err(err) =
+            HistoryStore::new(runtime_config.app_paths.history_file).append_plan(&plan)
+        {
+            return finish_stream_with_error(event_writer, err.into());
+        }
 
-        output::print_plan(&plan, options.json, scan_cache_summary)
+        output::print_plan_with_events(&plan, options.output_mode, scan_cache_summary, event_writer)
     }
+}
+
+fn finish_stream_with_error(
+    event_writer: Option<NdjsonEventWriter>,
+    err: anyhow::Error,
+) -> Result<()> {
+    if let Some(mut writer) = event_writer {
+        writer.emit_error(&err)?;
+        return Err(MachineErrorRendered.into());
+    }
+
+    Err(err)
+}
+
+fn finish_stream_with_cancellation(
+    event_writer: Option<NdjsonEventWriter>,
+    message: &str,
+) -> Result<()> {
+    if let Some(mut writer) = event_writer {
+        writer.emit_cancelled(message)?;
+    } else {
+        println!("{message}");
+    }
+
+    Ok(())
 }
 
 fn merged_protected_paths(config_paths: &[PathBuf], cli_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -192,12 +258,14 @@ fn install_cancellation_handler(token: ScanCancellationToken) -> Result<()> {
 
 struct PlanProgressReporter {
     bar: Option<ProgressBar>,
+    event_writer: Option<NdjsonEventWriter>,
+    event_error: Option<anyhow::Error>,
     scanned_targets: u64,
     scan_cache_summary: ScanCacheProgressSummary,
 }
 
 impl PlanProgressReporter {
-    fn new(enabled: bool) -> Self {
+    fn new(enabled: bool, event_writer: Option<NdjsonEventWriter>) -> Self {
         let bar = enabled.then(|| {
             let bar = ProgressBar::new_spinner();
             bar.enable_steady_tick(Duration::from_millis(120));
@@ -207,13 +275,30 @@ impl PlanProgressReporter {
 
         Self {
             bar,
+            event_writer,
+            event_error: None,
             scanned_targets: 0,
             scan_cache_summary: ScanCacheProgressSummary::default(),
         }
     }
 
+    fn started(&mut self) -> Result<()> {
+        if let Some(writer) = &mut self.event_writer {
+            writer.emit_started()?;
+        }
+        Ok(())
+    }
+
     fn on_event(&mut self, event: PlanProgressEvent<'_>) {
         self.record_event(event);
+
+        if self.event_error.is_none() {
+            if let Some(writer) = &mut self.event_writer {
+                if let Err(err) = writer.emit_plan_progress(event) {
+                    self.event_error = Some(err);
+                }
+            }
+        }
 
         let Some(bar) = &self.bar else {
             return;
@@ -321,6 +406,14 @@ impl PlanProgressReporter {
         if let Some(bar) = &self.bar {
             bar.finish_and_clear();
         }
+    }
+
+    fn take_event_error(&mut self) -> Option<anyhow::Error> {
+        self.event_error.take()
+    }
+
+    fn into_event_writer(self) -> Option<NdjsonEventWriter> {
+        self.event_writer
     }
 }
 

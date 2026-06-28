@@ -80,7 +80,7 @@ fn purge_list_artifacts_human_reports_supported_selectors_without_loading_config
 #[test]
 fn purge_list_artifacts_json_reports_machine_readable_catalog() {
     let output = common::command::rebecca()
-        .args(["purge", "--list-artifacts", "--json"])
+        .args(["purge", "--list-artifacts", "--format", "json"])
         .output()
         .unwrap();
 
@@ -90,7 +90,7 @@ fn purge_list_artifacts_json_reports_machine_readable_catalog() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let artifacts = value.as_array().unwrap();
     assert!(artifacts.iter().any(|artifact| {
         artifact["artifact"] == "node_modules"
@@ -119,7 +119,8 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--root",
             workspace.to_str().unwrap(),
@@ -140,7 +141,7 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     );
     assert!(target_file.exists(), "purge should preview by default");
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "project-artifacts");
     assert_eq!(value["request"]["mode"], "dry-run");
     assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
@@ -262,7 +263,8 @@ fn purge_json_filters_selected_artifacts() {
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--root",
             workspace.to_str().unwrap(),
@@ -280,7 +282,7 @@ fn purge_json_filters_selected_artifacts() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["project_artifact_selectors"][0], "target");
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["estimated_bytes"], 4);
@@ -310,7 +312,8 @@ fn purge_json_filters_context_sensitive_vendor_artifacts() {
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--root",
             workspace.to_str().unwrap(),
@@ -328,7 +331,7 @@ fn purge_json_filters_context_sensitive_vendor_artifacts() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 1);
 
     let targets = value["targets"].as_array().unwrap();
@@ -365,7 +368,7 @@ min_age_days = 0
     );
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["purge", "--json", "--no-progress"])
+        .args(["purge", "--format", "json", "--no-progress"])
         .output()
         .unwrap();
 
@@ -375,7 +378,7 @@ min_age_days = 0
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(
         PathBuf::from(
             value["request"]["project_artifact_roots"][0]
@@ -425,7 +428,8 @@ min_age_days = 0
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--root",
             cli_workspace.to_str().unwrap(),
@@ -439,7 +443,7 @@ min_age_days = 0
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(
         PathBuf::from(
             value["request"]["project_artifact_roots"][0]
@@ -485,7 +489,8 @@ min_age_days = 30
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--max-depth",
             "3",
@@ -501,7 +506,7 @@ min_age_days = 30
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["project_artifact_max_depth"], 3);
     assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
     assert_eq!(value["summary"]["allowed_targets"], 1);
@@ -519,7 +524,8 @@ fn purge_json_skips_recent_artifacts_by_default() {
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--root",
             workspace.to_str().unwrap(),
@@ -533,7 +539,7 @@ fn purge_json_skips_recent_artifacts_by_default() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 0);
     assert_eq!(value["summary"]["skipped_targets"], 1);
     assert_eq!(value["summary"]["estimated_bytes"], 0);
@@ -560,7 +566,8 @@ fn purge_json_reports_cachedir_tag_artifacts() {
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--root",
             workspace.to_str().unwrap(),
@@ -576,7 +583,7 @@ fn purge_json_reports_cachedir_tag_artifacts() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(
         value["summary"]["estimated_bytes"],
@@ -633,7 +640,8 @@ fn purge_json_honors_exclude_flag() {
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--root",
             workspace.to_str().unwrap(),
@@ -649,7 +657,7 @@ fn purge_json_honors_exclude_flag() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 0);
     assert_eq!(value["summary"]["blocked_targets"], 1);
 
@@ -671,7 +679,13 @@ fn purge_rejects_missing_root() {
     let missing = temp.path().join("missing");
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["purge", "--json", "--root", missing.to_str().unwrap()])
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--root",
+            missing.to_str().unwrap(),
+        ])
         .output()
         .unwrap();
 
@@ -690,7 +704,8 @@ fn purge_rejects_unknown_artifact_selector() {
     let output = isolated::isolated_rebecca(&temp)
         .args([
             "purge",
-            "--json",
+            "--format",
+            "json",
             "--root",
             workspace.to_str().unwrap(),
             "--artifact",

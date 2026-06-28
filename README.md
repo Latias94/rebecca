@@ -56,7 +56,8 @@ Rebecca is designed to preview before deleting.
   parallelism so independent work does not fan out unchecked. When
   `--scan-cache` is enabled, human progress also reports scan-cache hits,
   misses, and skipped cache writes, and the final human plan output summarizes
-  those counts. JSON output never emits progress or scan-cache diagnostics.
+  those counts. Machine output never emits human progress text; use
+  `--format ndjson` for machine-readable lifecycle and scan-cache events.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for
   eligible regular-file targets and directory targets with fresh records.
   Cache misses, stale or expired records, and corrupted records are treated
@@ -75,30 +76,30 @@ Release artifact verification guidance lives in
 
 ```powershell
 cargo run -p rebecca-cli -- scan
-cargo run -p rebecca-cli -- scan --json
+cargo run -p rebecca-cli -- scan --format json
 cargo run -p rebecca-cli -- scan --category browser
 cargo run -p rebecca-cli -- scan --rule windows.thumbnail-cache
 
 cargo run -p rebecca-cli -- clean --dry-run
-cargo run -p rebecca-cli -- clean --dry-run --json --category system
+cargo run -p rebecca-cli -- clean --dry-run --format json --category system
 cargo run -p rebecca-cli -- clean --dry-run --no-progress --rule windows.edge-cache
-cargo run -p rebecca-cli -- clean --dry-run --json --scan-cache --rule windows.thumbnail-cache
-cargo run -p rebecca-cli -- clean --dry-run --json --allow-moderate --rule windows.npm-cache
-cargo run -p rebecca-cli -- clean --dry-run --json --allow-risky --rule windows.npm-cache
+cargo run -p rebecca-cli -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
+cargo run -p rebecca-cli -- clean --dry-run --format json --allow-moderate --rule windows.npm-cache
+cargo run -p rebecca-cli -- clean --dry-run --format json --allow-risky --rule windows.npm-cache
 cargo run -p rebecca-cli -- clean --dry-run --exclude "$env:APPDATA\Slack\Cache"
 cargo run -p rebecca-cli -- clean --yes --category system
 
 cargo run -p rebecca-cli -- apps scan
-cargo run -p rebecca-cli -- apps scan --json
+cargo run -p rebecca-cli -- apps scan --format json
 cargo run -p rebecca-cli -- apps scan --exclude "$env:LOCALAPPDATA\Example App\Cache"
 cargo run -p rebecca-cli -- apps clean
-cargo run -p rebecca-cli -- apps clean --json --dry-run
+cargo run -p rebecca-cli -- apps clean --format json --dry-run
 cargo run -p rebecca-cli -- apps clean --yes
 
 cargo run -p rebecca-cli -- purge
 cargo run -p rebecca-cli -- purge --list-artifacts
-cargo run -p rebecca-cli -- purge --list-artifacts --json
-cargo run -p rebecca-cli -- purge --json --root . --max-depth 6
+cargo run -p rebecca-cli -- purge --list-artifacts --format json
+cargo run -p rebecca-cli -- purge --format json --root . --max-depth 6
 cargo run -p rebecca-cli -- purge --root . --min-age-days 0
 cargo run -p rebecca-cli -- purge --root . --artifact target
 cargo run -p rebecca-cli -- purge --exclude "$PWD\target"
@@ -110,13 +111,29 @@ cargo run -p rebecca-cli -- completion zsh
 
 cargo run -p rebecca-cli -- history
 cargo run -p rebecca-cli -- history --limit 10
-cargo run -p rebecca-cli -- history --json
+cargo run -p rebecca-cli -- history --format json
 
 cargo run -p rebecca-cli -- config paths
-cargo run -p rebecca-cli -- cache purge --json
+cargo run -p rebecca-cli -- cache purge --format json
 cargo run -p rebecca-cli -- cache purge --yes
 cargo run -p rebecca-cli -- doctor permissions
 ```
+
+## CLI API
+
+Use `--format json` for GUI wrappers and automation that need one final result.
+Every machine-readable success response is wrapped in a `rebecca.cli.v1`
+envelope with `command`, `payload_kind`, `generated_at_unix_seconds`, and
+`data`. Fatal failures in JSON mode write a structured error envelope to
+stderr and exit non-zero.
+
+Use `--format ndjson` for long-running cleanup workflows when a caller wants
+progress. Each stdout line is a complete JSON event with a monotonic
+`sequence`, and the stream ends with a terminal `completed` or `error` event.
+Human progress text is not mixed into machine stdout.
+
+The contract, schemas, and examples live in
+[`docs/api/cli/v1`](docs/api/cli/v1/README.md).
 
 ## Install
 
@@ -202,8 +219,8 @@ Rule authoring notes live in [`docs/rule-authoring.md`](docs/rule-authoring.md).
 Rule metadata includes platform, category, safety level, restore hint, and
 provenance. Built-in rules use `source = "owned"` with
 `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface
-restore hints when available, and the JSON forms preserve those fields for
-script consumers. Human `history` output also summarizes the current history
+restore hints when available, and `--format json` preserves those fields under
+the CLI API envelope for script and GUI consumers. Human `history` output also summarizes the current history
 window by result counts and cleanup bytes, and highlights the largest cleanup
 runs for quick review. The catalog is embedded from TOML
 files and validated before it reaches the CLI. Reference projects under
@@ -306,7 +323,8 @@ By default, Rebecca uses standard Windows user directories:
 The full schema, path precedence, migration, and local-state ownership contract
 is documented in [Configuration And Local State Contract](docs/configuration.md).
 
-`rebecca config paths --json` also reports lifecycle metadata for these paths:
+`rebecca config paths --format json` also reports lifecycle metadata for these paths
+inside the CLI API v1 `data` payload:
 
 | Path | Lifecycle | Retention |
 |------|-----------|-----------|
@@ -318,8 +336,9 @@ is documented in [Configuration And Local State Contract](docs/configuration.md)
 `rebecca cache purge` operates only on Rebecca's configured rebuildable cache
 directory. It previews by default, requires `--yes` to delete direct cache
 contents, keeps the cache directory itself, reports lifecycle, entry-status,
-and issue-matrix details in human output and JSON output, and refuses to run if
-the cache path overlaps preserved configuration, state, or history paths.
+and issue-matrix details in human output and `--format json`, and refuses to
+run if the cache path overlaps preserved configuration, state, or history
+paths.
 
 Scan-cache records use a versioned JSON format under the rebuildable cache
 directory's `scan` subdirectory. The current v1 contract stores the scanned

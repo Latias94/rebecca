@@ -9,9 +9,20 @@ use rebecca_core::applications::{
 use rebecca_core::config::{AppPaths, load_app_paths};
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::{CleanupIssueSummary, CleanupTarget, CleanupTargetIssueReason};
+use serde::Serialize;
 
+use crate::cli::OutputMode;
 use crate::history_view::{HistoryAggregateSummary, HistoryProjection, HistoryRunHighlight};
 use crate::output::{format_bytes, format_issue_matrix_entry, restore_hint_suffix};
+
+#[derive(Debug, Serialize)]
+struct PermissionDiagnostic<'a> {
+    platform: &'a str,
+    platform_supported: bool,
+    cleanup_execution_supported: bool,
+    privilege_level: &'a str,
+    suggested_action: &'a str,
+}
 
 fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
     serde_json::json!({
@@ -24,14 +35,17 @@ fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
     })
 }
 
-pub fn print_history(json: bool, limit: Option<NonZeroUsize>) -> Result<()> {
+pub fn print_history(output_mode: OutputMode, limit: Option<NonZeroUsize>) -> Result<()> {
     let paths = load_app_paths()?;
     let store = HistoryStore::new(paths.history_file);
     let history = HistoryProjection::new(store.load()?, limit);
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(history.entries())?);
-        return Ok(());
+    if output_mode.is_json() {
+        return crate::output::print_success("history", "history-list", history.entries());
+    }
+
+    if output_mode.is_ndjson() {
+        return crate::output::print_success_event("history", "history-list", history.entries());
     }
 
     if history.is_empty() {
@@ -148,15 +162,17 @@ fn print_history_issue_targets(targets: &[CleanupTarget]) {
     }
 }
 
-pub fn print_config_paths(json: bool) -> Result<()> {
+pub fn print_config_paths(output_mode: OutputMode) -> Result<()> {
     let paths = load_app_paths()?;
 
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&config_paths_json(&paths))?
-        );
-        return Ok(());
+    if output_mode.is_json() {
+        let value = config_paths_json(&paths);
+        return crate::output::print_success("config paths", "config-paths", &value);
+    }
+
+    if output_mode.is_ndjson() {
+        let value = config_paths_json(&paths);
+        return crate::output::print_success_event("config paths", "config-paths", &value);
     }
 
     for entry in paths.storage_entries() {
@@ -172,9 +188,63 @@ pub fn print_config_paths(json: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn print_privilege_level() -> Result<()> {
+pub fn print_privilege_level(output_mode: OutputMode) -> Result<()> {
+    if output_mode.is_json() {
+        let diagnostic = permission_diagnostic();
+        return crate::output::print_success(
+            "doctor permissions",
+            "permissions-diagnostic",
+            &diagnostic,
+        );
+    }
+
+    if output_mode.is_ndjson() {
+        let diagnostic = permission_diagnostic();
+        return crate::output::print_success_event(
+            "doctor permissions",
+            "permissions-diagnostic",
+            &diagnostic,
+        );
+    }
+
     println!("Privilege level: {}", current_privilege_label());
     Ok(())
+}
+
+fn permission_diagnostic() -> PermissionDiagnostic<'static> {
+    let privilege_level = current_privilege_label();
+    PermissionDiagnostic {
+        platform: current_platform_label(),
+        platform_supported: cfg!(windows),
+        cleanup_execution_supported: cfg!(windows),
+        privilege_level,
+        suggested_action: permission_suggested_action(privilege_level),
+    }
+}
+
+fn permission_suggested_action(privilege_level: &str) -> &'static str {
+    match privilege_level {
+        "elevated" => "cleanup execution can use elevated Windows permissions",
+        "standard-user" => "run from an elevated shell if protected cleanup targets are blocked",
+        "unsupported-platform" => {
+            "cleanup execution is currently Windows-only; use preview commands on this platform"
+        }
+        _ => {
+            "permission level could not be determined; use dry-run preview before executing cleanup"
+        }
+    }
+}
+
+fn current_platform_label() -> &'static str {
+    if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "unsupported"
+    }
 }
 
 pub fn application_discovery() -> Box<dyn ApplicationDiscovery> {

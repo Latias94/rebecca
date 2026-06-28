@@ -18,6 +18,7 @@ indicatif.workspace = true
 ctrlc.workspace = true
 rebecca-core = { path = "../rebecca-core" }
 rebecca-rules = { path = "../rebecca-rules" }
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

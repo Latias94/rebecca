@@ -853,6 +853,7 @@ dependencies = [
  "rebecca-core",
  "rebecca-rules",
  "rebecca-windows",
+ "serde",
  "serde_json",
  "tempfile",
  "tracing",

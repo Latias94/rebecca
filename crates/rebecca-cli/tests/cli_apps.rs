@@ -58,7 +58,7 @@ fn apps_scan_json_builds_app_leftovers_plan() {
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
-        .args(["apps", "scan", "--json", "--no-progress"])
+        .args(["apps", "scan", "--format", "json", "--no-progress"])
         .output()
         .unwrap();
 
@@ -68,7 +68,7 @@ fn apps_scan_json_builds_app_leftovers_plan() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["request"]["mode"], "dry-run");
     assert_eq!(value["summary"]["allowed_targets"], 1);
@@ -101,7 +101,7 @@ fn apps_scan_json_builds_wechat_leftovers_plan() {
         .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
-        .args(["apps", "scan", "--json", "--no-progress"])
+        .args(["apps", "scan", "--format", "json", "--no-progress"])
         .output()
         .unwrap();
 
@@ -111,7 +111,7 @@ fn apps_scan_json_builds_wechat_leftovers_plan() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["estimated_bytes"], 3);
@@ -146,7 +146,14 @@ fn apps_clean_yes_deletes_wechat_leftover_cache_contents() {
         .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
-        .args(["apps", "clean", "--yes", "--json", "--no-progress"])
+        .args([
+            "apps",
+            "clean",
+            "--yes",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
         .output()
         .unwrap();
 
@@ -170,7 +177,7 @@ fn apps_clean_yes_deletes_wechat_leftover_cache_contents() {
         "durable app state must remain untouched"
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["request"]["mode"], "recycle-bin");
     assert_eq!(value["summary"]["completed_targets"], 1);
@@ -202,7 +209,8 @@ fn apps_clean_yes_respects_exclude_path_during_execution() {
             "apps",
             "clean",
             "--yes",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--exclude",
             cache_dir.to_str().unwrap(),
@@ -231,7 +239,7 @@ fn apps_clean_yes_respects_exclude_path_during_execution() {
         "allowed app cache directory should be emptied"
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["request"]["mode"], "recycle-bin");
     assert_eq!(value["summary"]["total_targets"], 2);
@@ -271,7 +279,8 @@ fn apps_scan_json_honors_exclude_flag() {
         .args([
             "apps",
             "scan",
-            "--json",
+            "--format",
+            "json",
             "--no-progress",
             "--exclude",
             cache.to_str().unwrap(),
@@ -285,7 +294,7 @@ fn apps_scan_json_honors_exclude_flag() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 0);
     assert_eq!(value["summary"]["blocked_targets"], 1);
 
@@ -342,7 +351,7 @@ fn apps_clean_defaults_to_preview_without_deleting() {
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
-        .args(["apps", "clean", "--json", "--no-progress"])
+        .args(["apps", "clean", "--format", "json", "--no-progress"])
         .output()
         .unwrap();
 
@@ -353,7 +362,7 @@ fn apps_clean_defaults_to_preview_without_deleting() {
     );
     assert!(cache_file.exists(), "apps clean should preview by default");
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["request"]["mode"], "dry-run");
     assert_eq!(value["summary"]["allowed_targets"], 1);
@@ -376,7 +385,14 @@ fn apps_clean_dry_run_blocks_rebecca_owned_storage_overlap() {
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
-        .args(["apps", "clean", "--dry-run", "--json", "--no-progress"])
+        .args([
+            "apps",
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--no-progress",
+        ])
         .output()
         .unwrap();
 
@@ -387,7 +403,7 @@ fn apps_clean_dry_run_blocks_rebecca_owned_storage_overlap() {
     );
     assert!(cache_file.exists(), "dry-run must not delete files");
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 0);
     assert_eq!(value["summary"]["blocked_targets"], 1);
     assert!(
@@ -417,7 +433,7 @@ fn apps_scan_empty_inventory_reports_empty_plan() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_APP_DISCOVERY", "none")
-        .args(["apps", "scan", "--json", "--no-progress"])
+        .args(["apps", "scan", "--format", "json", "--no-progress"])
         .output()
         .unwrap();
 
@@ -427,7 +443,7 @@ fn apps_scan_empty_inventory_reports_empty_plan() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["summary"]["total_targets"], 0);
     assert_eq!(value["summary"]["allowed_targets"], 0);

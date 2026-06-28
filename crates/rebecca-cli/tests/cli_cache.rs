@@ -13,7 +13,7 @@ fn cache_purge_json_defaults_to_preview_without_deleting() {
     fs::write(cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["cache", "purge", "--json"])
+        .args(["cache", "purge", "--format", "json"])
         .output()
         .unwrap();
 
@@ -24,7 +24,7 @@ fn cache_purge_json_defaults_to_preview_without_deleting() {
     );
     assert!(cache_dir.join("cache.bin").exists());
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["mode"], "dry-run");
     assert_eq!(value["deleted"], false);
     assert_eq!(value["cache_dir_lifecycle"], "rebuildable-cache");
@@ -80,7 +80,7 @@ fn cache_purge_yes_deletes_direct_contents_but_keeps_cache_dir() {
     fs::write(cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["cache", "purge", "--yes", "--json"])
+        .args(["cache", "purge", "--yes", "--format", "json"])
         .output()
         .unwrap();
 
@@ -92,7 +92,7 @@ fn cache_purge_yes_deletes_direct_contents_but_keeps_cache_dir() {
     assert!(cache_dir.exists());
     assert_eq!(fs::read_dir(&cache_dir).unwrap().count(), 0);
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["mode"], "delete");
     assert_eq!(value["deleted"], true);
     assert_eq!(value["cache_dir_exists"], true);
@@ -115,7 +115,7 @@ fn cache_purge_rejects_overlap_with_state_dir() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_CACHE_DIR", &state_dir)
-        .args(["cache", "purge", "--json"])
+        .args(["cache", "purge", "--format", "json"])
         .output()
         .unwrap();
 

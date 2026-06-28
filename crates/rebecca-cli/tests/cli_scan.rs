@@ -3,7 +3,7 @@ mod common;
 #[test]
 fn scan_json_lists_builtin_rules() {
     let output = common::command::rebecca()
-        .args(["scan", "--json"])
+        .args(["scan", "--format", "json"])
         .output()
         .unwrap();
 
@@ -12,7 +12,7 @@ fn scan_json_lists_builtin_rules() {
         "stderr: {}",
         common::support::stderr(&output)
     );
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let rules = value.as_array().expect("scan output should be an array");
     let ids = rules
         .iter()
@@ -40,7 +40,8 @@ fn scan_json_filters_by_category_and_rule() {
     let output = common::command::rebecca()
         .args([
             "scan",
-            "--json",
+            "--format",
+            "json",
             "--category",
             "browser",
             "--rule",
@@ -55,7 +56,7 @@ fn scan_json_filters_by_category_and_rule() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let rules = value.as_array().expect("scan output should be an array");
 
     assert_eq!(rules.len(), 1);

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebecca.local/schemas/cli/v1/payloads.schema.json",
+  "title": "Rebecca CLI API v1 payload families",
+  "type": "object",
+  "$defs": {
+    "payloadKind": {
+      "type": "string",
+      "enum": [
+        "app-leftovers-cleanup-plan",
+        "cache-purge-report",
+        "cleanup-plan",
+        "config-paths",
+        "history-list",
+        "permissions-diagnostic",
+        "project-artifact-catalog",
+        "project-artifact-cleanup-plan",
+        "rule-catalog"
+      ]
+    }
+  }
+}

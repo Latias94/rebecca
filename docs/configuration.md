@@ -120,8 +120,9 @@ Rebecca looks for `config.toml`; it is intentionally not a field inside
 ## Local State Ownership
 
 `AppPaths::storage_entries()` exposes the lifecycle and retention policy for
-Rebecca-owned storage. `rebecca config paths --json` includes this inventory
-under the `storage` field while preserving the top-level path fields.
+Rebecca-owned storage. `rebecca config paths --format json` returns a CLI API
+v1 success envelope whose `data.storage` field includes this inventory while
+preserving the existing path fields inside `data`.
 
 | Storage id | Default path | Lifecycle | Retention | Owner and mutation rules |
 |------------|--------------|-----------|-----------|--------------------------|
@@ -236,8 +237,10 @@ and write times. They are rebuildable optimization data, not an audit log.
 
 ## CLI Contract
 
-`rebecca config paths --json` is the stable machine-readable surface for storage
-locations. Existing top-level fields are intentionally stable:
+`rebecca config paths --format json` is the stable machine-readable surface for storage
+locations. It uses the CLI API v1 success envelope documented in
+`docs/api/cli/v1/`; the storage payload under `data` intentionally keeps these
+fields stable:
 
 - `config_dir`
 - `config_file`
@@ -246,9 +249,9 @@ locations. Existing top-level fields are intentionally stable:
 - `history_file`
 - `storage`
 
-The `storage` array contains `id`, `path`, `lifecycle`, and `retention` for each
-known Rebecca-owned path. Future additions should be additive unless a schema or
-CLI contract version is introduced.
+The `data.storage` array contains `id`, `path`, `lifecycle`, and `retention`
+for each known Rebecca-owned path. Future additions should be additive unless a
+schema or CLI contract version is introduced.
 
 Human output can be improved for readability, but it should keep the same
 storage labels and ordering unless there is a deliberate contract update.

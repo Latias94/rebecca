@@ -1,0 +1,15 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "event",
+  "command": "clean",
+  "sequence": 2,
+  "event_kind": "completed",
+  "generated_at_unix_seconds": 1782660000,
+  "payload_kind": "cleanup-plan",
+  "data": {
+    "summary": {
+      "total_targets": 1,
+      "allowed_targets": 1
+    }
+  }
+}

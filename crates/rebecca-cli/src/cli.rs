@@ -1,7 +1,39 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputMode {
+    Human,
+    Json,
+    Ndjson,
+}
+
+impl OutputMode {
+    pub(crate) fn is_human(self) -> bool {
+        matches!(self, Self::Human)
+    }
+
+    pub(crate) fn is_json(self) -> bool {
+        matches!(self, Self::Json)
+    }
+
+    pub(crate) fn is_ndjson(self) -> bool {
+        matches!(self, Self::Ndjson)
+    }
+}
+
+impl std::fmt::Display for OutputMode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            Self::Human => "human",
+            Self::Json => "json",
+            Self::Ndjson => "ndjson",
+        };
+        formatter.write_str(label)
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -12,6 +44,14 @@ use clap::{Args, Parser, Subcommand};
     arg_required_else_help = true
 )]
 pub struct Cli {
+    /// Select human text, JSON envelope, or NDJSON event output.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = OutputMode::Human,
+        global = true
+    )]
+    pub format: OutputMode,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -52,9 +92,6 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct ScanArgs {
-    /// Render machine-readable JSON.
-    #[arg(long)]
-    pub json: bool,
     /// Include a category. Can be repeated.
     #[arg(long = "category")]
     pub categories: Vec<String>,
@@ -101,9 +138,6 @@ pub struct CleanArgs {
     /// Preview the cleanup plan without deleting anything. This is the default unless --yes is set.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
-    /// Render machine-readable JSON.
-    #[arg(long)]
-    pub json: bool,
     /// Move allowed targets to the Recycle Bin instead of previewing.
     #[arg(long)]
     pub yes: bool,
@@ -120,9 +154,6 @@ pub struct PurgeArgs {
     /// Preview the purge plan without deleting anything.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
-    /// Render machine-readable JSON.
-    #[arg(long)]
-    pub json: bool,
     /// Delete project artifacts instead of previewing them.
     #[arg(long)]
     pub yes: bool,
@@ -154,9 +185,6 @@ pub struct PurgeArgs {
 
 #[derive(Debug, Args)]
 pub struct HistoryArgs {
-    /// Render machine-readable JSON.
-    #[arg(long)]
-    pub json: bool,
     /// Show only the most recent N history entries.
     #[arg(long)]
     pub limit: Option<NonZeroUsize>,
@@ -169,9 +197,6 @@ pub enum CacheCommand {
         /// Preview the purge without deleting anything.
         #[arg(long)]
         dry_run: bool,
-        /// Render machine-readable JSON.
-        #[arg(long)]
-        json: bool,
         /// Delete rebuildable cache entries instead of previewing them.
         #[arg(long)]
         yes: bool,
@@ -182,9 +207,6 @@ pub enum CacheCommand {
 pub enum AppsCommand {
     /// Preview leftover app cache data discovered from installed applications.
     Scan {
-        /// Render machine-readable JSON.
-        #[arg(long)]
-        json: bool,
         /// Disable human progress output while building the app leftovers plan.
         #[arg(long)]
         no_progress: bool,
@@ -200,9 +222,6 @@ pub enum AppsCommand {
         /// Preview the app leftovers plan without deleting anything.
         #[arg(short = 'n', long)]
         dry_run: bool,
-        /// Render machine-readable JSON.
-        #[arg(long)]
-        json: bool,
         /// Delete leftover app cache data instead of previewing it.
         #[arg(long)]
         yes: bool,
@@ -221,11 +240,7 @@ pub enum AppsCommand {
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
     /// Print config, state, cache, and history paths.
-    Paths {
-        /// Render machine-readable JSON.
-        #[arg(long)]
-        json: bool,
-    },
+    Paths,
 }
 
 #[derive(Debug, Subcommand)]

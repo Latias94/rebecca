@@ -18,12 +18,29 @@ mod scan;
 
 use cli::{
     AppsCommand, CacheCommand, CleanArgs, Cli, Command, CompletionArgs, ConfigCommand,
-    DoctorCommand, HistoryArgs, PurgeArgs, ScanArgs,
+    DoctorCommand, HistoryArgs, OutputMode, PurgeArgs, ScanArgs,
 };
 
-fn main() -> Result<()> {
+fn main() {
     init_tracing();
 
+    if let Err(err) = run() {
+        if err.downcast_ref::<output::MachineErrorRendered>().is_some() {
+            std::process::exit(1);
+        }
+
+        let cli = Cli::try_parse();
+        let (command, mode) = cli
+            .as_ref()
+            .ok()
+            .map(|cli| (command_name(&cli.command), command_output_mode(cli)))
+            .unwrap_or(("rebecca", OutputMode::Human));
+        output::render_error(command, mode, &err);
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = if std::env::args_os().len() <= 1 {
         let mut cmd = Cli::command();
         cmd.print_help()?;
@@ -34,37 +51,37 @@ fn main() -> Result<()> {
     };
 
     match cli.command {
-        Command::Scan(args) => run_scan(args),
-        Command::Clean(args) => run_clean(args),
-        Command::Purge(args) => run_purge(args),
-        Command::History(args) => run_history(args),
+        Command::Scan(args) => run_scan(args, cli.format),
+        Command::Clean(args) => run_clean(args, cli.format),
+        Command::Purge(args) => run_purge(args, cli.format),
+        Command::History(args) => run_history(args, cli.format),
         Command::Cache { command } => match command {
-            CacheCommand::Purge { dry_run, json, yes } => {
-                cache::purge(cache::CachePurgeOptions { dry_run, json, yes })
-            }
+            CacheCommand::Purge { dry_run, yes } => cache::purge(cache::CachePurgeOptions {
+                dry_run,
+                output_mode: cli.format,
+                yes,
+            }),
         },
         Command::Apps { command } => match command {
             AppsCommand::Scan {
-                json,
                 no_progress,
                 scan_cache,
                 exclude_paths,
             } => apps::scan(apps::AppsScanOptions {
-                json,
+                output_mode: cli.format,
                 no_progress,
                 scan_cache,
                 exclude_paths,
             }),
             AppsCommand::Clean {
                 dry_run,
-                json,
                 yes,
                 no_progress,
                 scan_cache,
                 exclude_paths,
             } => apps::clean(apps::AppsCleanOptions {
                 dry_run,
-                json,
+                output_mode: cli.format,
                 yes,
                 no_progress,
                 scan_cache,
@@ -72,23 +89,22 @@ fn main() -> Result<()> {
             }),
         },
         Command::Config { command } => match command {
-            ConfigCommand::Paths { json } => info::print_config_paths(json),
+            ConfigCommand::Paths => info::print_config_paths(cli.format),
         },
         Command::Doctor { command } => match command {
-            DoctorCommand::Permissions => info::print_privilege_level(),
+            DoctorCommand::Permissions => info::print_privilege_level(cli.format),
         },
         Command::Completion(args) => run_completion(args),
     }
 }
 
-fn run_scan(args: ScanArgs) -> Result<()> {
-    scan::run(args.json, args.categories, args.rules)
+fn run_scan(args: ScanArgs, global_mode: OutputMode) -> Result<()> {
+    scan::run(global_mode, args.categories, args.rules)
 }
 
-fn run_clean(args: CleanArgs) -> Result<()> {
+fn run_clean(args: CleanArgs, global_mode: OutputMode) -> Result<()> {
     let CleanArgs {
         dry_run,
-        json,
         yes,
         selection,
         execution,
@@ -96,7 +112,7 @@ fn run_clean(args: CleanArgs) -> Result<()> {
     } = args;
     clean::run(clean::CleanOptions {
         dry_run,
-        json,
+        output_mode: global_mode,
         yes,
         no_progress: execution.no_progress,
         scan_cache: execution.scan_cache,
@@ -108,10 +124,10 @@ fn run_clean(args: CleanArgs) -> Result<()> {
     })
 }
 
-fn run_purge(args: PurgeArgs) -> Result<()> {
+fn run_purge(args: PurgeArgs, global_mode: OutputMode) -> Result<()> {
     purge::run(purge::PurgeOptions {
         dry_run: args.dry_run,
-        json: args.json,
+        output_mode: global_mode,
         yes: args.yes,
         no_progress: args.no_progress,
         scan_cache: args.scan_cache,
@@ -124,8 +140,8 @@ fn run_purge(args: PurgeArgs) -> Result<()> {
     })
 }
 
-fn run_history(args: HistoryArgs) -> Result<()> {
-    info::print_history(args.json, args.limit)
+fn run_history(args: HistoryArgs, global_mode: OutputMode) -> Result<()> {
+    info::print_history(global_mode, args.limit)
 }
 
 fn run_completion(args: CompletionArgs) -> Result<()> {
@@ -144,4 +160,31 @@ fn init_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
+}
+
+fn command_output_mode(cli: &Cli) -> OutputMode {
+    cli.format
+}
+
+fn command_name(command: &Command) -> &'static str {
+    match command {
+        Command::Scan(_) => "scan",
+        Command::Clean(_) => "clean",
+        Command::Purge(_) => "purge",
+        Command::History(_) => "history",
+        Command::Cache { command } => match command {
+            CacheCommand::Purge { .. } => "cache purge",
+        },
+        Command::Apps { command } => match command {
+            AppsCommand::Scan { .. } => "apps scan",
+            AppsCommand::Clean { .. } => "apps clean",
+        },
+        Command::Config { command } => match command {
+            ConfigCommand::Paths => "config paths",
+        },
+        Command::Doctor { command } => match command {
+            DoctorCommand::Permissions => "doctor permissions",
+        },
+        Command::Completion(_) => "completion",
+    }
 }

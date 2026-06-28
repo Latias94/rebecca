@@ -8,13 +8,14 @@ use rebecca_core::project_artifacts::{
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
+use crate::cli::OutputMode;
 
 const PROJECT_ARTIFACT_RULES: &[RuleDefinition] = &[];
 
 #[derive(Debug)]
 pub struct PurgeOptions {
     pub dry_run: bool,
-    pub json: bool,
+    pub output_mode: OutputMode,
     pub yes: bool,
     pub no_progress: bool,
     pub scan_cache: bool,
@@ -28,7 +29,7 @@ pub struct PurgeOptions {
 
 pub fn run(options: PurgeOptions) -> Result<()> {
     if options.list_artifacts {
-        return print_project_artifact_catalog(options.json);
+        return print_project_artifact_catalog(options.output_mode);
     }
 
     let runtime_config = load_runtime_config()?;
@@ -51,7 +52,7 @@ pub fn run(options: PurgeOptions) -> Result<()> {
         WorkflowRunOptions {
             request,
             rules: PROJECT_ARTIFACT_RULES,
-            json: options.json,
+            output_mode: options.output_mode,
             yes: options.yes,
             no_progress: options.no_progress,
             scan_cache: options.scan_cache,
@@ -64,10 +65,10 @@ pub fn run(options: PurgeOptions) -> Result<()> {
     )
 }
 
-fn print_project_artifact_catalog(json: bool) -> Result<()> {
+fn print_project_artifact_catalog(output_mode: OutputMode) -> Result<()> {
     let definitions = all_project_artifact_definitions().collect::<Vec<_>>();
 
-    if json {
+    if output_mode.is_json() {
         let values = definitions
             .iter()
             .map(|definition| {
@@ -79,8 +80,22 @@ fn print_project_artifact_catalog(json: bool) -> Result<()> {
                 })
             })
             .collect::<Vec<_>>();
-        println!("{}", serde_json::to_string_pretty(&values)?);
-        return Ok(());
+        return crate::output::print_success("purge", "project-artifact-catalog", &values);
+    }
+
+    if output_mode.is_ndjson() {
+        let values = definitions
+            .iter()
+            .map(|definition| {
+                serde_json::json!({
+                    "artifact": definition.directory_name,
+                    "rule_id": definition.rule_id,
+                    "rule_suffix": project_artifact_rule_suffix(definition.rule_id),
+                    "restore_hint": definition.restore_hint,
+                })
+            })
+            .collect::<Vec<_>>();
+        return crate::output::print_success_event("purge", "project-artifact-catalog", &values);
     }
 
     println!("Supported project artifacts: {}", definitions.len());

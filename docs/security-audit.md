@@ -220,8 +220,10 @@ Current limitations:
 
 ## Dry Run, History, And Audit Data
 
-Dry-run is the primary operator contract. JSON output is stable and additive for
-current fields unless a future contract version exists.
+Dry-run is the primary operator contract. Machine-readable CLI output now uses
+the versioned `rebecca.cli.v1` API envelope documented in
+`docs/api/cli/v1/`. Breaking machine-output changes require a new CLI API
+version or an explicit pre-release contract migration.
 
 History is append-only JSONL. It records:
 
@@ -238,6 +240,13 @@ rule id, path, target-scoped reason, and restore hint when present. It includes
 execution-time revalidation outcomes such as `execution-target-missing`,
 `safety-policy-blocked`, and `execution-failed`, but does not expand arbitrary
 child-file listings.
+
+JSON and NDJSON machine modes follow the same privacy boundary: they may expose
+target-level paths already present in cleanup plans, status, byte estimates,
+reason codes, and scan-cache lifecycle events, but they must not emit file
+contents, credentials, tokens, browser databases, or arbitrary child-file
+listings. GUI wrappers should consume `--format ndjson` for progress instead
+of scraping human spinner text.
 
 History must not store file contents, credentials, tokens, browser databases, or
 arbitrary child-file listings. Scan-cache records are rebuildable optimization

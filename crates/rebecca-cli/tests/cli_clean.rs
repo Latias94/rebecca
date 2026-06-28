@@ -16,7 +16,8 @@ fn steam_dry_run_json_output(
     command.env("REBECCA_STEAM_DISCOVERY_PATH", &steam).args([
         "clean",
         "--dry-run",
-        "--json",
+        "--format",
+        "json",
         "--rule",
         case.rule_id,
     ]);
@@ -32,7 +33,7 @@ fn steam_dry_run_json_output(
         common::support::stderr(&output)
     );
 
-    serde_json::from_slice(&output.stdout).unwrap()
+    common::support::api_data(&output.stdout)
 }
 
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
@@ -110,7 +111,14 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
         .env("TEMP", &temp_cache)
         .env("LOCALAPPDATA", temp.path().join("local"))
         .env("APPDATA", temp.path().join("roaming"))
-        .args(["clean", "--dry-run", "--json", "--category", "system"])
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--category",
+            "system",
+        ])
         .output()
         .unwrap();
 
@@ -121,7 +129,7 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     );
     assert!(file.exists(), "dry-run must not delete files");
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["mode"], "dry-run");
     assert!(value["summary"]["allowed_targets"].as_u64().unwrap() >= 1);
 }
@@ -137,7 +145,7 @@ fn clean_defaults_to_preview_without_deleting() {
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
-        .args(["clean", "--json", "--category", "system"])
+        .args(["clean", "--format", "json", "--category", "system"])
         .output()
         .unwrap();
 
@@ -148,7 +156,7 @@ fn clean_defaults_to_preview_without_deleting() {
     );
     assert!(file.exists(), "clean should preview by default");
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["mode"], "dry-run");
     assert!(value["summary"]["allowed_targets"].as_u64().unwrap() >= 1);
 }
@@ -162,7 +170,8 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.slack-cache",
         ])
@@ -175,7 +184,7 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 3);
     assert_eq!(value["summary"]["skipped_targets"], 0);
     assert_eq!(value["summary"]["estimated_bytes"], 9);
@@ -215,7 +224,8 @@ fn clean_dry_run_json_reports_wechat_cache_rule() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.wechat-cache",
         ])
@@ -228,7 +238,7 @@ fn clean_dry_run_json_reports_wechat_cache_rule() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 4);
     assert_eq!(value["summary"]["allowed_targets"], 4);
     assert_eq!(value["summary"]["skipped_targets"], 0);
@@ -284,7 +294,8 @@ fn clean_dry_run_json_honors_exclude_flag() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.slack-cache",
             "--exclude",
@@ -299,7 +310,7 @@ fn clean_dry_run_json_honors_exclude_flag() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 3);
     assert_eq!(value["summary"]["allowed_targets"], 2);
     assert_eq!(value["summary"]["blocked_targets"], 1);
@@ -350,7 +361,8 @@ protected_paths = ['{}']
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.slack-cache",
         ])
@@ -363,7 +375,7 @@ protected_paths = ['{}']
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["allowed_targets"], 2);
     assert_eq!(value["summary"]["blocked_targets"], 1);
     assert!(value["targets"].as_array().unwrap().iter().any(|target| {
@@ -384,7 +396,8 @@ fn clean_exclude_rejects_relative_paths() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.user-temp",
             "--exclude",
@@ -414,7 +427,8 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.user-temp",
         ])
@@ -427,7 +441,7 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 2);
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["skipped_targets"], 1);
@@ -482,7 +496,8 @@ cache_dir = '{}'
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.user-temp",
         ])
@@ -495,7 +510,7 @@ cache_dir = '{}'
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["blocked_targets"], 1);
     assert!(
         value["summary"]["issue_matrix"]
@@ -735,7 +750,8 @@ fn clean_dry_run_does_not_write_scan_cache_by_default_for_file_targets() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.thumbnail-cache",
         ])
@@ -748,7 +764,7 @@ fn clean_dry_run_does_not_write_scan_cache_by_default_for_file_targets() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 5);
     assert!(!temp.path().join("rebecca-cache").join("scan").exists());
 }
@@ -769,7 +785,8 @@ fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.thumbnail-cache",
@@ -783,7 +800,7 @@ fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 5);
 
     let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
@@ -809,7 +826,8 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.edge-cache",
@@ -823,7 +841,7 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 4);
 
     let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
@@ -843,7 +861,8 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.edge-cache",
@@ -857,7 +876,7 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 99);
     assert!(value.get("scan_cache").is_none());
     assert!(value["summary"].get("scan_cache").is_none());
@@ -893,7 +912,8 @@ directory_record_max_age_seconds = 1
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.edge-cache",
@@ -930,7 +950,8 @@ directory_record_max_age_seconds = 1
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.edge-cache",
@@ -944,7 +965,7 @@ directory_record_max_age_seconds = 1
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 4);
 }
 
@@ -966,7 +987,8 @@ directory_record_max_age_seconds = 0
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.edge-cache",
@@ -1000,7 +1022,8 @@ fn clean_human_output_summarizes_scan_cache_activity() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.edge-cache",
@@ -1068,7 +1091,8 @@ directory_record_max_age_seconds = 1
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--scan-cache",
             "--rule",
             "windows.edge-cache",
@@ -1194,7 +1218,8 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--rule",
             "windows.steam-install-cache",
         ])
@@ -1207,7 +1232,7 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 1);
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["skipped_targets"], 0);
@@ -1241,7 +1266,8 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--allow-moderate",
             "--rule",
             "windows.npm-cache",
@@ -1255,7 +1281,7 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 2);
     assert_eq!(value["summary"]["allowed_targets"], 2);
     assert_eq!(value["summary"]["skipped_targets"], 0);
@@ -1284,7 +1310,8 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
         .args([
             "clean",
             "--dry-run",
-            "--json",
+            "--format",
+            "json",
             "--allow-risky",
             "--rule",
             "windows.npm-cache",
@@ -1298,7 +1325,7 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 2);
     assert_eq!(value["summary"]["allowed_targets"], 2);
     assert_eq!(value["summary"]["skipped_targets"], 0);
@@ -1316,7 +1343,14 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
 fn clean_unknown_rule_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated::isolated_rebecca(&temp)
-        .args(["clean", "--dry-run", "--json", "--rule", "missing.rule"])
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--rule",
+            "missing.rule",
+        ])
         .output()
         .unwrap();
 
@@ -1328,7 +1362,14 @@ fn clean_unknown_rule_returns_clear_error() {
 fn clean_unknown_category_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated::isolated_rebecca(&temp)
-        .args(["clean", "--dry-run", "--json", "--category", "missing"])
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--category",
+            "missing",
+        ])
         .output()
         .unwrap();
 

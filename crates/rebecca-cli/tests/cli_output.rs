@@ -11,7 +11,7 @@ mod isolated;
 fn config_paths_json_is_parseable() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated::isolated_rebecca(&temp)
-        .args(["config", "paths", "--json"])
+        .args(["config", "paths", "--format", "json"])
         .output()
         .unwrap();
 
@@ -20,7 +20,7 @@ fn config_paths_json_is_parseable() {
         "stderr: {}",
         common::support::stderr(&output)
     );
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
 
     assert!(
         value["config_file"]
@@ -78,7 +78,7 @@ history_file = "C:\\Rebecca\\State\\audit.jsonl"
         .env_remove("REBECCA_STATE_DIR")
         .env_remove("REBECCA_CACHE_DIR")
         .env_remove("REBECCA_HISTORY_FILE")
-        .args(["config", "paths", "--json"])
+        .args(["config", "paths", "--format", "json"])
         .output()
         .unwrap();
 
@@ -88,7 +88,7 @@ history_file = "C:\\Rebecca\\State\\audit.jsonl"
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert!(
         value["state_dir"]
             .as_str()
@@ -191,7 +191,7 @@ history_file = '{}'
 
     let output = isolated::isolated_rebecca(&temp)
         .env_remove("REBECCA_HISTORY_FILE")
-        .args(["history", "--json"])
+        .args(["history", "--format", "json"])
         .output()
         .unwrap();
 
@@ -201,7 +201,7 @@ history_file = '{}'
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value.as_array().unwrap().len(), 1);
 }
 

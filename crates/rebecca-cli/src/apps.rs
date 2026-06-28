@@ -4,12 +4,13 @@ use anyhow::Result;
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow};
+use crate::cli::OutputMode;
 
 const APP_LEFTOVER_RULES: &[RuleDefinition] = &[];
 
 #[derive(Debug)]
 pub struct AppsScanOptions {
-    pub json: bool,
+    pub output_mode: OutputMode,
     pub no_progress: bool,
     pub scan_cache: bool,
     pub exclude_paths: Vec<PathBuf>,
@@ -18,7 +19,7 @@ pub struct AppsScanOptions {
 #[derive(Debug)]
 pub struct AppsCleanOptions {
     pub dry_run: bool,
-    pub json: bool,
+    pub output_mode: OutputMode,
     pub yes: bool,
     pub no_progress: bool,
     pub scan_cache: bool,
@@ -32,7 +33,7 @@ pub fn scan(options: AppsScanOptions) -> Result<()> {
     run_workflow(WorkflowRunOptions {
         request,
         rules: APP_LEFTOVER_RULES,
-        json: options.json,
+        output_mode: options.output_mode,
         yes: false,
         no_progress: options.no_progress,
         scan_cache: options.scan_cache,
@@ -55,7 +56,7 @@ pub fn clean(options: AppsCleanOptions) -> Result<()> {
     run_workflow(WorkflowRunOptions {
         request,
         rules: APP_LEFTOVER_RULES,
-        json: options.json,
+        output_mode: options.output_mode,
         yes: options.yes,
         no_progress: options.no_progress,
         scan_cache: options.scan_cache,

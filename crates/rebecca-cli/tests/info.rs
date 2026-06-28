@@ -6,7 +6,7 @@ mod isolated;
 fn config_paths_json_is_parseable() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated::isolated_rebecca(&temp)
-        .args(["config", "paths", "--json"])
+        .args(["config", "paths", "--format", "json"])
         .output()
         .unwrap();
 
@@ -15,7 +15,7 @@ fn config_paths_json_is_parseable() {
         "stderr: {}",
         common::support::stderr(&output)
     );
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
 
     assert!(
         value["config_file"]

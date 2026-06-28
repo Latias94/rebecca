@@ -134,7 +134,7 @@ fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
 fn history_json_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated::isolated_rebecca(&temp)
-        .args(["history", "--json"])
+        .args(["history", "--format", "json"])
         .output()
         .unwrap();
 
@@ -143,7 +143,7 @@ fn history_json_is_empty_when_no_history_file_exists() {
         "stderr: {}",
         common::support::stderr(&output)
     );
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
 
     assert_eq!(value.as_array().unwrap().len(), 0);
 }
@@ -221,7 +221,7 @@ fn history_json_preserves_restore_hints() {
     std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["history", "--json"])
+        .args(["history", "--format", "json"])
         .output()
         .unwrap();
 
@@ -231,7 +231,7 @@ fn history_json_preserves_restore_hints() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let entries = value.as_array().unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(
@@ -247,7 +247,7 @@ fn history_json_preserves_execution_missing_issue_details() {
     write_history_entries(&history_path, &[missing_target_history_entry(100)]);
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["history", "--json"])
+        .args(["history", "--format", "json"])
         .output()
         .unwrap();
 
@@ -257,7 +257,7 @@ fn history_json_preserves_execution_missing_issue_details() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let entry = &value.as_array().unwrap()[0];
 
     assert_eq!(entry["summary"]["skipped_targets"], 1);
@@ -285,7 +285,7 @@ fn history_json_preserves_app_leftovers_workflow() {
     write_history_entries(&history_path, &[app_leftovers_history_entry(42)]);
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["history", "--json"])
+        .args(["history", "--format", "json"])
         .output()
         .unwrap();
 
@@ -295,7 +295,7 @@ fn history_json_preserves_app_leftovers_workflow() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let entry = &value.as_array().unwrap()[0];
 
     assert_eq!(entry["request"]["workflow"], "app-leftovers");
@@ -319,7 +319,7 @@ fn history_json_preserves_protected_issue_details() {
     write_history_entries(&history_path, &[protected_history_entry(99)]);
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["history", "--json"])
+        .args(["history", "--format", "json"])
         .output()
         .unwrap();
 
@@ -329,7 +329,7 @@ fn history_json_preserves_protected_issue_details() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let entry = &value.as_array().unwrap()[0];
 
     assert_eq!(entry["summary"]["blocked_targets"], 1);
@@ -716,7 +716,7 @@ fn history_json_limit_shows_most_recent_entries() {
     );
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["history", "--json", "--limit", "2"])
+        .args(["history", "--format", "json", "--limit", "2"])
         .output()
         .unwrap();
 
@@ -726,7 +726,7 @@ fn history_json_limit_shows_most_recent_entries() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     let entries = value.as_array().unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0]["recorded_at_unix_seconds"].as_u64().unwrap(), 20);

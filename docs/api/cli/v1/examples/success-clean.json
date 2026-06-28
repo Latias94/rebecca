@@ -1,0 +1,26 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "clean",
+  "payload_kind": "cleanup-plan",
+  "generated_at_unix_seconds": 1782660000,
+  "data": {
+    "request": {
+      "platform": "windows",
+      "mode": "dry-run",
+      "workflow": "rules"
+    },
+    "summary": {
+      "total_targets": 1,
+      "allowed_targets": 1,
+      "skipped_targets": 0,
+      "blocked_targets": 0,
+      "failed_targets": 0,
+      "completed_targets": 0,
+      "estimated_bytes": 5,
+      "freed_bytes": 0,
+      "pending_reclaim_bytes": 0
+    },
+    "targets": []
+  }
+}

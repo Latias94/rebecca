@@ -1,9 +1,219 @@
 use anyhow::Result;
 use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan};
+use rebecca_core::planner::PlanProgressEvent;
 use rebecca_core::{CleanupWorkflow, RuleDefinition};
+use serde::Serialize;
+use serde_json::json;
+use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::clean_view::{CleanPlanProjection, CleanTargetRow, ScanCacheProgressSummary};
+use crate::cli::OutputMode;
 use crate::purge_view::{ProjectArtifactPlanProjection, ProjectArtifactRow};
+
+const API_VERSION: &str = "rebecca.cli.v1";
+
+#[derive(Debug, Serialize)]
+struct SuccessEnvelope<'a, T: Serialize + ?Sized> {
+    api_version: &'static str,
+    kind: &'static str,
+    command: &'a str,
+    payload_kind: &'a str,
+    generated_at_unix_seconds: u64,
+    data: &'a T,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorEnvelope<'a> {
+    api_version: &'static str,
+    kind: &'static str,
+    command: &'a str,
+    generated_at_unix_seconds: u64,
+    error: ApiErrorBody<'a>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiErrorBody<'a> {
+    code: &'static str,
+    title: &'static str,
+    detail: String,
+    exit_code: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<&'a str>,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorEventEnvelope<'a> {
+    api_version: &'static str,
+    kind: &'static str,
+    command: &'a str,
+    sequence: u64,
+    event_kind: &'static str,
+    generated_at_unix_seconds: u64,
+    error: ApiErrorBody<'a>,
+}
+
+#[derive(Debug)]
+pub(crate) struct MachineErrorRendered;
+
+impl fmt::Display for MachineErrorRendered {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("machine-readable error already rendered")
+    }
+}
+
+impl std::error::Error for MachineErrorRendered {}
+
+pub(crate) fn print_success<T: Serialize + ?Sized>(
+    command: &str,
+    payload_kind: &str,
+    data: &T,
+) -> Result<()> {
+    let envelope = SuccessEnvelope {
+        api_version: API_VERSION,
+        kind: "success",
+        command,
+        payload_kind,
+        generated_at_unix_seconds: unix_now(),
+        data,
+    };
+    println!("{}", serde_json::to_string_pretty(&envelope)?);
+    Ok(())
+}
+
+pub(crate) fn render_error(command: &str, mode: OutputMode, err: &anyhow::Error) {
+    if mode.is_human() {
+        eprintln!("{err:#}");
+        return;
+    }
+
+    let error = classify_error(err);
+
+    match mode {
+        OutputMode::Human => unreachable!("human mode handled above"),
+        OutputMode::Json => {
+            let envelope = ErrorEnvelope {
+                api_version: API_VERSION,
+                kind: "error",
+                command,
+                generated_at_unix_seconds: unix_now(),
+                error,
+            };
+            match serde_json::to_string_pretty(&envelope) {
+                Ok(rendered) => eprintln!("{rendered}"),
+                Err(render_err) => eprintln!("{render_err}"),
+            }
+        }
+        OutputMode::Ndjson => {
+            let envelope = ErrorEventEnvelope {
+                api_version: API_VERSION,
+                kind: "event",
+                command,
+                sequence: 0,
+                event_kind: "error",
+                generated_at_unix_seconds: unix_now(),
+                error,
+            };
+            match serde_json::to_string(&envelope) {
+                Ok(rendered) => println!("{rendered}"),
+                Err(render_err) => eprintln!("{render_err}"),
+            }
+        }
+    }
+}
+
+fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
+    let detail = err.to_string();
+
+    if let Some(core_error) = err.downcast_ref::<rebecca_core::RebeccaError>() {
+        let (code, title) = match core_error {
+            rebecca_core::RebeccaError::InvalidRuleId(_) => {
+                ("invalid-rule-id", "Invalid cleanup rule")
+            }
+            rebecca_core::RebeccaError::InvalidCategory(_) => {
+                ("invalid-category", "Invalid cleanup category")
+            }
+            rebecca_core::RebeccaError::InvalidProjectArtifactSelector(_) => (
+                "invalid-project-artifact-selector",
+                "Invalid project artifact selector",
+            ),
+            rebecca_core::RebeccaError::ConfigRead { .. } => {
+                ("config-read-failed", "Configuration read failed")
+            }
+            rebecca_core::RebeccaError::ConfigParse { .. } => {
+                ("config-parse-failed", "Configuration parse failed")
+            }
+            rebecca_core::RebeccaError::HistoryCorrupted(_) => {
+                ("history-corrupted", "History record corrupted")
+            }
+            rebecca_core::RebeccaError::HistoryUnavailable(_) => {
+                ("history-unavailable", "History unavailable")
+            }
+            rebecca_core::RebeccaError::PlatformUnavailable(_) => {
+                ("platform-unavailable", "Platform unavailable")
+            }
+            rebecca_core::RebeccaError::OperationCancelled(_) => {
+                ("operation-cancelled", "Operation cancelled")
+            }
+            rebecca_core::RebeccaError::ScanFailed(_) => ("scan-failed", "Scan failed"),
+            rebecca_core::RebeccaError::ScanCacheUnavailable(_) => {
+                ("scan-cache-unavailable", "Scan cache unavailable")
+            }
+            rebecca_core::RebeccaError::SafetyBlocked(_) => {
+                ("safety-blocked", "Safety policy blocked cleanup")
+            }
+            rebecca_core::RebeccaError::ExecutionFailed(_) => {
+                ("execution-failed", "Cleanup execution failed")
+            }
+            rebecca_core::RebeccaError::PathExpansionFailed(_) => {
+                ("path-expansion-failed", "Path expansion failed")
+            }
+            rebecca_core::RebeccaError::ApplicationDiscoveryFailed(_) => (
+                "application-discovery-failed",
+                "Application discovery failed",
+            ),
+            rebecca_core::RebeccaError::RuleCatalogInvalid(_) => {
+                ("rule-catalog-invalid", "Rule catalog invalid")
+            }
+            rebecca_core::RebeccaError::Json(_) => ("json-error", "JSON processing failed"),
+            rebecca_core::RebeccaError::Io(_) => ("io-error", "I/O failed"),
+            rebecca_core::RebeccaError::UserDirsUnavailable => {
+                ("user-dirs-unavailable", "User directories unavailable")
+            }
+        };
+
+        return ApiErrorBody {
+            code,
+            title,
+            detail,
+            exit_code: 1,
+            source: Some("rebecca-core"),
+        };
+    }
+
+    let (code, title) = if detail.contains("invalid protected path") {
+        ("validation-error", "Validation failed")
+    } else if detail.contains("purge root") {
+        ("invalid-purge-root", "Invalid purge root")
+    } else {
+        ("internal-error", "Command failed")
+    };
+
+    ApiErrorBody {
+        code,
+        title,
+        detail,
+        exit_code: 1,
+        source: None,
+    }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
 
 pub fn print_rule_catalog(rules: &[&RuleDefinition]) {
     println!("Rebecca rules: {}", rules.len());
@@ -61,13 +271,20 @@ where
     }
 }
 
-pub(crate) fn print_plan(
+pub(crate) fn print_plan_with_events(
     plan: &CleanupPlan,
-    json: bool,
+    mode: OutputMode,
     scan_cache_summary: Option<ScanCacheProgressSummary>,
+    event_writer: Option<NdjsonEventWriter>,
 ) -> Result<()> {
-    if json {
-        println!("{}", serde_json::to_string_pretty(plan)?);
+    if mode.is_json() {
+        print_success("clean", cleanup_plan_payload_kind(plan), plan)?;
+        return Ok(());
+    }
+
+    if mode.is_ndjson() {
+        let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new("clean"));
+        writer.emit_completed(cleanup_plan_payload_kind(plan), plan)?;
         return Ok(());
     }
 
@@ -145,6 +362,207 @@ pub(crate) fn print_plan(
     }
 
     Ok(())
+}
+
+fn cleanup_plan_payload_kind(plan: &CleanupPlan) -> &'static str {
+    match plan.request.workflow {
+        CleanupWorkflow::Rules => "cleanup-plan",
+        CleanupWorkflow::AppLeftovers => "app-leftovers-cleanup-plan",
+        CleanupWorkflow::ProjectArtifacts => "project-artifact-cleanup-plan",
+    }
+}
+
+pub(crate) fn print_success_event<T: Serialize + ?Sized>(
+    command: &'static str,
+    payload_kind: &str,
+    data: &T,
+) -> Result<()> {
+    let mut writer = NdjsonEventWriter::new(command);
+    writer.emit_completed(payload_kind, data)
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct NdjsonEventWriter {
+    command: &'static str,
+    next_sequence: u64,
+}
+
+impl NdjsonEventWriter {
+    pub(crate) fn new(command: &'static str) -> Self {
+        Self {
+            command,
+            next_sequence: 0,
+        }
+    }
+
+    pub(crate) fn emit_started(&mut self) -> Result<()> {
+        self.emit_data("started", json!({}))
+    }
+
+    pub(crate) fn emit_plan_progress(&mut self, event: PlanProgressEvent<'_>) -> Result<()> {
+        match event {
+            PlanProgressEvent::TargetScanning { rule_id, path } => self.emit_data(
+                "target-scanning",
+                json!({
+                    "rule_id": rule_id,
+                    "path": path,
+                }),
+            ),
+            PlanProgressEvent::TargetFinished {
+                rule_id,
+                path,
+                status,
+                estimated_bytes,
+            } => self.emit_data(
+                "target-finished",
+                json!({
+                    "rule_id": rule_id,
+                    "path": path,
+                    "status": status,
+                    "estimated_bytes": estimated_bytes,
+                }),
+            ),
+            PlanProgressEvent::FileMeasured {
+                rule_id,
+                target_path,
+                path,
+                file_size,
+                files_scanned,
+                bytes_scanned,
+            } => self.emit_data(
+                "file-measured",
+                json!({
+                    "rule_id": rule_id,
+                    "target_path": target_path,
+                    "path": path,
+                    "file_size": file_size,
+                    "files_scanned": files_scanned,
+                    "bytes_scanned": bytes_scanned,
+                }),
+            ),
+            PlanProgressEvent::ScanCacheHit {
+                rule_id,
+                path,
+                estimated_bytes,
+            } => self.emit_data(
+                "scan-cache-hit",
+                json!({
+                    "rule_id": rule_id,
+                    "path": path,
+                    "estimated_bytes": estimated_bytes,
+                }),
+            ),
+            PlanProgressEvent::ScanCacheMiss {
+                rule_id,
+                path,
+                reason,
+                pruned,
+            } => self.emit_data(
+                "scan-cache-miss",
+                json!({
+                    "rule_id": rule_id,
+                    "path": path,
+                    "reason": reason.label(),
+                    "pruned": pruned,
+                }),
+            ),
+            PlanProgressEvent::ScanCacheWriteSkipped { rule_id, path } => self.emit_data(
+                "scan-cache-write-skipped",
+                json!({
+                    "rule_id": rule_id,
+                    "path": path,
+                }),
+            ),
+            PlanProgressEvent::ScanCachePruned { report } => self.emit_data(
+                "scan-cache-pruned",
+                json!({
+                    "inspected": report.inspected,
+                    "pruned": report.pruned,
+                    "retained": report.retained,
+                }),
+            ),
+        }
+    }
+
+    pub(crate) fn emit_completed<T: Serialize + ?Sized>(
+        &mut self,
+        payload_kind: &str,
+        data: &T,
+    ) -> Result<()> {
+        #[derive(Serialize)]
+        struct CompletionEvent<'a, T: Serialize + ?Sized> {
+            api_version: &'static str,
+            kind: &'static str,
+            command: &'a str,
+            sequence: u64,
+            event_kind: &'static str,
+            generated_at_unix_seconds: u64,
+            payload_kind: &'a str,
+            data: &'a T,
+        }
+
+        let event = CompletionEvent {
+            api_version: API_VERSION,
+            kind: "event",
+            command: self.command,
+            sequence: self.take_sequence(),
+            event_kind: "completed",
+            generated_at_unix_seconds: unix_now(),
+            payload_kind,
+            data,
+        };
+        println!("{}", serde_json::to_string(&event)?);
+        Ok(())
+    }
+
+    pub(crate) fn emit_cancelled(&mut self, detail: &str) -> Result<()> {
+        self.emit_data("cancelled", json!({ "detail": detail }))
+    }
+
+    pub(crate) fn emit_error(&mut self, err: &anyhow::Error) -> Result<()> {
+        let event = ErrorEventEnvelope {
+            api_version: API_VERSION,
+            kind: "event",
+            command: self.command,
+            sequence: self.take_sequence(),
+            event_kind: "error",
+            generated_at_unix_seconds: unix_now(),
+            error: classify_error(err),
+        };
+        println!("{}", serde_json::to_string(&event)?);
+        Ok(())
+    }
+
+    fn emit_data(&mut self, event_kind: &'static str, data: serde_json::Value) -> Result<()> {
+        #[derive(Serialize)]
+        struct DataEvent<'a> {
+            api_version: &'static str,
+            kind: &'static str,
+            command: &'a str,
+            sequence: u64,
+            event_kind: &'static str,
+            generated_at_unix_seconds: u64,
+            data: serde_json::Value,
+        }
+
+        let event = DataEvent {
+            api_version: API_VERSION,
+            kind: "event",
+            command: self.command,
+            sequence: self.take_sequence(),
+            event_kind,
+            generated_at_unix_seconds: unix_now(),
+            data,
+        };
+        println!("{}", serde_json::to_string(&event)?);
+        Ok(())
+    }
+
+    fn take_sequence(&mut self) -> u64 {
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        sequence
+    }
 }
 
 fn print_project_artifact_details(plan: &CleanupPlan) {
