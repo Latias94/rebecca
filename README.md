@@ -44,6 +44,11 @@ Rebecca is designed to preview before deleting.
   for skipped, blocked, and failed targets; human `clean` and `history` output
   surface the issue matrix while preserving the detailed human-readable
   `reason` text.
+- Real cleanup revalidates executable targets immediately before backend
+  deletion. Targets that became protected are downgraded to blocked
+  `safety-policy-blocked` outcomes; targets that disappeared are skipped as
+  `execution-target-missing`; backend permission or IO errors are recorded as
+  failed `execution-failed` outcomes.
 - Human `clean` commands show target-level and file-level scan progress by
   default, and honor `Ctrl+C` to cancel plan building; use `--no-progress` for
   quiet terminal logs. Large scans and cleanup execution stay inside bounded
@@ -324,7 +329,8 @@ governed by a policy seam with a current 5-minute default, so the window can
 evolve without changing the on-disk record format. Missing,
 corrupted, stale, expired, or unsupported-version records are treated as cache
 misses and can be rebuilt. Stale or corrupted cache files are pruned when
-lookup discovers them.
+lookup discovers them, and plan builds also run a best-effort cache prune pass
+that reports pruned record counts in human output.
 
 The config file can override that directory freshness window:
 

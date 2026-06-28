@@ -29,7 +29,10 @@ The current design is safety-first:
   workflow that is separate from full uninstall behavior.
 - The planner validates paths through `rebecca-core::protection::ProtectionPolicy`.
 - The executor revalidates executable targets through the same policy before a
-  backend delete runs.
+  backend delete runs, then records deterministic outcomes: protected targets
+  become `safety-policy-blocked`, disappeared targets become
+  `execution-target-missing`, and backend permission or IO errors become
+  `execution-failed`.
 - Empty paths, traversal, filesystem roots, critical Windows paths, user profile
   roots, protected categories, Rebecca-owned storage, and existing reparse-like
   paths are blocked.
@@ -41,13 +44,13 @@ The current design is safety-first:
   codes, issue matrices, target-scoped issue reasons, and restore hints. It
   does not store file contents.
 
-The core destructive-operation boundaries, execution revalidation, bounded
-scan-cache lifecycle, including best-effort directory pruning after plan
-builds, catalog target-shape validation, protected-result audit round-trip,
-and first guardrailed catalog expansion batch are in place. Future cleanup
-families must continue to prove they stay inside those boundaries, but no
-remaining cleanup-system safety gap blocks the current Mole-like Windows-first
-scope.
+The core destructive-operation boundaries, bounded scan scheduling, execution
+revalidation and classification, scan-cache lifecycle with best-effort pruning
+after plan builds, catalog target-shape validation, protected-result audit
+round-trip, and first guardrailed catalog expansion batch are in place. Future
+cleanup families must continue to prove they stay inside those boundaries, but
+no remaining cleanup-system safety gap blocks the current Mole-like
+Windows-first scope.
 Release integrity is tracked separately from cleanup-runtime safety: the
 repository now has a GitHub Release workflow, SPDX SBOM generation, checksum
 generation, and build-provenance attestation path for official artifacts.
@@ -207,8 +210,8 @@ contents.
 
 Current limitations:
 
-- the backend does not yet classify all filesystem failures into rich safety
-  categories;
+- backend permission and IO failures are grouped as `execution-failed` rather
+  than more granular filesystem categories;
 - non-Windows execution is unavailable and returns a platform error.
 
 ## Dry Run, History, And Audit Data
@@ -227,8 +230,10 @@ History is append-only JSONL. It records:
 - restore hints.
 
 Human history output replays issue targets with status, stable reason code,
-rule id, path, target-scoped reason, and restore hint when present. It does not
-expand arbitrary child-file listings.
+rule id, path, target-scoped reason, and restore hint when present. It includes
+execution-time revalidation outcomes such as `execution-target-missing`,
+`safety-policy-blocked`, and `execution-failed`, but does not expand arbitrary
+child-file listings.
 
 History must not store file contents, credentials, tokens, browser databases, or
 arbitrary child-file listings. Scan-cache records are rebuildable optimization
