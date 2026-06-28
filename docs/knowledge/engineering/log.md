@@ -10,6 +10,7 @@
 * **Boundary ADRs**: Added workspace, Windows privilege/registry, and scan engine ADRs; updated memory bundle state.
 * **Safety and state ADRs**: Added deletion/recovery, rule provenance, and configuration/local-state ADRs.
 * **Workspace bootstrap**: Initialized the `rebecca` Rust workspace and verified it with `cargo fmt`, `cargo check --workspace`, and `cargo nextest run --workspace`.
+* **Cleanup-core hardening**: Hardened the existing Windows cleanup core by bounding planner-side parallel scans with a shared scan thread pool, pruning stale/corrupted scan-cache files on lookup, and refreshing the mature-contract docs/current-state memory. Verified with `cargo fmt --all`, `cargo nextest run -p rebecca-core --test scan_engine -p rebecca-core --test planner`, and `cargo nextest run --workspace` smoke coverage on the touched tests.
 * **State layout refinement**: Split local state and cache into distinct `state/` and `cache/` subdirectories under `%LOCALAPPDATA%\\Rebecca`.
 * **MVP implementation plan**: Added `docs/plans/2026-06-23-001-feat-windows-cleanup-mvp-plan.md` to define the first Windows cleanup loop: owned rules, path expansion, safety policy, parallel scan, Recycle Bin execution, history, CLI output, and tests.
 * **Windows cleanup MVP implementation**: Implemented the plan-first cleanup loop with typed rule targets, environment path expansion, safety policy, scanner, planner, execution backend contract, Windows Recycle Bin backend, history JSONL store, CLI commands, README, and 31 passing tests.

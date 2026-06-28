@@ -18,6 +18,7 @@ use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{PathDisposition, assess_existing_path_with_policy};
 use crate::scan::{
     ScanCancellationToken, ScanProgressEvent, ScanReport, measure_path_with_progress,
+    run_scoped_scan,
 };
 use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore};
 use rayon::prelude::*;
@@ -485,17 +486,19 @@ where
         });
     }
 
-    let mut candidates = filtered_artifacts
-        .into_par_iter()
-        .map(|artifact| {
-            measure_project_artifact_candidate(
-                artifact,
-                request.mode,
-                request.project_artifact_min_age_days,
-                context,
-            )
-        })
-        .collect::<Vec<_>>();
+    let candidates = run_scoped_scan(|| {
+        filtered_artifacts
+            .into_par_iter()
+            .map(|artifact| {
+                measure_project_artifact_candidate(
+                    artifact,
+                    request.mode,
+                    request.project_artifact_min_age_days,
+                    context,
+                )
+            })
+            .collect::<Vec<_>>()
+    });
 
     let mut plan_candidates = Vec::with_capacity(candidates.len());
     for measured in candidates {
@@ -556,10 +559,12 @@ where
         unique_leftovers.push(leftover);
     }
 
-    let mut measured_targets = unique_leftovers
-        .into_par_iter()
-        .map(|leftover| measure_app_leftover_candidate(leftover, request.mode, context))
-        .collect::<Vec<_>>();
+    let measured_targets = run_scoped_scan(|| {
+        unique_leftovers
+            .into_par_iter()
+            .map(|leftover| measure_app_leftover_candidate(leftover, request.mode, context))
+            .collect::<Vec<_>>()
+    });
 
     let mut candidates = duplicate_targets;
     for measured in measured_targets {
@@ -633,25 +638,6 @@ fn project_artifact_blocked_target(
     .with_modified_at_unix_seconds(artifact.modified_at_unix_seconds)
 }
 
-fn project_artifact_failed_target(
-    artifact: &ProjectArtifactCandidate,
-    mode: crate::DeleteMode,
-    reason_code: CleanupTargetIssueReason,
-    reason: impl Into<String>,
-) -> CleanupTarget {
-    CleanupTarget::failed_with_reason_code(
-        artifact.definition.rule_id,
-        artifact.path.clone(),
-        mode,
-        0,
-        reason_code,
-        reason,
-    )
-    .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
-    .with_deletion_style(crate::plan::CleanupTargetDeletionStyle::DeleteWholePath)
-    .with_modified_at_unix_seconds(artifact.modified_at_unix_seconds)
-}
-
 fn app_leftover_allowed_target(
     leftover: &AppLeftoverCandidate,
     estimated_bytes: u64,
@@ -704,25 +690,6 @@ fn app_leftover_blocked_target(
     .with_modified_at_unix_seconds(leftover.modified_at_unix_seconds)
 }
 
-fn app_leftover_failed_target(
-    leftover: &AppLeftoverCandidate,
-    mode: crate::DeleteMode,
-    reason_code: CleanupTargetIssueReason,
-    reason: impl Into<String>,
-) -> CleanupTarget {
-    CleanupTarget::failed_with_reason_code(
-        app_leftover_rule_id(leftover),
-        leftover.path.clone(),
-        mode,
-        0,
-        reason_code,
-        reason,
-    )
-    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
-    .with_deletion_style(crate::plan::CleanupTargetDeletionStyle::PreserveRootContents)
-    .with_modified_at_unix_seconds(leftover.modified_at_unix_seconds)
-}
-
 struct MeasuredTarget {
     target: CleanupTarget,
     file_progress: Vec<MeasuredFileProgress>,
@@ -756,7 +723,6 @@ fn measure_project_artifact_candidate(
         project_artifact_allowed_target,
         project_artifact_skipped_target,
         project_artifact_blocked_target,
-        project_artifact_failed_target,
     )
 }
 
@@ -773,11 +739,10 @@ fn measure_app_leftover_candidate(
         app_leftover_allowed_target,
         app_leftover_skipped_target,
         app_leftover_blocked_target,
-        app_leftover_failed_target,
     )
 }
 
-fn measure_project_candidate<T, Allowed, Skipped, Blocked, Failed>(
+fn measure_project_candidate<T, Allowed, Skipped, Blocked>(
     candidate: T,
     mode: crate::DeleteMode,
     min_age_days: u64,
@@ -785,14 +750,12 @@ fn measure_project_candidate<T, Allowed, Skipped, Blocked, Failed>(
     allowed_target: Allowed,
     skipped_target: Skipped,
     blocked_target: Blocked,
-    failed_target: Failed,
 ) -> Result<MeasuredTarget>
 where
     T: CandidatePath,
     Allowed: FnOnce(&T, u64, crate::DeleteMode) -> CleanupTarget,
     Skipped: FnOnce(&T, crate::DeleteMode, CleanupTargetIssueReason, String) -> CleanupTarget,
     Blocked: FnOnce(&T, crate::DeleteMode, CleanupTargetIssueReason, String) -> CleanupTarget,
-    Failed: FnOnce(&T, crate::DeleteMode, CleanupTargetIssueReason, String) -> CleanupTarget,
 {
     match T::assess(&candidate, context.protection_policy()) {
         CandidateDisposition::Allowed => {

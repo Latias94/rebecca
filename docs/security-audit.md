@@ -12,8 +12,9 @@ human-readable audit surface for destructive-operation boundaries, protected
 data categories, rule governance, history/audit behavior, and known limitations.
 
 Rebecca uses Mole as a safety-posture benchmark: prefer bounded cleanup, preview
-before deleting, block sensitive data categories, and keep the safety model
-auditable. Rebecca does not copy Mole implementation code or rule definitions.
+before deleting, block sensitive data categories, keep the safety model
+auditable, and prune stale scan-cache data as rebuildable state. Rebecca does
+not copy Mole implementation code or rule definitions.
 Security reporting guidance lives in the repository root `SECURITY.md`.
 
 ## Executive Summary
@@ -40,11 +41,12 @@ The current design is safety-first:
   codes, issue matrices, target-scoped issue reasons, and restore hints. It
   does not store file contents.
 
-The core destructive-operation boundaries, execution revalidation, catalog
-target-shape validation, protected-result audit round-trip, and first
-guardrailed catalog expansion batch are in place. Future cleanup families must
-continue to prove they stay inside those boundaries, but no remaining
-cleanup-system safety gap blocks the current Mole-like Windows-first scope.
+The core destructive-operation boundaries, execution revalidation, bounded
+scan-cache lifecycle, catalog target-shape validation, protected-result audit
+round-trip, and first guardrailed catalog expansion batch are in place. Future
+cleanup families must continue to prove they stay inside those boundaries, but
+no remaining cleanup-system safety gap blocks the current Mole-like
+Windows-first scope.
 Release integrity is tracked separately from cleanup-runtime safety: the
 repository now has a GitHub Release workflow, SPDX SBOM generation, checksum
 generation, and build-provenance attestation path for official artifacts.
@@ -229,7 +231,8 @@ expand arbitrary child-file listings.
 
 History must not store file contents, credentials, tokens, browser databases, or
 arbitrary child-file listings. Scan-cache records are rebuildable optimization
-data, not an audit log.
+data, not an audit log, and stale or corrupted cache files are pruned instead
+of being treated as durable state.
 
 ## Release Integrity
 

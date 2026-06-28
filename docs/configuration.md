@@ -132,8 +132,9 @@ under the `storage` field while preserving the top-level path fields.
 | `cache-dir` | `%LOCALAPPDATA%\Rebecca\cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may remove direct contents but must keep the directory itself. |
 
 The scan cache is a derived cache under `<cache_dir>\scan`. It stores versioned
-records for scan reuse and is safe to delete. It must not be treated as durable
-history.
+records for scan reuse and is safe to delete. Rebecca prunes stale, expired, or
+corrupted cache files on lookup and rebuilds them when needed. It must not be
+treated as durable history.
 
 ## Cache Purge Boundary
 

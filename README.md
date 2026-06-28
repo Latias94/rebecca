@@ -46,14 +46,16 @@ Rebecca is designed to preview before deleting.
   `reason` text.
 - Human `clean` commands show target-level and file-level scan progress by
   default, and honor `Ctrl+C` to cancel plan building; use `--no-progress` for
-  quiet terminal logs. When `--scan-cache` is enabled, human progress also
-  reports scan-cache hits, misses, and skipped cache writes, and the final
-  human plan output summarizes those counts. JSON output never emits progress
-  or scan-cache diagnostics.
+  quiet terminal logs. Large scans stay inside bounded parallelism so the
+  planner does not fan out unchecked. When `--scan-cache` is enabled, human
+  progress also reports scan-cache hits, misses, and skipped cache writes, and
+  the final human plan output summarizes those counts. JSON output never emits
+  progress or scan-cache diagnostics.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for
   eligible regular-file targets and directory targets with fresh records.
-  Cache misses, stale or expired records, corrupted records, and cache-write
-  failures are treated as soft rebuilds.
+  Cache misses, stale or expired records, and corrupted records are treated
+  as soft rebuilds, and stale cache files are pruned when they are discovered.
+  Cache-write failures stay soft.
 
 The current destructive-operation boundary and known safety gaps are documented
 in [Rebecca Cleanup Safety Audit](docs/security-audit.md).
@@ -317,7 +319,8 @@ records and freshness-bounded directory records. Directory freshness is
 governed by a policy seam with a current 5-minute default, so the window can
 evolve without changing the on-disk record format. Missing,
 corrupted, stale, expired, or unsupported-version records are treated as cache
-misses and can be rebuilt.
+misses and can be rebuilt. Stale or corrupted cache files are pruned when
+lookup discovers them.
 
 The config file can override that directory freshness window:
 

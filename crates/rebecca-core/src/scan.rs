@@ -1,11 +1,12 @@
 use std::path::Path;
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 
 use ignore::WalkBuilder;
 use rayon::prelude::*;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::TargetStatus;
@@ -17,6 +18,8 @@ use crate::safety::{PathDisposition, assess_existing_path};
 pub struct ScanCancellationToken {
     cancelled: Arc<AtomicBool>,
 }
+
+static SCAN_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
 impl ScanCancellationToken {
     pub fn new() -> Self {
@@ -240,10 +243,12 @@ pub fn scan_target(
 pub fn scan_targets(
     targets: Vec<(String, std::path::PathBuf, crate::DeleteMode)>,
 ) -> Vec<CleanupTarget> {
-    let mut scanned: Vec<_> = targets
-        .into_par_iter()
-        .map(|(rule_id, path, mode)| scan_target(rule_id, path, mode))
-        .collect();
+    let mut scanned: Vec<_> = run_scoped_scan(|| {
+        targets
+            .into_par_iter()
+            .map(|(rule_id, path, mode)| scan_target(rule_id, path, mode))
+            .collect()
+    });
 
     scanned.sort_by(|left, right| {
         left.rule_id
@@ -259,4 +264,53 @@ pub fn allowed_target_count(targets: &[CleanupTarget]) -> usize {
         .iter()
         .filter(|target| matches!(target.status, TargetStatus::Allowed))
         .count()
+}
+
+pub fn scan_parallelism_budget() -> usize {
+    std::thread::available_parallelism()
+        .map(|parallelism| parallelism.get().clamp(2, 8))
+        .unwrap_or(2)
+}
+
+pub(crate) fn run_scoped_scan<R, F>(work: F) -> R
+where
+    F: FnOnce() -> R + Send,
+    R: Send,
+{
+    scan_thread_pool().install(work)
+}
+
+fn scan_thread_pool() -> &'static ThreadPool {
+    SCAN_THREAD_POOL.get_or_init(|| {
+        ThreadPoolBuilder::new()
+            .num_threads(scan_parallelism_budget())
+            .build()
+            .expect("failed to build Rebecca scan thread pool")
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{run_scoped_scan, scan_parallelism_budget};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn scan_parallelism_budget_stays_bounded() {
+        let budget = scan_parallelism_budget();
+
+        assert!((2..=8).contains(&budget));
+    }
+
+    #[test]
+    fn run_scoped_scan_executes_work() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_ref = Arc::clone(&counter);
+
+        run_scoped_scan(move || {
+            counter_ref.fetch_add(1, Ordering::SeqCst);
+        });
+
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
 }

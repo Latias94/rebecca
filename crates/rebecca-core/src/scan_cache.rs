@@ -159,6 +159,10 @@ impl ScanCacheMiss {
             Self::MetadataUnavailable => "metadata-unavailable",
         }
     }
+
+    fn should_prune_cache_file(self) -> bool {
+        matches!(self, Self::Stale | Self::Expired | Self::Corrupted)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -195,20 +199,31 @@ impl ScanCacheStore {
             Err(_) => return ScanCacheLookup::Miss(ScanCacheMiss::MetadataUnavailable),
         };
         let cache_file = self.cache_file_for(root);
-        let raw = match std::fs::read_to_string(cache_file) {
+        let raw = match std::fs::read_to_string(&cache_file) {
             Ok(raw) => raw,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 return ScanCacheLookup::Miss(ScanCacheMiss::Missing);
             }
-            Err(_) => return ScanCacheLookup::Miss(ScanCacheMiss::Corrupted),
+            Err(_) => {
+                prune_cache_file(&cache_file);
+                return ScanCacheLookup::Miss(ScanCacheMiss::Corrupted);
+            }
         };
         let record: ScanCacheRecord = match serde_json::from_str(&raw) {
             Ok(record) => record,
-            Err(_) => return ScanCacheLookup::Miss(ScanCacheMiss::Corrupted),
+            Err(_) => {
+                prune_cache_file(&cache_file);
+                return ScanCacheLookup::Miss(ScanCacheMiss::Corrupted);
+            }
         };
 
         match record.miss_reason(root, &fingerprint, policy, unix_now()) {
-            Some(reason) => ScanCacheLookup::Miss(reason),
+            Some(reason) => {
+                if reason.should_prune_cache_file() {
+                    prune_cache_file(&cache_file);
+                }
+                ScanCacheLookup::Miss(reason)
+            }
             None => ScanCacheLookup::Hit(record.report),
         }
     }
@@ -256,6 +271,18 @@ fn write_cache_file(cache_file: &Path, raw: &[u8]) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn prune_cache_file(cache_file: &Path) {
+    if let Err(err) = std::fs::remove_file(cache_file) {
+        if err.kind() != std::io::ErrorKind::NotFound {
+            tracing::debug!(
+                path = %cache_file.display(),
+                error = %err,
+                "scan cache prune skipped"
+            );
+        }
+    }
 }
 
 fn replace_file(temp_file: &Path, cache_file: &Path) -> std::io::Result<()> {
@@ -378,6 +405,7 @@ mod tests {
         let lookup = store.load(&root);
 
         assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Corrupted));
+        assert!(!store.cache_file_for(&root).exists());
     }
 
     #[test]
@@ -402,6 +430,7 @@ mod tests {
         let lookup = store.load(&root);
 
         assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Stale));
+        assert!(!store.cache_file_for(&root).exists());
     }
 
     #[test]
@@ -444,6 +473,7 @@ mod tests {
         let lookup = store.load(&root);
 
         assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Stale));
+        assert!(!store.cache_file_for(&root).exists());
     }
 
     #[test]
@@ -471,6 +501,7 @@ mod tests {
         let lookup = store.load_with_policy(&root, policy);
 
         assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Expired));
+        assert!(!store.cache_file_for(&root).exists());
     }
 
     #[test]
@@ -497,6 +528,7 @@ mod tests {
         let lookup = store.load_with_policy(&root, policy);
 
         assert_eq!(lookup, ScanCacheLookup::Hit(report));
+        assert!(store.cache_file_for(&root).exists());
     }
 
     #[test]
