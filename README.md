@@ -98,6 +98,10 @@ cargo run -p rebecca-cli -- purge --root . --artifact target
 cargo run -p rebecca-cli -- purge --exclude "$PWD\target"
 cargo run -p rebecca-cli -- purge --yes --root . --scan-cache
 
+cargo run -p rebecca-cli -- completion powershell
+cargo run -p rebecca-cli -- completion bash
+cargo run -p rebecca-cli -- completion zsh
+
 cargo run -p rebecca-cli -- history
 cargo run -p rebecca-cli -- history --limit 10
 cargo run -p rebecca-cli -- history --json
