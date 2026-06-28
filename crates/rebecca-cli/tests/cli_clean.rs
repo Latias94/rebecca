@@ -127,6 +127,33 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
 }
 
 #[test]
+fn clean_defaults_to_preview_without_deleting() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    fs::create_dir_all(&temp_cache).unwrap();
+    let file = temp_cache.join("cache.tmp");
+    fs::write(&file, b"cache").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("TEMP", &temp_cache)
+        .args(["clean", "--json", "--category", "system"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(file.exists(), "clean should preview by default");
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["request"]["mode"], "dry-run");
+    assert!(value["summary"]["allowed_targets"].as_u64().unwrap() >= 1);
+}
+
+#[test]
 fn clean_dry_run_json_reports_slack_cache_rule() {
     let temp = tempfile::tempdir().unwrap();
     write_slack_cache_fixture(&temp);

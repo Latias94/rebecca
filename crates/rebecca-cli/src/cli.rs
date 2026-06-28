@@ -98,13 +98,13 @@ pub struct RiskArgs {
 
 #[derive(Debug, Args)]
 pub struct CleanArgs {
-    /// Preview the cleanup plan without deleting anything.
+    /// Preview the cleanup plan without deleting anything. This is the default unless --yes is set.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
     /// Render machine-readable JSON.
     #[arg(long)]
     pub json: bool,
-    /// Execute without an interactive confirmation prompt.
+    /// Move allowed targets to the Recycle Bin instead of previewing.
     #[arg(long)]
     pub yes: bool,
     #[command(flatten)]

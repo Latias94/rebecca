@@ -54,10 +54,10 @@ pub(crate) enum ConfirmationKind {
 }
 
 pub fn run(options: CleanOptions) -> Result<()> {
-    let mode = if options.dry_run {
-        DeleteMode::DryRun
-    } else {
+    let mode = if options.yes && !options.dry_run {
         DeleteMode::RecycleBin
+    } else {
+        DeleteMode::DryRun
     };
 
     let mut request = PlanRequest::for_platform(Platform::Windows, mode);
@@ -76,7 +76,7 @@ pub fn run(options: CleanOptions) -> Result<()> {
         scan_cache: options.scan_cache,
         exclude_paths: options.exclude_paths,
         cancellation_message: "Cleanup cancelled.",
-        unsupported_execution_message: "cleanup execution is Windows-only at this stage; use --dry-run to preview",
+        unsupported_execution_message: "cleanup execution is Windows-only at this stage; omit --yes to preview",
         confirmation_kind: ConfirmationKind::Cleanup,
     })
 }

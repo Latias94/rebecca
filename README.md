@@ -20,7 +20,8 @@ The current MVP supports:
 
 Rebecca is designed to preview before deleting.
 
-- `clean --dry-run` and real cleanup use the same plan builder.
+- `clean` previews by default, `clean --dry-run` makes that preview explicit,
+  and `clean --yes` uses the same plan builder before moving allowed targets.
 - `apps scan` and `apps clean` use the shared cleanup planner with a dedicated
   app-leftovers workflow. `apps clean` previews by default and requires `--yes`
   before moving leftover cache data to the Recycle Bin.

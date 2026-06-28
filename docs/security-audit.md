@@ -14,7 +14,10 @@ data categories, rule governance, history/audit behavior, and known limitations.
 Rebecca uses Mole as a safety-posture benchmark: prefer bounded cleanup, preview
 before deleting, block sensitive data categories, keep the safety model
 auditable, and prune stale scan-cache data as rebuildable state. Rebecca does
-not copy Mole implementation code or rule definitions.
+not copy Mole implementation code or rule definitions. Rebecca keeps a stricter
+non-interactive CLI contract than Mole's interactive cleanup flow: destructive
+Rebecca cleanup commands preview by default and require `--yes` before moving
+or deleting targets.
 Security reporting guidance lives in the repository root `SECURITY.md`.
 
 ## Executive Summary
@@ -24,7 +27,8 @@ loss from cleanup targets that are too broad, stale, or misclassified.
 
 The current design is safety-first:
 
-- `clean --dry-run` and real cleanup share the same planner.
+- `clean` previews by default, `clean --dry-run` makes that preview explicit,
+  and `clean --yes` shares the same planner before execution.
 - `apps scan` and `apps clean` share the planner through an app-leftovers
   workflow that is separate from full uninstall behavior.
 - The planner validates paths through `rebecca-core::protection::ProtectionPolicy`.
