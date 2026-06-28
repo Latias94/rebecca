@@ -2,9 +2,12 @@ use std::path::Path;
 
 use crate::protection::{ProtectionAssessment, ProtectionPolicy};
 
+pub const PATH_DOES_NOT_EXIST_REASON: &str = "path does not exist";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathDisposition {
     Allowed,
+    Missing,
     Skipped(String),
     Blocked(String),
 }
@@ -47,7 +50,8 @@ pub fn assess_existing_path_with_policy(
 
             PathDisposition::Allowed
         }
-        Err(_) => PathDisposition::Skipped("path does not exist".to_string()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => PathDisposition::Missing,
+        Err(err) => PathDisposition::Skipped(format!("failed to inspect path metadata: {err}")),
     }
 }
 

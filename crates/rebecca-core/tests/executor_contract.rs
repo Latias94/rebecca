@@ -248,7 +248,7 @@ fn executor_skips_missing_targets_before_backend_calls() {
     assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
     assert_eq!(
         plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicySkipped)
+        Some(CleanupTargetIssueReason::ExecutionTargetMissing)
     );
     assert!(
         plan.targets[0]
@@ -258,6 +258,10 @@ fn executor_skips_missing_targets_before_backend_calls() {
             .contains("path does not exist")
     );
     assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(
+        plan.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::ExecutionTargetMissing
+    );
 }
 
 #[test]
@@ -289,6 +293,43 @@ fn executor_allows_app_leftover_cache_targets_after_revalidation() {
     assert_eq!(backend.calls.get(), 1);
     assert_eq!(plan.targets[0].status, TargetStatus::Completed);
     assert_eq!(plan.targets[0].pending_reclaim_bytes, 5);
+}
+
+#[test]
+fn executor_skips_missing_app_leftover_targets_before_backend_calls() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing_cache_dir = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("Example App")
+        .join("Cache");
+    let mut plan = CleanupPlan::empty(
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
+            .with_workflow(CleanupWorkflow::AppLeftovers),
+    );
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.app-leftover-local-cache",
+        missing_cache_dir,
+        5,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    execute_cleanup_plan_with_policy(&mut plan, &backend, ProtectionPolicy::new()).unwrap();
+
+    assert_eq!(backend.calls.get(), 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionTargetMissing)
+    );
+    assert_eq!(
+        plan.targets[0].reason.as_deref(),
+        Some("path does not exist")
+    );
+    assert_eq!(plan.summary.skipped_targets, 1);
 }
 
 #[test]

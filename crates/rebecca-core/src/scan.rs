@@ -13,7 +13,7 @@ use crate::TargetStatus;
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
-use crate::safety::{PathDisposition, assess_existing_path};
+use crate::safety::{PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path};
 
 #[derive(Debug, Clone, Default)]
 pub struct ScanCancellationToken {
@@ -224,6 +224,13 @@ pub fn scan_target(
                 err.to_string(),
             ),
         },
+        PathDisposition::Missing => CleanupTarget::skipped_with_reason_code(
+            rule_id,
+            path,
+            mode,
+            CleanupTargetIssueReason::SafetyPolicySkipped,
+            PATH_DOES_NOT_EXIST_REASON,
+        ),
         PathDisposition::Skipped(reason) => CleanupTarget::skipped_with_reason_code(
             rule_id,
             path,

@@ -39,7 +39,7 @@ fn blocks_traversal_drive_roots_and_system_paths() {
 fn missing_existing_path_is_skipped() {
     let disposition = assess_existing_path(&PathBuf::from("C:/Rebecca/definitely-missing"));
 
-    assert!(matches!(disposition, PathDisposition::Skipped(_)));
+    assert!(matches!(disposition, PathDisposition::Missing));
 }
 
 #[test]

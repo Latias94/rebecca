@@ -81,6 +81,25 @@ fn protected_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
     entry
 }
 
+fn missing_target_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
+    let mut plan = CleanupPlan {
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        summary: CleanupSummary::default(),
+        targets: vec![CleanupTarget::skipped_with_reason_code(
+            "windows.user-temp",
+            std::path::PathBuf::from(r"C:\Users\Alice\AppData\Local\Temp\gone.tmp"),
+            DeleteMode::RecycleBin,
+            CleanupTargetIssueReason::ExecutionTargetMissing,
+            "path does not exist",
+        )],
+    };
+    plan.recompute_summary();
+
+    let mut entry = HistoryEntry::from_plan(&plan);
+    entry.recorded_at_unix_seconds = recorded_at_unix_seconds;
+    entry
+}
+
 fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
     let mut plan = CleanupPlan {
         request: PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
@@ -219,6 +238,44 @@ fn history_json_preserves_restore_hints() {
         entries[0]["targets"][0]["restore_hint"].as_str().unwrap(),
         "Temporary files can be recreated."
     );
+}
+
+#[test]
+fn history_json_preserves_execution_missing_issue_details() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(&history_path, &[missing_target_history_entry(100)]);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let entry = &value.as_array().unwrap()[0];
+
+    assert_eq!(entry["summary"]["skipped_targets"], 1);
+    assert!(
+        entry["summary"]["issue_matrix"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| issue["status"] == "skipped"
+                && issue["reason_code"] == "execution-target-missing"
+                && issue["targets"] == 1)
+    );
+    assert_eq!(entry["targets"][0]["status"], "skipped");
+    assert_eq!(
+        entry["targets"][0]["reason_code"],
+        "execution-target-missing"
+    );
+    assert_eq!(entry["targets"][0]["reason"], "path does not exist");
 }
 
 #[test]
@@ -423,6 +480,31 @@ fn history_human_output_lists_protected_issue_targets() {
     assert!(stdout.contains("blocked safety-policy-blocked: windows.custom-browser-history"));
     assert!(stdout.contains("Default\\History"));
     assert!(stdout.contains("browser private data is protected"));
+}
+
+#[test]
+fn history_human_output_lists_execution_missing_issue_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("rebecca-state").join("history.jsonl");
+    write_history_entries(&history_path, &[missing_target_history_entry(100)]);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["history"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Issue matrix:"));
+    assert!(stdout.contains("- skipped execution-target-missing: 1 target, 0 (0 B)"));
+    assert!(stdout.contains("skipped execution-target-missing: windows.user-temp"));
+    assert!(stdout.contains("gone.tmp"));
+    assert!(stdout.contains("path does not exist"));
 }
 
 #[test]

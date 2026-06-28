@@ -14,7 +14,9 @@ use crate::project_artifacts::{
     validate_project_artifact_selectors,
 };
 use crate::protection::ProtectionPolicy;
-use crate::safety::{PathDisposition, assess_existing_path_with_policy};
+use crate::safety::{
+    PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy,
+};
 use crate::scan::{ScanCancellationToken, run_scoped_scan};
 use crate::scan_cache::{ScanCacheMiss, ScanCachePolicy, ScanCachePruneReport, ScanCacheStore};
 use rayon::prelude::*;
@@ -421,6 +423,20 @@ where
                                 candidates.push(target);
                             }
                         }
+                    }
+                    PathDisposition::Missing => {
+                        let target = with_rule_restore_hint(
+                            CleanupTarget::skipped_with_reason_code(
+                                rule.id.clone(),
+                                expanded,
+                                request.mode,
+                                CleanupTargetIssueReason::SafetyPolicySkipped,
+                                PATH_DOES_NOT_EXIST_REASON,
+                            ),
+                            rule,
+                        );
+                        emit_target_finished(&mut progress, &target);
+                        candidates.push(target);
                     }
                     PathDisposition::Skipped(reason) => {
                         let target = with_rule_restore_hint(

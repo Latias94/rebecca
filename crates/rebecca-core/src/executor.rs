@@ -9,7 +9,9 @@ use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::path_overlap::paths_overlap;
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
-use crate::safety::{PathDisposition, assess_existing_path_with_policy};
+use crate::safety::{
+    PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy,
+};
 
 static CLEANUP_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
@@ -133,6 +135,10 @@ fn execution_target_is_still_allowed(
         CleanupWorkflow::Rules | CleanupWorkflow::ProjectArtifacts => {
             match assess_existing_path_with_policy(&target.path, policy) {
                 PathDisposition::Allowed => true,
+                PathDisposition::Missing => {
+                    mark_target_missing_before_execution(target);
+                    false
+                }
                 PathDisposition::Skipped(reason) => {
                     mark_target_skipped_by_policy(target, reason);
                     false
@@ -147,7 +153,7 @@ fn execution_target_is_still_allowed(
             match policy.assess_existing_app_leftover_path(&target.path) {
                 AppLeftoverPathDisposition::Allowed => true,
                 AppLeftoverPathDisposition::Missing => {
-                    mark_target_skipped_by_policy(target, "path does not exist".to_string());
+                    mark_target_missing_before_execution(target);
                     false
                 }
                 AppLeftoverPathDisposition::Blocked(reason) => {
@@ -157,6 +163,14 @@ fn execution_target_is_still_allowed(
             }
         }
     }
+}
+
+fn mark_target_missing_before_execution(target: &mut CleanupTarget) {
+    target.status = crate::TargetStatus::Skipped;
+    target.reason = Some(PATH_DOES_NOT_EXIST_REASON.to_string());
+    target.reason_code = Some(CleanupTargetIssueReason::ExecutionTargetMissing);
+    target.freed_bytes = 0;
+    target.pending_reclaim_bytes = 0;
 }
 
 fn mark_target_skipped_by_policy(target: &mut CleanupTarget, reason: String) {

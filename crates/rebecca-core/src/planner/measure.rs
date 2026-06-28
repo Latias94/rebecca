@@ -8,7 +8,9 @@ use crate::plan::{
 };
 use crate::project_artifacts::ProjectArtifactCandidate;
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
-use crate::safety::{PathDisposition, assess_existing_path_with_policy};
+use crate::safety::{
+    PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy,
+};
 use crate::scan::{ScanProgressEvent, ScanReport, measure_path_with_progress};
 use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss};
 
@@ -56,6 +58,9 @@ impl CandidatePath for ProjectArtifactCandidate {
     fn assess(candidate: &Self, policy: ProtectionPolicy<'_>) -> CandidateDisposition {
         match assess_existing_path_with_policy(&candidate.path, policy) {
             PathDisposition::Allowed => CandidateDisposition::Allowed,
+            PathDisposition::Missing => {
+                CandidateDisposition::Skipped(PATH_DOES_NOT_EXIST_REASON.to_string())
+            }
             PathDisposition::Skipped(reason) => CandidateDisposition::Skipped(reason),
             PathDisposition::Blocked(reason) => CandidateDisposition::Blocked(reason),
         }
@@ -75,7 +80,7 @@ impl CandidatePath for AppLeftoverCandidate {
         match policy.assess_existing_app_leftover_path(&candidate.path) {
             AppLeftoverPathDisposition::Allowed => CandidateDisposition::Allowed,
             AppLeftoverPathDisposition::Missing => {
-                CandidateDisposition::Skipped("path does not exist".to_string())
+                CandidateDisposition::Skipped(PATH_DOES_NOT_EXIST_REASON.to_string())
             }
             AppLeftoverPathDisposition::Blocked(reason) => CandidateDisposition::Blocked(reason),
         }

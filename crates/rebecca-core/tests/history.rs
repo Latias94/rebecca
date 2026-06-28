@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use rebecca_core::history::HistoryStore;
-use rebecca_core::plan::{CleanupPlan, CleanupTarget};
+use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
 #[test]
@@ -58,6 +58,42 @@ fn append_and_load_history_entries_preserve_protected_issue_details() {
     assert_eq!(
         entries[0].targets[0].reason.as_deref(),
         Some("browser private data is protected")
+    );
+}
+
+#[test]
+fn append_and_load_history_entries_preserve_execution_missing_issue_details() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = HistoryStore::new(temp.path().join("history.jsonl"));
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::skipped_with_reason_code(
+        "windows.user-temp",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Temp/gone.tmp"),
+        DeleteMode::RecycleBin,
+        CleanupTargetIssueReason::ExecutionTargetMissing,
+        "path does not exist",
+    ));
+    plan.recompute_summary();
+
+    store.append_plan(&plan).unwrap();
+
+    let entries = store.load().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].summary.skipped_targets, 1);
+    assert_eq!(
+        entries[0].summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::ExecutionTargetMissing
+    );
+    assert_eq!(
+        entries[0].targets[0].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionTargetMissing)
+    );
+    assert_eq!(
+        entries[0].targets[0].reason.as_deref(),
+        Some("path does not exist")
     );
 }
 
