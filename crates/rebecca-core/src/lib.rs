@@ -8,6 +8,7 @@ pub mod error;
 pub mod executor;
 pub mod history;
 pub mod model;
+mod parallelism;
 mod path_overlap;
 pub mod path_template;
 pub mod plan;

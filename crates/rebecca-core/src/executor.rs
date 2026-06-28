@@ -5,6 +5,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::error::Result;
 use crate::model::CleanupWorkflow;
+use crate::parallelism::bounded_parallelism_budget;
 use crate::path_overlap::paths_overlap;
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
@@ -231,9 +232,7 @@ fn path_depth(path: &std::path::Path) -> usize {
 }
 
 pub fn cleanup_parallelism_budget() -> usize {
-    std::thread::available_parallelism()
-        .map(|parallelism| parallelism.get().clamp(2, 8))
-        .unwrap_or(2)
+    bounded_parallelism_budget()
 }
 
 pub(crate) fn run_scoped_cleanup<R, F>(work: F) -> R
@@ -260,6 +259,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use crate::plan::{CleanupTarget, CleanupTargetDeletionStyle};
+    use crate::scan::scan_parallelism_budget;
     use crate::{DeleteMode, TargetStatus};
 
     #[test]
@@ -279,6 +279,11 @@ mod tests {
         });
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cleanup_and_scan_parallelism_budgets_match() {
+        assert_eq!(cleanup_parallelism_budget(), scan_parallelism_budget());
     }
 
     #[test]

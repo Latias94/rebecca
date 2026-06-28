@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::TargetStatus;
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
+use crate::parallelism::bounded_parallelism_budget;
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
 use crate::safety::{PathDisposition, assess_existing_path};
 
@@ -267,9 +268,7 @@ pub fn allowed_target_count(targets: &[CleanupTarget]) -> usize {
 }
 
 pub fn scan_parallelism_budget() -> usize {
-    std::thread::available_parallelism()
-        .map(|parallelism| parallelism.get().clamp(2, 8))
-        .unwrap_or(2)
+    bounded_parallelism_budget()
 }
 
 pub(crate) fn run_scoped_scan<R, F>(work: F) -> R
@@ -292,6 +291,7 @@ fn scan_thread_pool() -> &'static ThreadPool {
 #[cfg(test)]
 mod tests {
     use super::{run_scoped_scan, scan_parallelism_budget};
+    use crate::executor::cleanup_parallelism_budget;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -312,5 +312,10 @@ mod tests {
         });
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn scan_and_cleanup_parallelism_budgets_match() {
+        assert_eq!(scan_parallelism_budget(), cleanup_parallelism_budget());
     }
 }
