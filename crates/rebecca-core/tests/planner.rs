@@ -559,6 +559,12 @@ fn planner_reports_target_scan_progress() {
                 PlanProgressEvent::ScanCacheWriteSkipped { rule_id, .. } => {
                     events.push(format!("cache-write-skipped:{rule_id}"));
                 }
+                PlanProgressEvent::ScanCachePruned { report } => {
+                    events.push(format!(
+                        "cache-pruned:{}:{}:{}",
+                        report.inspected, report.pruned, report.retained
+                    ));
+                }
             }
         })
         .unwrap();
@@ -583,6 +589,65 @@ fn planner_reports_target_scan_progress() {
         events
             .iter()
             .any(|event| event == "file:windows.user-temp:1:3")
+    );
+}
+
+#[test]
+fn planner_reports_scan_cache_prune_activity() {
+    let fixture = PlannerFixture::new();
+    let fresh_root = fixture.root.join("fresh-target");
+    let stale_root = fixture.root.join("stale-target");
+    fixture.write("fresh-target/file.bin", b"fresh");
+    fixture.write("stale-target/file.bin", b"stale");
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    let policy = ScanCachePolicy::new(1);
+    let report = ScanReport {
+        bytes_scanned: 5,
+        files_scanned: 1,
+        directories_scanned: 1,
+    };
+    cache.store(&fresh_root, report).unwrap();
+    let mut stale_record = cache.store(&stale_root, report).unwrap();
+    stale_record.written_at_unix_seconds = 0;
+    fs::write(
+        cache.cache_file_for(&stale_root),
+        serde_json::to_vec_pretty(&stale_record).unwrap(),
+    )
+    .unwrap();
+
+    let rules = vec![custom_exact_path_rule(
+        "windows.fresh-target",
+        fresh_root.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut prune_reports = Vec::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation)
+            .with_scan_cache(&cache)
+            .with_scan_cache_policy(policy),
+        |event| {
+            if let PlanProgressEvent::ScanCachePruned { report } = event {
+                prune_reports.push(report);
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(
+        prune_reports,
+        [rebecca_core::scan_cache::ScanCachePruneReport {
+            inspected: 2,
+            pruned: 1,
+            retained: 1,
+        }]
     );
 }
 

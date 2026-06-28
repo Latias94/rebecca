@@ -32,7 +32,7 @@ struct MeasuredFileProgress {
 #[derive(Debug, Clone)]
 enum MeasuredScanCacheEvent {
     Hit { estimated_bytes: u64 },
-    Miss { reason: ScanCacheMiss },
+    Miss { reason: ScanCacheMiss, pruned: bool },
     WriteSkipped,
 }
 
@@ -178,11 +178,14 @@ where
                     estimated_bytes: *estimated_bytes,
                 })
             }
-            MeasuredScanCacheEvent::Miss { reason } => progress(PlanProgressEvent::ScanCacheMiss {
-                rule_id: &measured.target.rule_id,
-                path: &measured.target.path,
-                reason: *reason,
-            }),
+            MeasuredScanCacheEvent::Miss { reason, pruned } => {
+                progress(PlanProgressEvent::ScanCacheMiss {
+                    rule_id: &measured.target.rule_id,
+                    path: &measured.target.path,
+                    reason: *reason,
+                    pruned: *pruned,
+                })
+            }
             MeasuredScanCacheEvent::WriteSkipped => {
                 progress(PlanProgressEvent::ScanCacheWriteSkipped {
                     rule_id: &measured.target.rule_id,
@@ -214,9 +217,15 @@ pub(crate) fn dedupe_key(path: &Path, _platform: Platform) -> String {
     normalized.to_ascii_lowercase()
 }
 
-pub(crate) fn prune_scan_cache(context: PlanBuildContext<'_>) {
+pub(crate) fn prune_scan_cache<F>(context: PlanBuildContext<'_>, progress: &mut F)
+where
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
     if let Some(scan_cache) = context.scan_cache() {
-        let _ = scan_cache.prune_with_policy(context.scan_cache_policy());
+        let report = scan_cache.prune_with_policy(context.scan_cache_policy());
+        if report.inspected > 0 {
+            progress(PlanProgressEvent::ScanCachePruned { report });
+        }
     }
 }
 
@@ -276,8 +285,9 @@ where
                                 estimated_bytes: report.bytes_scanned,
                             });
                         }
-                        PathMeasureProgressEvent::ScanCacheMiss { reason } => {
-                            scan_cache_event = Some(MeasuredScanCacheEvent::Miss { reason });
+                        PathMeasureProgressEvent::ScanCacheMiss { reason, pruned } => {
+                            scan_cache_event =
+                                Some(MeasuredScanCacheEvent::Miss { reason, pruned });
                         }
                         PathMeasureProgressEvent::ScanCacheWriteSkipped => {
                             scan_cache_event = Some(MeasuredScanCacheEvent::WriteSkipped);
@@ -336,8 +346,11 @@ where
                 progress(PathMeasureProgressEvent::ScanCacheHit { report });
                 return Ok(report);
             }
-            ScanCacheLookup::Miss(reason) => {
-                progress(PathMeasureProgressEvent::ScanCacheMiss { reason });
+            ScanCacheLookup::Miss(outcome) => {
+                progress(PathMeasureProgressEvent::ScanCacheMiss {
+                    reason: outcome.reason,
+                    pruned: outcome.pruned,
+                });
             }
         }
     }
@@ -365,7 +378,7 @@ where
 pub(crate) enum PathMeasureProgressEvent<'a> {
     Scan(ScanProgressEvent<'a>),
     ScanCacheHit { report: ScanReport },
-    ScanCacheMiss { reason: ScanCacheMiss },
+    ScanCacheMiss { reason: ScanCacheMiss, pruned: bool },
     ScanCacheWriteSkipped,
 }
 

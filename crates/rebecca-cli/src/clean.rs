@@ -261,6 +261,7 @@ impl PlanProgressReporter {
                 rule_id,
                 path,
                 reason,
+                ..
             } => {
                 bar.set_message(format!(
                     "Scan cache miss {rule_id}: {} ({})",
@@ -276,6 +277,13 @@ impl PlanProgressReporter {
                 ));
                 bar.tick();
             }
+            PlanProgressEvent::ScanCachePruned { report } => {
+                bar.set_message(format!(
+                    "Scan cache pruned {} record(s) after inspecting {}",
+                    report.pruned, report.inspected
+                ));
+                bar.tick();
+            }
         }
     }
 
@@ -284,12 +292,22 @@ impl PlanProgressReporter {
             PlanProgressEvent::ScanCacheHit { .. } => {
                 self.scan_cache_summary.hits = self.scan_cache_summary.hits.saturating_add(1);
             }
-            PlanProgressEvent::ScanCacheMiss { .. } => {
+            PlanProgressEvent::ScanCacheMiss { pruned, .. } => {
                 self.scan_cache_summary.misses = self.scan_cache_summary.misses.saturating_add(1);
+                if pruned {
+                    self.scan_cache_summary.pruned =
+                        self.scan_cache_summary.pruned.saturating_add(1);
+                }
             }
             PlanProgressEvent::ScanCacheWriteSkipped { .. } => {
                 self.scan_cache_summary.write_skipped =
                     self.scan_cache_summary.write_skipped.saturating_add(1);
+            }
+            PlanProgressEvent::ScanCachePruned { report } => {
+                self.scan_cache_summary.pruned = self
+                    .scan_cache_summary
+                    .pruned
+                    .saturating_add(report.pruned as u64);
             }
             _ => {}
         }

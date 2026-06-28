@@ -112,8 +112,11 @@ pub(crate) fn print_plan(
     }
     if let Some(summary) = projection.scan_cache_summary() {
         println!(
-            "Scan cache summary: {}, {}, {}",
-            summary.hits_label, summary.misses_label, summary.write_skipped_label
+            "Scan cache summary: {}, {}, {}, {}",
+            summary.hits_label,
+            summary.misses_label,
+            summary.write_skipped_label,
+            summary.pruned_label
         );
     }
 

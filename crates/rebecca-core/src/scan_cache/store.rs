@@ -150,25 +150,25 @@ impl ScanCacheStore {
             Ok(fingerprint) => fingerprint,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 prune_cache_file(&cache_file);
-                return ScanCacheLookup::Miss(ScanCacheMiss::Missing);
+                return ScanCacheLookup::pruned_miss(ScanCacheMiss::Missing);
             }
-            Err(_) => return ScanCacheLookup::Miss(ScanCacheMiss::MetadataUnavailable),
+            Err(_) => return ScanCacheLookup::miss(ScanCacheMiss::MetadataUnavailable),
         };
         let raw = match std::fs::read_to_string(&cache_file) {
             Ok(raw) => raw,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                return ScanCacheLookup::Miss(ScanCacheMiss::Missing);
+                return ScanCacheLookup::miss(ScanCacheMiss::Missing);
             }
             Err(_) => {
                 prune_cache_file(&cache_file);
-                return ScanCacheLookup::Miss(ScanCacheMiss::Corrupted);
+                return ScanCacheLookup::pruned_miss(ScanCacheMiss::Corrupted);
             }
         };
         let record: ScanCacheRecord = match serde_json::from_str(&raw) {
             Ok(record) => record,
             Err(_) => {
                 prune_cache_file(&cache_file);
-                return ScanCacheLookup::Miss(ScanCacheMiss::Corrupted);
+                return ScanCacheLookup::pruned_miss(ScanCacheMiss::Corrupted);
             }
         };
 
@@ -176,8 +176,9 @@ impl ScanCacheStore {
             Some(reason) => {
                 if reason.should_prune_cache_file() {
                     prune_cache_file(&cache_file);
+                    return ScanCacheLookup::pruned_miss(reason);
                 }
-                ScanCacheLookup::Miss(reason)
+                ScanCacheLookup::miss(reason)
             }
             None => ScanCacheLookup::Hit(record.report),
         }
@@ -346,7 +347,7 @@ mod tests {
 
         let lookup = store.load(&root);
 
-        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Missing));
+        assert_eq!(lookup, ScanCacheLookup::miss(ScanCacheMiss::Missing));
     }
 
     #[test]
@@ -365,7 +366,7 @@ mod tests {
 
         let lookup = store.load(&root);
 
-        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Missing));
+        assert_eq!(lookup, ScanCacheLookup::pruned_miss(ScanCacheMiss::Missing));
         assert!(!store.cache_file_for(&root).exists());
     }
 
@@ -380,7 +381,10 @@ mod tests {
 
         let lookup = store.load(&root);
 
-        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Corrupted));
+        assert_eq!(
+            lookup,
+            ScanCacheLookup::pruned_miss(ScanCacheMiss::Corrupted)
+        );
         assert!(!store.cache_file_for(&root).exists());
     }
 
@@ -405,7 +409,7 @@ mod tests {
 
         let lookup = store.load(&root);
 
-        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Stale));
+        assert_eq!(lookup, ScanCacheLookup::pruned_miss(ScanCacheMiss::Stale));
         assert!(!store.cache_file_for(&root).exists());
     }
 
@@ -448,7 +452,7 @@ mod tests {
 
         let lookup = store.load(&root);
 
-        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Stale));
+        assert_eq!(lookup, ScanCacheLookup::pruned_miss(ScanCacheMiss::Stale));
         assert!(!store.cache_file_for(&root).exists());
     }
 
@@ -476,7 +480,7 @@ mod tests {
 
         let lookup = store.load_with_policy(&root, policy);
 
-        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Expired));
+        assert_eq!(lookup, ScanCacheLookup::pruned_miss(ScanCacheMiss::Expired));
         assert!(!store.cache_file_for(&root).exists());
     }
 

@@ -16,7 +16,7 @@ use crate::project_artifacts::{
 use crate::protection::ProtectionPolicy;
 use crate::safety::{PathDisposition, assess_existing_path_with_policy};
 use crate::scan::{ScanCancellationToken, run_scoped_scan};
-use crate::scan_cache::{ScanCacheMiss, ScanCachePolicy, ScanCacheStore};
+use crate::scan_cache::{ScanCacheMiss, ScanCachePolicy, ScanCachePruneReport, ScanCacheStore};
 use rayon::prelude::*;
 
 mod measure;
@@ -57,10 +57,14 @@ pub enum PlanProgressEvent<'a> {
         rule_id: &'a str,
         path: &'a Path,
         reason: ScanCacheMiss,
+        pruned: bool,
     },
     ScanCacheWriteSkipped {
         rule_id: &'a str,
         path: &'a Path,
+    },
+    ScanCachePruned {
+        report: ScanCachePruneReport,
     },
 }
 
@@ -374,11 +378,12 @@ where
                                         estimated_bytes: report.bytes_scanned,
                                     });
                                 }
-                                PathMeasureProgressEvent::ScanCacheMiss { reason } => {
+                                PathMeasureProgressEvent::ScanCacheMiss { reason, pruned } => {
                                     progress(PlanProgressEvent::ScanCacheMiss {
                                         rule_id: &rule.id,
                                         path: &expanded,
                                         reason,
+                                        pruned,
                                     });
                                 }
                                 PathMeasureProgressEvent::ScanCacheWriteSkipped => {
@@ -450,7 +455,7 @@ where
         }
     }
 
-    prune_scan_cache(context);
+    prune_scan_cache(context, &mut progress);
     Ok(finalize_plan(request.clone(), candidates))
 }
 
@@ -505,7 +510,7 @@ where
         plan_candidates.push(measured.target);
     }
 
-    prune_scan_cache(context);
+    prune_scan_cache(context, &mut progress);
     Ok(finalize_plan(request.clone(), plan_candidates))
 }
 
@@ -563,7 +568,7 @@ where
         candidates.push(measured.target);
     }
 
-    prune_scan_cache(context);
+    prune_scan_cache(context, &mut progress);
     Ok(finalize_plan(request.clone(), candidates))
 }
 

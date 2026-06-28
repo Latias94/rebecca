@@ -42,6 +42,7 @@ pub(crate) struct ScanCacheSummaryRow {
     pub(crate) hits_label: String,
     pub(crate) misses_label: String,
     pub(crate) write_skipped_label: String,
+    pub(crate) pruned_label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +65,7 @@ pub(crate) struct ScanCacheProgressSummary {
     pub(crate) hits: u64,
     pub(crate) misses: u64,
     pub(crate) write_skipped: u64,
+    pub(crate) pruned: u64,
 }
 
 impl<'a> CleanPlanProjection<'a> {
@@ -119,7 +121,7 @@ impl From<&CleanupSummary> for CleanPlanSummary {
 
 impl ScanCacheProgressSummary {
     fn has_activity(self) -> bool {
-        self.hits > 0 || self.misses > 0 || self.write_skipped > 0
+        self.hits > 0 || self.misses > 0 || self.write_skipped > 0 || self.pruned > 0
     }
 }
 
@@ -133,6 +135,7 @@ impl From<ScanCacheProgressSummary> for ScanCacheSummaryRow {
                 "skipped write",
                 "skipped writes",
             ),
+            pruned_label: format_count(summary.pruned, "pruned record", "pruned records"),
         }
     }
 }
@@ -359,6 +362,7 @@ mod tests {
                 hits: 1,
                 misses: 2,
                 write_skipped: 1,
+                pruned: 3,
             }),
         );
 
@@ -368,6 +372,7 @@ mod tests {
         assert_eq!(summary.hits_label, "1 hit");
         assert_eq!(summary.misses_label, "2 misses");
         assert_eq!(summary.write_skipped_label, "1 skipped write");
+        assert_eq!(summary.pruned_label, "3 pruned records");
     }
 
     #[test]

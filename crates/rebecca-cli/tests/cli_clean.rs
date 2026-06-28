@@ -1006,7 +1006,118 @@ fn clean_human_output_summarizes_scan_cache_activity() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Scan cache summary: 1 hit, 0 misses, 0 skipped writes"));
+    assert!(
+        stdout.contains("Scan cache summary: 1 hit, 0 misses, 0 skipped writes, 0 pruned records")
+    );
+}
+
+#[test]
+fn clean_human_output_reports_scan_cache_prune_activity() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().join("rebecca-config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        r#"
+version = 1
+
+[scan_cache]
+directory_record_max_age_seconds = 1
+"#,
+    )
+    .unwrap();
+    let edge_cache = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Edge")
+        .join("User Data")
+        .join("Default")
+        .join("Cache");
+    fs::create_dir_all(&edge_cache).unwrap();
+    fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_files = fs::read_dir(&scan_cache_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    assert_eq!(cache_files.len(), 1);
+
+    let cache_file = &cache_files[0];
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&fs::read(cache_file).unwrap()).unwrap();
+    record["written_at_unix_seconds"] = serde_json::json!(0);
+    fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+
+    let stale_root = temp.path().join("stale-cache");
+    fs::create_dir_all(&stale_root).unwrap();
+    fs::write(stale_root.join("old.bin"), b"old").unwrap();
+    let stale_root_str = stale_root.display().to_string().replace('\\', "\\\\");
+    let stale_cache_file = scan_cache_dir.join("ffffffffffffffff.json");
+    fs::write(
+        &stale_cache_file,
+        format!(
+            r#"{{
+  "version": 1,
+  "root": "{stale_root_str}",
+  "fingerprint": {{
+    "file_type": "directory",
+    "len": 0,
+    "modified_unix_seconds": 0
+  }},
+  "report": {{
+    "bytes_scanned": 3,
+    "files_scanned": 1,
+    "directories_scanned": 1
+  }},
+  "written_at_unix_seconds": 0
+}}"#
+        ),
+    )
+    .unwrap();
+    fs::remove_dir_all(&stale_root).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-progress",
+            "--scan-cache",
+            "--rule",
+            "windows.edge-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Scan cache summary: 0 hits, 1 miss, 0 skipped writes, 2 pruned records")
+    );
 }
 
 #[test]

@@ -142,7 +142,29 @@ pub enum ScanCacheFileType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanCacheLookup {
     Hit(ScanReport),
-    Miss(ScanCacheMiss),
+    Miss(ScanCacheMissOutcome),
+}
+
+impl ScanCacheLookup {
+    pub fn miss(reason: ScanCacheMiss) -> Self {
+        Self::Miss(ScanCacheMissOutcome {
+            reason,
+            pruned: false,
+        })
+    }
+
+    pub fn pruned_miss(reason: ScanCacheMiss) -> Self {
+        Self::Miss(ScanCacheMissOutcome {
+            reason,
+            pruned: true,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanCacheMissOutcome {
+    pub reason: ScanCacheMiss,
+    pub pruned: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
