@@ -5,13 +5,13 @@ use std::sync::{
 };
 
 use ignore::WalkBuilder;
+use rayon::ThreadPool;
 use rayon::prelude::*;
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::TargetStatus;
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
-use crate::parallelism::bounded_parallelism_budget;
+use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
 use crate::safety::{PathDisposition, assess_existing_path};
 
@@ -276,16 +276,7 @@ where
     F: FnOnce() -> R + Send,
     R: Send,
 {
-    scan_thread_pool().install(work)
-}
-
-fn scan_thread_pool() -> &'static ThreadPool {
-    SCAN_THREAD_POOL.get_or_init(|| {
-        ThreadPoolBuilder::new()
-            .num_threads(scan_parallelism_budget())
-            .build()
-            .expect("failed to build Rebecca scan thread pool")
-    })
+    run_scoped_parallel_work(&SCAN_THREAD_POOL, "scan", work)
 }
 
 #[cfg(test)]
