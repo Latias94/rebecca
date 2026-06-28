@@ -1,11 +1,11 @@
 use std::sync::OnceLock;
 
+use rayon::ThreadPool;
 use rayon::prelude::*;
-use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use crate::error::Result;
 use crate::model::CleanupWorkflow;
-use crate::parallelism::bounded_parallelism_budget;
+use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::path_overlap::paths_overlap;
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
@@ -240,16 +240,7 @@ where
     F: FnOnce() -> R + Send,
     R: Send,
 {
-    cleanup_thread_pool().install(work)
-}
-
-fn cleanup_thread_pool() -> &'static ThreadPool {
-    CLEANUP_THREAD_POOL.get_or_init(|| {
-        ThreadPoolBuilder::new()
-            .num_threads(cleanup_parallelism_budget())
-            .build()
-            .expect("failed to build Rebecca cleanup thread pool")
-    })
+    run_scoped_parallel_work(&CLEANUP_THREAD_POOL, "cleanup", work)
 }
 
 #[cfg(test)]
