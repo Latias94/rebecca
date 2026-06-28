@@ -1,10 +1,7 @@
 use std::fs;
 
 use rebecca_core::error::{ScanFailureKind, ScanFailurePhase};
-use rebecca_core::scan::{
-    ScanCancellationToken, ScanProgressEvent, measure_path, measure_path_size,
-    measure_path_size_with_progress, scan_target, scan_targets,
-};
+use rebecca_core::scan::{ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest};
 use rebecca_core::{DeleteMode, RebeccaError, TargetStatus};
 
 #[test]
@@ -14,7 +11,10 @@ fn measures_directory_size_from_fixture_files() {
     fs::create_dir(temp.path().join("nested")).unwrap();
     fs::write(temp.path().join("nested").join("b.txt"), b"ef").unwrap();
 
-    let size = measure_path_size(temp.path()).unwrap();
+    let size = ScanEngine::new()
+        .measure_path(temp.path())
+        .unwrap()
+        .bytes_scanned;
 
     assert_eq!(size, 6);
 }
@@ -26,7 +26,7 @@ fn measures_directory_report_from_fixture_files() {
     fs::create_dir(temp.path().join("nested")).unwrap();
     fs::write(temp.path().join("nested").join("b.txt"), b"ef").unwrap();
 
-    let report = measure_path(temp.path()).unwrap();
+    let report = ScanEngine::new().measure_path(temp.path()).unwrap();
 
     assert_eq!(report.bytes_scanned, 6);
     assert_eq!(report.files_scanned, 2);
@@ -34,11 +34,53 @@ fn measures_directory_report_from_fixture_files() {
 }
 
 #[test]
+fn measurement_counts_entries_ignored_by_gitignore() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join(".git")).unwrap();
+    fs::write(temp.path().join(".gitignore"), b"ignored.bin\n").unwrap();
+    fs::write(temp.path().join("ignored.bin"), b"abcd").unwrap();
+    fs::write(temp.path().join("kept.bin"), b"ef").unwrap();
+
+    let report = ScanEngine::new().measure_path(temp.path()).unwrap();
+
+    assert_eq!(report.bytes_scanned, 18);
+    assert_eq!(report.files_scanned, 3);
+    assert_eq!(report.directories_scanned, 2);
+}
+
+#[test]
+fn measurement_counts_entries_ignored_by_ignore_file() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join(".ignore"), b"ignored-by-ignore.bin\n").unwrap();
+    fs::write(temp.path().join("ignored-by-ignore.bin"), b"abcd").unwrap();
+    fs::write(temp.path().join("kept.bin"), b"ef").unwrap();
+
+    let report = ScanEngine::new().measure_path(temp.path()).unwrap();
+
+    assert_eq!(report.bytes_scanned, 28);
+    assert_eq!(report.files_scanned, 3);
+    assert_eq!(report.directories_scanned, 1);
+}
+
+#[test]
+fn measurement_counts_hidden_files() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join(".hidden.bin"), b"abcd").unwrap();
+    fs::write(temp.path().join("visible.bin"), b"ef").unwrap();
+
+    let report = ScanEngine::new().measure_path(temp.path()).unwrap();
+
+    assert_eq!(report.bytes_scanned, 6);
+    assert_eq!(report.files_scanned, 2);
+    assert_eq!(report.directories_scanned, 1);
+}
+
+#[test]
 fn missing_path_size_reports_structured_scan_failure() {
     let temp = tempfile::tempdir().unwrap();
     let missing = temp.path().join("missing");
 
-    let err = measure_path_size(&missing).unwrap_err();
+    let err = ScanEngine::new().measure_path(&missing).unwrap_err();
 
     let RebeccaError::ScanFailed(failure) = err else {
         panic!("expected structured scan failure");
@@ -57,17 +99,18 @@ fn measuring_directory_reports_file_level_progress() {
 
     let token = ScanCancellationToken::new();
     let mut events = Vec::new();
-    let size = measure_path_size_with_progress(temp.path(), &token, |event| match event {
-        ScanProgressEvent::FileMeasured {
-            file_size,
-            files_scanned,
-            bytes_scanned,
-            ..
-        } => events.push((file_size, files_scanned, bytes_scanned)),
-    })
-    .unwrap();
+    let report = ScanEngine::new()
+        .measure_path_with_progress(temp.path(), &token, |event| match event {
+            ScanProgressEvent::FileMeasured {
+                file_size,
+                files_scanned,
+                bytes_scanned,
+                ..
+            } => events.push((file_size, files_scanned, bytes_scanned)),
+        })
+        .unwrap();
 
-    assert_eq!(size, 6);
+    assert_eq!(report.bytes_scanned, 6);
     assert_eq!(events.len(), 2);
     assert_eq!(
         events
@@ -90,13 +133,14 @@ fn measuring_directory_can_be_cancelled_during_file_scan() {
 
     let token = ScanCancellationToken::new();
     let mut events = 0u64;
-    let err = measure_path_size_with_progress(temp.path(), &token, |event| match event {
-        ScanProgressEvent::FileMeasured { .. } => {
-            events += 1;
-            token.cancel();
-        }
-    })
-    .unwrap_err();
+    let err = ScanEngine::new()
+        .measure_path_with_progress(temp.path(), &token, |event| match event {
+            ScanProgressEvent::FileMeasured { .. } => {
+                events += 1;
+                token.cancel();
+            }
+        })
+        .unwrap_err();
 
     assert!(matches!(err, RebeccaError::OperationCancelled(_)));
     assert_eq!(events, 1);
@@ -105,11 +149,11 @@ fn measuring_directory_can_be_cancelled_during_file_scan() {
 #[test]
 fn missing_scan_target_is_reported_as_skipped() {
     let temp = tempfile::tempdir().unwrap();
-    let target = scan_target(
+    let target = ScanEngine::new().measure_target(ScanTargetRequest::new(
         "windows.user-temp",
         temp.path().join("missing"),
         DeleteMode::DryRun,
-    );
+    ));
 
     assert_eq!(target.status, TargetStatus::Skipped);
 }
@@ -122,9 +166,9 @@ fn scan_targets_returns_deterministic_ordering() {
     fs::create_dir(&first).unwrap();
     fs::create_dir(&second).unwrap();
 
-    let targets = scan_targets(vec![
-        ("windows.z".to_string(), second, DeleteMode::DryRun),
-        ("windows.a".to_string(), first, DeleteMode::DryRun),
+    let targets = ScanEngine::new().measure_targets(vec![
+        ScanTargetRequest::new("windows.z", second, DeleteMode::DryRun),
+        ScanTargetRequest::new("windows.a", first, DeleteMode::DryRun),
     ]);
 
     assert_eq!(targets[0].rule_id, "windows.a");
@@ -142,7 +186,11 @@ fn symlink_root_is_blocked_by_default() {
     fs::create_dir(&real).unwrap();
     symlink(&real, &link).unwrap();
 
-    let target = scan_target("windows.user-temp", link, DeleteMode::DryRun);
+    let target = ScanEngine::new().measure_target(ScanTargetRequest::new(
+        "windows.user-temp",
+        link,
+        DeleteMode::DryRun,
+    ));
 
     assert_eq!(target.status, TargetStatus::Blocked);
 }

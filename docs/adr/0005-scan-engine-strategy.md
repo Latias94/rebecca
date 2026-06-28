@@ -1,28 +1,35 @@
 ---
 title: "Scan Engine Strategy"
-status: "proposed"
+status: "accepted"
 created: "2026-06-23"
-last_updated: "2026-06-23"
+last_updated: "2026-06-29"
 ---
 
 # Context
 
 The product needs predictable cleanup scans first, and possibly WizTree-like fast disk exploration later. NTFS has special metadata paths, but they add complexity and platform coupling.
 
+Rebecca also uses the `ignore` crate, which is proven in ripgrep but defaults to search-tool semantics: hidden entries, `.ignore`, `.gitignore`, git excludes, and global ignore rules can filter traversal. That is wrong for cleanup measurement. A cleanup scanner must count the target contents that will be cleaned, not the subset a search tool would inspect.
+
 ```mermaid
 flowchart TD
   A[Scan request] --> B{Engine}
-  B -->|default| C[Parallel directory traversal]
-  B -->|feature flag| D[NTFS USN/MFT fast path]
-  C --> E[Candidate list + sizes]
-  D --> F[Accelerated metadata view]
+  B -->|default| C[ScanEngine]
+  C --> D[Cleanup traversal policy]
+  D --> E[ignore walker adapter]
+  B -->|future adapter| F[NTFS USN/MFT fast path]
+  E --> G[ScanReport + progress events]
+  F --> G
 ```
 
 # Decision
 
-Use parallel directory traversal as the default scan engine.
+Use a deep `ScanEngine` module as the default cleanup measurement interface.
 
-- Build the first engine on safe filesystem walking and bounded concurrency.
+- Build the first engine on safe filesystem walking through an internal `ignore` walker adapter.
+- Disable search-style ignore filters for cleanup measurement: hidden entries, `.ignore`, `.gitignore`, git excludes, and global gitignore rules do not exclude measured files.
+- Keep symlink and reparse-point traversal disabled.
+- Keep bounded target-level parallelism through Rebecca's shared rayon scan pool.
 - Add NTFS/USN/MFT acceleration only as an optional, feature-gated path.
 - Restrict NTFS fast-path usage to analysis and size discovery, not as a requirement for core cleanup.
 
@@ -34,31 +41,32 @@ Use parallel directory traversal as the default scan engine.
 **Cons**: High complexity, narrow platform fit, hard to test early.  
 **Decision**: Rejected.
 
-## Option B: Directory traversal only
+## Option B: Shallow directory traversal helpers
 
-**Pros**: Safe, simple, cross-platform, easy to reason about.  
-**Cons**: Not as fast as NTFS metadata access on large volumes.  
-**Decision**: Rejected as the final state, but accepted as the default baseline.
+**Pros**: Safe, simple, cross-platform, easy to reason about.
+**Cons**: Pushes traversal policy, progress, cache wrapping, and future adapter choices into callers.
+**Decision**: Rejected.
 
-## Option C: Parallel traversal with optional NTFS fast path
+## Option C: Deep scan engine with optional future adapters
 
-**Pros**: Safe default, clear upgrade path, preserves future performance work.  
-**Cons**: Two scan paths to maintain eventually.  
+**Pros**: Safe default, explicit cleanup semantics, clear upgrade path, preserves future performance work behind a small interface.
+**Cons**: Requires keeping adapter-neutral report and progress types stable.
 **Decision**: Chosen.
 
 # Consequences
 
 - v1 can ship without NTFS internals.
 - Users get reliable behavior before exotic speedups.
-- Later performance work can happen behind a feature flag.
+- Later performance work can happen behind a feature flag or internal adapter selection.
 - Benchmarks can compare default traversal against NTFS acceleration on representative datasets.
+- Search-tool ignore rules do not create cleanup-size undercounts.
 
 # Success Metrics
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
-| Default scan coverage | Matches expected directories on representative Windows systems | Integration tests |
-| Performance | Parallel traversal outperforms single-thread baseline | Benchmark suite |
+| Default scan coverage | Matches expected cleanup target contents, including hidden and ignore-matched files | Integration tests |
+| Performance | Target-level bounded traversal remains stable and benchmarked | Benchmark suite |
 | Safety | NTFS path stays behind a feature flag | Build and code review |
 
 # Risks & Mitigations
@@ -68,7 +76,8 @@ Use parallel directory traversal as the default scan engine.
 | NTFS implementation distracts from MVP | High | Medium | Defer behind feature flag |
 | Traversal misses some metadata edge cases | Medium | Medium | Add focused tests and fallback handling |
 | Performance regressions from uncontrolled concurrency | Medium | Medium | Cap concurrency and benchmark |
+| Cleanup measurement inherits search ignore semantics | High | Medium | Disable standard ignore filters in the internal walker adapter and cover `.ignore` / `.gitignore` fixtures |
 
 # Status
 
-Proposed.
+Accepted and implemented as the default scan module direction.

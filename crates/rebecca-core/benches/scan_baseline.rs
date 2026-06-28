@@ -9,10 +9,7 @@ use rebecca_core::executor::{
 };
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle};
 use rebecca_core::protection::ProtectionPolicy;
-use rebecca_core::scan::{
-    ScanCancellationToken, ScanProgressEvent, measure_path, measure_path_with_progress,
-    scan_targets,
-};
+use rebecca_core::scan::{ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest};
 use rebecca_core::{DeleteMode, TargetStatus};
 
 const DIRECTORY_COUNT: usize = 32;
@@ -25,7 +22,9 @@ fn scan_baseline(criterion: &mut Criterion) {
         let expected = create_fixture(fixture.path());
 
         bencher.iter(|| {
-            let report = measure_path(black_box(fixture.path())).expect("scan should succeed");
+            let report = ScanEngine::new()
+                .measure_path(black_box(fixture.path()))
+                .expect("scan should succeed");
             assert_eq!(report.files_scanned, expected.files);
             assert_eq!(report.directories_scanned, expected.directories);
             assert_eq!(report.bytes_scanned, expected.bytes);
@@ -40,8 +39,8 @@ fn scan_baseline(criterion: &mut Criterion) {
         bencher.iter(|| {
             let mut progress_events = 0u64;
             let cancellation = ScanCancellationToken::new();
-            let report =
-                measure_path_with_progress(black_box(fixture.path()), &cancellation, |event| {
+            let report = ScanEngine::new()
+                .measure_path_with_progress(black_box(fixture.path()), &cancellation, |event| {
                     match event {
                         ScanProgressEvent::FileMeasured { .. } => {
                             progress_events = progress_events.saturating_add(1);
@@ -66,7 +65,7 @@ fn scan_baseline(criterion: &mut Criterion) {
         bencher.iter_batched(
             || scan_targets_fixture.clone(),
             |targets| {
-                let scanned = scan_targets(black_box(targets));
+                let scanned = ScanEngine::new().measure_targets(black_box(targets));
 
                 assert_eq!(scanned.len(), expected.files as usize);
                 assert!(
@@ -176,10 +175,7 @@ impl CleanupBackend for CleanupFixtureBackend {
     }
 }
 
-fn create_scan_targets_fixture(
-    root: &Path,
-    count: usize,
-) -> Vec<(String, std::path::PathBuf, DeleteMode)> {
+fn create_scan_targets_fixture(root: &Path, count: usize) -> Vec<ScanTargetRequest> {
     let mut targets = Vec::with_capacity(count);
 
     for file_index in 0..count {
@@ -188,7 +184,11 @@ fn create_scan_targets_fixture(
         let path = root
             .join(format!("dir-{directory_index:02}"))
             .join(format!("file-{file_name_index:02}.bin"));
-        targets.push((format!("rule-{file_index:04}"), path, DeleteMode::DryRun));
+        targets.push(ScanTargetRequest::new(
+            format!("rule-{file_index:04}"),
+            path,
+            DeleteMode::DryRun,
+        ));
     }
 
     targets

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
 use crate::error::{RebeccaError, Result};
 use crate::path_overlap::paths_overlap;
-use crate::scan::measure_path;
+use crate::scan::ScanEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -351,7 +351,7 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
         );
     };
 
-    let report = match measure_path(&path) {
+    let report = match ScanEngine::new().measure_path(&path) {
         Ok(report) => report,
         Err(err) => {
             return CachePurgeEntry::failed(

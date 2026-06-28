@@ -11,7 +11,7 @@ use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{
     PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy,
 };
-use crate::scan::{ScanProgressEvent, ScanReport, measure_path_with_progress};
+use crate::scan::{ScanEngine, ScanProgressEvent, ScanReport};
 use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss};
 
 use super::{PlanBuildContext, PlanProgressEvent};
@@ -360,9 +360,10 @@ where
         }
     }
 
-    let report = measure_path_with_progress(path, context.cancellation(), |event| {
-        progress(PathMeasureProgressEvent::Scan(event));
-    })?;
+    let report =
+        ScanEngine::new().measure_path_with_progress(path, context.cancellation(), |event| {
+            progress(PathMeasureProgressEvent::Scan(event));
+        })?;
 
     if cacheable_target
         && let Some(store) = context.scan_cache()

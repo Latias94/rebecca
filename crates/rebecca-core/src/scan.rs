@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, OnceLock,
     atomic::{AtomicBool, Ordering},
@@ -9,11 +9,13 @@ use rayon::ThreadPool;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::TargetStatus;
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
+use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
-use crate::safety::{PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path};
+use crate::safety::{
+    PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path, is_reparse_like,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct ScanCancellationToken {
@@ -64,135 +66,205 @@ impl ScanReport {
     }
 }
 
-pub fn measure_path_size(path: &Path) -> Result<u64> {
-    measure_path(path).map(|report| report.bytes_scanned)
+#[derive(Debug, Clone, Default)]
+pub struct ScanEngine;
+
+impl ScanEngine {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn measure_path(&self, path: &Path) -> Result<ScanReport> {
+        self.measure_path_with_progress(path, &ScanCancellationToken::new(), |_| {})
+    }
+
+    pub fn measure_path_with_progress<F>(
+        &self,
+        path: &Path,
+        cancellation: &ScanCancellationToken,
+        progress: F,
+    ) -> Result<ScanReport>
+    where
+        F: for<'a> FnMut(ScanProgressEvent<'a>),
+    {
+        check_not_cancelled(cancellation)?;
+        let metadata = root_metadata(path)?;
+
+        if is_reparse_like(&metadata) {
+            return Err(RebeccaError::SafetyBlocked(
+                "symlink or reparse point traversal is disabled".to_string(),
+            ));
+        }
+
+        if metadata.is_file() {
+            let file_size = metadata.len();
+            let mut progress = progress;
+            let mut report = ScanReport::default();
+            report.record_file(file_size);
+            progress(ScanProgressEvent::FileMeasured {
+                path,
+                file_size,
+                files_scanned: report.files_scanned,
+                bytes_scanned: report.bytes_scanned,
+            });
+            return Ok(report);
+        }
+
+        if metadata.is_dir() {
+            return IgnoreWalkerAdapter.measure_directory(path, cancellation, progress);
+        }
+
+        Ok(ScanReport::default())
+    }
+
+    pub fn measure_target(&self, target: ScanTargetRequest) -> CleanupTarget {
+        match assess_existing_path(&target.path) {
+            PathDisposition::Allowed => match self.measure_path(&target.path) {
+                Ok(report) => CleanupTarget::allowed(
+                    target.rule_id,
+                    target.path,
+                    report.bytes_scanned,
+                    target.mode,
+                ),
+                Err(err) => CleanupTarget::failed_with_reason_code(
+                    target.rule_id,
+                    target.path,
+                    target.mode,
+                    0,
+                    CleanupTargetIssueReason::ScanFailed,
+                    err.to_string(),
+                ),
+            },
+            PathDisposition::Missing => CleanupTarget::skipped_with_reason_code(
+                target.rule_id,
+                target.path,
+                target.mode,
+                CleanupTargetIssueReason::SafetyPolicySkipped,
+                PATH_DOES_NOT_EXIST_REASON,
+            ),
+            PathDisposition::Skipped(reason) => CleanupTarget::skipped_with_reason_code(
+                target.rule_id,
+                target.path,
+                target.mode,
+                CleanupTargetIssueReason::SafetyPolicySkipped,
+                reason,
+            ),
+            PathDisposition::Blocked(reason) => CleanupTarget::blocked_with_reason_code(
+                target.rule_id,
+                target.path,
+                target.mode,
+                CleanupTargetIssueReason::SafetyPolicyBlocked,
+                reason,
+            ),
+        }
+    }
+
+    pub fn measure_targets(&self, targets: Vec<ScanTargetRequest>) -> Vec<CleanupTarget> {
+        let scanner = self;
+        let mut scanned: Vec<_> = run_scoped_scan(|| {
+            targets
+                .into_par_iter()
+                .map(|target| scanner.measure_target(target))
+                .collect()
+        });
+
+        scanned.sort_by(|left, right| {
+            left.rule_id
+                .cmp(&right.rule_id)
+                .then_with(|| left.path.cmp(&right.path))
+        });
+
+        scanned
+    }
 }
 
-pub fn measure_path_size_with_progress<F>(
-    path: &Path,
-    cancellation: &ScanCancellationToken,
-    progress: F,
-) -> Result<u64>
-where
-    F: for<'a> FnMut(ScanProgressEvent<'a>),
-{
-    measure_path_with_progress(path, cancellation, progress).map(|report| report.bytes_scanned)
+#[derive(Debug, Clone)]
+pub struct ScanTargetRequest {
+    rule_id: String,
+    path: PathBuf,
+    mode: DeleteMode,
 }
 
-pub fn measure_path(path: &Path) -> Result<ScanReport> {
-    measure_path_with_progress(path, &ScanCancellationToken::new(), |_| {})
+impl ScanTargetRequest {
+    pub fn new(rule_id: impl Into<String>, path: PathBuf, mode: DeleteMode) -> Self {
+        Self {
+            rule_id: rule_id.into(),
+            path,
+            mode,
+        }
+    }
 }
 
-pub fn measure_path_with_progress<F>(
-    path: &Path,
-    cancellation: &ScanCancellationToken,
-    progress: F,
-) -> Result<ScanReport>
-where
-    F: for<'a> FnMut(ScanProgressEvent<'a>),
-{
-    check_not_cancelled(cancellation)?;
-    let metadata = std::fs::symlink_metadata(path).map_err(|err| {
+#[derive(Debug, Clone, Copy)]
+struct IgnoreWalkerAdapter;
+
+impl IgnoreWalkerAdapter {
+    fn measure_directory<F>(
+        self,
+        path: &Path,
+        cancellation: &ScanCancellationToken,
+        mut progress: F,
+    ) -> Result<ScanReport>
+    where
+        F: for<'a> FnMut(ScanProgressEvent<'a>),
+    {
+        let mut report = ScanReport::default();
+        let walker = cleanup_walk_builder(path).build();
+
+        for entry in walker {
+            check_not_cancelled(cancellation)?;
+            let entry = entry
+                .map_err(|err| RebeccaError::ScanFailed(ScanFailure::directory_walk(path, &err)))?;
+            let metadata = entry_metadata(entry.path())?;
+
+            if is_reparse_like(&metadata) {
+                continue;
+            }
+
+            if metadata.is_dir() {
+                report.record_directory();
+            }
+
+            if metadata.is_file() {
+                let file_size = metadata.len();
+                report.record_file(file_size);
+                progress(ScanProgressEvent::FileMeasured {
+                    path: entry.path(),
+                    file_size,
+                    files_scanned: report.files_scanned,
+                    bytes_scanned: report.bytes_scanned,
+                });
+            }
+        }
+
+        Ok(report)
+    }
+}
+
+fn cleanup_walk_builder(path: &Path) -> WalkBuilder {
+    let mut builder = WalkBuilder::new(path);
+    builder.standard_filters(false).follow_links(false);
+    builder
+}
+
+fn root_metadata(path: &Path) -> Result<std::fs::Metadata> {
+    std::fs::symlink_metadata(path).map_err(|err| {
         RebeccaError::ScanFailed(ScanFailure::from_io(
             path,
             ScanFailurePhase::RootMetadata,
             &err,
         ))
-    })?;
+    })
+}
 
-    if metadata.file_type().is_symlink() {
-        return Err(RebeccaError::SafetyBlocked(
-            "symlink traversal is disabled".to_string(),
-        ));
-    }
-
-    if metadata.is_file() {
-        let file_size = metadata.len();
-        let mut progress = progress;
-        let mut report = ScanReport::default();
-        report.record_file(file_size);
-        progress(ScanProgressEvent::FileMeasured {
+fn entry_metadata(path: &Path) -> Result<std::fs::Metadata> {
+    std::fs::symlink_metadata(path).map_err(|err| {
+        RebeccaError::ScanFailed(ScanFailure::from_io(
             path,
-            file_size,
-            files_scanned: report.files_scanned,
-            bytes_scanned: report.bytes_scanned,
-        });
-        return Ok(report);
-    }
-
-    if metadata.is_dir() {
-        return measure_directory_with_progress(path, cancellation, progress);
-    }
-
-    Ok(ScanReport::default())
-}
-
-pub fn measure_directory_size(path: &Path) -> Result<u64> {
-    measure_directory(path).map(|report| report.bytes_scanned)
-}
-
-pub fn measure_directory_size_with_progress<F>(
-    path: &Path,
-    cancellation: &ScanCancellationToken,
-    progress: F,
-) -> Result<u64>
-where
-    F: for<'a> FnMut(ScanProgressEvent<'a>),
-{
-    measure_directory_with_progress(path, cancellation, progress).map(|report| report.bytes_scanned)
-}
-
-pub fn measure_directory(path: &Path) -> Result<ScanReport> {
-    measure_directory_with_progress(path, &ScanCancellationToken::new(), |_| {})
-}
-
-pub fn measure_directory_with_progress<F>(
-    path: &Path,
-    cancellation: &ScanCancellationToken,
-    mut progress: F,
-) -> Result<ScanReport>
-where
-    F: for<'a> FnMut(ScanProgressEvent<'a>),
-{
-    let mut report = ScanReport::default();
-    let walker = WalkBuilder::new(path)
-        .hidden(false)
-        .follow_links(false)
-        .build();
-
-    for entry in walker {
-        check_not_cancelled(cancellation)?;
-        let entry = entry
-            .map_err(|err| RebeccaError::ScanFailed(ScanFailure::directory_walk(path, &err)))?;
-        let metadata = entry.metadata().map_err(|err| {
-            RebeccaError::ScanFailed(ScanFailure::from_ignore(
-                entry.path(),
-                ScanFailurePhase::EntryMetadata,
-                &err,
-            ))
-        })?;
-
-        if metadata.file_type().is_symlink() {
-            continue;
-        }
-
-        if metadata.is_dir() {
-            report.record_directory();
-        }
-
-        if metadata.is_file() {
-            let file_size = metadata.len();
-            report.record_file(file_size);
-            progress(ScanProgressEvent::FileMeasured {
-                path: entry.path(),
-                file_size,
-                files_scanned: report.files_scanned,
-                bytes_scanned: report.bytes_scanned,
-            });
-        }
-    }
-
-    Ok(report)
+            ScanFailurePhase::EntryMetadata,
+            &err,
+        ))
+    })
 }
 
 fn check_not_cancelled(cancellation: &ScanCancellationToken) -> Result<()> {
@@ -203,75 +275,6 @@ fn check_not_cancelled(cancellation: &ScanCancellationToken) -> Result<()> {
     }
 
     Ok(())
-}
-
-pub fn scan_target(
-    rule_id: impl Into<String>,
-    path: std::path::PathBuf,
-    mode: crate::DeleteMode,
-) -> CleanupTarget {
-    let rule_id = rule_id.into();
-
-    match assess_existing_path(&path) {
-        PathDisposition::Allowed => match measure_path_size(&path) {
-            Ok(size) => CleanupTarget::allowed(rule_id, path, size, mode),
-            Err(err) => CleanupTarget::failed_with_reason_code(
-                rule_id,
-                path,
-                mode,
-                0,
-                CleanupTargetIssueReason::ScanFailed,
-                err.to_string(),
-            ),
-        },
-        PathDisposition::Missing => CleanupTarget::skipped_with_reason_code(
-            rule_id,
-            path,
-            mode,
-            CleanupTargetIssueReason::SafetyPolicySkipped,
-            PATH_DOES_NOT_EXIST_REASON,
-        ),
-        PathDisposition::Skipped(reason) => CleanupTarget::skipped_with_reason_code(
-            rule_id,
-            path,
-            mode,
-            CleanupTargetIssueReason::SafetyPolicySkipped,
-            reason,
-        ),
-        PathDisposition::Blocked(reason) => CleanupTarget::blocked_with_reason_code(
-            rule_id,
-            path,
-            mode,
-            CleanupTargetIssueReason::SafetyPolicyBlocked,
-            reason,
-        ),
-    }
-}
-
-pub fn scan_targets(
-    targets: Vec<(String, std::path::PathBuf, crate::DeleteMode)>,
-) -> Vec<CleanupTarget> {
-    let mut scanned: Vec<_> = run_scoped_scan(|| {
-        targets
-            .into_par_iter()
-            .map(|(rule_id, path, mode)| scan_target(rule_id, path, mode))
-            .collect()
-    });
-
-    scanned.sort_by(|left, right| {
-        left.rule_id
-            .cmp(&right.rule_id)
-            .then_with(|| left.path.cmp(&right.path))
-    });
-
-    scanned
-}
-
-pub fn allowed_target_count(targets: &[CleanupTarget]) -> usize {
-    targets
-        .iter()
-        .filter(|target| matches!(target.status, TargetStatus::Allowed))
-        .count()
 }
 
 pub fn scan_parallelism_budget() -> usize {
