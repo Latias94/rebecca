@@ -114,8 +114,13 @@ impl ScanCacheStore {
                 continue;
             }
 
-            let fingerprint = match ScanCacheFingerprint::from_path(&record.root) {
+            let fingerprint = match ScanCacheFingerprint::read_from_path(&record.root) {
                 Ok(fingerprint) => fingerprint,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    prune_cache_file(&cache_file);
+                    report.pruned = report.pruned.saturating_add(1);
+                    continue;
+                }
                 Err(_) => {
                     report.retained = report.retained.saturating_add(1);
                     continue;
@@ -140,11 +145,15 @@ impl ScanCacheStore {
     }
 
     pub fn load_with_policy(&self, root: &Path, policy: ScanCachePolicy) -> ScanCacheLookup {
-        let fingerprint = match ScanCacheFingerprint::from_path(root) {
+        let cache_file = self.cache_file_for(root);
+        let fingerprint = match ScanCacheFingerprint::read_from_path(root) {
             Ok(fingerprint) => fingerprint,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                prune_cache_file(&cache_file);
+                return ScanCacheLookup::Miss(ScanCacheMiss::Missing);
+            }
             Err(_) => return ScanCacheLookup::Miss(ScanCacheMiss::MetadataUnavailable),
         };
-        let cache_file = self.cache_file_for(root);
         let raw = match std::fs::read_to_string(&cache_file) {
             Ok(raw) => raw,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -341,6 +350,26 @@ mod tests {
     }
 
     #[test]
+    fn scan_cache_missing_root_prunes_existing_record_on_load() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+        store.store(&root, report).unwrap();
+        std::fs::remove_file(&root).unwrap();
+
+        let lookup = store.load(&root);
+
+        assert_eq!(lookup, ScanCacheLookup::Miss(ScanCacheMiss::Missing));
+        assert!(!store.cache_file_for(&root).exists());
+    }
+
+    #[test]
     fn scan_cache_corrupted_file_is_cache_miss() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("target");
@@ -510,6 +539,28 @@ mod tests {
         assert_eq!(prune_report.retained, 1);
         assert!(store.cache_file_for(&fresh_root).exists());
         assert!(!store.cache_file_for(&stale_root).exists());
+    }
+
+    #[test]
+    fn scan_cache_prune_removes_records_for_missing_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+        store.store(&root, report).unwrap();
+        std::fs::remove_file(&root).unwrap();
+
+        let prune_report = store.prune();
+
+        assert_eq!(prune_report.inspected, 1);
+        assert_eq!(prune_report.pruned, 1);
+        assert_eq!(prune_report.retained, 0);
+        assert!(!store.cache_file_for(&root).exists());
     }
 
     #[test]

@@ -93,13 +93,17 @@ pub struct ScanCacheFingerprint {
 
 impl ScanCacheFingerprint {
     pub fn from_path(path: &Path) -> Result<Self> {
-        let metadata = std::fs::symlink_metadata(path).map_err(|err| {
+        Self::read_from_path(path).map_err(|err| {
             RebeccaError::ScanCacheUnavailable(format!(
                 "scan cache metadata unavailable for {}: {}",
                 path.display(),
                 err
             ))
-        })?;
+        })
+    }
+
+    pub(crate) fn read_from_path(path: &Path) -> std::io::Result<Self> {
+        let metadata = std::fs::symlink_metadata(path)?;
 
         let file_type = metadata.file_type();
         let file_type = if file_type.is_symlink() {
