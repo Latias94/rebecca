@@ -3,6 +3,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use rebecca_core::executor::{
+    CleanupBackend, ExecutionOutcome, execute_cleanup_plan_parallel_with_policy,
+    execute_cleanup_plan_with_policy,
+};
+use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle};
+use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::scan::{
     ScanCancellationToken, ScanProgressEvent, measure_path, measure_path_with_progress,
     scan_targets,
@@ -75,6 +81,44 @@ fn scan_baseline(criterion: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
+
+    criterion.bench_function("cleanup_delete_serial_1024_files", |bencher| {
+        bencher.iter_batched(
+            create_cleanup_fixture,
+            |mut fixture| {
+                execute_cleanup_plan_with_policy(
+                    &mut fixture.plan,
+                    &fixture.backend,
+                    ProtectionPolicy::new(),
+                )
+                .expect("cleanup should succeed");
+
+                assert_eq!(fixture.plan.summary.completed_targets, DIRECTORY_COUNT);
+                assert_eq!(fixture.plan.summary.allowed_targets, 0);
+                black_box(fixture);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    criterion.bench_function("cleanup_delete_parallel_1024_files", |bencher| {
+        bencher.iter_batched(
+            create_cleanup_fixture,
+            |mut fixture| {
+                execute_cleanup_plan_parallel_with_policy(
+                    &mut fixture.plan,
+                    &fixture.backend,
+                    ProtectionPolicy::new(),
+                )
+                .expect("cleanup should succeed");
+
+                assert_eq!(fixture.plan.summary.completed_targets, DIRECTORY_COUNT);
+                assert_eq!(fixture.plan.summary.allowed_targets, 0);
+                black_box(fixture);
+            },
+            BatchSize::SmallInput,
+        );
+    });
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -82,6 +126,54 @@ struct ExpectedScan {
     bytes: u64,
     files: u64,
     directories: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CleanupFixtureBackend;
+
+#[derive(Debug)]
+struct CleanupBenchmarkFixture {
+    _temp: tempfile::TempDir,
+    plan: CleanupPlan,
+    backend: CleanupFixtureBackend,
+}
+
+impl CleanupBackend for CleanupFixtureBackend {
+    fn delete(&self, target: &CleanupTarget) -> rebecca_core::Result<ExecutionOutcome> {
+        match target.deletion_style {
+            CleanupTargetDeletionStyle::DeleteWholePath => {
+                if target.path.is_dir() {
+                    fs::remove_dir_all(&target.path).expect("benchmark delete should succeed");
+                } else {
+                    fs::remove_file(&target.path).expect("benchmark delete should succeed");
+                }
+            }
+            CleanupTargetDeletionStyle::PreserveRootContents => {
+                if target.path.is_dir() {
+                    for entry in
+                        fs::read_dir(&target.path).expect("benchmark directory should be readable")
+                    {
+                        let entry = entry.expect("benchmark entry should be readable");
+                        let entry_path = entry.path();
+                        if entry_path.is_dir() {
+                            fs::remove_dir_all(&entry_path)
+                                .expect("benchmark delete should succeed");
+                        } else {
+                            fs::remove_file(&entry_path).expect("benchmark delete should succeed");
+                        }
+                    }
+                } else {
+                    fs::remove_file(&target.path).expect("benchmark delete should succeed");
+                }
+            }
+        }
+
+        Ok(ExecutionOutcome {
+            freed_bytes: 0,
+            pending_reclaim_bytes: target.estimated_bytes,
+            note: Some("moved to recycle bin".to_string()),
+        })
+    }
 }
 
 fn create_scan_targets_fixture(
@@ -123,6 +215,40 @@ fn create_fixture(root: &Path) -> ExpectedScan {
         bytes,
         files,
         directories: DIRECTORY_COUNT as u64 + 1,
+    }
+}
+
+fn create_cleanup_fixture() -> CleanupBenchmarkFixture {
+    let temp = tempfile::tempdir().expect("benchmark fixture should be created");
+    let root = temp.path();
+    let mut plan = CleanupPlan::empty(rebecca_core::PlanRequest::for_platform(
+        rebecca_core::Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+
+    for directory_index in 0..DIRECTORY_COUNT {
+        let directory = root.join(format!("dir-{directory_index:02}"));
+        fs::create_dir_all(&directory).expect("benchmark directory should be created");
+
+        for file_index in 0..FILES_PER_DIRECTORY {
+            let file = directory.join(format!("file-{file_index:02}.bin"));
+            fs::write(&file, vec![directory_index as u8; BYTES_PER_FILE])
+                .expect("benchmark file should be written");
+        }
+
+        plan.targets.push(CleanupTarget::allowed(
+            format!("rule-{directory_index:04}"),
+            directory,
+            BYTES_PER_FILE as u64 * FILES_PER_DIRECTORY as u64,
+            DeleteMode::RecycleBin,
+        ));
+    }
+
+    plan.recompute_summary();
+    CleanupBenchmarkFixture {
+        _temp: temp,
+        plan,
+        backend: CleanupFixtureBackend,
     }
 }
 

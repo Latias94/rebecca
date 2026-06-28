@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
 use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca_core::executor::execute_cleanup_plan_with_policy;
+use rebecca_core::executor::execute_cleanup_plan_parallel_with_policy;
 use rebecca_core::history::HistoryStore;
 use rebecca_core::plan::CleanupPlan;
 use rebecca_core::planner::{PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context};
@@ -165,7 +165,7 @@ pub(crate) fn run_workflow_with_runtime_config(
         if !protected_paths.is_empty() {
             execution_policy = execution_policy.with_protected_paths(&protected_paths);
         }
-        execute_cleanup_plan_with_policy(&mut plan, &backend, execution_policy)?;
+        execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy)?;
 
         HistoryStore::new(runtime_config.app_paths.history_file).append_plan(&plan)?;
 

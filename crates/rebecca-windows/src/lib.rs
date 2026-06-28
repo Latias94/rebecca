@@ -62,9 +62,11 @@ mod platform {
             }
             rebecca_core::CleanupTargetDeletionStyle::PreserveRootContents => {
                 if path.is_dir() {
-                    for entry in fs::read_dir(path)? {
-                        let entry = entry?;
-                        trash::delete(entry.path())
+                    let entries = fs::read_dir(path)?
+                        .map(|entry| entry.map(|entry| entry.path()))
+                        .collect::<std::io::Result<Vec<_>>>()?;
+                    if !entries.is_empty() {
+                        trash::delete_all(entries)
                             .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
                     }
                 } else {

@@ -1,10 +1,16 @@
 use std::cell::Cell;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Barrier;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use rebecca_core::config::AppPaths;
 use rebecca_core::executor::{
-    CleanupBackend, ExecutionOutcome, execute_cleanup_plan, execute_cleanup_plan_with_policy,
+    CleanupBackend, ExecutionOutcome, execute_cleanup_plan,
+    execute_cleanup_plan_parallel_with_policy, execute_cleanup_plan_with_policy,
 };
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::protection::ProtectionPolicy;
@@ -286,6 +292,62 @@ fn executor_allows_app_leftover_cache_targets_after_revalidation() {
 }
 
 #[test]
+fn executor_parallel_batches_independent_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first.tmp");
+    let second = temp.path().join("second.tmp");
+    fs::write(&first, b"trash").unwrap();
+    fs::write(&second, b"trash").unwrap();
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.first",
+        first,
+        10,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.second",
+        second,
+        20,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = Arc::new(BlockingBackend::new());
+    let backend_for_thread = Arc::clone(&backend);
+    let delete_thread = thread::spawn(move || {
+        execute_cleanup_plan_parallel_with_policy(
+            &mut plan,
+            backend_for_thread.as_ref(),
+            ProtectionPolicy::new(),
+        )
+        .unwrap();
+        plan
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while backend.started.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(
+        backend.started.load(Ordering::SeqCst),
+        2,
+        "expected both deletes to be in flight at once"
+    );
+    backend.gate.wait();
+
+    let plan = delete_thread.join().unwrap();
+    assert_eq!(backend.max_active.load(Ordering::SeqCst), 2);
+    assert_eq!(plan.summary.completed_targets, 2);
+    assert_eq!(plan.targets[0].status, TargetStatus::Completed);
+    assert_eq!(plan.targets[1].status, TargetStatus::Completed);
+}
+
+#[test]
 fn executor_blocks_app_leftover_durable_paths_before_backend_calls() {
     let mut plan = CleanupPlan::empty(
         PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
@@ -352,6 +414,50 @@ impl CleanupBackend for FakeBackend {
             freed_bytes: 0,
             pending_reclaim_bytes: target.estimated_bytes,
             note: Some("fake delete".to_string()),
+        })
+    }
+}
+
+struct BlockingBackend {
+    started: AtomicUsize,
+    max_active: AtomicUsize,
+    gate: Arc<Barrier>,
+}
+
+impl BlockingBackend {
+    fn new() -> Self {
+        Self {
+            started: AtomicUsize::new(0),
+            max_active: AtomicUsize::new(0),
+            gate: Arc::new(Barrier::new(3)),
+        }
+    }
+}
+
+impl CleanupBackend for BlockingBackend {
+    fn delete(&self, target: &CleanupTarget) -> Result<ExecutionOutcome> {
+        let active = self.started.fetch_add(1, Ordering::SeqCst) + 1;
+        loop {
+            let current = self.max_active.load(Ordering::SeqCst);
+            if active <= current {
+                break;
+            }
+            if self
+                .max_active
+                .compare_exchange(current, active, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                break;
+            }
+        }
+
+        self.gate.wait();
+        self.started.fetch_sub(1, Ordering::SeqCst);
+
+        Ok(ExecutionOutcome {
+            freed_bytes: 0,
+            pending_reclaim_bytes: target.estimated_bytes,
+            note: Some("blocking delete".to_string()),
         })
     }
 }

@@ -56,6 +56,29 @@ fn recycle_bin_backend_preserves_target_directory() {
 }
 
 #[test]
+fn recycle_bin_backend_preserves_target_directory_after_batching_multiple_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache = temp.path().join("cache");
+    fs::create_dir_all(cache.join("nested")).unwrap();
+    fs::write(cache.join("entry-a.tmp"), b"trash").unwrap();
+    fs::write(cache.join("entry-b.tmp"), b"trash").unwrap();
+    fs::write(cache.join("nested").join("entry-c.tmp"), b"trash").unwrap();
+
+    let target = CleanupTarget::allowed(
+        "windows.user-temp",
+        cache.clone(),
+        15,
+        DeleteMode::RecycleBin,
+    );
+    let backend = WindowsRecycleBinBackend::new();
+    let outcome = backend.delete(&target).unwrap();
+
+    assert_eq!(outcome.pending_reclaim_bytes, 15);
+    assert!(cache.exists());
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 0);
+}
+
+#[test]
 fn recycle_bin_backend_deletes_whole_path_when_requested() {
     let temp = tempfile::tempdir().unwrap();
     let cache = temp.path().join("cache");
