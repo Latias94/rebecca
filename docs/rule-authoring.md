@@ -143,9 +143,9 @@ files. Keep each rule small, explicit, and easy to audit.
 ## Verification
 
 - `cargo nextest run -p rebecca-rules`
-- `cargo nextest run -p rebecca-cli --test cli_apps`
+- `cargo nextest run -p rebecca --test cli_apps`
 - `cargo nextest run --workspace`
-- `cargo run -p rebecca-cli -- scan`
+- `cargo run -p rebecca -- scan`
 
 ## Provenance
 

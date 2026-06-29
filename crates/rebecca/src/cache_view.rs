@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rebecca_core::cache::{CachePurgeEntry, CachePurgeMode, CachePurgeReport, CachePurgeSummary};
+use rebecca::core::cache::{CachePurgeEntry, CachePurgeMode, CachePurgeReport, CachePurgeSummary};
 
 #[derive(Debug, Clone)]
 pub(crate) struct CachePurgeProjection<'a> {
@@ -154,10 +154,10 @@ fn format_count(value: usize, singular: &str, plural: &str) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca_core::cache::{
+    use rebecca::core::cache::{
         CachePurgeEntryKind, CachePurgeEntryReason, CachePurgeEntryStatus, CachePurgeIssueSummary,
     };
-    use rebecca_core::config::{AppStorageLifecycle, AppStorageRetention};
+    use rebecca::core::config::{AppStorageLifecycle, AppStorageRetention};
 
     use super::*;
 

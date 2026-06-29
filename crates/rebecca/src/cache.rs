@@ -1,8 +1,8 @@
 use std::fmt::Write as _;
 
 use anyhow::Result;
-use rebecca_core::cache::{CachePurgeMode, CachePurgeReport, purge_app_cache};
-use rebecca_core::config::load_app_paths;
+use rebecca::core::cache::{CachePurgeMode, CachePurgeReport, purge_app_cache};
+use rebecca::core::config::load_app_paths;
 
 use crate::cache_view::CachePurgeProjection;
 use crate::cli::OutputMode;
@@ -140,11 +140,11 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca_core::cache::{
+    use rebecca::core::cache::{
         CachePurgeEntry, CachePurgeEntryKind, CachePurgeEntryReason, CachePurgeEntryStatus,
         CachePurgeIssueSummary, CachePurgeSummary,
     };
-    use rebecca_core::config::{AppStorageLifecycle, AppStorageRetention};
+    use rebecca::core::config::{AppStorageLifecycle, AppStorageRetention};
 
     use super::{CachePurgeMode, CachePurgeReport, render_cache_purge_report};
 

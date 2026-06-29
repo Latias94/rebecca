@@ -1,7 +1,7 @@
 use anyhow::Result;
-use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan};
-use rebecca_core::planner::PlanProgressEvent;
-use rebecca_core::{CleanupWorkflow, RuleDefinition};
+use rebecca::core::plan::{CleanupIssueSummary, CleanupPlan};
+use rebecca::core::planner::PlanProgressEvent;
+use rebecca::core::{CleanupWorkflow, RuleDefinition};
 use serde::Serialize;
 use serde_json::json;
 use std::fmt;
@@ -125,59 +125,59 @@ pub(crate) fn render_error(command: &str, mode: OutputMode, err: &anyhow::Error)
 fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
     let detail = err.to_string();
 
-    if let Some(core_error) = err.downcast_ref::<rebecca_core::RebeccaError>() {
+    if let Some(core_error) = err.downcast_ref::<rebecca::core::RebeccaError>() {
         let (code, title) = match core_error {
-            rebecca_core::RebeccaError::InvalidRuleId(_) => {
+            rebecca::core::RebeccaError::InvalidRuleId(_) => {
                 ("invalid-rule-id", "Invalid cleanup rule")
             }
-            rebecca_core::RebeccaError::InvalidCategory(_) => {
+            rebecca::core::RebeccaError::InvalidCategory(_) => {
                 ("invalid-category", "Invalid cleanup category")
             }
-            rebecca_core::RebeccaError::InvalidProjectArtifactSelector(_) => (
+            rebecca::core::RebeccaError::InvalidProjectArtifactSelector(_) => (
                 "invalid-project-artifact-selector",
                 "Invalid project artifact selector",
             ),
-            rebecca_core::RebeccaError::ConfigRead { .. } => {
+            rebecca::core::RebeccaError::ConfigRead { .. } => {
                 ("config-read-failed", "Configuration read failed")
             }
-            rebecca_core::RebeccaError::ConfigParse { .. } => {
+            rebecca::core::RebeccaError::ConfigParse { .. } => {
                 ("config-parse-failed", "Configuration parse failed")
             }
-            rebecca_core::RebeccaError::HistoryCorrupted(_) => {
+            rebecca::core::RebeccaError::HistoryCorrupted(_) => {
                 ("history-corrupted", "History record corrupted")
             }
-            rebecca_core::RebeccaError::HistoryUnavailable(_) => {
+            rebecca::core::RebeccaError::HistoryUnavailable(_) => {
                 ("history-unavailable", "History unavailable")
             }
-            rebecca_core::RebeccaError::PlatformUnavailable(_) => {
+            rebecca::core::RebeccaError::PlatformUnavailable(_) => {
                 ("platform-unavailable", "Platform unavailable")
             }
-            rebecca_core::RebeccaError::OperationCancelled(_) => {
+            rebecca::core::RebeccaError::OperationCancelled(_) => {
                 ("operation-cancelled", "Operation cancelled")
             }
-            rebecca_core::RebeccaError::ScanFailed(_) => ("scan-failed", "Scan failed"),
-            rebecca_core::RebeccaError::ScanCacheUnavailable(_) => {
+            rebecca::core::RebeccaError::ScanFailed(_) => ("scan-failed", "Scan failed"),
+            rebecca::core::RebeccaError::ScanCacheUnavailable(_) => {
                 ("scan-cache-unavailable", "Scan cache unavailable")
             }
-            rebecca_core::RebeccaError::SafetyBlocked(_) => {
+            rebecca::core::RebeccaError::SafetyBlocked(_) => {
                 ("safety-blocked", "Safety policy blocked cleanup")
             }
-            rebecca_core::RebeccaError::ExecutionFailed(_) => {
+            rebecca::core::RebeccaError::ExecutionFailed(_) => {
                 ("execution-failed", "Cleanup execution failed")
             }
-            rebecca_core::RebeccaError::PathExpansionFailed(_) => {
+            rebecca::core::RebeccaError::PathExpansionFailed(_) => {
                 ("path-expansion-failed", "Path expansion failed")
             }
-            rebecca_core::RebeccaError::ApplicationDiscoveryFailed(_) => (
+            rebecca::core::RebeccaError::ApplicationDiscoveryFailed(_) => (
                 "application-discovery-failed",
                 "Application discovery failed",
             ),
-            rebecca_core::RebeccaError::RuleCatalogInvalid(_) => {
+            rebecca::core::RebeccaError::RuleCatalogInvalid(_) => {
                 ("rule-catalog-invalid", "Rule catalog invalid")
             }
-            rebecca_core::RebeccaError::Json(_) => ("json-error", "JSON processing failed"),
-            rebecca_core::RebeccaError::Io(_) => ("io-error", "I/O failed"),
-            rebecca_core::RebeccaError::UserDirsUnavailable => {
+            rebecca::core::RebeccaError::Json(_) => ("json-error", "JSON processing failed"),
+            rebecca::core::RebeccaError::Io(_) => ("io-error", "I/O failed"),
+            rebecca::core::RebeccaError::UserDirsUnavailable => {
                 ("user-dirs-unavailable", "User directories unavailable")
             }
         };

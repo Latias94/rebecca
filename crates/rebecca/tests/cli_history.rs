@@ -1,9 +1,9 @@
 use std::fs;
 
 mod common;
-use rebecca_core::history::HistoryEntry;
-use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
-use rebecca_core::{DeleteMode, PlanRequest, Platform, TargetStatus};
+use rebecca::core::history::HistoryEntry;
+use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
+use rebecca::core::{DeleteMode, PlanRequest, Platform, TargetStatus};
 #[path = "common/isolated.rs"]
 mod isolated;
 
@@ -103,7 +103,7 @@ fn missing_target_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
 fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
     let mut plan = CleanupPlan {
         request: PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
-            .with_workflow(rebecca_core::CleanupWorkflow::AppLeftovers),
+            .with_workflow(rebecca::core::CleanupWorkflow::AppLeftovers),
         summary: CleanupSummary {
             completed_targets: 1,
             failed_targets: 0,
@@ -111,7 +111,7 @@ fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
             ..CleanupSummary::default()
         },
         targets: vec![
-            rebecca_core::CleanupTarget::allowed(
+            rebecca::core::CleanupTarget::allowed(
                 "windows.app-leftover-local-cache",
                 std::path::PathBuf::from(r"C:\Users\Alice\AppData\Local\WeChat\Cache"),
                 12,

@@ -1,14 +1,14 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/rebecca-cli",
+    "crates/rebecca",
     "crates/rebecca-core",
     "crates/rebecca-rules",
     "crates/rebecca-windows",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Rebecca contributors"]
 license = "MIT OR Apache-2.0"
@@ -46,9 +46,9 @@ winreg = "0.52"
 
 # Workspace crates. Keeping versions explicit lets cargo publish rewrite path
 # dependencies to registry dependencies without duplicating requirements.
-rebecca-core = { path = "crates/rebecca-core", version = "0.1.0" }
-rebecca-rules = { path = "crates/rebecca-rules", version = "0.1.0" }
-rebecca-windows = { path = "crates/rebecca-windows", version = "0.1.0" }
+rebecca-core = { path = "crates/rebecca-core", version = "0.1.1" }
+rebecca-rules = { path = "crates/rebecca-rules", version = "0.1.1" }
+rebecca-windows = { path = "crates/rebecca-windows", version = "0.1.1" }
 
 [profile.dist]
 inherits = "release"

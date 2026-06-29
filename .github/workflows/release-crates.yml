@@ -75,6 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
+          metadata_json="$(cargo metadata --no-deps --format-version 1)"
 
           crate_version_available() {
             local crate="$1"
@@ -108,7 +109,15 @@ jobs:
 
           workspace_crate_version() {
             local crate="$1"
-            cargo pkgid -p "$crate" | sed -E 's/.*[#@]//'
+            local crate_version
+            crate_version="$(printf '%s\n' "$metadata_json" | jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .version')"
+
+            if [ -z "$crate_version" ] || [ "$crate_version" = "null" ]; then
+              echo "::error::Could not resolve workspace version for crate '$crate'."
+              return 1
+            fi
+
+            printf '%s\n' "$crate_version"
           }
 
           dry_run_crate_version() {
@@ -158,7 +167,7 @@ jobs:
             rebecca-core
             rebecca-rules
             rebecca-windows
-            rebecca-cli
+            rebecca
           )
 
           for crate in "${crates[@]}"; do

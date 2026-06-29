@@ -30,8 +30,12 @@ function Resolve-InstallDir {
         return [System.IO.Path]::GetFullPath($RequestedInstallDir)
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($env:REBECCA_INSTALL_DIR)) {
+        return [System.IO.Path]::GetFullPath($env:REBECCA_INSTALL_DIR)
+    }
+
     if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-        throw "LOCALAPPDATA is not set; pass -InstallDir explicitly."
+        throw "LOCALAPPDATA is not set; pass -InstallDir or set REBECCA_INSTALL_DIR explicitly."
     }
 
     return [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "Programs\Rebecca"))
@@ -149,7 +153,7 @@ function Get-VersionFromAssetName {
     if ($AssetName -match '^rebecca-(.+)-windows-x86_64-msvc\.zip$') {
         return $Matches[1]
     }
-    if ($AssetName -match '^rebecca-cli-x86_64-pc-windows-msvc\.zip$') {
+    if ($AssetName -match '^rebecca-x86_64-pc-windows-msvc\.zip$') {
         return ""
     }
 
@@ -326,7 +330,7 @@ function Resolve-InstallInputs {
     }
 
     $version = Get-VersionFromTag -ResolvedTag $effectiveTag
-    $assetName = "rebecca-cli-x86_64-pc-windows-msvc.zip"
+    $assetName = "rebecca-x86_64-pc-windows-msvc.zip"
     $assetFile = Join-Path $TempRoot $assetName
     $checksumFile = Join-Path $TempRoot "sha256.sum"
 

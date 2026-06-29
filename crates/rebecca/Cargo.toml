@@ -1,5 +1,5 @@
 [package]
-name = "rebecca-cli"
+name = "rebecca"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,11 +7,16 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Windows-first cleanup CLI for caches, app leftovers, and project artifacts."
-documentation = "https://docs.rs/rebecca-cli"
+description = "Windows-first cleanup CLI and Rust library surface for Rebecca cleanup planning, rules, and platform adapters."
+documentation = "https://docs.rs/rebecca"
 readme = "../../README.md"
 keywords = ["windows", "cleanup", "cache", "cli"]
 categories = ["command-line-utilities", "filesystem"]
+
+[features]
+default = ["rules", "windows"]
+rules = ["dep:rebecca-rules"]
+windows = ["dep:rebecca-windows"]
 
 [package.metadata.dist]
 dist = true
@@ -28,7 +33,8 @@ dialoguer.workspace = true
 indicatif.workspace = true
 ctrlc.workspace = true
 rebecca-core.workspace = true
-rebecca-rules.workspace = true
+rebecca-rules = { workspace = true, optional = true }
+rebecca-windows = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
@@ -36,6 +42,3 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-rebecca-windows.workspace = true

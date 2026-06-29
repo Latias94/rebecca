@@ -1,7 +1,7 @@
 [workspace]
-# cargo-dist only builds the CLI binary release. crates.io publishing is handled
-# by .github/workflows/release-crates.yml in workspace dependency order.
-members = ["cargo:crates/rebecca-cli"]
+# cargo-dist only builds the user-facing Rebecca package. crates.io publishing is
+# handled by .github/workflows/release-crates.yml in workspace dependency order.
+members = ["cargo:crates/rebecca"]
 
 [dist]
 cargo-dist-version = "0.31.0"

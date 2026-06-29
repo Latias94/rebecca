@@ -315,5 +315,5 @@ rules. Easy to cite from README, ADRs, and plans.
 ## Verification References
 
 - `cargo nextest run -p rebecca-core config`
-- `cargo nextest run -p rebecca-cli --test cli_output`
-- `cargo nextest run -p rebecca-cli --test cli_cache`
+- `cargo nextest run -p rebecca --test cli_output`
+- `cargo nextest run -p rebecca --test cli_cache`

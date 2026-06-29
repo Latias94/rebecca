@@ -1,14 +1,14 @@
 use std::num::NonZeroUsize;
 
 use anyhow::Result;
-use rebecca_core::applications::ApplicationDiscovery;
+use rebecca::core::applications::ApplicationDiscovery;
 #[cfg(debug_assertions)]
-use rebecca_core::applications::{
+use rebecca::core::applications::{
     InstalledApplication, NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
-use rebecca_core::config::{AppPaths, load_app_paths};
-use rebecca_core::history::HistoryStore;
-use rebecca_core::plan::{CleanupIssueSummary, CleanupTarget, CleanupTargetIssueReason};
+use rebecca::core::config::{AppPaths, load_app_paths};
+use rebecca::core::history::HistoryStore;
+use rebecca::core::plan::{CleanupIssueSummary, CleanupTarget, CleanupTargetIssueReason};
 use serde::Serialize;
 
 use crate::cli::OutputMode;
@@ -254,12 +254,12 @@ pub fn application_discovery() -> Box<dyn ApplicationDiscovery> {
 
     #[cfg(windows)]
     {
-        Box::new(rebecca_windows::steam::WindowsApplicationDiscovery::new())
+        Box::new(rebecca::windows::steam::WindowsApplicationDiscovery::new())
     }
 
     #[cfg(not(windows))]
     {
-        Box::new(rebecca_core::applications::NoopApplicationDiscovery::new())
+        Box::new(rebecca::core::applications::NoopApplicationDiscovery::new())
     }
 }
 
@@ -332,10 +332,10 @@ fn installed_applications_override() -> Vec<InstalledApplication> {
 
 #[cfg(windows)]
 fn current_privilege_label() -> &'static str {
-    match rebecca_windows::current_privilege_level() {
-        rebecca_windows::PrivilegeLevel::StandardUser => "standard-user",
-        rebecca_windows::PrivilegeLevel::Elevated => "elevated",
-        rebecca_windows::PrivilegeLevel::Unknown => "unknown",
+    match rebecca::windows::current_privilege_level() {
+        rebecca::windows::PrivilegeLevel::StandardUser => "standard-user",
+        rebecca::windows::PrivilegeLevel::Elevated => "elevated",
+        rebecca::windows::PrivilegeLevel::Unknown => "unknown",
     }
 }
 

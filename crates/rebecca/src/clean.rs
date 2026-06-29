@@ -3,21 +3,23 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
-use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca_core::executor::execute_cleanup_plan_parallel_with_policy;
-use rebecca_core::history::HistoryStore;
-use rebecca_core::plan::CleanupPlan;
-use rebecca_core::planner::{PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context};
-use rebecca_core::protection::ProtectionPolicy;
-use rebecca_core::scan::ScanCancellationToken;
-use rebecca_core::scan_cache::ScanCacheStore;
-use rebecca_core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
+use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
+use rebecca::core::environment::SystemEnvironment;
+use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
+use rebecca::core::history::HistoryStore;
+use rebecca::core::plan::CleanupPlan;
+use rebecca::core::planner::{
+    PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
+};
+use rebecca::core::protection::ProtectionPolicy;
+use rebecca::core::scan::ScanCancellationToken;
+use rebecca::core::scan_cache::ScanCacheStore;
+use rebecca::core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
 use crate::output::{MachineErrorRendered, NdjsonEventWriter, format_bytes};
 use crate::{info, output};
-use rebecca_core::environment::SystemEnvironment;
 
 #[derive(Debug)]
 pub struct CleanOptions {
@@ -67,7 +69,7 @@ pub fn run(options: CleanOptions) -> Result<()> {
     request.allow_moderate = options.allow_moderate;
     request.allow_risky = options.allow_risky;
 
-    let catalog = rebecca_rules::builtin_rules()?;
+    let catalog = rebecca::rules::builtin_rules()?;
     run_workflow(WorkflowRunOptions {
         request,
         rules: &catalog,
@@ -137,7 +139,7 @@ pub(crate) fn run_workflow_with_runtime_config(
         Ok(plan) => plan,
         Err(err) => {
             let event_writer = progress.into_event_writer();
-            if matches!(&err, rebecca_core::RebeccaError::OperationCancelled(_)) {
+            if matches!(&err, rebecca::core::RebeccaError::OperationCancelled(_)) {
                 return finish_stream_with_cancellation(event_writer, options.cancellation_message);
             }
 
@@ -162,7 +164,7 @@ pub(crate) fn run_workflow_with_runtime_config(
 
     #[cfg(not(windows))]
     {
-        let err = rebecca_core::RebeccaError::PlatformUnavailable(
+        let err = rebecca::core::RebeccaError::PlatformUnavailable(
             options.unsupported_execution_message.to_string(),
         )
         .into();
@@ -192,7 +194,7 @@ pub(crate) fn run_workflow_with_runtime_config(
             return finish_stream_with_cancellation(event_writer, options.cancellation_message);
         }
 
-        let backend = rebecca_windows::WindowsRecycleBinBackend::new();
+        let backend = rebecca::windows::WindowsRecycleBinBackend::new();
         let mut execution_policy =
             ProtectionPolicy::new().with_protected_storage(&protected_storage);
         if !protected_paths.is_empty() {
@@ -242,7 +244,7 @@ fn finish_stream_with_cancellation(
 fn merged_protected_paths(config_paths: &[PathBuf], cli_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut merged = Vec::with_capacity(config_paths.len() + cli_paths.len());
     for path in config_paths.iter().chain(cli_paths) {
-        rebecca_core::config::validate_user_protected_path(path)
+        rebecca::core::config::validate_user_protected_path(path)
             .map_err(|message| anyhow!("invalid protected path {}: {message}", path.display()))?;
         if merged.iter().all(|existing| existing != path) {
             merged.push(path.clone());

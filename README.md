@@ -26,35 +26,44 @@
 **Install from a GitHub release**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.1.0/rebecca-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.1.1/rebecca-installer.ps1 | iex"
 ```
 
-The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_CLI_INSTALL_DIR` to override the install directory.
+The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` to override the install directory.
 
 **Install from crates.io**
 
 ```powershell
-cargo install rebecca-cli --locked
+cargo install rebecca --locked
 ```
+
+**Use as a Rust library**
+
+```toml
+[dependencies]
+rebecca = "0.1"
+```
+
+`rebecca` is the user-facing package. It exposes the curated library surface and the CLI binary while the implementation remains split across `rebecca-core`, `rebecca-rules`, and `rebecca-windows`.
 
 **Run from source**
 
 ```powershell
-cargo run -p rebecca-cli -- scan
-cargo run -p rebecca-cli -- clean --dry-run
-cargo run -p rebecca-cli -- apps scan
-cargo run -p rebecca-cli -- purge --list-artifacts
+cargo run -p rebecca -- scan
+cargo run -p rebecca -- clean --dry-run
+cargo run -p rebecca -- apps scan
+cargo run -p rebecca -- purge --list-artifacts
 ```
 
 **Preview safely**
 
 ```powershell
-cargo run -p rebecca-cli -- clean --dry-run
-cargo run -p rebecca-cli -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
-cargo run -p rebecca-cli -- apps clean --dry-run
-cargo run -p rebecca-cli -- purge --dry-run
-cargo run -p rebecca-cli -- history --limit 10
-cargo run -p rebecca-cli -- history --format json
+cargo run -p rebecca -- clean --dry-run
+cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
+cargo run -p rebecca -- apps clean --dry-run
+cargo run -p rebecca -- purge --dry-run
+cargo run -p rebecca -- history --limit 10
+cargo run -p rebecca -- history --format json
 ```
 
 ## Security & Safety Design
@@ -91,48 +100,48 @@ Reference material under `repo-ref/` is for behavior research only; Rebecca owns
 ## Usage
 
 ```powershell
-cargo run -p rebecca-cli -- scan
-cargo run -p rebecca-cli -- scan --format json
-cargo run -p rebecca-cli -- scan --category browser
-cargo run -p rebecca-cli -- scan --rule windows.thumbnail-cache
+cargo run -p rebecca -- scan
+cargo run -p rebecca -- scan --format json
+cargo run -p rebecca -- scan --category browser
+cargo run -p rebecca -- scan --rule windows.thumbnail-cache
 
-cargo run -p rebecca-cli -- clean --dry-run
-cargo run -p rebecca-cli -- clean --dry-run --format json --category system
-cargo run -p rebecca-cli -- clean --dry-run --no-progress --rule windows.edge-cache
-cargo run -p rebecca-cli -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
-cargo run -p rebecca-cli -- clean --dry-run --format json --allow-moderate --rule windows.npm-cache
-cargo run -p rebecca-cli -- clean --dry-run --format json --allow-risky --rule windows.npm-cache
-cargo run -p rebecca-cli -- clean --dry-run --exclude "$env:APPDATA\Slack\Cache"
-cargo run -p rebecca-cli -- clean --yes --category system
+cargo run -p rebecca -- clean --dry-run
+cargo run -p rebecca -- clean --dry-run --format json --category system
+cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.edge-cache
+cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
+cargo run -p rebecca -- clean --dry-run --format json --allow-moderate --rule windows.npm-cache
+cargo run -p rebecca -- clean --dry-run --format json --allow-risky --rule windows.npm-cache
+cargo run -p rebecca -- clean --dry-run --exclude "$env:APPDATA\Slack\Cache"
+cargo run -p rebecca -- clean --yes --category system
 
-cargo run -p rebecca-cli -- apps scan
-cargo run -p rebecca-cli -- apps scan --format json
-cargo run -p rebecca-cli -- apps scan --exclude "$env:LOCALAPPDATA\Example App\Cache"
-cargo run -p rebecca-cli -- apps clean
-cargo run -p rebecca-cli -- apps clean --format json --dry-run
-cargo run -p rebecca-cli -- apps clean --yes
+cargo run -p rebecca -- apps scan
+cargo run -p rebecca -- apps scan --format json
+cargo run -p rebecca -- apps scan --exclude "$env:LOCALAPPDATA\Example App\Cache"
+cargo run -p rebecca -- apps clean
+cargo run -p rebecca -- apps clean --format json --dry-run
+cargo run -p rebecca -- apps clean --yes
 
-cargo run -p rebecca-cli -- purge
-cargo run -p rebecca-cli -- purge --list-artifacts
-cargo run -p rebecca-cli -- purge --list-artifacts --format json
-cargo run -p rebecca-cli -- purge --format json --root . --max-depth 6
-cargo run -p rebecca-cli -- purge --root . --min-age-days 0
-cargo run -p rebecca-cli -- purge --root . --artifact target
-cargo run -p rebecca-cli -- purge --exclude "$PWD\target"
-cargo run -p rebecca-cli -- purge --yes --root . --scan-cache
+cargo run -p rebecca -- purge
+cargo run -p rebecca -- purge --list-artifacts
+cargo run -p rebecca -- purge --list-artifacts --format json
+cargo run -p rebecca -- purge --format json --root . --max-depth 6
+cargo run -p rebecca -- purge --root . --min-age-days 0
+cargo run -p rebecca -- purge --root . --artifact target
+cargo run -p rebecca -- purge --exclude "$PWD\target"
+cargo run -p rebecca -- purge --yes --root . --scan-cache
 
-cargo run -p rebecca-cli -- completion powershell
-cargo run -p rebecca-cli -- completion bash
-cargo run -p rebecca-cli -- completion zsh
+cargo run -p rebecca -- completion powershell
+cargo run -p rebecca -- completion bash
+cargo run -p rebecca -- completion zsh
 
-cargo run -p rebecca-cli -- history
-cargo run -p rebecca-cli -- history --limit 10
-cargo run -p rebecca-cli -- history --format json
+cargo run -p rebecca -- history
+cargo run -p rebecca -- history --limit 10
+cargo run -p rebecca -- history --format json
 
-cargo run -p rebecca-cli -- config paths
-cargo run -p rebecca-cli -- cache purge --format json
-cargo run -p rebecca-cli -- cache purge --yes
-cargo run -p rebecca-cli -- doctor permissions
+cargo run -p rebecca -- config paths
+cargo run -p rebecca -- cache purge --format json
+cargo run -p rebecca -- cache purge --yes
+cargo run -p rebecca -- doctor permissions
 ```
 
 ## CLI API
@@ -241,7 +250,7 @@ For tests or constrained environments, these paths can also be overridden:
 
 ## Release Integrity
 
-Rebecca's release workflow publishes a cargo-dist Windows x86_64 ZIP artifact, a PowerShell installer, and SHA-256 checksum files. A separate crates.io workflow publishes the workspace crates in dependency order. Users installing from GitHub Releases should verify the checksum when downloading artifacts manually.
+Rebecca's release workflow publishes a cargo-dist Windows x86_64 ZIP artifact, a PowerShell installer, and SHA-256 checksum files. A separate crates.io workflow publishes the workspace crates in dependency order, including the user-facing `rebecca` package. Users installing from GitHub Releases should verify the checksum when downloading artifacts manually.
 
 See [Release Integrity](docs/release.md) for the exact verification commands.
 
@@ -257,8 +266,8 @@ cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace
 cargo bench -p rebecca-core --bench scan_baseline
-.\scripts\release\build-release.ps1 -Tag v0.1.0 -OutDir target\release-smoke
-.\scripts\release\write-sbom.ps1 -Tag v0.1.0 -DistDir target\release-smoke
+.\scripts\release\build-release.ps1 -Tag v0.1.1 -OutDir target\release-smoke
+.\scripts\release\write-sbom.ps1 -Tag v0.1.1 -DistDir target\release-smoke
 .\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
-.\scripts\install.ps1 -AssetPath target\release-smoke\rebecca-0.1.0-windows-x86_64-msvc.zip -ChecksumsPath target\release-smoke\SHA256SUMS -InstallDir target\install-smoke -SkipAttestation
+.\scripts\install.ps1 -AssetPath target\release-smoke\rebecca-0.1.1-windows-x86_64-msvc.zip -ChecksumsPath target\release-smoke\SHA256SUMS -InstallDir target\install-smoke -SkipAttestation
 ```

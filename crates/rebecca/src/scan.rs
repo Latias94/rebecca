@@ -1,10 +1,10 @@
 use anyhow::Result;
-use rebecca_core::RuleSelection;
+use rebecca::core::RuleSelection;
 
 use crate::cli::OutputMode;
 
 pub fn run(output_mode: OutputMode, categories: Vec<String>, rules: Vec<String>) -> Result<()> {
-    let catalog = rebecca_rules::builtin_rules()?;
+    let catalog = rebecca::rules::builtin_rules()?;
     let selection = RuleSelection::new(categories, rules);
     selection.validate_against_rules(&catalog)?;
     let filtered = catalog

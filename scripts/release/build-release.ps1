@@ -107,7 +107,7 @@ $archivePath = Join-Path $outDirFull "$artifactName.zip"
 Push-Location $repoRoot
 try {
     if (-not $SkipBuild) {
-        cargo build -p rebecca-cli --bin rebecca --release --locked --target $Target
+        cargo build -p rebecca --bin rebecca --release --locked --target $Target
     }
 
     $binaryPath = Join-Path $repoRoot "target\$Target\release\rebecca.exe"

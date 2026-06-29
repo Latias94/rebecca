@@ -1,9 +1,9 @@
 use std::fs;
 
 mod common;
-use rebecca_core::history::HistoryStore;
-use rebecca_core::plan::{CleanupPlan, CleanupTarget};
-use rebecca_core::{DeleteMode, PlanRequest, Platform, TargetStatus};
+use rebecca::core::history::HistoryStore;
+use rebecca::core::plan::{CleanupPlan, CleanupTarget};
+use rebecca::core::{DeleteMode, PlanRequest, Platform, TargetStatus};
 #[path = "common/isolated.rs"]
 mod isolated;
 

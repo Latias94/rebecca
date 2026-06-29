@@ -290,13 +290,13 @@ Focused coverage currently includes:
   round-trips, including protected issue reason preservation;
 - `crates/rebecca-windows/tests/apps_inventory.rs` for best-effort Windows app
   inventory discovery;
-- `crates/rebecca-cli/tests/cli_clean.rs`, `cli_scan.rs`, `cli_apps.rs`, and
+- `crates/rebecca/tests/cli_clean.rs`, `cli_scan.rs`, `cli_apps.rs`, and
   `cli_history.rs`
   for user-facing and JSON contract behavior, including protected issue target
   replay.
-- `crates/rebecca-cli/tests/cli_purge.rs` for project-artifact purge output,
+- `crates/rebecca/tests/cli_purge.rs` for project-artifact purge output,
   selector catalog listing, and recent-artifact messaging.
-- `crates/rebecca-cli/tests/cli_scan.rs` for builtin rule listing and scan
+- `crates/rebecca/tests/cli_scan.rs` for builtin rule listing and scan
   filter coverage.
 - `crates/rebecca-core/tests/project_artifacts.rs` for project-artifact
   discovery, context-sensitive cache detection, selector filtering, and recent
@@ -309,12 +309,12 @@ Recent targeted verification for this audit baseline:
 - `cargo nextest run -p rebecca-core --test executor_contract`
 - `cargo nextest run -p rebecca-core --test model_contract`
 - `cargo nextest run -p rebecca-core --test history`
-- `cargo nextest run -p rebecca-cli --test cli_scan`
-- `cargo nextest run -p rebecca-cli --test cli_purge`
-- `cargo nextest run -p rebecca-cli --test cli_apps`
-- `cargo nextest run -p rebecca-cli --test scan`
-- `cargo nextest run -p rebecca-cli --test cli_clean`
-- `cargo nextest run -p rebecca-cli --test cli_history`
+- `cargo nextest run -p rebecca --test cli_scan`
+- `cargo nextest run -p rebecca --test cli_purge`
+- `cargo nextest run -p rebecca --test cli_apps`
+- `cargo nextest run -p rebecca --test scan`
+- `cargo nextest run -p rebecca --test cli_clean`
+- `cargo nextest run -p rebecca --test cli_history`
 - `cargo nextest run -p rebecca-core --test project_artifacts`
 - `cargo nextest run -p rebecca-windows`
 - `cargo nextest run -p rebecca-rules`

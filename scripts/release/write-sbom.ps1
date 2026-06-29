@@ -202,11 +202,11 @@ function Get-ReleaseRootPackage {
     param($Metadata)
 
     $rootPackage = $Metadata.packages |
-        Where-Object { $_.name -eq "rebecca-cli" -and $Metadata.workspace_members -contains $_.id } |
+        Where-Object { $_.name -eq "rebecca" -and $Metadata.workspace_members -contains $_.id } |
         Select-Object -First 1
 
     if (-not $rootPackage) {
-        throw "Could not find rebecca-cli workspace package in Cargo metadata"
+        throw "Could not find rebecca workspace package in Cargo metadata"
     }
 
     return $rootPackage

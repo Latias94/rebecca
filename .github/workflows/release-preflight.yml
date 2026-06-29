@@ -70,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "target/package-lists" | Out-Null
-          foreach ($crate in @("rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca-cli")) {
+          foreach ($crate in @("rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca")) {
             cargo package -p $crate --list > "target/package-lists/$crate.txt"
           }
 

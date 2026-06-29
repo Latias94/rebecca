@@ -841,8 +841,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rebecca-cli"
-version = "0.1.0"
+name = "rebecca"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -862,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "rebecca-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "directories",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "rebecca-rules"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rebecca-core",
  "serde",
@@ -889,7 +889,7 @@ dependencies = [
 
 [[package]]
 name = "rebecca-windows"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rebecca-core",
  "tempfile",

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
+use rebecca::core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectArtifactPlanProjection<'a> {
@@ -154,8 +154,8 @@ fn format_count(count: u64, singular: &str, plural: &str) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTargetIssueReason};
-    use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
+    use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTargetIssueReason};
+    use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
     use super::*;
 

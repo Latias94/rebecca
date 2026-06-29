@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
-use rebecca_core::{DeleteMode, TargetStatus};
+use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
+use rebecca::core::{DeleteMode, TargetStatus};
 
 const LARGEST_TARGET_LIMIT: usize = 5;
 
@@ -231,8 +231,8 @@ fn format_count(count: u64, singular: &str, plural: &str) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca_core::plan::{CleanupTarget, CleanupTargetIssueReason};
-    use rebecca_core::{PlanRequest, Platform};
+    use rebecca::core::plan::{CleanupTarget, CleanupTargetIssueReason};
+    use rebecca::core::{PlanRequest, Platform};
 
     use super::*;
 
