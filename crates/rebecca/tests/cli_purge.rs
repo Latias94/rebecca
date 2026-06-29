@@ -175,16 +175,55 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     assert_eq!(value["summary"]["estimated_bytes"], 7);
 
     let targets = value["targets"].as_array().unwrap();
-    assert!(targets.iter().any(|target| {
-        target["rule_id"] == "windows.project-artifact-node-modules"
-            && PathBuf::from(target["path"].as_str().unwrap())
-                .ends_with(Path::new("app").join("node_modules"))
-    }));
-    assert!(targets.iter().any(|target| {
-        target["rule_id"] == "windows.project-artifact-target"
-            && PathBuf::from(target["path"].as_str().unwrap())
-                .ends_with(Path::new("app").join("target"))
-    }));
+    let node_modules_target = targets
+        .iter()
+        .find(|target| {
+            target["rule_id"] == "windows.project-artifact-node-modules"
+                && PathBuf::from(target["path"].as_str().unwrap())
+                    .ends_with(Path::new("app").join("node_modules"))
+        })
+        .unwrap();
+    assert_eq!(
+        node_modules_target["project_artifact"]["matched_context"],
+        "node-project"
+    );
+    assert!(
+        PathBuf::from(
+            node_modules_target["project_artifact"]["project_root"]
+                .as_str()
+                .unwrap()
+        )
+        .ends_with("app")
+    );
+    assert!(
+        PathBuf::from(
+            node_modules_target["project_artifact"]["project_anchor"]
+                .as_str()
+                .unwrap()
+        )
+        .ends_with(Path::new("app").join("package.json"))
+    );
+
+    let target_artifact = targets
+        .iter()
+        .find(|target| {
+            target["rule_id"] == "windows.project-artifact-target"
+                && PathBuf::from(target["path"].as_str().unwrap())
+                    .ends_with(Path::new("app").join("target"))
+        })
+        .unwrap();
+    assert_eq!(
+        target_artifact["project_artifact"]["matched_context"],
+        "target-project"
+    );
+    assert!(
+        PathBuf::from(
+            target_artifact["project_artifact"]["project_anchor"]
+                .as_str()
+                .unwrap()
+        )
+        .ends_with(Path::new("app").join("Cargo.toml"))
+    );
 }
 
 #[test]
@@ -621,6 +660,18 @@ fn purge_json_reports_cachedir_tag_artifacts() {
     let target = &value["targets"].as_array().unwrap()[0];
     assert_eq!(target["rule_id"], "windows.project-artifact-cachedir-tag");
     assert_eq!(target["status"], "allowed");
+    assert_eq!(
+        target["project_artifact"]["matched_context"],
+        "cachedir-tag"
+    );
+    assert!(
+        PathBuf::from(
+            target["project_artifact"]["project_anchor"]
+                .as_str()
+                .unwrap()
+        )
+        .ends_with(Path::new("tool-cache").join("CACHEDIR.TAG"))
+    );
     assert!(
         PathBuf::from(target["path"].as_str().unwrap())
             .ends_with(Path::new("app").join("tool-cache"))

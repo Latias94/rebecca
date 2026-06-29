@@ -26,7 +26,7 @@
 **Install from a GitHub release**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.1.1/rebecca-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.2.0/rebecca-installer.ps1 | iex"
 ```
 
 The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` to override the install directory.
@@ -180,6 +180,8 @@ The current scope is context-sensitive rather than basename-only: `node_modules`
 
 Rebecca does not auto-scan every common project directory under the user profile. By default it scans configured `[purge].roots` when present and falls back to the current directory when no roots are configured; pass repeated `--root <PATH>` values to override configured roots for one run. Known artifact directory names are traversal boundaries even when the directory is not accepted as a cleanup target, which prevents embedded toolchains or installed products from leaking nested `build`, `dist`, `node_modules`, or bytecode caches into the plan. Execution uses the same plan-first model as `clean`: preview is the default, `--yes` is required to move targets to the Windows Recycle Bin, and `--exclude` plus `[protection].protected_paths` can block paths before size scanning or deletion.
 
+Machine-readable purge targets include a `project_artifact` explanation object with the matched context, project root, and anchor path that made the target eligible. For example, a `node_modules` target matched by `package.json` reports `matched_context = "node-project"` and the concrete `project_anchor` path rather than a confidence score.
+
 To avoid immediately cleaning active build output, `purge` skips artifact directories modified within the last 7 days by default; pass `--min-age-days 0` to include recent artifacts explicitly. Use repeated `--artifact <NAME>` values to include only selected artifact kinds, using either the directory name such as `node_modules` or a rule id suffix such as `target`; run `rebecca purge --list-artifacts` to print the supported selector catalog without scanning. Human output groups artifact targets by project path and labels each artifact type so large purge plans are easier to scan.
 
 Long-lived purge defaults belong in `config.toml`:
@@ -189,6 +191,17 @@ Long-lived purge defaults belong in `config.toml`:
 roots = ['D:\SourceCodes', 'D:\Work']
 max_depth = 6
 min_age_days = 7
+```
+
+Reference source trees such as this repository's `repo-ref` directory should be protected by configuration or a one-off exclude instead of product-specific hardcoding:
+
+```powershell
+rebecca purge --root . --exclude "$PWD\repo-ref"
+```
+
+```toml
+[protection]
+protected_paths = ['D:\SourceCodes\Rust\rebecca\repo-ref'] # replace with your checkout path
 ```
 
 ## Local State
@@ -266,8 +279,8 @@ cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace
 cargo bench -p rebecca-core --bench scan_baseline
-.\scripts\release\build-release.ps1 -Tag v0.1.1 -OutDir target\release-smoke
-.\scripts\release\write-sbom.ps1 -Tag v0.1.1 -DistDir target\release-smoke
+.\scripts\release\build-release.ps1 -Tag v0.2.0 -OutDir target\release-smoke
+.\scripts\release\write-sbom.ps1 -Tag v0.2.0 -DistDir target\release-smoke
 .\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
-.\scripts\install.ps1 -AssetPath target\release-smoke\rebecca-0.1.1-windows-x86_64-msvc.zip -ChecksumsPath target\release-smoke\SHA256SUMS -InstallDir target\install-smoke -SkipAttestation
+.\scripts\install.ps1 -AssetPath target\release-smoke\rebecca-0.2.0-windows-x86_64-msvc.zip -ChecksumsPath target\release-smoke\SHA256SUMS -InstallDir target\install-smoke -SkipAttestation
 ```

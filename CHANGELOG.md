@@ -4,9 +4,16 @@ All notable changes to Rebecca will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+- project artifact cleanup targets now include a `project_artifact` explanation object in JSON and history output with the matched context, project root, and anchor path.
+- CLI API docs now include a representative `purge` JSON example.
+
 ### Changed
 - project artifact purge now requires explicit project context for built-in artifact kinds instead of accepting broad basename matches.
 - known artifact directories now stop traversal even when they are not accepted as cleanup targets, reducing false positives from embedded toolchains and installed products.
+- tag-driven releases now publish crates.io packages and cargo-dist GitHub Release assets from the same `release.yml` workflow.
 
 ### Fixed
 - `purge --format json` and NDJSON completion events now report the `purge` command instead of `clean`.

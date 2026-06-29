@@ -213,6 +213,10 @@ values. It must:
   paths, reparse-point blocking, scan-cache estimation, history, and issue
   matrix reporting.
 
+Project artifact targets in JSON and history include a `project_artifact`
+object with the matched context, project root, and anchor path that justified
+the match. This is an explainability field, not a confidence score.
+
 The first supported artifact set tracks high-confidence rebuildable project
 directories such as `node_modules`, `target`, `build`, `dist`, frontend
 framework caches, Python virtual environments and caches, Gradle caches,
@@ -222,6 +226,20 @@ and non-Composer `vendor` are intentionally outside the automatic target set;
 Rebecca only includes `vendor` with a sibling `composer.json`, and only includes
 `bin` with a sibling `.csproj`, `.fsproj`, or `.vbproj` plus `Debug` or
 `Release` output.
+
+Reference source snapshots used for development should be excluded or protected
+by the local environment rather than hardcoded into Rebecca. In this repository,
+`repo-ref` is a git-ignored reference tree and can be protected for purge runs
+with either a one-off CLI flag or an absolute protected path in config:
+
+```powershell
+rebecca purge --root . --exclude "$PWD\repo-ref"
+```
+
+```toml
+[protection]
+protected_paths = ['D:\SourceCodes\Rust\rebecca\repo-ref'] # replace with your checkout path
+```
 
 ## History And Privacy
 

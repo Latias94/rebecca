@@ -54,12 +54,27 @@ Payload data is intentionally nested under `data` so Rebecca can evolve
 metadata, event transport, and error handling without turning internal core
 models into the top-level API.
 
+Project artifact cleanup targets include a `project_artifact` object when they
+were discovered by `rebecca purge`. The object explains why the target was
+eligible:
+
+- `matched_context`: stable kebab-case rule context such as `node-project`,
+  `target-project`, or `cachedir-tag`;
+- `project_root`: directory whose project context was accepted;
+- `project_anchor`: file or marker directory that justified the match, such as
+  `package.json`, `Cargo.toml`, or `CACHEDIR.TAG`.
+
+Rebecca does not emit confidence scores for purge targets. Consumers should use
+the explicit `rule_id`, `status`, `reason_code`, and `project_artifact`
+explanation fields.
+
 ## Examples
 
 ```powershell
 rebecca scan --format json
 rebecca clean --format json --category system
 rebecca clean --format ndjson --scan-cache --category system
+rebecca purge --format json --root . --min-age-days 0
 rebecca doctor permissions --format json
 ```
 

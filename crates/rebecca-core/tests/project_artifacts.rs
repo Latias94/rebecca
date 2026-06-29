@@ -73,6 +73,35 @@ fn discovers_known_project_artifacts_and_prunes_nested_artifacts() {
             .iter()
             .all(|path| !path.ends_with(Path::new("target").join("node_modules")))
     );
+
+    let node_modules = artifacts
+        .iter()
+        .find(|artifact| {
+            artifact
+                .path
+                .ends_with(Path::new("app").join("node_modules"))
+        })
+        .unwrap();
+    assert_eq!(node_modules.context.matched_context, "node-project");
+    assert!(node_modules.context.project_root.ends_with("app"));
+    assert!(
+        node_modules
+            .context
+            .project_anchor
+            .ends_with(Path::new("app").join("package.json"))
+    );
+
+    let target = artifacts
+        .iter()
+        .find(|artifact| artifact.path.ends_with(Path::new("app").join("target")))
+        .unwrap();
+    assert_eq!(target.context.matched_context, "target-project");
+    assert!(
+        target
+            .context
+            .project_anchor
+            .ends_with(Path::new("app").join("Cargo.toml"))
+    );
 }
 
 #[test]

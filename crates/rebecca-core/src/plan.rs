@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::project_artifacts::ProjectArtifactContextMatch;
 use crate::{DeleteMode, PlanRequest, TargetStatus};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +52,8 @@ pub struct CleanupTarget {
     pub deletion_style: CleanupTargetDeletionStyle,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modified_at_unix_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_artifact: Option<ProjectArtifactContextMatch>,
     pub freed_bytes: u64,
     pub pending_reclaim_bytes: u64,
 }
@@ -107,6 +110,7 @@ impl CleanupTarget {
             restore_hint: None,
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
+            project_artifact: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -145,6 +149,7 @@ impl CleanupTarget {
             restore_hint: None,
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
+            project_artifact: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -183,6 +188,7 @@ impl CleanupTarget {
             restore_hint: None,
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
+            project_artifact: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -224,6 +230,7 @@ impl CleanupTarget {
             restore_hint: None,
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
+            project_artifact: None,
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -236,6 +243,14 @@ impl CleanupTarget {
 
     pub fn with_modified_at_unix_seconds(mut self, modified_at_unix_seconds: Option<u64>) -> Self {
         self.modified_at_unix_seconds = modified_at_unix_seconds;
+        self
+    }
+
+    pub fn with_project_artifact_context(
+        mut self,
+        context: Option<ProjectArtifactContextMatch>,
+    ) -> Self {
+        self.project_artifact = context;
         self
     }
 

@@ -1,15 +1,21 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::error::{RebeccaError, Result};
 
-use super::ProjectArtifactDefinition;
+use super::{ProjectArtifactContextMatch, ProjectArtifactDefinition};
 
 #[derive(Debug, Clone, Copy)]
 struct ProjectArtifactRule {
     definition: ProjectArtifactDefinition,
     context: ProjectArtifactContext,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ProjectArtifactRuleMatch {
+    pub(super) definition: ProjectArtifactDefinition,
+    pub(super) context: ProjectArtifactContextMatch,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -312,16 +318,21 @@ pub fn project_artifact_matches_selectors(
             .any(|selector| project_artifact_matches_selector(definition, selector))
 }
 
-pub(super) fn definition_for_directory(
-    dir: &Path,
-    name: &str,
-) -> Option<ProjectArtifactDefinition> {
+pub(super) fn rule_match_for_directory(dir: &Path, name: &str) -> Option<ProjectArtifactRuleMatch> {
     let rule = project_artifact_rule_for_dir_name(name)?;
-    project_artifact_context_matches(dir, rule.context).then_some(rule.definition)
+    let context = project_artifact_context_match(dir, rule.context)?;
+    Some(ProjectArtifactRuleMatch {
+        definition: rule.definition,
+        context,
+    })
 }
 
 pub(super) fn cachedir_tag_definition() -> ProjectArtifactDefinition {
     CACHEDIR_TAG_DEFINITION
+}
+
+pub(super) fn cachedir_tag_context_match(dir: &Path) -> ProjectArtifactContextMatch {
+    context_match("cachedir-tag", dir, dir.join("CACHEDIR.TAG"))
 }
 
 pub(super) fn is_known_project_artifact_dir_name(name: &str) -> bool {
@@ -367,245 +378,294 @@ fn selector_alias(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace(['_', '.'], "-")
 }
 
-fn project_artifact_context_matches(path: &Path, context: ProjectArtifactContext) -> bool {
-    let Some(parent) = path.parent() else {
-        return false;
-    };
+fn project_artifact_context_match(
+    path: &Path,
+    context: ProjectArtifactContext,
+) -> Option<ProjectArtifactContextMatch> {
+    let parent = path.parent()?;
 
     match context {
-        ProjectArtifactContext::NodeProject => has_node_project_anchor(parent),
-        ProjectArtifactContext::TargetProject => has_target_project_anchor(parent),
-        ProjectArtifactContext::PythonProject => has_python_project_anchor(parent),
+        ProjectArtifactContext::NodeProject => node_project_context(parent),
+        ProjectArtifactContext::TargetProject => target_project_context(parent),
+        ProjectArtifactContext::PythonProject => python_project_context(parent),
         ProjectArtifactContext::PythonCache => {
-            has_project_anchor_ancestor(parent, has_python_cache_anchor, 4)
+            project_anchor_ancestor(parent, python_cache_context, 4)
         }
-        ProjectArtifactContext::GradleProject => has_gradle_project_anchor(parent),
-        ProjectArtifactContext::DartProject => has_regular_file(&parent.join("pubspec.yaml")),
-        ProjectArtifactContext::ZigProject => has_zig_project_anchor(parent),
-        ProjectArtifactContext::GenericProjectOutput => has_project_output_anchor(parent),
-        ProjectArtifactContext::CocoapodsProject => has_cocoapods_project_anchor(parent),
-        ProjectArtifactContext::CxxProject => has_cxx_project_anchor(parent),
-        ProjectArtifactContext::ExpoProject => has_expo_project_anchor(parent),
-        ProjectArtifactContext::SwiftPackage => has_regular_file(&parent.join("Package.swift")),
-        ProjectArtifactContext::DotnetBin => is_dotnet_bin_dir(path),
-        ProjectArtifactContext::DotnetObj => is_dotnet_obj_dir(path),
-        ProjectArtifactContext::ComposerVendor => is_composer_vendor_dir(path),
+        ProjectArtifactContext::GradleProject => gradle_project_context(parent),
+        ProjectArtifactContext::DartProject => {
+            regular_file_context(parent, "dart-project", &["pubspec.yaml"])
+        }
+        ProjectArtifactContext::ZigProject => zig_project_context(parent),
+        ProjectArtifactContext::GenericProjectOutput => project_output_context(parent),
+        ProjectArtifactContext::CocoapodsProject => cocoapods_project_context(parent),
+        ProjectArtifactContext::CxxProject => cxx_project_context(parent),
+        ProjectArtifactContext::ExpoProject => expo_project_context(parent),
+        ProjectArtifactContext::SwiftPackage => {
+            regular_file_context(parent, "swift-package", &["Package.swift"])
+        }
+        ProjectArtifactContext::DotnetBin => dotnet_bin_context(path),
+        ProjectArtifactContext::DotnetObj => dotnet_obj_context(path),
+        ProjectArtifactContext::ComposerVendor => {
+            regular_file_context(parent, "composer-vendor", &["composer.json"])
+        }
     }
 }
 
-fn is_dotnet_bin_dir(path: &Path) -> bool {
-    let Some(parent) = path.parent() else {
-        return false;
-    };
-
-    has_dotnet_project_file(parent)
-        && (has_child_dir(path, "Debug") || has_child_dir(path, "Release"))
+fn context_match(
+    matched_context: &'static str,
+    project_root: &Path,
+    project_anchor: PathBuf,
+) -> ProjectArtifactContextMatch {
+    ProjectArtifactContextMatch {
+        matched_context: matched_context.to_string(),
+        project_root: project_root.to_path_buf(),
+        project_anchor,
+    }
 }
 
-fn is_dotnet_obj_dir(path: &Path) -> bool {
-    let Some(parent) = path.parent() else {
-        return false;
-    };
-
-    has_dotnet_project_file(parent)
+fn regular_file_context(
+    dir: &Path,
+    matched_context: &'static str,
+    markers: &[&str],
+) -> Option<ProjectArtifactContextMatch> {
+    find_regular_file_anchor(dir, markers).map(|anchor| context_match(matched_context, dir, anchor))
 }
 
-fn has_project_output_anchor(dir: &Path) -> bool {
-    [
-        "package.json",
-        "pnpm-workspace.yaml",
-        "nx.json",
-        "rush.json",
-        "lerna.json",
-        "pyproject.toml",
-        "requirements.txt",
-        "Pipfile",
-        "Cargo.toml",
-        "pom.xml",
-        "build.gradle",
-        "build.gradle.kts",
-        "settings.gradle",
-        "settings.gradle.kts",
-        "CMakeLists.txt",
-        "Makefile",
-        "go.mod",
-        "Gemfile",
-        "composer.json",
-        "pubspec.yaml",
-        "Package.swift",
-        "Podfile",
-        "build.zig",
-        "build.zig.zon",
-        ".git",
-    ]
-    .iter()
-    .any(|marker| has_regular_file(&dir.join(marker)) || has_child_dir(dir, marker))
-        || has_dotnet_project_file(dir)
-        || has_file_with_extension(dir, &["sln", "vcxproj"])
+fn node_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(
+        dir,
+        "node-project",
+        &[
+            "package.json",
+            "pnpm-workspace.yaml",
+            "nx.json",
+            "rush.json",
+            "lerna.json",
+        ],
+    )
 }
 
-fn has_node_project_anchor(dir: &Path) -> bool {
-    [
-        "package.json",
-        "pnpm-workspace.yaml",
-        "nx.json",
-        "rush.json",
-        "lerna.json",
-    ]
-    .iter()
-    .any(|marker| has_regular_file(&dir.join(marker)))
+fn target_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(dir, "target-project", &["Cargo.toml", "pom.xml"])
 }
 
-fn has_target_project_anchor(dir: &Path) -> bool {
-    ["Cargo.toml", "pom.xml"]
-        .iter()
-        .any(|marker| has_regular_file(&dir.join(marker)))
+fn python_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(
+        dir,
+        "python-project",
+        &[
+            "pyproject.toml",
+            "requirements.txt",
+            "Pipfile",
+            "poetry.lock",
+            "setup.py",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            "ruff.toml",
+            ".python-version",
+        ],
+    )
 }
 
-fn has_python_project_anchor(dir: &Path) -> bool {
-    [
-        "pyproject.toml",
-        "requirements.txt",
-        "Pipfile",
-        "poetry.lock",
-        "setup.py",
-        "setup.cfg",
-        "tox.ini",
-        "pytest.ini",
-        "ruff.toml",
-        ".python-version",
-    ]
-    .iter()
-    .any(|marker| has_regular_file(&dir.join(marker)))
+fn python_cache_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(
+        dir,
+        "python-cache",
+        &[
+            "pyproject.toml",
+            "requirements.txt",
+            "Pipfile",
+            "poetry.lock",
+            "tox.ini",
+            "pytest.ini",
+            "ruff.toml",
+        ],
+    )
+    .or_else(|| {
+        has_child_dir(dir, ".git").then(|| context_match("python-cache", dir, dir.join(".git")))
+    })
 }
 
-fn has_python_cache_anchor(dir: &Path) -> bool {
-    [
-        "pyproject.toml",
-        "requirements.txt",
-        "Pipfile",
-        "poetry.lock",
-        "tox.ini",
-        "pytest.ini",
-        "ruff.toml",
-        ".git",
-    ]
-    .iter()
-    .any(|marker| has_regular_file(&dir.join(marker)) || has_child_dir(dir, marker))
+fn gradle_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(
+        dir,
+        "gradle-project",
+        &[
+            "build.gradle",
+            "build.gradle.kts",
+            "settings.gradle",
+            "settings.gradle.kts",
+        ],
+    )
 }
 
-fn has_gradle_project_anchor(dir: &Path) -> bool {
-    [
-        "build.gradle",
-        "build.gradle.kts",
-        "settings.gradle",
-        "settings.gradle.kts",
-    ]
-    .iter()
-    .any(|marker| has_regular_file(&dir.join(marker)))
+fn zig_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(dir, "zig-project", &["build.zig", "build.zig.zon"])
 }
 
-fn has_zig_project_anchor(dir: &Path) -> bool {
-    ["build.zig", "build.zig.zon"]
-        .iter()
-        .any(|marker| has_regular_file(&dir.join(marker)))
+fn project_output_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(
+        dir,
+        "project-output",
+        &[
+            "package.json",
+            "pnpm-workspace.yaml",
+            "nx.json",
+            "rush.json",
+            "lerna.json",
+            "pyproject.toml",
+            "requirements.txt",
+            "Pipfile",
+            "Cargo.toml",
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "settings.gradle",
+            "settings.gradle.kts",
+            "CMakeLists.txt",
+            "Makefile",
+            "go.mod",
+            "Gemfile",
+            "composer.json",
+            "pubspec.yaml",
+            "Package.swift",
+            "Podfile",
+            "build.zig",
+            "build.zig.zon",
+        ],
+    )
+    .or_else(|| {
+        has_child_dir(dir, ".git").then(|| context_match("project-output", dir, dir.join(".git")))
+    })
+    .or_else(|| {
+        dotnet_project_file_anchor(dir).map(|anchor| context_match("project-output", dir, anchor))
+    })
+    .or_else(|| {
+        file_with_extension_anchor(dir, &["sln", "vcxproj"])
+            .map(|anchor| context_match("project-output", dir, anchor))
+    })
 }
 
-fn has_cocoapods_project_anchor(dir: &Path) -> bool {
-    ["Podfile", "Podfile.lock"]
-        .iter()
-        .any(|marker| has_regular_file(&dir.join(marker)))
+fn cocoapods_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(dir, "cocoapods-project", &["Podfile", "Podfile.lock"])
 }
 
-fn has_cxx_project_anchor(dir: &Path) -> bool {
-    has_regular_file(&dir.join("CMakeLists.txt")) || has_gradle_project_anchor(dir)
+fn cxx_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(dir, "cxx-project", &["CMakeLists.txt"]).or_else(|| {
+        gradle_project_context(dir).map(|mut context| {
+            context.matched_context = "cxx-project".to_string();
+            context
+        })
+    })
 }
 
-fn has_expo_project_anchor(dir: &Path) -> bool {
-    [
-        "package.json",
-        "app.json",
-        "app.config.js",
-        "app.config.ts",
-        "app.config.mjs",
-    ]
-    .iter()
-    .any(|marker| has_regular_file(&dir.join(marker)))
+fn expo_project_context(dir: &Path) -> Option<ProjectArtifactContextMatch> {
+    regular_file_context(
+        dir,
+        "expo-project",
+        &[
+            "package.json",
+            "app.json",
+            "app.config.js",
+            "app.config.ts",
+            "app.config.mjs",
+        ],
+    )
 }
 
-fn has_project_anchor_ancestor(
+fn dotnet_bin_context(path: &Path) -> Option<ProjectArtifactContextMatch> {
+    let parent = path.parent()?;
+
+    if has_child_dir(path, "Debug") || has_child_dir(path, "Release") {
+        dotnet_project_file_anchor(parent).map(|anchor| context_match("dotnet-bin", parent, anchor))
+    } else {
+        None
+    }
+}
+
+fn dotnet_obj_context(path: &Path) -> Option<ProjectArtifactContextMatch> {
+    let parent = path.parent()?;
+
+    dotnet_project_file_anchor(parent).map(|anchor| context_match("dotnet-obj", parent, anchor))
+}
+
+fn project_anchor_ancestor(
     start: &Path,
-    predicate: fn(&Path) -> bool,
+    predicate: fn(&Path) -> Option<ProjectArtifactContextMatch>,
     max_parent_hops: usize,
-) -> bool {
+) -> Option<ProjectArtifactContextMatch> {
     let mut current = Some(start);
     for _ in 0..=max_parent_hops {
-        let Some(dir) = current else {
-            return false;
-        };
-        if predicate(dir) {
-            return true;
+        let dir = current?;
+        if let Some(context) = predicate(dir) {
+            return Some(context);
         }
         current = dir.parent();
     }
 
-    false
+    None
 }
 
-fn has_dotnet_project_file(dir: &Path) -> bool {
+fn find_regular_file_anchor(dir: &Path, markers: &[&str]) -> Option<PathBuf> {
+    markers
+        .iter()
+        .map(|marker| dir.join(marker))
+        .find(|path| has_regular_file(path))
+}
+
+fn dotnet_project_file_anchor(dir: &Path) -> Option<PathBuf> {
     let Ok(entries) = fs::read_dir(dir) else {
-        return false;
+        return None;
     };
 
-    entries.flatten().any(|entry| {
+    entries.flatten().find_map(|entry| {
         let path = entry.path();
         let Ok(metadata) = fs::symlink_metadata(&path) else {
-            return false;
+            return None;
         };
         if !metadata.is_file() || crate::safety::is_reparse_like(&metadata) {
-            return false;
+            return None;
         }
 
-        path.extension()
+        let is_dotnet_project = path
+            .extension()
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| {
                 ["csproj", "fsproj", "vbproj"]
                     .iter()
                     .any(|expected| extension.eq_ignore_ascii_case(expected))
-            })
+            });
+
+        is_dotnet_project.then_some(path)
     })
 }
 
-fn has_file_with_extension(dir: &Path, extensions: &[&str]) -> bool {
+fn file_with_extension_anchor(dir: &Path, extensions: &[&str]) -> Option<PathBuf> {
     let Ok(entries) = fs::read_dir(dir) else {
-        return false;
+        return None;
     };
 
-    entries.flatten().any(|entry| {
+    entries.flatten().find_map(|entry| {
         let path = entry.path();
         let Ok(metadata) = fs::symlink_metadata(&path) else {
-            return false;
+            return None;
         };
         if !metadata.is_file() || crate::safety::is_reparse_like(&metadata) {
-            return false;
+            return None;
         }
 
-        path.extension()
+        let matches_extension = path
+            .extension()
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| {
                 extensions
                     .iter()
                     .any(|expected| extension.eq_ignore_ascii_case(expected))
-            })
+            });
+
+        matches_extension.then_some(path)
     })
-}
-
-fn is_composer_vendor_dir(path: &Path) -> bool {
-    let Some(parent) = path.parent() else {
-        return false;
-    };
-
-    has_regular_file(&parent.join("composer.json"))
 }
 
 fn has_child_dir(parent: &Path, name: &str) -> bool {

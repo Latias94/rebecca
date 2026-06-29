@@ -411,6 +411,7 @@ fn project_artifact_allowed_target(
     .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
     .with_deletion_style(CleanupTargetDeletionStyle::DeleteWholePath)
     .with_modified_at_unix_seconds(artifact.modified_at_unix_seconds)
+    .with_project_artifact_context(Some(artifact.context.clone()))
 }
 
 fn project_artifact_skipped_target(
@@ -429,6 +430,7 @@ fn project_artifact_skipped_target(
     .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
     .with_deletion_style(CleanupTargetDeletionStyle::DeleteWholePath)
     .with_modified_at_unix_seconds(artifact.modified_at_unix_seconds)
+    .with_project_artifact_context(Some(artifact.context.clone()))
 }
 
 fn project_artifact_blocked_target(
@@ -447,6 +449,7 @@ fn project_artifact_blocked_target(
     .with_restore_hint(Some(artifact.definition.restore_hint.to_string()))
     .with_deletion_style(CleanupTargetDeletionStyle::DeleteWholePath)
     .with_modified_at_unix_seconds(artifact.modified_at_unix_seconds)
+    .with_project_artifact_context(Some(artifact.context.clone()))
 }
 
 fn app_leftover_allowed_target(

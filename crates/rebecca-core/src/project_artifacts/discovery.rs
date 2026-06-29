@@ -7,10 +7,13 @@ use crate::error::{RebeccaError, Result};
 use crate::scan::ScanCancellationToken;
 
 use super::catalog::{
-    cachedir_tag_definition, definition_for_directory, is_known_project_artifact_dir_name,
-    should_prune_scan_dir,
+    cachedir_tag_context_match, cachedir_tag_definition, is_known_project_artifact_dir_name,
+    rule_match_for_directory, should_prune_scan_dir,
 };
-use super::{ProjectArtifactCandidate, ProjectArtifactDefinition, ProjectArtifactScanOptions};
+use super::{
+    ProjectArtifactCandidate, ProjectArtifactContextMatch, ProjectArtifactDefinition,
+    ProjectArtifactScanOptions,
+};
 
 const CACHEDIR_TAG_FILE_NAME: &str = "CACHEDIR.TAG";
 const CACHEDIR_TAG_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
@@ -95,8 +98,14 @@ fn scan_root(
         check_cancelled(cancellation)?;
 
         if let Some(name) = dir.file_name().and_then(|name| name.to_str()) {
-            if let Some(definition) = definition_for_directory(&dir, name) {
-                push_candidate(definition, dir, seen_paths, candidates);
+            if let Some(rule_match) = rule_match_for_directory(&dir, name) {
+                push_candidate(
+                    rule_match.definition,
+                    dir,
+                    rule_match.context,
+                    seen_paths,
+                    candidates,
+                );
                 continue;
             }
 
@@ -110,7 +119,13 @@ fn scan_root(
         }
 
         if depth > 0 && has_valid_cachedir_tag(&dir) {
-            push_candidate(cachedir_tag_definition(), dir, seen_paths, candidates);
+            push_candidate(
+                cachedir_tag_definition(),
+                dir.clone(),
+                cachedir_tag_context_match(&dir),
+                seen_paths,
+                candidates,
+            );
             continue;
         }
 
@@ -190,6 +205,7 @@ fn has_valid_cachedir_tag(dir: &Path) -> bool {
 fn push_candidate(
     definition: ProjectArtifactDefinition,
     path: PathBuf,
+    context: ProjectArtifactContextMatch,
     seen_paths: &mut BTreeSet<String>,
     candidates: &mut Vec<ProjectArtifactCandidate>,
 ) {
@@ -198,6 +214,7 @@ fn push_candidate(
         candidates.push(ProjectArtifactCandidate {
             definition,
             path: path.clone(),
+            context,
             modified_at_unix_seconds: modified_at_unix_seconds(&path),
         });
     }

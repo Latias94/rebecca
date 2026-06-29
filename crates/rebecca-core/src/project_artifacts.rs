@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 mod catalog;
 mod discovery;
 
@@ -19,10 +21,18 @@ pub struct ProjectArtifactDefinition {
     pub restore_hint: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectArtifactContextMatch {
+    pub matched_context: String,
+    pub project_root: PathBuf,
+    pub project_anchor: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectArtifactCandidate {
     pub definition: ProjectArtifactDefinition,
     pub path: PathBuf,
+    pub context: ProjectArtifactContextMatch,
     pub modified_at_unix_seconds: Option<u64>,
 }
 
