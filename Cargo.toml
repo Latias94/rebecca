@@ -10,6 +10,10 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+authors = ["Rebecca contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Latias94/rebecca"
+homepage = "https://github.com/Latias94/rebecca"
 rust-version = "1.85"
 
 [workspace.dependencies]
@@ -39,3 +43,9 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell",
 ] }
 winreg = "0.52"
+
+# Workspace crates. Keeping versions explicit lets cargo publish rewrite path
+# dependencies to registry dependencies without duplicating requirements.
+rebecca-core = { path = "crates/rebecca-core", version = "0.1.0" }
+rebecca-rules = { path = "crates/rebecca-rules", version = "0.1.0" }
+rebecca-windows = { path = "crates/rebecca-windows", version = "0.1.0" }

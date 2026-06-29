@@ -6,7 +6,16 @@ All notable changes to Rebecca will be documented in this file.
 
 ### Added
 - `README.md` was restructured around a Mole-style product overview, quick start, safety design, and feature breakdown.
-- Release workflow, SBOM, checksum, and preflight automation were added for GitHub Releases.
+- cargo-dist release workflow, checksum, and preflight automation were added for GitHub Releases.
+- Workspace crate metadata, dual MIT OR Apache-2.0 licensing files, and crates.io publish automation were added for release readiness.
+- Release archives now include the changelog and license files.
+
+### Changed
+- GitHub Actions release and CI workflows now use upgraded checkout and artifact actions.
+- Release documentation now covers both GitHub Release verification and crates.io installation.
+
+### Fixed
+- Rust 1.85 CI compatibility was restored by avoiding unstable let-chain syntax in planner and Steam library parsing code.
 
 ## [0.1.0]
 

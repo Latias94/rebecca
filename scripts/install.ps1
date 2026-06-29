@@ -149,6 +149,9 @@ function Get-VersionFromAssetName {
     if ($AssetName -match '^rebecca-(.+)-windows-x86_64-msvc\.zip$') {
         return $Matches[1]
     }
+    if ($AssetName -match '^rebecca-cli-x86_64-pc-windows-msvc\.zip$') {
+        return ""
+    }
 
     throw "Unsupported Rebecca release artifact name: $AssetName"
 }
@@ -205,7 +208,7 @@ function Get-ChecksumEntry {
         }
     }
 
-    throw "SHA256SUMS does not contain an entry for $AssetName."
+    throw "Checksum file does not contain an entry for $AssetName."
 }
 
 function Assert-Checksum {
@@ -302,6 +305,9 @@ function Resolve-InstallInputs {
         $checksumFull = (Resolve-Path -LiteralPath $LocalChecksumsPath).ProviderPath
         $assetName = [System.IO.Path]::GetFileName($assetFull)
         $version = Get-VersionFromAssetName -AssetName $assetName
+        if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = Get-VersionFromTag -ResolvedTag $ResolvedTag
+        }
 
         return [pscustomobject]@{
             AssetFile = $assetFull
@@ -320,12 +326,12 @@ function Resolve-InstallInputs {
     }
 
     $version = Get-VersionFromTag -ResolvedTag $effectiveTag
-    $assetName = "rebecca-$version-$Target.zip"
+    $assetName = "rebecca-cli-x86_64-pc-windows-msvc.zip"
     $assetFile = Join-Path $TempRoot $assetName
-    $checksumFile = Join-Path $TempRoot "SHA256SUMS"
+    $checksumFile = Join-Path $TempRoot "sha256.sum"
 
     Download-ReleaseFile -ResolvedRepository $ResolvedRepository -ResolvedTag $effectiveTag -FileName $assetName -Destination $assetFile
-    Download-ReleaseFile -ResolvedRepository $ResolvedRepository -ResolvedTag $effectiveTag -FileName "SHA256SUMS" -Destination $checksumFile
+    Download-ReleaseFile -ResolvedRepository $ResolvedRepository -ResolvedTag $effectiveTag -FileName "sha256.sum" -Destination $checksumFile
 
     return [pscustomobject]@{
         AssetFile = $assetFile
@@ -355,7 +361,7 @@ function Install-FromArchive {
 
     $payloadDir = Join-Path $extractDir ([System.IO.Path]::GetFileNameWithoutExtension($AssetName))
     if (-not (Test-Path -LiteralPath $payloadDir -PathType Container)) {
-        throw "Release archive did not contain expected payload directory: $payloadDir"
+        $payloadDir = $extractDir
     }
 
     $binary = Join-Path $payloadDir "rebecca.exe"

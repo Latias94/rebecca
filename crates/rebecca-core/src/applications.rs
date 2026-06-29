@@ -170,10 +170,12 @@ pub fn parse_steam_libraryfolders(raw: &str) -> Result<Vec<PathBuf>> {
     let mut index = 0usize;
 
     while index + 1 < tokens.len() {
-        if let VdfToken::String(value) = &tokens[index]
-            && value.eq_ignore_ascii_case("libraryfolders")
-            && matches!(tokens.get(index + 1), Some(VdfToken::OpenBrace))
-        {
+        let is_libraryfolders = match &tokens[index] {
+            VdfToken::String(value) => value.eq_ignore_ascii_case("libraryfolders"),
+            _ => false,
+        };
+
+        if is_libraryfolders && matches!(tokens.get(index + 1), Some(VdfToken::OpenBrace)) {
             index += 2;
             parse_steam_libraryfolders_object(&tokens, &mut index, &mut paths)?;
             return Ok(dedupe_paths(paths));
@@ -204,10 +206,10 @@ fn read_steam_libraryfolders(install_path: &Path) -> Result<Vec<PathBuf>> {
         }
     }
 
-    if paths.is_empty()
-        && let Some(err) = first_error
-    {
-        return Err(err);
+    if paths.is_empty() {
+        if let Some(err) = first_error {
+            return Err(err);
+        }
     }
 
     Ok(dedupe_paths(paths))

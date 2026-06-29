@@ -19,19 +19,23 @@
 - Project artifact purge: `purge` targets heavy build output such as `node_modules`, `target`, `build`, `dist`, and `CACHEDIR.TAG` directories.
 - Machine-readable output: JSON and NDJSON modes are available for wrappers, scripts, and automation.
 - Recycle Bin by default: allowed targets are moved to the Windows Recycle Bin instead of being deleted permanently.
-- Release integrity: release assets are checksum-backed and provenance-backed.
+- Release integrity: release assets are checksum-backed and generated through cargo-dist.
 
 ## Quick Start
 
 **Install from a GitHub release**
 
 ```powershell
-.\scripts\install.ps1 -Repository OWNER/REPO
-.\scripts\install.ps1 -Repository OWNER/REPO -Tag v0.1.0
-.\scripts\install.ps1 -Repository OWNER/REPO -Tag v0.1.0 -RequireAttestation
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.1.0/rebecca-cli-installer.ps1 | iex"
 ```
 
-The default install directory is `%LOCALAPPDATA%\Programs\Rebecca`. Re-run the same command with a newer tag to update the installed `rebecca.exe`. The installer verifies `SHA256SUMS` before extraction; `-RequireAttestation` also requires GitHub CLI build-provenance verification.
+The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_CLI_INSTALL_DIR` to override the install directory.
+
+**Install from crates.io**
+
+```powershell
+cargo install rebecca-cli --locked
+```
 
 **Run from source**
 
@@ -237,9 +241,13 @@ For tests or constrained environments, these paths can also be overridden:
 
 ## Release Integrity
 
-Rebecca's release workflow publishes a Windows x86_64 ZIP artifact, an SPDX SBOM, and `SHA256SUMS`, then generates GitHub build-provenance attestations for release assets. Users should verify both the checksum and the attestation when the GitHub CLI is available.
+Rebecca's release workflow publishes a cargo-dist Windows x86_64 ZIP artifact, a PowerShell installer, and SHA-256 checksum files. A separate crates.io workflow publishes the workspace crates in dependency order. Users installing from GitHub Releases should verify the checksum when downloading artifacts manually.
 
 See [Release Integrity](docs/release.md) for the exact verification commands.
+
+## License
+
+Rebecca is dual-licensed under MIT OR Apache-2.0. See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
 
 ## Development
 

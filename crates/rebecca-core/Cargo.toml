@@ -2,8 +2,16 @@
 name = "rebecca-core"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
 rust-version.workspace = true
-publish = false
+description = "Core planning, safety, scanning, and history models for Rebecca."
+documentation = "https://docs.rs/rebecca-core"
+readme = "../../README.md"
+keywords = ["windows", "cleanup", "cache", "safety"]
+categories = ["filesystem", "command-line-utilities"]
 
 [dependencies]
 directories.workspace = true

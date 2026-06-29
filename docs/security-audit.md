@@ -56,8 +56,8 @@ cleanup families must continue to prove they stay inside those boundaries, but
 no remaining cleanup-system safety gap blocks the current Mole-like
 Windows-first scope.
 Release integrity is tracked separately from cleanup-runtime safety: the
-repository now has a GitHub Release workflow, SPDX SBOM generation, checksum
-generation, and build-provenance attestation path for official artifacts.
+repository now has cargo-dist GitHub Release generation, checksum generation,
+crates.io publishing automation, and preflight packaging smoke tests.
 
 ## Threat Surface
 
@@ -260,19 +260,17 @@ cleanup binary against personal data. The current release hardening path uses:
 
 - a Windows GitHub Actions CI quality gate with read-only repository
   permissions;
-- a tag-triggered release workflow for Windows x86_64 MSVC artifacts;
-- PowerShell packaging that includes `rebecca.exe`, README, security policy,
-  release guide, install script, and this safety audit;
-- `SHA256SUMS` generated from final downloadable artifacts;
-- GitHub build-provenance attestations for release assets;
-- a PowerShell installer that verifies `SHA256SUMS` before extraction and can
-  require GitHub CLI attestation verification;
+- a tag-triggered cargo-dist release workflow for Windows x86_64 MSVC artifacts;
+- SHA-256 checksum files generated for downloadable GitHub Release artifacts;
+- crates.io publishing automation that releases workspace crates in dependency
+  order;
+- PowerShell packaging smoke tests that include `rebecca.exe`, README, security
+  policy, release guide, install script, and this safety audit;
 - user verification guidance in `docs/release.md`.
 
 This distribution layer does not change cleanup behavior. It gives users and
 maintainers a way to verify that a downloaded artifact matches the release
-checksum and, when GitHub CLI attestation verification is available, that the
-artifact came from the expected GitHub Actions build path.
+checksum and that crates are published in an explicit dependency order.
 
 ## Current Verification Coverage
 

@@ -78,17 +78,11 @@ Rebecca pays particular attention to:
 ## Release Integrity
 
 Official release artifacts should come from the repository's GitHub Releases
-workflow and be accompanied by `SHA256SUMS` and GitHub build-provenance
-attestations. Verification guidance lives in
-[docs/release.md](docs/release.md).
-
-The PowerShell installer verifies `SHA256SUMS` before extraction and supports
-`-RequireAttestation` for fail-closed GitHub CLI provenance verification.
+workflow and be accompanied by SHA-256 checksum files. Verification guidance
+lives in [docs/release.md](docs/release.md).
 
 Report release-integrity problems privately when:
 
 - a published asset has no matching checksum entry;
 - a checksum does not match the downloaded asset;
-- `gh attestation verify` fails for a published release asset;
-- provenance indicates an unexpected repository or self-hosted runner;
 - an installer or package-manager manifest points at an unverified artifact.

@@ -132,6 +132,10 @@ try {
 
     Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $stageDir "rebecca.exe")
     Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $stageDir
+    Copy-Item -LiteralPath (Join-Path $repoRoot "CHANGELOG.md") -Destination $stageDir
+    Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination $stageDir
+    Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE-APACHE") -Destination $stageDir
+    Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE-MIT") -Destination $stageDir
     Copy-Item -LiteralPath (Join-Path $repoRoot "SECURITY.md") -Destination $stageDir
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs\security-audit.md") -Destination (Join-Path $stageDir "docs")
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs\release.md") -Destination (Join-Path $stageDir "docs")

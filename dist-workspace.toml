@@ -1,5 +1,6 @@
 [workspace]
-# Only the CLI is distributed. Supporting crates stay workspace-internal.
+# cargo-dist only builds the CLI binary release. crates.io publishing is handled
+# by .github/workflows/release-crates.yml in workspace dependency order.
 members = ["cargo:crates/rebecca-cli"]
 
 [dist]

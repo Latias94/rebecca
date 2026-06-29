@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_ref }}
 
@@ -66,6 +66,21 @@ jobs:
       - name: Run tests
         run: cargo nextest run --workspace --locked
 
+      - name: Build package file lists
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "target/package-lists" | Out-Null
+          foreach ($crate in @("rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca-cli")) {
+            cargo package -p $crate --list > "target/package-lists/$crate.txt"
+          }
+
+      - name: Verify registry-independent crate dry-runs
+        shell: pwsh
+        run: |
+          foreach ($crate in @("rebecca-core")) {
+            cargo publish -p $crate --locked --dry-run --registry crates-io
+          }
+
       - name: Build release archive
         shell: pwsh
         run: ./scripts/release/build-release.ps1 -Tag "v${{ inputs.version }}" -Repository "${{ github.repository }}" -OutDir "target/release-preflight"
@@ -87,3 +102,9 @@ jobs:
           }
 
           ./scripts/install.ps1 -AssetPath $asset.FullName -ChecksumsPath "target/release-preflight/SHA256SUMS" -InstallDir "target/install-preflight" -SkipAttestation
+
+      - name: Upload package lists
+        uses: actions/upload-artifact@v7
+        with:
+          name: crate-package-lists
+          path: target/package-lists/*.txt
