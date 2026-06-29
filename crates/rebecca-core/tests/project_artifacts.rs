@@ -34,6 +34,7 @@ fn discovers_known_project_artifacts_and_prunes_nested_artifacts() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_fixture_file(workspace.join("app").join("package.json"), b"{}");
     write_fixture_file(
         workspace
             .join("app")
@@ -42,6 +43,7 @@ fn discovers_known_project_artifacts_and_prunes_nested_artifacts() {
             .join("nested.bin"),
         b"nested",
     );
+    write_fixture_file(workspace.join("app").join("Cargo.toml"), b"[package]");
     write_fixture_file(workspace.join("app").join("target.txt"), b"keep");
     write_fixture_file(
         workspace.join("app").join("vendor").join("dep.bin"),
@@ -70,6 +72,162 @@ fn discovers_known_project_artifacts_and_prunes_nested_artifacts() {
         paths
             .iter()
             .all(|path| !path.ends_with(Path::new("target").join("node_modules")))
+    );
+}
+
+#[test]
+fn skips_embedded_toolchain_artifacts_without_project_context() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let unity_package_manager_node_modules = workspace
+        .join("Game Engines")
+        .join("Unity Editors")
+        .join("2021.3.13f1")
+        .join("Editor")
+        .join("Data")
+        .join("Resources")
+        .join("PackageManager")
+        .join("Server")
+        .join("node_modules");
+    let unity_nodejs_node_modules = workspace
+        .join("Game Engines")
+        .join("Unity Editors")
+        .join("2021.3.13f1")
+        .join("Editor")
+        .join("Data")
+        .join("Tools")
+        .join("nodejs")
+        .join("node_modules");
+    let installed_rust_target = workspace
+        .join("SDKs")
+        .join("rust-toolchain")
+        .join("lib")
+        .join("target");
+    let nested_build_under_embedded_node_modules = unity_package_manager_node_modules
+        .join("@edt")
+        .join("proxy-helper")
+        .join("build");
+    let nested_dist_under_embedded_node_modules = unity_package_manager_node_modules
+        .join("logform")
+        .join("dist");
+    let nested_node_modules_under_embedded_node_modules =
+        unity_nodejs_node_modules.join("npm").join("node_modules");
+    let embedded_python_cache = workspace
+        .join("Game Engines")
+        .join("Unity Editors")
+        .join("2021.3.13f1")
+        .join("Editor")
+        .join("Data")
+        .join("PlaybackEngines")
+        .join("AndroidPlayer")
+        .join("NDK")
+        .join("python-packages")
+        .join("adb")
+        .join("__pycache__");
+    let real_node_modules = workspace
+        .join("SourceCodes")
+        .join("web-app")
+        .join("node_modules");
+    let real_target = workspace
+        .join("SourceCodes")
+        .join("rust-app")
+        .join("target");
+
+    write_fixture_file(unity_package_manager_node_modules.join("pkg.bin"), b"unity");
+    write_fixture_file(unity_nodejs_node_modules.join("npm.bin"), b"node");
+    write_fixture_file(installed_rust_target.join("triple").join("lib.bin"), b"sdk");
+    write_fixture_file(
+        nested_build_under_embedded_node_modules.join("out.bin"),
+        b"build",
+    );
+    write_fixture_file(
+        nested_dist_under_embedded_node_modules.join("bundle.js"),
+        b"dist",
+    );
+    write_fixture_file(
+        nested_node_modules_under_embedded_node_modules
+            .join("left-pad")
+            .join("pkg.bin"),
+        b"nested",
+    );
+    write_fixture_file(embedded_python_cache.join("adb.pyc"), b"pycache");
+    write_fixture_file(
+        workspace
+            .join("Game Engines")
+            .join("Unity Editors")
+            .join("2021.3.13f1")
+            .join("Editor")
+            .join("Data")
+            .join("PlaybackEngines")
+            .join("AndroidPlayer")
+            .join("NDK")
+            .join("python-packages")
+            .join("adb")
+            .join("setup.py"),
+        b"from setuptools import setup",
+    );
+    write_fixture_file(real_node_modules.join("pkg.bin"), b"web");
+    write_fixture_file(
+        workspace
+            .join("SourceCodes")
+            .join("web-app")
+            .join("package.json"),
+        b"{}",
+    );
+    write_fixture_file(real_target.join("debug").join("app.bin"), b"rust");
+    write_fixture_file(
+        workspace
+            .join("SourceCodes")
+            .join("rust-app")
+            .join("Cargo.toml"),
+        b"[package]",
+    );
+
+    let options = ProjectArtifactScanOptions::new(vec![workspace]).with_max_depth(12);
+    let artifacts = discover_project_artifacts(&options, &ScanCancellationToken::new()).unwrap();
+
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.definition.rule_id == "windows.project-artifact-node-modules"
+            && artifact.path == real_node_modules
+    }));
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.definition.rule_id == "windows.project-artifact-target"
+            && artifact.path == real_target
+    }));
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == unity_package_manager_node_modules)
+    );
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == nested_build_under_embedded_node_modules)
+    );
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == nested_dist_under_embedded_node_modules)
+    );
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == unity_nodejs_node_modules)
+    );
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == nested_node_modules_under_embedded_node_modules)
+    );
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == installed_rust_target)
+    );
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == embedded_python_cache)
     );
 }
 
@@ -155,6 +313,62 @@ fn discovers_context_sensitive_bin_and_vendor_artifacts() {
 }
 
 #[test]
+fn discovers_context_sensitive_build_dist_and_obj_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let rust_build = workspace.join("rust-app").join("build");
+    let js_dist = workspace.join("web-app").join("dist");
+    let dotnet_obj = workspace.join("dotnet-app").join("obj");
+    let engine_build = workspace
+        .join("Epic Games")
+        .join("UE_5.3")
+        .join("Engine")
+        .join("Intermediate")
+        .join("Build");
+    let sdk_obj = workspace.join("SDK").join("toolchain").join("obj");
+    let generic_dist = workspace.join("downloads").join("dist");
+
+    write_fixture_file(rust_build.join("out.bin"), b"rust");
+    write_fixture_file(workspace.join("rust-app").join("Cargo.toml"), b"[package]");
+    write_fixture_file(js_dist.join("bundle.js"), b"web");
+    write_fixture_file(workspace.join("web-app").join("package.json"), b"{}");
+    write_fixture_file(dotnet_obj.join("Debug").join("app.obj"), b"dotnet");
+    write_fixture_file(
+        workspace.join("dotnet-app").join("App.csproj"),
+        b"<Project />",
+    );
+    write_fixture_file(engine_build.join("receipt.bin"), b"engine");
+    write_fixture_file(sdk_obj.join("tool.obj"), b"sdk");
+    write_fixture_file(generic_dist.join("archive.zip"), b"download");
+
+    let options = ProjectArtifactScanOptions::new(vec![workspace]).with_max_depth(6);
+    let artifacts = discover_project_artifacts(&options, &ScanCancellationToken::new()).unwrap();
+
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.definition.rule_id == "windows.project-artifact-build"
+            && artifact.path == rust_build
+    }));
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.definition.rule_id == "windows.project-artifact-dist" && artifact.path == js_dist
+    }));
+    assert!(artifacts.iter().any(|artifact| {
+        artifact.definition.rule_id == "windows.project-artifact-dotnet-obj"
+            && artifact.path == dotnet_obj
+    }));
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == engine_build)
+    );
+    assert!(!artifacts.iter().any(|artifact| artifact.path == sdk_obj));
+    assert!(
+        !artifacts
+            .iter()
+            .any(|artifact| artifact.path == generic_dist)
+    );
+}
+
+#[test]
 fn project_artifact_scan_respects_max_depth() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
@@ -165,6 +379,10 @@ fn project_artifact_scan_respects_max_depth() {
             .join("node_modules")
             .join("pkg.bin"),
         b"abc",
+    );
+    write_fixture_file(
+        workspace.join("level1").join("level2").join("package.json"),
+        b"{}",
     );
 
     let shallow = ProjectArtifactScanOptions::new(vec![workspace.clone()]).with_max_depth(1);
@@ -191,6 +409,8 @@ fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_path
     let target = workspace.join("app").join("target");
     write_fixture_file(node_modules.join("pkg.bin"), b"abc");
     write_fixture_file(target.join("debug").join("app.bin"), b"blocked");
+    write_fixture_file(workspace.join("app").join("package.json"), b"{}");
+    write_fixture_file(workspace.join("app").join("Cargo.toml"), b"[package]");
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
         .with_workflow(CleanupWorkflow::ProjectArtifacts);
@@ -250,6 +470,7 @@ fn project_artifact_plan_filters_selected_artifacts() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_fixture_file(workspace.join("app").join("package.json"), b"{}");
     write_fixture_file(
         workspace
             .join("app")
@@ -258,6 +479,7 @@ fn project_artifact_plan_filters_selected_artifacts() {
             .join("app.bin"),
         b"rust",
     );
+    write_fixture_file(workspace.join("app").join("Cargo.toml"), b"[package]");
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
         .with_workflow(CleanupWorkflow::ProjectArtifacts);
@@ -325,6 +547,7 @@ fn project_artifact_plan_skips_recent_targets_before_sizing() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_fixture_file(workspace.join("app").join("package.json"), b"{}");
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
         .with_workflow(CleanupWorkflow::ProjectArtifacts);

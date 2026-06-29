@@ -19,6 +19,14 @@ fn write_cachedir_tag(dir: impl AsRef<Path>) {
     write_fixture_file(dir.as_ref().join("CACHEDIR.TAG"), &cachedir_tag_bytes());
 }
 
+fn write_node_project(dir: impl AsRef<Path>) {
+    write_fixture_file(dir.as_ref().join("package.json"), b"{}");
+}
+
+fn write_rust_project(dir: impl AsRef<Path>) {
+    write_fixture_file(dir.as_ref().join("Cargo.toml"), b"[package]");
+}
+
 fn write_config(temp: &tempfile::TempDir, contents: impl AsRef<str>) {
     let config_dir = temp.path().join("rebecca-config");
     fs::create_dir_all(&config_dir).unwrap();
@@ -90,7 +98,11 @@ fn purge_list_artifacts_json_reports_machine_readable_catalog() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "purge");
+    assert_eq!(envelope["payload_kind"], "project-artifact-catalog");
+
+    let value: serde_json::Value = envelope["data"].clone();
     let artifacts = value.as_array().unwrap();
     assert!(artifacts.iter().any(|artifact| {
         artifact["artifact"] == "node_modules"
@@ -115,6 +127,8 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
         .join("app.bin");
     write_fixture_file(&node_modules_file, b"abc");
     write_fixture_file(&target_file, b"rust");
+    write_node_project(workspace.join("app"));
+    write_rust_project(workspace.join("app"));
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -141,7 +155,11 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     );
     assert!(target_file.exists(), "purge should preview by default");
 
-    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "purge");
+    assert_eq!(envelope["payload_kind"], "project-artifact-cleanup-plan");
+
+    let value: serde_json::Value = envelope["data"].clone();
     assert_eq!(value["request"]["workflow"], "project-artifacts");
     assert_eq!(value["request"]["mode"], "dry-run");
     assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
@@ -177,6 +195,7 @@ fn purge_human_output_groups_project_artifacts_by_project_path() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_node_project(workspace.join("app"));
     write_fixture_file(
         workspace
             .join("app")
@@ -185,6 +204,7 @@ fn purge_human_output_groups_project_artifacts_by_project_path() {
             .join("app.bin"),
         b"rust",
     );
+    write_rust_project(workspace.join("app"));
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -220,6 +240,7 @@ fn purge_human_output_highlights_recently_modified_artifacts() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_node_project(workspace.join("app"));
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -251,6 +272,7 @@ fn purge_json_filters_selected_artifacts() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_node_project(workspace.join("app"));
     write_fixture_file(
         workspace
             .join("app")
@@ -259,6 +281,7 @@ fn purge_json_filters_selected_artifacts() {
             .join("app.bin"),
         b"rust",
     );
+    write_rust_project(workspace.join("app"));
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -354,6 +377,7 @@ fn purge_uses_configured_roots_when_root_flag_is_absent() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_node_project(workspace.join("app"));
     write_config(
         &temp,
         format!(
@@ -404,6 +428,7 @@ fn purge_root_flag_overrides_configured_roots() {
             .join("pkg.bin"),
         b"configured",
     );
+    write_node_project(configured_workspace.join("app"));
     write_fixture_file(
         cli_workspace
             .join("app")
@@ -412,6 +437,7 @@ fn purge_root_flag_overrides_configured_roots() {
             .join("app.bin"),
         b"cli",
     );
+    write_rust_project(cli_workspace.join("app"));
     write_config(
         &temp,
         format!(
@@ -473,6 +499,7 @@ fn purge_depth_and_min_age_flags_override_config() {
             .join("pkg.bin"),
         b"abc",
     );
+    write_node_project(workspace.join("level1").join("level2"));
     write_config(
         &temp,
         format!(
@@ -520,6 +547,7 @@ fn purge_json_skips_recent_artifacts_by_default() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_node_project(workspace.join("app"));
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -607,6 +635,7 @@ fn purge_human_output_shows_modified_time_for_artifacts() {
         workspace.join("app").join("node_modules").join("pkg.bin"),
         b"abc",
     );
+    write_node_project(workspace.join("app"));
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -636,6 +665,7 @@ fn purge_json_honors_exclude_flag() {
     let workspace = temp.path().join("workspace");
     let node_modules = workspace.join("app").join("node_modules");
     write_fixture_file(node_modules.join("pkg.bin"), b"abc");
+    write_node_project(workspace.join("app"));
 
     let output = isolated::isolated_rebecca(&temp)
         .args([

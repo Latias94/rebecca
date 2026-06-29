@@ -277,13 +277,14 @@ pub(crate) fn print_plan_with_events(
     scan_cache_summary: Option<ScanCacheProgressSummary>,
     event_writer: Option<NdjsonEventWriter>,
 ) -> Result<()> {
+    let command = cleanup_plan_command(plan);
     if mode.is_json() {
-        print_success("clean", cleanup_plan_payload_kind(plan), plan)?;
+        print_success(command, cleanup_plan_payload_kind(plan), plan)?;
         return Ok(());
     }
 
     if mode.is_ndjson() {
-        let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new("clean"));
+        let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new(command));
         writer.emit_completed(cleanup_plan_payload_kind(plan), plan)?;
         return Ok(());
     }
@@ -362,6 +363,14 @@ pub(crate) fn print_plan_with_events(
     }
 
     Ok(())
+}
+
+fn cleanup_plan_command(plan: &CleanupPlan) -> &'static str {
+    match plan.request.workflow {
+        CleanupWorkflow::Rules => "clean",
+        CleanupWorkflow::AppLeftovers => "apps clean",
+        CleanupWorkflow::ProjectArtifacts => "purge",
+    }
 }
 
 fn cleanup_plan_payload_kind(plan: &CleanupPlan) -> &'static str {

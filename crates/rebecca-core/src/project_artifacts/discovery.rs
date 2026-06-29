@@ -6,7 +6,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::error::{RebeccaError, Result};
 use crate::scan::ScanCancellationToken;
 
-use super::catalog::{cachedir_tag_definition, definition_for_directory, should_prune_scan_dir};
+use super::catalog::{
+    cachedir_tag_definition, definition_for_directory, is_known_project_artifact_dir_name,
+    should_prune_scan_dir,
+};
 use super::{ProjectArtifactCandidate, ProjectArtifactDefinition, ProjectArtifactScanOptions};
 
 const CACHEDIR_TAG_FILE_NAME: &str = "CACHEDIR.TAG";
@@ -98,6 +101,10 @@ fn scan_root(
             }
 
             if should_prune_scan_dir(name) {
+                continue;
+            }
+
+            if is_known_project_artifact_dir_name(name) {
                 continue;
             }
         }
