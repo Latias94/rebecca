@@ -49,3 +49,7 @@ winreg = "0.52"
 rebecca-core = { path = "crates/rebecca-core", version = "0.1.0" }
 rebecca-rules = { path = "crates/rebecca-rules", version = "0.1.0" }
 rebecca-windows = { path = "crates/rebecca-windows", version = "0.1.0" }
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
