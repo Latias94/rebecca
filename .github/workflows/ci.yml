@@ -2,8 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - master
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -11,11 +17,21 @@ permissions:
 jobs:
   windows:
     name: Windows quality gate
-    runs-on: windows-latest
+    runs-on: windows-2025
+    env:
+      CARGO_TERM_COLOR: always
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: rustfmt,clippy
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
 
       - name: Show Rust toolchain
         run: rustup show
@@ -27,4 +43,73 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --locked
+        run: cargo nextest run --workspace --locked
+
+  dist-plan:
+    name: cargo-dist plan
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Install cargo-dist
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh
+
+      - name: Plan release
+        shell: bash
+        run: |
+          dist plan --output-format=json > plan-dist-manifest.json
+          cat plan-dist-manifest.json
+
+      - name: Upload dist plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-plan-manifest
+          path: plan-dist-manifest.json
+
+  release-smoke:
+    name: Release packaging smoke
+    needs: windows
+    runs-on: windows-2025
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Show Rust toolchain
+        run: rustup show
+
+      - name: Build release archive
+        shell: pwsh
+        run: ./scripts/release/build-release.ps1 -Tag "" -Repository "${{ github.repository }}" -OutDir "target/release-smoke"
+
+      - name: Generate SBOM
+        shell: pwsh
+        run: ./scripts/release/write-sbom.ps1 -Tag "" -Repository "${{ github.repository }}" -DistDir "target/release-smoke"
+
+      - name: Generate checksums
+        shell: pwsh
+        run: ./scripts/release/write-checksums.ps1 -DistDir "target/release-smoke"
+
+      - name: Smoke install from release archive
+        shell: pwsh
+        run: |
+          $asset = Get-ChildItem -LiteralPath "target/release-smoke" -Filter "rebecca-*-windows-x86_64-msvc.zip" | Select-Object -First 1
+          if (-not $asset) {
+            throw "Could not find the release archive."
+          }
+
+          ./scripts/install.ps1 -AssetPath $asset.FullName -ChecksumsPath "target/release-smoke/SHA256SUMS" -InstallDir "target/install-smoke" -SkipAttestation

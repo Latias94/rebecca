@@ -1,0 +1,17 @@
+[workspace]
+# Only the CLI is distributed. Supporting crates stay workspace-internal.
+members = ["cargo:crates/rebecca-cli"]
+
+[dist]
+cargo-dist-version = "0.31.0"
+ci = "github"
+installers = ["powershell"]
+targets = ["x86_64-pc-windows-msvc"]
+pr-run-mode = "plan"
+install-path = "CARGO_HOME"
+install-updater = false
+hosting = "github"
+
+[dist.github-custom-runners]
+global = "ubuntu-24.04"
+x86_64-pc-windows-msvc = "windows-2025"

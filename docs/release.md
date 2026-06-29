@@ -1,19 +1,18 @@
 # Release Integrity
 
-Rebecca publishes release artifacts through the repository's GitHub Actions
-release workflow. The current distribution target is a Windows x86_64 MSVC ZIP
-archive, an SPDX SBOM, and a `SHA256SUMS` file.
+Rebecca tracks cargo-dist-style release metadata in `dist-workspace.toml` and
+uses GitHub Actions to keep the release surface explicit. The current
+distribution target is a Windows x86_64 MSVC ZIP archive, an SPDX SBOM, and a
+`SHA256SUMS` file.
 
-The release workflow is intentionally small:
+Release handling is split into three layers:
 
-- build `rebecca-cli` with locked Cargo dependencies;
-- package `rebecca.exe`, README, security policy, release guide, install
-  script, VERSION metadata, and safety audit into a ZIP archive;
-- generate an SPDX 2.3 tag-value SBOM from locked Cargo metadata and the
-  release ZIP checksum;
-- generate SHA-256 checksums for final downloadable assets;
-- publish the assets to GitHub Releases;
-- generate GitHub build-provenance attestations for the released files.
+- `ci.yml` runs formatting, linting, tests, and a Windows release-packaging
+  smoke test on pushes and pull requests;
+- `release-preflight.yml` is a manual gate that validates a chosen source ref
+  and version, then exercises the release archive and installer flow;
+- `release.yml` publishes the tag-driven ZIP, SBOM, checksums, and GitHub
+  build-provenance attestations.
 
 ## Artifact Names
 
@@ -118,4 +117,5 @@ your user PATH if you want to run `rebecca` from any terminal.
 - The first supported downloadable target is Windows x86_64 MSVC.
 - Package-manager publishing is not implemented.
 - MSI/MSIX and in-CLI update commands are not implemented.
-- Fully pinned GitHub Action commit SHAs are a follow-up hardening step.
+- The checked-in release pipeline still uses the repository's PowerShell
+  packaging scripts instead of invoking cargo-dist directly.

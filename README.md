@@ -71,6 +71,9 @@ Security reporting guidance lives in [SECURITY.md](SECURITY.md).
 
 Release artifact verification guidance lives in
 [Release Integrity](docs/release.md).
+The release surface is split between `ci.yml`, `release-preflight.yml`, and
+the tag-driven `release.yml`, with `dist-workspace.toml` keeping release
+metadata aligned.
 
 ## Usage
 

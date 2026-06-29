@@ -1,0 +1,89 @@
+name: Release Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the leading v, for example 0.1.0"
+        required: true
+        type: string
+      source_ref:
+        description: "Git ref to validate"
+        required: true
+        default: "main"
+        type: string
+
+concurrency:
+  group: release-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Release readiness
+    runs-on: windows-2025
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: rustfmt,clippy
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Show Rust toolchain
+        run: rustup show
+
+      - name: Verify workspace version
+        shell: pwsh
+        run: |
+          $match = Select-String -LiteralPath Cargo.toml -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $match) {
+            throw "Could not read workspace version from Cargo.toml"
+          }
+
+          $workspaceVersion = $match.Matches[0].Groups[1].Value
+          if ($workspaceVersion -ne "${{ inputs.version }}") {
+            throw "Cargo workspace version '$workspaceVersion' does not match release version '${{ inputs.version }}'."
+          }
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo nextest run --workspace --locked
+
+      - name: Build release archive
+        shell: pwsh
+        run: ./scripts/release/build-release.ps1 -Tag "v${{ inputs.version }}" -Repository "${{ github.repository }}" -OutDir "target/release-preflight"
+
+      - name: Generate SBOM
+        shell: pwsh
+        run: ./scripts/release/write-sbom.ps1 -Tag "v${{ inputs.version }}" -Repository "${{ github.repository }}" -DistDir "target/release-preflight"
+
+      - name: Generate checksums
+        shell: pwsh
+        run: ./scripts/release/write-checksums.ps1 -DistDir "target/release-preflight"
+
+      - name: Smoke install from release archive
+        shell: pwsh
+        run: |
+          $asset = Get-ChildItem -LiteralPath "target/release-preflight" -Filter "rebecca-*-windows-x86_64-msvc.zip" | Select-Object -First 1
+          if (-not $asset) {
+            throw "Could not find the release archive."
+          }
+
+          ./scripts/install.ps1 -AssetPath $asset.FullName -ChecksumsPath "target/release-preflight/SHA256SUMS" -InstallDir "target/install-preflight" -SkipAttestation

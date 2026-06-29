@@ -6,22 +6,58 @@ on:
       - "v*"
       - "V*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
   build:
     name: Build Windows artifact
-    runs-on: windows-latest
+    runs-on: windows-2025
     permissions:
       contents: read
+    env:
+      CARGO_TERM_COLOR: always
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: rustfmt,clippy
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Show Rust toolchain
         run: rustup show
+
+      - name: Verify release tag matches workspace version
+        shell: pwsh
+        run: |
+          $match = Select-String -LiteralPath Cargo.toml -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $match) {
+            throw "Could not read workspace version from Cargo.toml"
+          }
+
+          $workspaceVersion = $match.Matches[0].Groups[1].Value
+          $tag = "${{ github.ref_name }}"
+
+          if ($tag -match '^[vV](\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$') {
+            $tagVersion = $Matches[1]
+          }
+          else {
+            throw "Release tag '$tag' must look like vX.Y.Z."
+          }
+
+          if ($tagVersion -ne $workspaceVersion) {
+            throw "Release tag version '$tagVersion' does not match workspace version '$workspaceVersion'."
+          }
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -30,7 +66,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --locked
+        run: cargo nextest run --workspace --locked
 
       - name: Build release package
         shell: pwsh
@@ -49,6 +85,16 @@ jobs:
         shell: pwsh
         run: ./scripts/release/write-checksums.ps1 -DistDir "dist"
 
+      - name: Smoke install from release package
+        shell: pwsh
+        run: |
+          $asset = Get-ChildItem -LiteralPath "dist" -Filter "rebecca-*-windows-x86_64-msvc.zip" | Select-Object -First 1
+          if (-not $asset) {
+            throw "Could not find the release archive."
+          }
+
+          ./scripts/install.ps1 -AssetPath $asset.FullName -ChecksumsPath "dist/SHA256SUMS" -InstallDir "target/release-install-smoke" -SkipAttestation
+
       - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
@@ -63,11 +109,13 @@ jobs:
   publish:
     name: Publish GitHub release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       attestations: write
       id-token: write
+    env:
+      CARGO_TERM_COLOR: always
 
     steps:
       - name: Download release assets
@@ -87,9 +135,14 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "$GITHUB_REF_NAME"
-          release-assets/*
-          --title "$GITHUB_REF_NAME"
-          --generate-notes
-          --verify-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="$GITHUB_REF_NAME"
+          prerelease_flag=""
+          if [[ "$tag" =~ ^[vV]?[0-9]+\.[0-9]+\.[0-9]+[-+][0-9A-Za-z.-]+$ ]]; then
+            prerelease_flag="--prerelease"
+          fi
+
+          gh release create "$tag" release-assets/* --title "$tag" --generate-notes --verify-tag $prerelease_flag
