@@ -63,6 +63,11 @@ files. Keep each rule small, explicit, and easy to audit.
   stores, sync state, downloaded media, `Local Storage`, `IndexedDB`,
   `Service Worker`, or session data. Add positive allowlist tests and negative
   near-miss durable-state tests with every new app.
+- Communication and utility app diagnostics rules may target narrow log,
+  artwork-cache, or crash-dump leaves such as Zoom `logs`, TeamViewer
+  `TeamViewer*_Logfile.log`, and VLC `art\artistalbum`/`crashdump`; keep
+  recordings, MRU, registry values, configuration, media files, and account
+  state out of built-in rules.
 - Steam client cache rules should stay under `%LOCALAPPDATA%\Steam\htmlcache`
   unless the rule also implements explicit Steam install/library discovery.
   Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,

@@ -26,7 +26,7 @@ rule authoring. It is a reference index, not a copy of external rule data.
 | Source | License | Repository / file path | Revision | Notes |
 |--------|---------|------------------------|----------|-------|
 | Mole | GPL-3.0-or-later | `repo-ref/Mole` | `6be20eaa1eacc78d0355b4ed4744bb7a08447704` | Behavior and safety benchmark only. Reference paths and UX, not rule text. |
-| BleachBit | GPL-3.0-or-later | `repo-ref/bleachbit/cleaners/*.xml` | `1517daf22201e4f8b05fbffcc4f89c992ba06375` | Cleaner behavior reference only. Use `cleaners/*.xml` and docs for path ideas, not copied rule data. |
+| BleachBit | GPL-3.0-or-later | `repo-ref/bleachbit/cleaners/*.xml` | `fb0f67c560460c8018b04fa3746a0b6f7a315726` | Cleaner behavior reference only. Use `cleaners/*.xml` and docs for path ideas, not copied rule data. |
 | Winapp2.ini | CC-BY-SA-4.0 / reference-only | `MoscaDotTo/Winapp2/Non-CCleaner/Winapp2.ini` | 2026-06-27 review | Use as a discovery index for Windows cleanup candidates only; rewrite every rule from scratch. Useful domestic-app entries include Tencent WeChat, Tencent WeChat Work, and Kingsoft Office. |
 | windows-cleaner-cli | MIT | `repo-ref/windows-cleaner-cli` | `ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5` | Useful for Windows maintenance cache categories such as temp files, Prefetch, update downloads, and browser/system cache comparisons. |
 | null-e | WTFPL-2.0 | `repo-ref/null-e` | `079a038f71159dab07c4d2bd8bd700cb5647972d` | Useful batch reference for developer-cache families such as npm, pip, cargo, uv, Poetry, Docker, Android, IDE, ML/AI caches, and Electron app candidates including Postman, Notion, and Figma. Behavior reference only. |
@@ -54,6 +54,9 @@ Candidates worth batch review:
 - Office and document-app caches when they are stable and user-scoped
 - Windows utilities such as Explorer, Media Player, Defender, and similar
   regenerated caches
+- Utility and communication-app diagnostics such as Zoom logs, TeamViewer logs,
+  and VLC artwork/crash cache leaves, while excluding recordings, MRU,
+  registry, and configuration state
 - Windows maintenance caches such as temp files, Prefetch, and update
   download directories
 - Uninstall leftovers and app inventory modeling

@@ -82,6 +82,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.rustup-cache",
     "windows.sccache-cache",
     "windows.slack-cache",
+    "windows.teamviewer-logs",
     "windows.steam-cache",
     "windows.steam-install-cache",
     "windows.steam-install-depot-cache",
@@ -102,11 +103,13 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "windows.user-temp",
     "windows.uv-cache",
     "windows.vscode-cache",
+    "windows.vlc-cache",
     "windows.wer-reports",
     "windows.prefetch",
     "windows.update-download-cache",
     "windows.media-player-cache",
     "windows.yarn-cache",
+    "windows.zoom-logs",
 ];
 
 pub const HUMAN_SCAN_LINES: &[&str] = &[

@@ -18,6 +18,7 @@ All notable changes to Rebecca will be documented in this file.
 - cleanup targets now expose `estimate_source` so machine consumers can distinguish fresh scans, scan-cache hits, unmeasured skipped/blocked targets, and legacy plans.
 - project artifact cleanup plans now include `discovery_diagnostics` for partial discovery issues such as missing configured roots, unreadable directories, metadata failures, and skipped reparse points.
 - `rebecca cache purge --permanent` now explicitly opts into irreversible Rebecca cache deletion after `--yes`.
+- the built-in Windows catalog now includes narrow Zoom log, TeamViewer log, and VLC media cache rules derived from BleachBit behavior references and guarded by the `active-process` warning gate.
 
 ### Changed
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.

@@ -450,6 +450,10 @@ fn active_process_snapshots_override() -> Option<Vec<ProcessSnapshot>> {
 
 fn cleanup_rule_process_tokens(rule: &RuleDefinition) -> Vec<String> {
     let mut tokens = Vec::new();
+    for token in explicit_cleanup_rule_process_tokens(&rule.id) {
+        tokens.push(token.to_string());
+    }
+
     for source in [&rule.id, &rule.name] {
         for token in source.split(|character: char| {
             !character.is_ascii_alphanumeric() || character == '_' || character == '-'
@@ -466,6 +470,15 @@ fn cleanup_rule_process_tokens(rule: &RuleDefinition) -> Vec<String> {
         }
     }
     tokens
+}
+
+fn explicit_cleanup_rule_process_tokens(rule_id: &str) -> &'static [&'static str] {
+    match rule_id {
+        "windows.teamviewer-logs" => &["teamviewer"],
+        "windows.vlc-cache" => &["vlc"],
+        "windows.zoom-logs" => &["zoom"],
+        _ => &[],
+    }
 }
 
 fn normalized_process_token(value: &str) -> String {

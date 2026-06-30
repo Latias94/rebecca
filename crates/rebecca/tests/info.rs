@@ -93,6 +93,36 @@ fn doctor_active_processes_json_reports_fake_matching_process() {
 }
 
 #[test]
+fn doctor_active_processes_json_matches_new_diagnostic_rules() {
+    let output = common::command::rebecca()
+        .env(
+            "REBECCA_ACTIVE_PROCESSES",
+            "Zoom.exe:10;TeamViewer.exe:11;vlc.exe:12",
+        )
+        .args(["doctor", "active-processes", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let data = common::support::api_data(&output.stdout);
+    let matches = data["matches"].as_array().unwrap();
+    let rule_ids = matches
+        .iter()
+        .flat_map(|matched| matched["rule_ids"].as_array().unwrap())
+        .map(|rule_id| rule_id.as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert!(rule_ids.contains("windows.zoom-logs"));
+    assert!(rule_ids.contains("windows.teamviewer-logs"));
+    assert!(rule_ids.contains("windows.vlc-cache"));
+}
+
+#[test]
 fn doctor_active_processes_json_degrades_without_process_adapter() {
     let output = common::command::rebecca()
         .args(["doctor", "active-processes", "--format", "json"])

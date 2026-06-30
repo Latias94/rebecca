@@ -82,6 +82,9 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("  - windows.notion-cache [safe] Notion cache"));
     assert!(stdout.contains("  - windows.figma-cache [safe] Figma cache"));
     assert!(stdout.contains("  - windows.slack-cache [safe] Slack cache"));
+    assert!(stdout.contains("  - windows.zoom-logs [safe] Zoom logs"));
+    assert!(stdout.contains("  - windows.teamviewer-logs [safe] TeamViewer logs"));
+    assert!(stdout.contains("  - windows.vlc-cache [safe] VLC media cache"));
     assert!(stdout.contains("- application ("));
     assert!(stdout.contains("  - windows.wechat-cache [safe] WeChat cache"));
     assert!(stdout.contains("  - windows.wxwork-cache [safe] Enterprise WeChat cache"));

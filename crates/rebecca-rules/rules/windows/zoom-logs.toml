@@ -1,0 +1,21 @@
+manifest_version = 1
+id = "windows.zoom-logs"
+platform = "windows"
+category = "application"
+name = "Zoom logs"
+safety_level = "safe"
+restore_hint = "Zoom logs and installer diagnostics will be recreated when needed."
+warnings = ["active-process"]
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Zoom\\logs"
+
+[[targets]]
+kind = "template"
+value = "%APPDATA%\\Zoom\\installer.txt"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from BleachBit Zoom cleaner behavior (repo-ref/bleachbit/cleaners/zoom.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca as a narrow logs-only rule; recordings, downloads, chat data, configuration, and account state are excluded."

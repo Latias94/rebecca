@@ -1660,6 +1660,73 @@ fn slack_rule_targets_only_electron_cache_directories() {
 }
 
 #[test]
+fn communication_utility_rules_target_only_diagnostics_and_cache_leaves() {
+    let fixture = PlannerFixture::new();
+    fixture.write("roaming/Zoom/logs/zoom.log", b"zoom");
+    fixture.write("roaming/Zoom/installer.txt", b"installer");
+    fixture.write("user/Documents/Zoom/meeting/zoom_0.mp4", b"recording");
+    fixture.write("roaming/TeamViewer/TeamViewer15_Logfile.log", b"teamviewer");
+    fixture.write("roaming/TeamViewer/MRU/recent.txt", b"mru");
+    fixture.write("roaming/TeamViewer/Connections.txt", b"connections");
+    fixture.write("roaming/vlc/art/artistalbum/cover.jpg", b"cover");
+    fixture.write("roaming/vlc/crashdump", b"dump");
+    fixture.write("roaming/vlc/vlc-qt-interface.ini", b"recent=file");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.zoom-logs".to_string(),
+        "windows.teamviewer-logs".to_string(),
+        "windows.vlc-cache".to_string(),
+    ];
+    request.add_allowed_warning("active-process");
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+    let planned_paths = plan
+        .targets
+        .iter()
+        .map(|target| target.path.to_string_lossy().replace('\\', "/"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(plan.summary.allowed_targets, 5);
+    assert_eq!(plan.summary.estimated_bytes, 32);
+    assert!(planned_paths.iter().any(|path| path.ends_with("Zoom/logs")));
+    assert!(
+        planned_paths
+            .iter()
+            .any(|path| path.ends_with("Zoom/installer.txt"))
+    );
+    assert!(
+        planned_paths
+            .iter()
+            .any(|path| path.ends_with("TeamViewer/TeamViewer15_Logfile.log"))
+    );
+    assert!(
+        planned_paths
+            .iter()
+            .any(|path| path.ends_with("vlc/art/artistalbum"))
+    );
+    assert!(
+        planned_paths
+            .iter()
+            .any(|path| path.ends_with("vlc/crashdump"))
+    );
+    assert!(
+        planned_paths
+            .iter()
+            .all(|path| !path.contains("Documents/Zoom")
+                && !path.contains("TeamViewer/MRU")
+                && !path.contains("Connections.txt")
+                && !path.contains("vlc-qt-interface.ini"))
+    );
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| target.warnings == ["active-process"])
+    );
+}
+
+#[test]
 fn electron_app_rules_target_only_cache_directories() {
     let fixture = PlannerFixture::new();
     for app in ["Postman", "Notion", "Figma"] {
