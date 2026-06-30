@@ -113,7 +113,7 @@ pub(super) fn is_allowlisted_maintenance_path(
 
     knowledge.maintenance_allowlist().matches(&segments)
         || is_chromium_cache_path(&segments)
-        || is_firefox_cache_path(&segments)
+        || is_gecko_profile_cache_path(&segments)
         || is_electron_cache_path(&segments)
         || is_jetbrains_cache_path(&segments)
         || is_ccache_cache_path(&segments)
@@ -202,12 +202,38 @@ fn is_chromium_cache_path(segments: &[&str]) -> bool {
             .is_some_and(|index| chromium_cache_tail_is_allowed(segments, index + 1))
 }
 
-fn is_firefox_cache_path(segments: &[&str]) -> bool {
-    find_sequence(segments, &["mozilla", "firefox", "profiles"]).is_some_and(|index| {
-        segments
-            .get(index + 4)
-            .is_some_and(|segment| matches!(*segment, "cache2" | "startupcache"))
+fn is_gecko_profile_cache_path(segments: &[&str]) -> bool {
+    let Some(index) = find_segment(segments, "profiles") else {
+        return false;
+    };
+
+    if !gecko_profile_root_is_allowed(segments, index) {
+        return false;
+    }
+
+    segments.get(index + 2).is_some_and(|segment| {
+        matches!(
+            *segment,
+            "cache2" | "startupcache" | "jumplistcache" | "offlinecache"
+        )
     })
+}
+
+fn gecko_profile_root_is_allowed(segments: &[&str], profiles_index: usize) -> bool {
+    match (
+        profiles_index
+            .checked_sub(2)
+            .and_then(|index| segments.get(index)),
+        profiles_index
+            .checked_sub(1)
+            .and_then(|index| segments.get(index)),
+    ) {
+        (Some(&"mozilla"), Some(&"firefox")) => true,
+        (_, Some(app)) => {
+            matches!(*app, "firefox" | "waterfox" | "zen" | "thunderbird")
+        }
+        _ => false,
+    }
 }
 
 fn is_electron_cache_path(segments: &[&str]) -> bool {
@@ -437,8 +463,12 @@ fn is_browser_private_data_path(segments: &[&str]) -> bool {
         return true;
     }
 
-    find_sequence(segments, &["mozilla", "firefox", "profiles"]).is_some_and(|index| {
-        segments.get(index + 4).is_some_and(|segment| {
+    find_segment(segments, "profiles").is_some_and(|index| {
+        if !gecko_profile_root_is_allowed(segments, index) {
+            return false;
+        }
+
+        segments.get(index + 2).is_some_and(|segment| {
             matches!(
                 *segment,
                 "cookies.sqlite"

@@ -474,9 +474,12 @@ fn cleanup_rule_process_tokens(rule: &RuleDefinition) -> Vec<String> {
 
 fn explicit_cleanup_rule_process_tokens(rule_id: &str) -> &'static [&'static str] {
     match rule_id {
+        "windows.adobe-reader-cache" => &["acrobat", "acroread"],
         "windows.teamviewer-logs" => &["teamviewer"],
+        "windows.thunderbird-cache" => &["thunderbird"],
         "windows.vlc-cache" => &["vlc"],
         "windows.zoom-logs" => &["zoom"],
+        "windows.zen-browser-cache" => &["zen", "zen-browser", "zenbrowser"],
         _ => &[],
     }
 }

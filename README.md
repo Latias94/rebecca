@@ -182,8 +182,8 @@ The v1 contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1
 
 Rebecca ships a conservative Windows catalog under `crates/rebecca-rules/rules/windows/`.
 
-- System and browser caches: temp files, Edge, Chrome, Brave, Firefox profile cache, thumbnail cache, DirectX shader cache, and Windows Error Reporting data.
-- App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video.
+- System and browser caches: temp files, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, thumbnail cache, DirectX shader cache, and Windows Error Reporting data.
+- App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video.
 - Developer caches: pip, uv, Poetry, Conda, Go, Cargo, ccache, rustup, sccache, JetBrains, npm, pnpm, yarn, bun, corepack, Gradle, Android, NuGet, Maven, and VS Code.
 - Steam caches: the Steam client cache plus install-root and library-root cache leaves.
 

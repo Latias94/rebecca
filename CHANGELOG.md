@@ -19,6 +19,7 @@ All notable changes to Rebecca will be documented in this file.
 - project artifact cleanup plans now include `discovery_diagnostics` for partial discovery issues such as missing configured roots, unreadable directories, metadata failures, and skipped reparse points.
 - `rebecca cache purge --permanent` now explicitly opts into irreversible Rebecca cache deletion after `--yes`.
 - the built-in Windows catalog now includes narrow Zoom log, TeamViewer log, and VLC media cache rules derived from BleachBit behavior references and guarded by the `active-process` warning gate.
+- the built-in Windows catalog now includes Chromium, Waterfox, Zen Browser, Thunderbird, and Adobe Reader cache rules with tests that keep history, cookies, mail, preferences, and document data out of scope.
 
 ### Changed
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.

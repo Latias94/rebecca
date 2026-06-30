@@ -57,6 +57,10 @@ Candidates worth batch review:
 - Utility and communication-app diagnostics such as Zoom logs, TeamViewer logs,
   and VLC artwork/crash cache leaves, while excluding recordings, MRU,
   registry, and configuration state
+- Browser and desktop-app cache leaves such as Chromium profile cache,
+  Gecko-family `cache2`/`startupCache`/`jumpListCache`/`OfflineCache`, Thunderbird
+  local cache, and Adobe Reader local cache/search indexes, while excluding
+  history, cookies, passwords, sessions, mail stores, preferences, and documents
 - Windows maintenance caches such as temp files, Prefetch, and update
   download directories
 - Uninstall leftovers and app inventory modeling

@@ -1,0 +1,28 @@
+manifest_version = 1
+id = "windows.zen-browser-cache"
+platform = "windows"
+category = "browser"
+name = "Zen Browser cache"
+safety_level = "safe"
+restore_hint = "Zen Browser profile caches will be regenerated."
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Zen\\Profiles\\*\\cache2"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Zen\\Profiles\\*\\startupCache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Zen\\Profiles\\*\\jumpListCache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Zen\\Profiles\\*\\OfflineCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from BleachBit (cleaners/zen.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca to target only Gecko profile cache leaves and intentionally exclude cookies, history, passwords, session restore, site data, site preferences, bookmark backups, crash reports, and profile configuration."

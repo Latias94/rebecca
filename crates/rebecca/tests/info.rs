@@ -123,6 +123,35 @@ fn doctor_active_processes_json_matches_new_diagnostic_rules() {
 }
 
 #[test]
+fn doctor_active_processes_json_matches_new_cache_rules() {
+    let output = common::command::rebecca()
+        .env(
+            "REBECCA_ACTIVE_PROCESSES",
+            "Acrobat.exe:20;thunderbird.exe:21",
+        )
+        .args(["doctor", "active-processes", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let data = common::support::api_data(&output.stdout);
+    let matches = data["matches"].as_array().unwrap();
+    let rule_ids = matches
+        .iter()
+        .flat_map(|matched| matched["rule_ids"].as_array().unwrap())
+        .map(|rule_id| rule_id.as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert!(rule_ids.contains("windows.adobe-reader-cache"));
+    assert!(rule_ids.contains("windows.thunderbird-cache"));
+}
+
+#[test]
 fn doctor_active_processes_json_degrades_without_process_adapter() {
     let output = common::command::rebecca()
         .args(["doctor", "active-processes", "--format", "json"])

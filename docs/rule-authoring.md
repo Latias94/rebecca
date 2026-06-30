@@ -68,6 +68,12 @@ files. Keep each rule small, explicit, and easy to audit.
   `TeamViewer*_Logfile.log`, and VLC `art\artistalbum`/`crashdump`; keep
   recordings, MRU, registry values, configuration, media files, and account
   state out of built-in rules.
+- Browser-family cache rules should target only regenerable cache leaves. For
+  Chromium-family apps that means `Cache`, `Code Cache`, and `GPUCache`; for
+  Gecko-family apps that means local profile leaves such as `cache2`,
+  `startupCache`, `jumpListCache`, and `OfflineCache`. Keep history, cookies,
+  passwords, sessions, site data, preferences, and profile databases out of
+  built-in cache rules.
 - Steam client cache rules should stay under `%LOCALAPPDATA%\Steam\htmlcache`
   unless the rule also implements explicit Steam install/library discovery.
   Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,

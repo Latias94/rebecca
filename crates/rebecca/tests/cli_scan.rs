@@ -77,7 +77,10 @@ fn scan_human_output_groups_rules_by_category() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("- browser ("));
     assert!(stdout.contains("  - windows.chrome-cache [safe] Google Chrome cache"));
+    assert!(stdout.contains("  - windows.chromium-cache [safe] Chromium cache"));
     assert!(stdout.contains("  - windows.firefox-profile-cache [safe] Firefox profile cache"));
+    assert!(stdout.contains("  - windows.waterfox-cache [safe] Waterfox cache"));
+    assert!(stdout.contains("  - windows.zen-browser-cache [safe] Zen Browser cache"));
     assert!(stdout.contains("  - windows.postman-cache [safe] Postman cache"));
     assert!(stdout.contains("  - windows.notion-cache [safe] Notion cache"));
     assert!(stdout.contains("  - windows.figma-cache [safe] Figma cache"));
@@ -85,6 +88,8 @@ fn scan_human_output_groups_rules_by_category() {
     assert!(stdout.contains("  - windows.zoom-logs [safe] Zoom logs"));
     assert!(stdout.contains("  - windows.teamviewer-logs [safe] TeamViewer logs"));
     assert!(stdout.contains("  - windows.vlc-cache [safe] VLC media cache"));
+    assert!(stdout.contains("  - windows.thunderbird-cache [safe] Thunderbird cache"));
+    assert!(stdout.contains("  - windows.adobe-reader-cache [safe] Adobe Reader cache"));
     assert!(stdout.contains("- application ("));
     assert!(stdout.contains("  - windows.wechat-cache [safe] WeChat cache"));
     assert!(stdout.contains("  - windows.wxwork-cache [safe] Enterprise WeChat cache"));

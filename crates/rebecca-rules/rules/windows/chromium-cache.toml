@@ -1,0 +1,36 @@
+manifest_version = 1
+id = "windows.chromium-cache"
+platform = "windows"
+category = "browser"
+name = "Chromium cache"
+safety_level = "safe"
+restore_hint = "Chromium browser caches will be regenerated."
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Chromium\\User Data\\Default\\Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Chromium\\User Data\\Default\\Code Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Chromium\\User Data\\Default\\GPUCache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Chromium\\User Data\\Profile *\\Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Chromium\\User Data\\Profile *\\Code Cache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Chromium\\User Data\\Profile *\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Derived from BleachBit (cleaners/chromium.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca to target only regenerable browser cache directories and intentionally exclude cookies, history, sync, passwords, Local Storage, IndexedDB, Service Worker, Network state, and profile preferences."

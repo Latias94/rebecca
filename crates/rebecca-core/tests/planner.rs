@@ -1727,6 +1727,183 @@ fn communication_utility_rules_target_only_diagnostics_and_cache_leaves() {
 }
 
 #[test]
+fn expanded_browser_rules_target_only_regenerable_profile_caches() {
+    let fixture = PlannerFixture::new();
+    fixture.write(
+        "local/Chromium/User Data/Default/Cache/cache.bin",
+        b"chromium-cache",
+    );
+    fixture.write(
+        "local/Chromium/User Data/Default/Code Cache/code.bin",
+        b"chromium-code",
+    );
+    fixture.write(
+        "local/Chromium/User Data/Default/GPUCache/gpu.bin",
+        b"chromium-gpu",
+    );
+    fixture.write(
+        "local/Chromium/User Data/Profile 1/Cache/cache.bin",
+        b"profile-cache",
+    );
+    fixture.write(
+        "local/Chromium/User Data/Profile 1/Code Cache/code.bin",
+        b"profile-code",
+    );
+    fixture.write(
+        "local/Chromium/User Data/Profile 1/GPUCache/gpu.bin",
+        b"profile-gpu",
+    );
+    fixture.write(
+        "local/Chromium/User Data/Profile 1/Local Storage/leveldb/LOG",
+        b"keep",
+    );
+    fixture.write("local/Chromium/User Data/Profile 1/History", b"keep");
+    fixture.write(
+        "local/Waterfox/Profiles/alice/cache2/cache.bin",
+        b"waterfox",
+    );
+    fixture.write(
+        "local/Waterfox/Profiles/alice/startupCache/startup.bin",
+        b"startup",
+    );
+    fixture.write(
+        "local/Waterfox/Profiles/alice/jumpListCache/jump.bin",
+        b"jump",
+    );
+    fixture.write(
+        "local/Waterfox/Profiles/alice/OfflineCache/offline.bin",
+        b"offline",
+    );
+    fixture.write("local/Waterfox/Profiles/alice/cookies.sqlite", b"keep");
+    fixture.write(
+        "local/Waterfox/Profiles/alice/storage/default/site",
+        b"keep",
+    );
+    fixture.write("local/Zen/Profiles/default/cache2/cache.bin", b"zen");
+    fixture.write(
+        "local/Zen/Profiles/default/startupCache/startup.bin",
+        b"zen-start",
+    );
+    fixture.write(
+        "local/Zen/Profiles/default/jumpListCache/jump.bin",
+        b"zjump",
+    );
+    fixture.write(
+        "local/Zen/Profiles/default/OfflineCache/offline.bin",
+        b"zoffline",
+    );
+    fixture.write("local/Zen/Profiles/default/logins.json", b"keep");
+    fixture.write("local/Zen/Profiles/default/sessionstore.jsonlz4", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.chromium-cache".to_string(),
+        "windows.waterfox-cache".to_string(),
+        "windows.zen-browser-cache".to_string(),
+    ];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+    let planned_paths = plan
+        .targets
+        .iter()
+        .map(|target| target.path.to_string_lossy().replace('\\', "/"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(plan.summary.allowed_targets, 14);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 126);
+    assert!(planned_paths.iter().all(|path| {
+        path.ends_with("Cache")
+            || path.ends_with("Code Cache")
+            || path.ends_with("GPUCache")
+            || path.ends_with("cache2")
+            || path.ends_with("startupCache")
+            || path.ends_with("jumpListCache")
+            || path.ends_with("OfflineCache")
+    }));
+    assert!(planned_paths.iter().all(|path| {
+        !path.contains("Local Storage")
+            && !path.contains("History")
+            && !path.contains("cookies.sqlite")
+            && !path.contains("/storage/")
+            && !path.contains("logins.json")
+            && !path.contains("sessionstore")
+    }));
+}
+
+#[test]
+fn thunderbird_and_adobe_rules_target_only_cache_leaves() {
+    let fixture = PlannerFixture::new();
+    fixture.write(
+        "local/Thunderbird/Profiles/work/cache2/cache.bin",
+        b"mailcache",
+    );
+    fixture.write(
+        "local/Thunderbird/Profiles/work/startupCache/startup.bin",
+        b"startup",
+    );
+    fixture.write("roaming/Thunderbird/Profiles/work/Mail/inbox", b"keep");
+    fixture.write("roaming/Thunderbird/Profiles/work/cookies.sqlite", b"keep");
+    fixture.write("local/Adobe/Acrobat/Reader/Cache/cache.bin", b"acrobat");
+    fixture.write(
+        "user/AppData/LocalLow/Adobe/Acrobat/9.0/Search/search.idx",
+        b"idx",
+    );
+    fixture.write(
+        "user/AppData/Roaming/Adobe/Acrobat/Reader/Preferences/reader_prefs",
+        b"keep",
+    );
+    fixture.write("user/Documents/report.pdf", b"keep");
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec![
+        "windows.thunderbird-cache".to_string(),
+        "windows.adobe-reader-cache".to_string(),
+    ];
+    request.add_allowed_warning("active-process");
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+    let planned_paths = plan
+        .targets
+        .iter()
+        .map(|target| target.path.to_string_lossy().replace('\\', "/"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(plan.summary.allowed_targets, 4);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 26);
+    assert!(planned_paths.iter().any(|path| path.ends_with("cache2")));
+    assert!(
+        planned_paths
+            .iter()
+            .any(|path| path.ends_with("startupCache"))
+    );
+    assert!(
+        planned_paths
+            .iter()
+            .any(|path| path.ends_with("Adobe/Acrobat/Reader/Cache"))
+    );
+    assert!(
+        planned_paths
+            .iter()
+            .any(|path| path.ends_with("search.idx"))
+    );
+    assert!(planned_paths.iter().all(|path| {
+        !path.contains("/Mail/")
+            && !path.contains("cookies.sqlite")
+            && !path.contains("reader_prefs")
+            && !path.contains("Documents")
+    }));
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| target.warnings == ["active-process"])
+    );
+}
+
+#[test]
 fn electron_app_rules_target_only_cache_directories() {
     let fixture = PlannerFixture::new();
     for app in ["Postman", "Notion", "Figma"] {
