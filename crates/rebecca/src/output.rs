@@ -112,13 +112,9 @@ where
 {
     match mode {
         OutputMode::Human => print_human(),
-        OutputMode::Json => {
+        OutputMode::Json | OutputMode::Ndjson => {
             let data = payload();
-            print_success(command, payload_kind, &data)
-        }
-        OutputMode::Ndjson => {
-            let data = payload();
-            print_success_event(command, payload_kind, &data)
+            print_machine_success_payload(command, payload_kind, mode, &data)
         }
     }
 }
@@ -341,18 +337,42 @@ pub(crate) fn print_workflow_success_payload<T: Serialize + ?Sized>(
     scan_cache_summary: Option<ScanCacheProgressSummary>,
     event_writer: Option<NdjsonEventWriter>,
 ) -> Result<()> {
-    if mode.is_json() {
-        print_success(contract.command, contract.payload_kind, payload)?;
-        return Ok(());
+    match mode {
+        OutputMode::Human => human_renderer(plan, scan_cache_summary),
+        OutputMode::Json | OutputMode::Ndjson => {
+            print_machine_workflow_success_payload(contract, mode, payload, event_writer)
+        }
     }
+}
 
-    if mode.is_ndjson() {
-        let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new(contract.command));
-        writer.emit_completed(contract.payload_kind, payload)?;
-        return Ok(());
+fn print_machine_success_payload<T: Serialize + ?Sized>(
+    command: &'static str,
+    payload_kind: &'static str,
+    mode: OutputMode,
+    payload: &T,
+) -> Result<()> {
+    match mode {
+        OutputMode::Human => unreachable!("human mode is rendered by the caller"),
+        OutputMode::Json => print_success(command, payload_kind, payload),
+        OutputMode::Ndjson => print_success_event(command, payload_kind, payload),
     }
+}
 
-    human_renderer(plan, scan_cache_summary)
+fn print_machine_workflow_success_payload<T: Serialize + ?Sized>(
+    contract: WorkflowOutputContract,
+    mode: OutputMode,
+    payload: &T,
+    event_writer: Option<NdjsonEventWriter>,
+) -> Result<()> {
+    match mode {
+        OutputMode::Human => unreachable!("human mode is rendered by the caller"),
+        OutputMode::Json => print_success(contract.command, contract.payload_kind, payload),
+        OutputMode::Ndjson => {
+            let mut writer =
+                event_writer.unwrap_or_else(|| NdjsonEventWriter::new(contract.command));
+            writer.emit_completed(contract.payload_kind, payload)
+        }
+    }
 }
 
 pub(crate) fn print_success_event<T: Serialize + ?Sized>(

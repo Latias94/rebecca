@@ -15,10 +15,6 @@ impl OutputMode {
         matches!(self, Self::Human)
     }
 
-    pub(crate) fn is_json(self) -> bool {
-        matches!(self, Self::Json)
-    }
-
     pub(crate) fn is_ndjson(self) -> bool {
         matches!(self, Self::Ndjson)
     }
