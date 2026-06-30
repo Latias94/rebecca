@@ -3,6 +3,8 @@ use std::path::Path;
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
 use rebecca::core::{DeleteMode, EstimateSource, TargetStatus};
 
+use crate::text::format_count;
+
 const LARGEST_TARGET_LIMIT: usize = 5;
 
 #[derive(Debug, Clone)]
@@ -218,14 +220,6 @@ fn cleanup_mode_label(mode: DeleteMode) -> &'static str {
     match mode {
         DeleteMode::DryRun => "dry-run",
         DeleteMode::RecycleBin => "recycle-bin",
-    }
-}
-
-fn format_count(count: u64, singular: &str, plural: &str) -> String {
-    if count == 1 {
-        format!("{count} {singular}")
-    } else {
-        format!("{count} {plural}")
     }
 }
 

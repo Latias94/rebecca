@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
+use crate::text::format_count;
 
 const API_VERSION: &str = "rebecca.cli.v1";
 
@@ -528,14 +529,6 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
     }
 
     format!("{value:.2} {}", UNITS[unit_index])
-}
-
-fn format_count(count: u64, singular: &str, plural: &str) -> String {
-    if count == 1 {
-        format!("{count} {singular}")
-    } else {
-        format!("{count} {plural}")
-    }
 }
 
 #[cfg(test)]

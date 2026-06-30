@@ -2,6 +2,8 @@ use std::path::Path;
 
 use rebecca::core::cache::{CachePurgeEntry, CachePurgeMode, CachePurgeReport, CachePurgeSummary};
 
+use crate::text::format_count;
+
 #[derive(Debug, Clone)]
 pub(crate) struct CachePurgeProjection<'a> {
     pub(crate) cache_dir: &'a Path,
@@ -56,7 +58,7 @@ impl<'a> CachePurgeProjection<'a> {
             .map(|issue| CachePurgeIssueRow {
                 status_label: issue.status.label(),
                 reason_label: issue.reason_code.label(),
-                entries_label: format_count(issue.entries, "entry", "entries"),
+                entries_label: format_count(issue.entries as u64, "entry", "entries"),
                 estimated_bytes: issue.estimated_bytes,
             })
             .collect();
@@ -140,14 +142,6 @@ fn mode_label(mode: CachePurgeMode) -> &'static str {
 
 fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
-}
-
-fn format_count(value: usize, singular: &str, plural: &str) -> String {
-    if value == 1 {
-        format!("1 {singular}")
-    } else {
-        format!("{value} {plural}")
-    }
 }
 
 #[cfg(test)]

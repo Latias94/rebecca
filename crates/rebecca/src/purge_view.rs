@@ -6,6 +6,8 @@ use rebecca::core::project_artifacts::ProjectArtifactDiscoveryDiagnostic;
 use rebecca::core::{EstimateSource, TargetStatus};
 use serde::Serialize;
 
+use crate::text::format_count;
+
 const LARGEST_ARTIFACT_LIMIT: usize = 5;
 const INSIGHT_TOP_TARGET_LIMIT: usize = 10;
 
@@ -425,14 +427,6 @@ fn status_order(status: TargetStatus) -> usize {
         TargetStatus::Failed => 2,
         TargetStatus::Blocked => 3,
         TargetStatus::Skipped => 4,
-    }
-}
-
-fn format_count(count: u64, singular: &str, plural: &str) -> String {
-    if count == 1 {
-        format!("{count} {singular}")
-    } else {
-        format!("{count} {plural}")
     }
 }
 

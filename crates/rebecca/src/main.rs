@@ -17,6 +17,7 @@ mod purge_view;
 mod render;
 mod runtime;
 mod scan;
+mod text;
 
 use cli::{
     AppsCommand, CacheCommand, CleanArgs, Cli, Command, CompletionArgs, ConfigCommand,
