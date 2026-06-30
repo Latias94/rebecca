@@ -7,6 +7,7 @@
     "payloadKind": {
       "type": "string",
       "enum": [
+        "active-process-diagnostic",
         "app-leftovers-cleanup-plan",
         "cache-purge-report",
         "cleanup-plan",
@@ -42,6 +43,7 @@
       "type": "string",
       "enum": [
         "safety-opt-in-required",
+        "warning-gate-required",
         "target-discovery-skipped",
         "target-discovery-failed",
         "duplicate-target-path",
@@ -82,6 +84,27 @@
       },
       "additionalProperties": false
     },
+    "cleanupWarningSummary": {
+      "type": "object",
+      "required": [
+        "warning",
+        "targets",
+        "estimated_bytes"
+      ],
+      "properties": {
+        "warning": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
     "cleanupSummary": {
       "type": "object",
       "required": [
@@ -94,7 +117,8 @@
         "estimated_bytes",
         "freed_bytes",
         "pending_reclaim_bytes",
-        "issue_matrix"
+        "issue_matrix",
+        "warning_matrix"
       ],
       "properties": {
         "total_targets": {
@@ -129,6 +153,77 @@
           "items": {
             "$ref": "#/$defs/cleanupIssueSummary"
           }
+        },
+        "warning_matrix": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupWarningSummary"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "activeProcessMatch": {
+      "type": "object",
+      "required": [
+        "process_id",
+        "executable_name",
+        "warning",
+        "rule_ids"
+      ],
+      "properties": {
+        "process_id": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "executable_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "warning": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "activeProcessDiagnostic": {
+      "type": "object",
+      "required": [
+        "platform",
+        "platform_supported",
+        "process_inspection_available",
+        "matches",
+        "unavailable_reason"
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform_supported": {
+          "type": "boolean"
+        },
+        "process_inspection_available": {
+          "type": "boolean"
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/activeProcessMatch"
+          }
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false

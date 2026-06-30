@@ -107,6 +107,7 @@ fn run() -> Result<()> {
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Permissions => info::print_privilege_level(cli.format),
+            DoctorCommand::ActiveProcesses => info::print_active_processes(cli.format),
         },
         Command::Completion(args) => run_completion(args),
     }
@@ -148,6 +149,7 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             exclude_paths: execution.exclude_paths,
             allow_moderate: risk.allow_moderate,
             allow_risky: risk.allow_risky,
+            allow_warnings: risk.allow_warnings,
         },
         runtime,
     )
@@ -253,6 +255,7 @@ fn command_name(command: &Command) -> &'static str {
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Permissions => "doctor permissions",
+            DoctorCommand::ActiveProcesses => "doctor active-processes",
         },
         Command::Completion(_) => "completion",
     }

@@ -191,6 +191,9 @@ pub struct RiskArgs {
     /// Include risky rules.
     #[arg(long)]
     pub allow_risky: bool,
+    /// Include targets that carry a named warning gate. Can be repeated.
+    #[arg(long = "allow-warning", value_name = "WARNING")]
+    pub allow_warnings: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -341,6 +344,8 @@ pub enum ConfigCommand {
 pub enum DoctorCommand {
     /// Print the current Windows privilege level when available.
     Permissions,
+    /// Report warning-bearing cleanup rules whose applications appear to be running.
+    ActiveProcesses,
 }
 
 #[derive(Debug, Args)]

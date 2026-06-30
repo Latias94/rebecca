@@ -1639,6 +1639,7 @@ fn slack_rule_targets_only_electron_cache_directories() {
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_rule_ids = vec!["windows.slack-cache".to_string()];
+    request.add_allowed_warning("active-process");
 
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
@@ -2152,6 +2153,61 @@ fn moderate_rule_is_allowed_with_opt_in() {
 }
 
 #[test]
+fn warning_rule_is_skipped_without_named_gate() {
+    let fixture = PlannerFixture::new();
+    fixture.write("roaming/Slack/Cache/cache.bin", b"slack");
+    let rules = vec![custom_warning_rule()];
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.custom-slack-cache".to_string()];
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 0);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 0);
+    assert_eq!(plan.summary.warning_matrix.len(), 1);
+    assert_eq!(plan.summary.warning_matrix[0].warning, "active-process");
+    assert_eq!(plan.summary.warning_matrix[0].targets, 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::WarningGateRequired)
+    );
+    assert_eq!(plan.targets[0].warnings, ["active-process"]);
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("--allow-warning active-process")
+    );
+}
+
+#[test]
+fn warning_rule_is_allowed_with_named_gate_and_preserves_metadata() {
+    let fixture = PlannerFixture::new();
+    fixture.write("roaming/Slack/Cache/cache.bin", b"slack");
+    let rules = vec![custom_warning_rule()];
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["windows.custom-slack-cache".to_string()];
+    request.add_allowed_warning("ACTIVE-PROCESS");
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 0);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert_eq!(plan.summary.warning_matrix.len(), 1);
+    assert_eq!(plan.summary.warning_matrix[0].warning, "active-process");
+    assert_eq!(plan.summary.warning_matrix[0].targets, 1);
+    assert_eq!(plan.summary.warning_matrix[0].estimated_bytes, 5);
+    assert_eq!(plan.targets[0].status, TargetStatus::Allowed);
+    assert_eq!(plan.targets[0].warnings, ["active-process"]);
+}
+
+#[test]
 fn risky_rule_is_skipped_without_opt_in() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/risky.tmp", b"risk");
@@ -2254,6 +2310,24 @@ fn custom_risky_rule() -> RuleDefinition {
         path_templates: vec![RuleTargetSpec::template("%TEMP%")],
         restore_hint: Some("The target can be rebuilt.".to_string()),
         warnings: Vec::new(),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
+        },
+    }
+}
+
+fn custom_warning_rule() -> RuleDefinition {
+    RuleDefinition {
+        id: "windows.custom-slack-cache".to_string(),
+        platform: Platform::Windows,
+        category: "application".to_string(),
+        name: "Custom Slack cache".to_string(),
+        safety_level: SafetyLevel::Safe,
+        path_templates: vec![RuleTargetSpec::template("%APPDATA%\\Slack\\Cache")],
+        restore_hint: Some("The target can be rebuilt.".to_string()),
+        warnings: vec!["active-process".to_string()],
         provenance: RuleProvenance {
             source: RuleSource::Owned,
             license: "project-owned".to_string(),

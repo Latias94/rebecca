@@ -3,6 +3,7 @@ use rebecca_core::executor::{CleanupBackend, ExecutionOutcome};
 use rebecca_core::plan::CleanupTarget;
 
 pub mod apps;
+pub mod process;
 pub mod steam;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

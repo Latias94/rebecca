@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::project_artifacts::{ProjectArtifactContextMatch, ProjectArtifactDiscoveryDiagnostic};
+use crate::warnings::WarningSummary;
 use crate::{DeleteMode, PlanRequest, TargetStatus};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +49,8 @@ pub struct CleanupSummary {
     pub pending_reclaim_bytes: u64,
     #[serde(default)]
     pub issue_matrix: Vec<CleanupIssueSummary>,
+    #[serde(default)]
+    pub warning_matrix: Vec<WarningSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +80,8 @@ pub struct CleanupTarget {
     pub modified_at_unix_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_artifact: Option<ProjectArtifactContextMatch>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     pub freed_bytes: u64,
     pub pending_reclaim_bytes: u64,
 }
@@ -85,6 +90,7 @@ pub struct CleanupTarget {
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupTargetIssueReason {
     SafetyOptInRequired,
+    WarningGateRequired,
     TargetDiscoverySkipped,
     TargetDiscoveryFailed,
     DuplicateTargetPath,
@@ -101,6 +107,7 @@ impl CleanupTargetIssueReason {
     pub fn label(self) -> &'static str {
         match self {
             Self::SafetyOptInRequired => "safety-opt-in-required",
+            Self::WarningGateRequired => "warning-gate-required",
             Self::TargetDiscoverySkipped => "target-discovery-skipped",
             Self::TargetDiscoveryFailed => "target-discovery-failed",
             Self::DuplicateTargetPath => "duplicate-target-path",
@@ -135,6 +142,7 @@ impl CleanupTarget {
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
             project_artifact: None,
+            warnings: Vec::new(),
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -175,6 +183,7 @@ impl CleanupTarget {
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
             project_artifact: None,
+            warnings: Vec::new(),
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -215,6 +224,7 @@ impl CleanupTarget {
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
             project_artifact: None,
+            warnings: Vec::new(),
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -262,6 +272,7 @@ impl CleanupTarget {
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
             project_artifact: None,
+            warnings: Vec::new(),
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -294,6 +305,11 @@ impl CleanupTarget {
         self.restore_hint = restore_hint;
         self
     }
+
+    pub fn with_warnings(mut self, warnings: Vec<String>) -> Self {
+        self.warnings = warnings;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -318,6 +334,7 @@ impl CleanupPlan {
     pub fn recompute_summary(&mut self) {
         let mut summary = CleanupSummary::default();
         let mut issue_matrix = BTreeMap::new();
+        let mut warning_matrix = BTreeMap::new();
 
         for target in &self.targets {
             summary.total_targets += 1;
@@ -353,9 +370,25 @@ impl CleanupPlan {
                         .saturating_add(target.estimated_bytes);
                 }
             }
+
+            for warning in &target.warnings {
+                let bucket =
+                    warning_matrix
+                        .entry(warning.clone())
+                        .or_insert_with(|| WarningSummary {
+                            warning: warning.clone(),
+                            targets: 0,
+                            estimated_bytes: 0,
+                        });
+                bucket.targets = bucket.targets.saturating_add(1);
+                bucket.estimated_bytes = bucket
+                    .estimated_bytes
+                    .saturating_add(target.estimated_bytes);
+            }
         }
 
         summary.issue_matrix = issue_matrix.into_values().collect();
+        summary.warning_matrix = warning_matrix.into_values().collect();
         self.summary = summary;
     }
 }

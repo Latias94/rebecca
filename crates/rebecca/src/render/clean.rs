@@ -73,6 +73,19 @@ pub(super) fn print_plan_overview(projection: &CleanPlanProjection<'_>) {
             );
         }
     }
+    if !projection.warning_matrix().is_empty() {
+        println!();
+        println!("Warning matrix:");
+        for warning in projection.warning_matrix() {
+            println!(
+                "- {}: {}, {} ({})",
+                warning.warning,
+                warning.targets_label,
+                warning.estimated_bytes,
+                format_bytes(warning.estimated_bytes)
+            );
+        }
+    }
     if let Some(summary) = projection.scan_cache_summary() {
         println!(
             "Scan cache summary: {}, {}, {}, {}",
@@ -86,7 +99,7 @@ pub(super) fn print_plan_overview(projection: &CleanPlanProjection<'_>) {
 
 fn print_target_line(target: &CleanTargetRow<'_>, prefix: &str) {
     println!(
-        "{prefix} {} [{}] {} bytes ({}){}{}{}",
+        "{prefix} {} [{}] {} bytes ({}){}{}{}{}",
         target.rule_id,
         target.path.display(),
         target.estimated_bytes,
@@ -96,6 +109,15 @@ fn print_target_line(target: &CleanTargetRow<'_>, prefix: &str) {
             .reason
             .map(|reason| format!(" ({reason})"))
             .unwrap_or_default(),
+        warning_suffix(target.warnings),
         restore_hint_suffix(target.restore_hint)
     );
+}
+
+fn warning_suffix(warnings: &[String]) -> String {
+    if warnings.is_empty() {
+        String::new()
+    } else {
+        format!(" [warnings: {}]", warnings.join(", "))
+    }
 }

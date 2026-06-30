@@ -340,6 +340,36 @@ fn doctor_permissions_format_json_returns_diagnostic_payload() {
 }
 
 #[test]
+fn doctor_active_processes_format_json_returns_diagnostic_payload() {
+    let output = common::command::rebecca()
+        .env("REBECCA_ACTIVE_PROCESSES", "slack.exe:4242")
+        .args(["doctor", "active-processes", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["command"], "doctor active-processes");
+    assert_eq!(envelope["payload_kind"], "active-process-diagnostic");
+
+    let validator = validator_for_payload_def("activeProcessDiagnostic");
+    assert!(
+        validator.is_valid(&envelope["data"]),
+        "active process diagnostic should match schema: {:?}",
+        validator
+            .iter_errors(&envelope["data"])
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn cli_api_schema_documents_are_parseable_draft_2020_12() {
     for relative in [
         "envelope.schema.json",
@@ -364,6 +394,7 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
     assert!(payload_kinds.contains(&"project-artifact-insight"));
+    assert!(payload_kinds.contains(&"active-process-diagnostic"));
 
     let insight_schema = &payloads["$defs"]["projectArtifactInsight"];
     assert_eq!(insight_schema["type"], "object");

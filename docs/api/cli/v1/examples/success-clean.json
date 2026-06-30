@@ -19,7 +19,9 @@
       "completed_targets": 0,
       "estimated_bytes": 5,
       "freed_bytes": 0,
-      "pending_reclaim_bytes": 0
+      "pending_reclaim_bytes": 0,
+      "issue_matrix": [],
+      "warning_matrix": []
     },
     "targets": [
       {

@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::warnings::{missing_warning_gates, normalize_warning_gate};
+
 pub use crate::path_template::PathTemplate;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +250,8 @@ pub struct PlanRequest {
     pub project_artifact_selectors: Vec<String>,
     pub selected_categories: Vec<String>,
     pub selected_rule_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_warnings: Vec<String>,
     pub allow_moderate: bool,
     pub allow_risky: bool,
 }
@@ -264,6 +268,7 @@ impl PlanRequest {
             project_artifact_selectors: Vec::new(),
             selected_categories: Vec::new(),
             selected_rule_ids: Vec::new(),
+            allowed_warnings: Vec::new(),
             allow_moderate: false,
             allow_risky: false,
         }
@@ -284,6 +289,28 @@ impl PlanRequest {
             SafetyLevel::Moderate => self.allow_moderate || self.allow_risky,
             SafetyLevel::Risky | SafetyLevel::Dangerous => self.allow_risky,
         }
+    }
+
+    pub fn allows_warnings(&self, warnings: &[String]) -> bool {
+        self.missing_warning_gates(warnings).is_empty()
+    }
+
+    pub fn missing_warning_gates(&self, warnings: &[String]) -> Vec<String> {
+        missing_warning_gates(warnings, &self.allowed_warnings)
+    }
+
+    pub fn add_allowed_warning(&mut self, warning: impl AsRef<str>) {
+        let warning = normalize_warning_gate(warning.as_ref());
+        if warning.is_empty()
+            || self
+                .allowed_warnings
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&warning))
+        {
+            return;
+        }
+
+        self.allowed_warnings.push(warning);
     }
 }
 

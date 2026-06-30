@@ -43,6 +43,22 @@ description = "The cleaner expands bounded discovery patterns and should be prev
 id = "privileged-location"
 description = "The cleaner may touch locations that commonly require elevated permissions."
 
+[[warning_kinds]]
+id = "durable-state-nearby"
+description = "The cleaner targets cache directories near durable application state and must stay inside the resolved cache boundary."
+
+[[warning_kinds]]
+id = "special-action"
+description = "The cleaner requires an action beyond ordinary filesystem deletion."
+
+[[warning_kinds]]
+id = "permission-sensitive"
+description = "The cleaner may behave differently depending on the current user and process permissions."
+
+[[warning_kinds]]
+id = "source-boundary"
+description = "The cleaner crosses a source boundary such as a discovered install root or library root."
+
 [[protected_categories]]
 id = "credentials"
 description = "credential and password-manager data"

@@ -174,6 +174,8 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
             "json",
             "--rule",
             "windows.slack-cache",
+            "--allow-warning",
+            "active-process",
         ])
         .output()
         .unwrap();
@@ -211,6 +213,46 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
             && !target["path"].as_str().unwrap().contains("Local Storage")
             && !target["path"].as_str().unwrap().contains("IndexedDB")
             && !target["path"].as_str().unwrap().contains("Service Worker")
+    }));
+}
+
+#[test]
+fn clean_dry_run_json_skips_warning_rule_without_named_gate() {
+    let temp = tempfile::tempdir().unwrap();
+    write_slack_cache_fixture(&temp);
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--rule",
+            "windows.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["allowed_targets"], 0);
+    assert_eq!(value["summary"]["skipped_targets"], 3);
+    assert_eq!(
+        value["summary"]["issue_matrix"][0]["reason_code"],
+        "warning-gate-required"
+    );
+    assert_eq!(
+        value["summary"]["warning_matrix"][0]["warning"],
+        "active-process"
+    );
+    assert!(value["targets"].as_array().unwrap().iter().all(|target| {
+        target["reason_code"] == "warning-gate-required"
+            && target["warnings"].as_array().unwrap()[0] == "active-process"
     }));
 }
 
@@ -298,6 +340,8 @@ fn clean_dry_run_json_honors_exclude_flag() {
             "json",
             "--rule",
             "windows.slack-cache",
+            "--allow-warning",
+            "active-process",
             "--exclude",
             protected_cache.to_str().unwrap(),
         ])
@@ -365,6 +409,8 @@ protected_paths = ['{}']
             "json",
             "--rule",
             "windows.slack-cache",
+            "--allow-warning",
+            "active-process",
         ])
         .output()
         .unwrap();
@@ -577,6 +623,8 @@ fn clean_human_output_reports_slack_cache_rule() {
             "--no-progress",
             "--rule",
             "windows.slack-cache",
+            "--allow-warning",
+            "active-process",
         ])
         .output()
         .unwrap();
@@ -593,6 +641,9 @@ fn clean_human_output_reports_slack_cache_rule() {
     assert!(stdout.contains("Target details:"));
     assert!(stdout.contains("allowed (3)"));
     assert!(stdout.contains("windows.slack-cache"));
+    assert!(stdout.contains("Warning matrix:"));
+    assert!(stdout.contains("active-process: 3 targets, 9 (9 B)"));
+    assert!(stdout.contains("[warnings: active-process]"));
     assert!(stdout.contains(&Path::new("Slack").join("Cache").display().to_string()));
     assert!(!stdout.contains("Local Storage"));
     assert!(!stdout.contains("IndexedDB"));

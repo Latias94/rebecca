@@ -50,6 +50,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `history-list`
 - `config-paths`
 - `permissions-diagnostic`
+- `active-process-diagnostic`
 
 Payload data is intentionally nested under `data` so Rebecca can evolve
 metadata, event transport, and error handling without turning internal core
@@ -62,6 +63,14 @@ trust without changing `estimated_bytes` arithmetic:
 - `scan-cache`: bytes came from an enabled scan-cache hit;
 - `not-measured`: the target was skipped or blocked before byte measurement;
 - `unknown`: legacy or externally supplied plans that predate this field.
+
+Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
+`warnings`. A target with `reason_code: "warning-gate-required"` was excluded
+until the user selects the named gate with `--allow-warning <warning>`.
+
+`active-process-diagnostic` is emitted by `rebecca doctor active-processes`.
+It reports whether process inspection is available and lists running processes
+that match cleanup rules carrying the `active-process` warning.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -96,6 +105,7 @@ estimate came from; it is not a freshness guarantee.
 rebecca scan --format json
 rebecca clean --format json --category system
 rebecca clean --format ndjson --scan-cache --category system
+rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0
 rebecca doctor permissions --format json

@@ -66,3 +66,48 @@ fn doctor_permissions_prints_permission_label() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Privilege level:"));
 }
+
+#[test]
+fn doctor_active_processes_json_reports_fake_matching_process() {
+    let output = common::command::rebecca()
+        .env("REBECCA_ACTIVE_PROCESSES", "slack.exe:4242;unrelated.exe:9")
+        .args(["doctor", "active-processes", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "doctor active-processes");
+    assert_eq!(envelope["payload_kind"], "active-process-diagnostic");
+    let data = &envelope["data"];
+    assert_eq!(data["process_inspection_available"], true);
+    assert_eq!(data["matches"][0]["process_id"], 4242);
+    assert_eq!(data["matches"][0]["executable_name"], "slack.exe");
+    assert_eq!(data["matches"][0]["warning"], "active-process");
+    assert_eq!(data["matches"][0]["rule_ids"][0], "windows.slack-cache");
+}
+
+#[test]
+fn doctor_active_processes_json_degrades_without_process_adapter() {
+    let output = common::command::rebecca()
+        .args(["doctor", "active-processes", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let data = common::support::api_data(&output.stdout);
+    assert!(data["platform"].as_str().is_some());
+    assert!(data["platform_supported"].as_bool().is_some());
+    assert!(data["process_inspection_available"].as_bool().is_some());
+    assert!(data["matches"].as_array().is_some());
+}

@@ -36,6 +36,7 @@ pub struct CleanOptions {
     pub exclude_paths: Vec<PathBuf>,
     pub allow_moderate: bool,
     pub allow_risky: bool,
+    pub allow_warnings: Vec<String>,
 }
 
 pub(crate) struct WorkflowRunOptions<'a> {
@@ -74,6 +75,9 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
     request.selected_rule_ids = options.rules;
     request.allow_moderate = options.allow_moderate;
     request.allow_risky = options.allow_risky;
+    for warning in &options.allow_warnings {
+        request.add_allowed_warning(warning);
+    }
 
     let catalog = rebecca::rules::builtin_rules()?;
     run_workflow(

@@ -13,6 +13,7 @@ pub(crate) struct CleanPlanProjection<'a> {
     pub(crate) mode_label: &'static str,
     pub(crate) summary: CleanPlanSummary,
     issue_matrix: Vec<CleanIssueRow>,
+    warning_matrix: Vec<CleanWarningRow>,
     scan_cache_summary: Option<ScanCacheSummaryRow>,
     largest_targets: Vec<CleanTargetRow<'a>>,
     target_groups: Vec<CleanTargetGroup<'a>>,
@@ -40,6 +41,13 @@ pub(crate) struct CleanIssueRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CleanWarningRow {
+    pub(crate) warning: String,
+    pub(crate) targets_label: String,
+    pub(crate) estimated_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScanCacheSummaryRow {
     pub(crate) hits_label: String,
     pub(crate) misses_label: String,
@@ -61,6 +69,7 @@ pub(crate) struct CleanTargetRow<'a> {
     pub(crate) estimate_source: EstimateSource,
     pub(crate) reason: Option<&'a str>,
     pub(crate) restore_hint: Option<&'a str>,
+    pub(crate) warnings: &'a [String],
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -81,6 +90,7 @@ impl<'a> CleanPlanProjection<'a> {
             mode_label: cleanup_mode_label(plan.request.mode),
             summary: CleanPlanSummary::from(&plan.summary),
             issue_matrix: issue_matrix_rows(plan),
+            warning_matrix: warning_matrix_rows(plan),
             scan_cache_summary: scan_cache_summary
                 .filter(|summary| summary.has_activity())
                 .map(ScanCacheSummaryRow::from),
@@ -91,6 +101,10 @@ impl<'a> CleanPlanProjection<'a> {
 
     pub(crate) fn issue_matrix(&self) -> &[CleanIssueRow] {
         &self.issue_matrix
+    }
+
+    pub(crate) fn warning_matrix(&self) -> &[CleanWarningRow] {
+        &self.warning_matrix
     }
 
     pub(crate) fn scan_cache_summary(&self) -> Option<&ScanCacheSummaryRow> {
@@ -152,6 +166,7 @@ impl<'a> From<&'a CleanupTarget> for CleanTargetRow<'a> {
             estimate_source: target.estimate_source,
             reason: target.reason.as_deref(),
             restore_hint: target.restore_hint.as_deref(),
+            warnings: &target.warnings,
         }
     }
 }
@@ -165,6 +180,18 @@ fn issue_matrix_rows(plan: &CleanupPlan) -> Vec<CleanIssueRow> {
             reason_label: issue.reason_code.label(),
             targets_label: format_count(issue.targets as u64, "target", "targets"),
             estimated_bytes: issue.estimated_bytes,
+        })
+        .collect()
+}
+
+fn warning_matrix_rows(plan: &CleanupPlan) -> Vec<CleanWarningRow> {
+    plan.summary
+        .warning_matrix
+        .iter()
+        .map(|warning| CleanWarningRow {
+            warning: warning.warning.clone(),
+            targets_label: format_count(warning.targets as u64, "target", "targets"),
+            estimated_bytes: warning.estimated_bytes,
         })
         .collect()
 }

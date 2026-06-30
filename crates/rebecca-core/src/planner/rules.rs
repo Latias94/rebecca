@@ -9,6 +9,7 @@ use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::safety::{
     PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy,
 };
+use crate::warnings::warning_gate_required_reason;
 
 use super::measure::{
     PathMeasureProgressEvent, dedupe_key, emit_target_finished, finalize_plan,
@@ -53,7 +54,7 @@ where
                         rule.safety_level.label()
                     ),
                 };
-                candidates.push(with_rule_restore_hint(
+                candidates.push(with_rule_metadata(
                     CleanupTarget::skipped_with_reason_code(
                         rule.id.clone(),
                         spec.placeholder_path(),
@@ -67,12 +68,29 @@ where
             continue;
         }
 
+        let missing_warning_gates = request.missing_warning_gates(&rule.warnings);
+        if !missing_warning_gates.is_empty() {
+            for spec in &rule.path_templates {
+                candidates.push(with_rule_metadata(
+                    CleanupTarget::skipped_with_reason_code(
+                        rule.id.clone(),
+                        spec.placeholder_path(),
+                        request.mode,
+                        CleanupTargetIssueReason::WarningGateRequired,
+                        warning_gate_required_reason(&missing_warning_gates),
+                    ),
+                    rule,
+                ));
+            }
+            continue;
+        }
+
         for spec in &rule.path_templates {
             let expanded_paths =
                 match resolve_rule_target_with_applications(spec, env, applications) {
                     Ok(TargetResolution::Paths(paths)) => paths,
                     Ok(TargetResolution::Skipped(reason)) => {
-                        candidates.push(with_rule_restore_hint(
+                        candidates.push(with_rule_metadata(
                             CleanupTarget::skipped_with_reason_code(
                                 rule.id.clone(),
                                 spec.placeholder_path(),
@@ -85,7 +103,7 @@ where
                         continue;
                     }
                     Err(err) => {
-                        candidates.push(with_rule_restore_hint(
+                        candidates.push(with_rule_metadata(
                             CleanupTarget::blocked_with_reason_code(
                                 rule.id.clone(),
                                 spec.placeholder_path(),
@@ -102,7 +120,7 @@ where
             for expanded in expanded_paths {
                 let path_key = dedupe_key(&expanded, request.platform);
                 if !seen_paths.insert(path_key) {
-                    let target = with_rule_restore_hint(
+                    let target = with_rule_metadata(
                         CleanupTarget::skipped_with_reason_code(
                             rule.id.clone(),
                             expanded,
@@ -174,7 +192,7 @@ where
                                     request.mode,
                                 )
                                 .with_estimate_source(measured_path.estimate_source);
-                                let target = with_rule_restore_hint(target, rule);
+                                let target = with_rule_metadata(target, rule);
                                 emit_target_finished(&mut progress, &target);
                                 candidates.push(target);
                             }
@@ -188,14 +206,14 @@ where
                                     CleanupTargetIssueReason::ScanFailed,
                                     err.to_string(),
                                 );
-                                let target = with_rule_restore_hint(target, rule);
+                                let target = with_rule_metadata(target, rule);
                                 emit_target_finished(&mut progress, &target);
                                 candidates.push(target);
                             }
                         }
                     }
                     PathDisposition::Missing => {
-                        let target = with_rule_restore_hint(
+                        let target = with_rule_metadata(
                             CleanupTarget::skipped_with_reason_code(
                                 rule.id.clone(),
                                 expanded,
@@ -209,7 +227,7 @@ where
                         candidates.push(target);
                     }
                     PathDisposition::Skipped(reason) => {
-                        let target = with_rule_restore_hint(
+                        let target = with_rule_metadata(
                             CleanupTarget::skipped_with_reason_code(
                                 rule.id.clone(),
                                 expanded,
@@ -223,7 +241,7 @@ where
                         candidates.push(target);
                     }
                     PathDisposition::Blocked(reason) => {
-                        let target = with_rule_restore_hint(
+                        let target = with_rule_metadata(
                             CleanupTarget::blocked_with_reason_code(
                                 rule.id.clone(),
                                 expanded,
@@ -245,6 +263,8 @@ where
     Ok(finalize_plan(request.clone(), candidates))
 }
 
-fn with_rule_restore_hint(target: CleanupTarget, rule: &RuleDefinition) -> CleanupTarget {
-    target.with_restore_hint(rule.restore_hint.clone())
+fn with_rule_metadata(target: CleanupTarget, rule: &RuleDefinition) -> CleanupTarget {
+    target
+        .with_restore_hint(rule.restore_hint.clone())
+        .with_warnings(rule.warnings.clone())
 }

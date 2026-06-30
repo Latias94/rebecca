@@ -29,7 +29,8 @@
       "estimated_bytes": 1048576,
       "freed_bytes": 0,
       "pending_reclaim_bytes": 0,
-      "issue_matrix": []
+      "issue_matrix": [],
+      "warning_matrix": []
     },
     "discovery_diagnostics": [
       {

@@ -43,11 +43,47 @@ fn cleanup_plan_serialization_preserves_target_contract() {
     );
     assert_eq!(decoded.targets[0].modified_at_unix_seconds, None);
     assert!(decoded.summary.issue_matrix.is_empty());
+    assert!(decoded.summary.warning_matrix.is_empty());
     assert!(decoded.targets[0].reason_code.is_none());
+    assert!(decoded.targets[0].warnings.is_empty());
     assert_eq!(
         decoded.targets[0].estimate_source,
         EstimateSource::FreshScan
     );
+}
+
+#[test]
+fn cleanup_plan_serialization_preserves_warning_contract() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(
+        CleanupTarget::skipped_with_reason_code(
+            "windows.slack-cache",
+            PathBuf::from(r"C:\Users\Alice\AppData\Roaming\Slack\Cache"),
+            DeleteMode::DryRun,
+            CleanupTargetIssueReason::WarningGateRequired,
+            "warning gate requires --allow-warning active-process",
+        )
+        .with_warnings(vec!["active-process".to_string()]),
+    );
+    plan.recompute_summary();
+
+    let json = serde_json::to_value(&plan).expect("plan should serialize");
+    assert_eq!(json["targets"][0]["warnings"][0], "active-process");
+    assert_eq!(json["targets"][0]["reason_code"], "warning-gate-required");
+    assert_eq!(
+        json["summary"]["warning_matrix"][0]["warning"],
+        "active-process"
+    );
+    assert_eq!(json["summary"]["warning_matrix"][0]["targets"], 1);
+
+    let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
+    assert_eq!(
+        decoded.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::WarningGateRequired)
+    );
+    assert_eq!(decoded.targets[0].warnings, ["active-process"]);
+    assert_eq!(decoded.summary.warning_matrix[0].warning, "active-process");
 }
 
 #[test]
@@ -108,18 +144,30 @@ fn cleanup_plan_deserializes_legacy_issue_fields() {
         .and_then(serde_json::Value::as_object_mut)
         .expect("summary should be object")
         .remove("issue_matrix");
+    root.get_mut("summary")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("summary should be object")
+        .remove("warning_matrix");
     root.get_mut("targets")
         .and_then(serde_json::Value::as_array_mut)
         .expect("targets should be array")[0]
         .as_object_mut()
         .expect("target should be object")
         .remove("reason_code");
+    root.get_mut("targets")
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("targets should be array")[0]
+        .as_object_mut()
+        .expect("target should be object")
+        .remove("warnings");
 
     let decoded: CleanupPlan = serde_json::from_value(value).expect("legacy plan should load");
 
     assert_eq!(decoded.summary.skipped_targets, 1);
     assert!(decoded.summary.issue_matrix.is_empty());
+    assert!(decoded.summary.warning_matrix.is_empty());
     assert_eq!(decoded.targets[0].reason_code, None);
+    assert!(decoded.targets[0].warnings.is_empty());
 }
 
 #[test]

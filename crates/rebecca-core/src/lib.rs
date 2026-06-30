@@ -21,6 +21,7 @@ pub mod safety;
 pub mod safety_catalog;
 pub mod scan;
 pub mod scan_cache;
+pub mod warnings;
 
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use model::{
@@ -32,3 +33,4 @@ pub use plan::{
     CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetDeletionStyle,
     CleanupTargetIssueReason, EstimateSource,
 };
+pub use warnings::WarningSummary;

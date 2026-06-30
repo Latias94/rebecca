@@ -1,6 +1,7 @@
 use std::num::NonZeroUsize;
 
 use anyhow::Result;
+use rebecca::core::RuleDefinition;
 use rebecca::core::applications::ApplicationDiscovery;
 #[cfg(debug_assertions)]
 use rebecca::core::applications::{
@@ -9,6 +10,7 @@ use rebecca::core::applications::{
 use rebecca::core::config::{AppPaths, load_app_paths};
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::{CleanupIssueSummary, CleanupTarget, CleanupTargetIssueReason};
+use rebecca::core::warnings::ACTIVE_PROCESS_WARNING;
 use serde::Serialize;
 
 use crate::cli::OutputMode;
@@ -22,6 +24,29 @@ struct PermissionDiagnostic<'a> {
     cleanup_execution_supported: bool,
     privilege_level: &'a str,
     suggested_action: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ActiveProcessDiagnostic {
+    platform: String,
+    platform_supported: bool,
+    process_inspection_available: bool,
+    matches: Vec<ActiveProcessMatch>,
+    unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ActiveProcessMatch {
+    process_id: u32,
+    executable_name: String,
+    warning: String,
+    rule_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProcessSnapshot {
+    pub(crate) process_id: u32,
+    pub(crate) executable_name: String,
 }
 
 fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
@@ -200,6 +225,124 @@ pub fn print_privilege_level(output_mode: OutputMode) -> Result<()> {
     )
 }
 
+pub fn print_active_processes(output_mode: OutputMode) -> Result<()> {
+    crate::output::print_command_success(
+        "doctor active-processes",
+        "active-process-diagnostic",
+        output_mode,
+        active_process_diagnostic,
+        || {
+            let diagnostic = active_process_diagnostic();
+            if !diagnostic.process_inspection_available {
+                println!(
+                    "Active process diagnostics unavailable: {}",
+                    diagnostic
+                        .unavailable_reason
+                        .as_deref()
+                        .unwrap_or("process inspection is unavailable")
+                );
+                return Ok(());
+            }
+
+            if diagnostic.matches.is_empty() {
+                println!("Active process diagnostics: no warning-bearing cleanup rules matched.");
+                return Ok(());
+            }
+
+            println!("Active process diagnostics:");
+            for matched in &diagnostic.matches {
+                println!(
+                    "- {} (pid {}): {} [{}]",
+                    matched.executable_name,
+                    matched.process_id,
+                    matched.warning,
+                    matched.rule_ids.join(", ")
+                );
+            }
+            Ok(())
+        },
+    )
+}
+
+fn active_process_diagnostic() -> ActiveProcessDiagnostic {
+    let rules = match rebecca::rules::builtin_rules() {
+        Ok(rules) => rules,
+        Err(err) => {
+            return ActiveProcessDiagnostic {
+                platform: current_platform_label().to_string(),
+                platform_supported: cfg!(windows),
+                process_inspection_available: false,
+                matches: Vec::new(),
+                unavailable_reason: Some(err.to_string()),
+            };
+        }
+    };
+
+    match active_process_snapshots() {
+        Ok(processes) => active_process_diagnostic_from_processes(&rules, processes),
+        Err(err) => ActiveProcessDiagnostic {
+            platform: current_platform_label().to_string(),
+            platform_supported: cfg!(windows),
+            process_inspection_available: false,
+            matches: Vec::new(),
+            unavailable_reason: Some(err.to_string()),
+        },
+    }
+}
+
+pub(crate) fn active_process_diagnostic_from_processes(
+    rules: &[RuleDefinition],
+    processes: Vec<ProcessSnapshot>,
+) -> ActiveProcessDiagnostic {
+    let active_rules = rules
+        .iter()
+        .filter(|rule| {
+            rule.warnings
+                .iter()
+                .any(|warning| warning.eq_ignore_ascii_case(ACTIVE_PROCESS_WARNING))
+        })
+        .collect::<Vec<_>>();
+    let mut matches = Vec::new();
+
+    for process in processes {
+        let process_key = normalized_process_token(&process.executable_name);
+        if process_key.is_empty() {
+            continue;
+        }
+
+        let rule_ids = active_rules
+            .iter()
+            .filter(|rule| cleanup_rule_process_tokens(rule).contains(&process_key))
+            .map(|rule| rule.id.clone())
+            .collect::<Vec<_>>();
+        if rule_ids.is_empty() {
+            continue;
+        }
+
+        matches.push(ActiveProcessMatch {
+            process_id: process.process_id,
+            executable_name: process.executable_name,
+            warning: ACTIVE_PROCESS_WARNING.to_string(),
+            rule_ids,
+        });
+    }
+
+    matches.sort_by(|left, right| {
+        left.executable_name
+            .to_ascii_lowercase()
+            .cmp(&right.executable_name.to_ascii_lowercase())
+            .then_with(|| left.process_id.cmp(&right.process_id))
+    });
+
+    ActiveProcessDiagnostic {
+        platform: current_platform_label().to_string(),
+        platform_supported: cfg!(windows),
+        process_inspection_available: true,
+        matches,
+        unavailable_reason: None,
+    }
+}
+
 fn permission_diagnostic() -> PermissionDiagnostic<'static> {
     let privilege_level = current_privilege_label();
     PermissionDiagnostic {
@@ -234,6 +377,96 @@ fn current_platform_label() -> &'static str {
     } else {
         "unsupported"
     }
+}
+
+fn active_process_snapshots() -> Result<Vec<ProcessSnapshot>> {
+    if let Some(processes) = active_process_snapshots_override() {
+        return Ok(processes);
+    }
+
+    #[cfg(windows)]
+    {
+        rebecca::windows::process::active_processes()
+            .map(|processes| {
+                processes
+                    .into_iter()
+                    .map(|process| ProcessSnapshot {
+                        process_id: process.process_id,
+                        executable_name: process.executable_name,
+                    })
+                    .collect()
+            })
+            .map_err(Into::into)
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err(rebecca::core::RebeccaError::PlatformUnavailable(
+            "Windows process diagnostics are not available on this platform".to_string(),
+        )
+        .into())
+    }
+}
+
+#[cfg(debug_assertions)]
+fn active_process_snapshots_override() -> Option<Vec<ProcessSnapshot>> {
+    let raw = std::env::var("REBECCA_ACTIVE_PROCESSES").ok()?;
+    Some(
+        raw.split(';')
+            .enumerate()
+            .filter_map(|(index, process)| {
+                let process = process.trim();
+                if process.is_empty() {
+                    return None;
+                }
+
+                let (name, pid) = process
+                    .split_once(':')
+                    .map(|(name, pid)| {
+                        (
+                            name.trim(),
+                            pid.trim().parse::<u32>().unwrap_or(index as u32 + 1),
+                        )
+                    })
+                    .unwrap_or((process, index as u32 + 1));
+
+                (!name.is_empty()).then(|| ProcessSnapshot {
+                    process_id: pid,
+                    executable_name: name.to_string(),
+                })
+            })
+            .collect(),
+    )
+}
+
+#[cfg(not(debug_assertions))]
+fn active_process_snapshots_override() -> Option<Vec<ProcessSnapshot>> {
+    None
+}
+
+fn cleanup_rule_process_tokens(rule: &RuleDefinition) -> Vec<String> {
+    let mut tokens = Vec::new();
+    for source in [&rule.id, &rule.name] {
+        for token in source.split(|character: char| {
+            !character.is_ascii_alphanumeric() || character == '_' || character == '-'
+        }) {
+            let token = normalized_process_token(token);
+            if token.is_empty()
+                || token == "windows"
+                || token == "cache"
+                || tokens.iter().any(|existing| existing == &token)
+            {
+                continue;
+            }
+            tokens.push(token);
+        }
+    }
+    tokens
+}
+
+fn normalized_process_token(value: &str) -> String {
+    let value = value.trim().to_ascii_lowercase();
+    value.strip_suffix(".exe").unwrap_or(&value).to_string()
 }
 
 pub fn application_discovery() -> Box<dyn ApplicationDiscovery> {
