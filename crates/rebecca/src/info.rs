@@ -63,7 +63,11 @@ fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
 pub fn print_history(output_mode: OutputMode, limit: Option<NonZeroUsize>) -> Result<()> {
     let paths = load_app_paths()?;
     let store = HistoryStore::new(paths.history_file);
-    let history = HistoryProjection::new(store.load()?, limit);
+    let entries = match limit {
+        Some(limit) => store.load_tail(limit)?,
+        None => store.load()?,
+    };
+    let history = HistoryProjection::new(entries, limit);
 
     crate::output::print_command_success(
         "history",

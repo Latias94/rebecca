@@ -1,5 +1,7 @@
+use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -75,21 +77,53 @@ impl HistoryStore {
 
         for (index, line) in reader.lines().enumerate() {
             let line = line?;
+            if let Some(entry) = self.parse_line(index + 1, &line)? {
+                entries.push(entry);
+            }
+        }
+
+        Ok(entries)
+    }
+
+    pub fn load_tail(&self, limit: NonZeroUsize) -> Result<Vec<HistoryEntry>> {
+        if !self.path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let file = fs::File::open(&self.path)?;
+        let reader = BufReader::new(file);
+        let mut tail = VecDeque::with_capacity(limit.get());
+
+        for (index, line) in reader.lines().enumerate() {
+            let line = line?;
             if line.trim().is_empty() {
                 continue;
             }
 
-            let entry = serde_json::from_str::<HistoryEntry>(&line).map_err(|err| {
-                RebeccaError::HistoryCorrupted(format!(
-                    "{} at line {}: {}",
-                    self.path.display(),
-                    index + 1,
-                    err
-                ))
-            })?;
-            entries.push(entry);
+            if tail.len() == limit.get() {
+                tail.pop_front();
+            }
+            tail.push_back((index + 1, line));
         }
 
-        Ok(entries)
+        tail.into_iter()
+            .filter_map(|(line_number, line)| self.parse_line(line_number, &line).transpose())
+            .collect()
+    }
+
+    fn parse_line(&self, line_number: usize, line: &str) -> Result<Option<HistoryEntry>> {
+        if line.trim().is_empty() {
+            return Ok(None);
+        }
+
+        let entry = serde_json::from_str::<HistoryEntry>(line).map_err(|err| {
+            RebeccaError::HistoryCorrupted(format!(
+                "{} at line {}: {}",
+                self.path.display(),
+                line_number,
+                err
+            ))
+        })?;
+        Ok(Some(entry))
     }
 }

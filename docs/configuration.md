@@ -282,6 +282,9 @@ protected_paths = ['D:\SourceCodes\Rust\rebecca\repo-ref'] # replace with your c
 History is append-only JSONL. It records cleanup request metadata, summaries,
 target paths, status, byte counts, reason codes, and restore hints. It must not
 store file contents, credentials, tokens, or arbitrary user data.
+`rebecca history --limit <N>` reads the bounded tail of non-empty history lines
+and builds summaries from those newest records instead of loading the full
+history projection.
 
 The current cleanup safety boundaries and planned hardening steps are documented
 in [Rebecca Cleanup Safety Audit](security-audit.md).

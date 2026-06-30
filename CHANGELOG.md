@@ -32,6 +32,7 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect space --top` now keeps only a bounded top-entry accumulator while preserving exact root totals and deterministic output ordering.
 - `inspect lint --top` now bounds rendered duplicate, large-file, empty-file, and empty-directory sections while summary counters still reflect the full inventory.
 - Scan traversal now reuses walker entry type information where possible while preserving root metadata checks and reparse-point protection.
+- `history --limit` now loads only the bounded tail of non-empty history records before building the history projection.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.

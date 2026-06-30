@@ -1,7 +1,8 @@
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
-use rebecca_core::history::HistoryStore;
+use rebecca_core::history::{HistoryEntry, HistoryStore};
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
@@ -130,6 +131,12 @@ fn missing_history_file_loads_as_empty() {
     let store = HistoryStore::new(temp.path().join("missing.jsonl"));
 
     assert!(store.load().unwrap().is_empty());
+    assert!(
+        store
+            .load_tail(NonZeroUsize::new(2).unwrap())
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -156,6 +163,45 @@ fn history_error_mentions_bad_line_number() {
     let message = err.to_string();
     assert!(message.contains("history record was corrupted"));
     assert!(message.contains("line 1"));
+}
+
+#[test]
+fn load_tail_returns_newest_entries_in_chronological_order() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = HistoryStore::new(temp.path().join("history.jsonl"));
+    let mut first = HistoryEntry::from_plan(&sample_plan());
+    first.recorded_at_unix_seconds = 10;
+    let mut second = first.clone();
+    second.recorded_at_unix_seconds = 20;
+    let mut third = first.clone();
+    third.recorded_at_unix_seconds = 30;
+    store.append_entry(&first).unwrap();
+    store.append_entry(&second).unwrap();
+    store.append_entry(&third).unwrap();
+
+    let entries = store.load_tail(NonZeroUsize::new(2).unwrap()).unwrap();
+
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry.recorded_at_unix_seconds)
+            .collect::<Vec<_>>(),
+        vec![20, 30]
+    );
+}
+
+#[test]
+fn load_tail_reports_original_line_number_for_tail_corruption() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("history.jsonl");
+    fs::write(&path, "{}\n{not json}\n").unwrap();
+
+    let store = HistoryStore::new(path);
+    let err = store.load_tail(NonZeroUsize::new(1).unwrap()).unwrap_err();
+
+    let message = err.to_string();
+    assert!(message.contains("history record was corrupted"));
+    assert!(message.contains("line 2"));
 }
 
 fn sample_plan() -> CleanupPlan {
