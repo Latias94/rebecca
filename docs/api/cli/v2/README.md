@@ -16,8 +16,8 @@ JSON success responses use `envelope.schema.json` with
 
 NDJSON success responses use `event.schema.json`. The terminal event has
 `event_kind = "completed"`, a v2 `payload_kind`, and the same `data` shape as
-the JSON success envelope. Fatal CLI errors currently use Rebecca's global
-structured error contract rather than a v2-specific error schema.
+the JSON success envelope. Fatal CLI errors for v2 commands use
+`error.schema.json` for JSON mode and v2 error events for NDJSON mode.
 
 ## Payload Kinds
 
@@ -73,7 +73,8 @@ exclude, scan-cache, warning-gate, reclaim-limit, and diagnostic behavior, but
 does not accept `--yes`, prompt, execute cleanup, or write history.
 
 `rebecca purge inspect` is retained as a legacy compatibility alias for the
-same read-only report. New automation should use `inspect artifacts`.
+same read-only report and now emits the same v2 `inspect-artifacts` payload
+kind. New automation should use `inspect artifacts`.
 
 ## Inspect Lint
 

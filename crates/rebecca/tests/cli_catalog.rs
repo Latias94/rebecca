@@ -146,7 +146,8 @@ fn catalog_invalid_selector_reports_machine_readable_error() {
     assert!(output.stdout.is_empty());
 
     let envelope: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert_eq!(envelope["api_version"], "rebecca.cli.v1");
+    assert_eq!(envelope["api_version"], "rebecca.cli.v2");
+    assert_eq!(envelope["kind"], "error");
     assert_eq!(envelope["command"], "catalog");
     assert_eq!(envelope["error"]["code"], "invalid-catalog-selector");
     assert!(

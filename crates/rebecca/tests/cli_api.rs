@@ -75,6 +75,15 @@ fn assert_v2_success_schema(value: &serde_json::Value) {
 
 fn assert_error_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
+    assert_error_shape(value);
+}
+
+fn assert_v2_error_schema(value: &serde_json::Value) {
+    assert_eq!(value["api_version"], "rebecca.cli.v2");
+    assert_error_shape(value);
+}
+
+fn assert_error_shape(value: &serde_json::Value) {
     assert_eq!(value["kind"], "error");
     assert!(
         value["command"]
@@ -106,6 +115,15 @@ fn assert_error_schema(value: &serde_json::Value) {
 
 fn assert_event_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
+    assert_event_shape(value);
+}
+
+fn assert_v2_event_schema(value: &serde_json::Value) {
+    assert_eq!(value["api_version"], "rebecca.cli.v2");
+    assert_event_shape(value);
+}
+
+fn assert_event_shape(value: &serde_json::Value) {
     assert_eq!(value["kind"], "event");
     assert!(
         value["command"]
@@ -207,6 +225,34 @@ fn clean_format_json_unknown_rule_returns_error_envelope_on_stderr() {
             .as_str()
             .unwrap()
             .contains("missing.rule")
+    );
+}
+
+#[test]
+fn catalog_format_json_invalid_selector_returns_v2_error_envelope() {
+    let output = common::command::rebecca()
+        .args([
+            "catalog",
+            "--format",
+            "json",
+            "--warning",
+            "missing-warning",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+
+    let value = parse_json(&output.stderr);
+    assert_v2_error_schema(&value);
+    assert_eq!(value["command"], "catalog");
+    assert_eq!(value["error"]["code"], "invalid-catalog-selector");
+    assert!(
+        value["error"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("catalog selection did not match")
     );
 }
 
@@ -318,6 +364,44 @@ fn clean_format_ndjson_unknown_rule_terminates_with_error_event() {
 }
 
 #[test]
+fn inspect_artifacts_format_ndjson_invalid_root_returns_v2_error_event() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-workspace");
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "artifacts",
+            "--format",
+            "ndjson",
+            "--root",
+            missing.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    let error = events.last().unwrap();
+    assert_v2_event_schema(error);
+    assert_eq!(error["command"], "inspect artifacts");
+    assert_eq!(error["event_kind"], "error");
+    assert_eq!(error["error"]["code"], "invalid-purge-root");
+    assert!(
+        error["error"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("is not accessible")
+    );
+}
+
+#[test]
 fn doctor_permissions_format_json_returns_diagnostic_payload() {
     let output = common::command::rebecca()
         .args(["doctor", "permissions", "--format", "json"])
@@ -393,47 +477,15 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         .iter()
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
-    assert!(payload_kinds.contains(&"project-artifact-insight"));
+    assert!(!payload_kinds.contains(&"project-artifact-insight"));
     assert!(payload_kinds.contains(&"active-process-diagnostic"));
-
-    let insight_schema = &payloads["$defs"]["projectArtifactInsight"];
-    assert_eq!(insight_schema["type"], "object");
-    let insight_required = insight_schema["required"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|value| value.as_str().unwrap())
-        .collect::<Vec<_>>();
-    for field in [
-        "roots",
-        "summary",
-        "totals_by_root",
-        "totals_by_project",
-        "totals_by_artifact",
-        "top_targets",
-        "discovery_diagnostics",
-    ] {
-        assert!(
-            insight_required.contains(&field),
-            "projectArtifactInsight should require {field}"
-        );
-    }
-    assert_eq!(insight_schema["additionalProperties"], false);
-    assert_eq!(
-        payloads["$defs"]["projectArtifactInsightTarget"]["properties"]["estimate_source"]["$ref"],
-        "#/$defs/estimateSource"
-    );
-    assert_eq!(
-        payloads["$defs"]["projectArtifactInsight"]["properties"]["discovery_diagnostics"]["items"]
-            ["$ref"],
-        "#/$defs/projectArtifactDiscoveryDiagnostic"
-    );
 }
 
 #[test]
 fn cli_api_v2_catalog_schema_documents_are_parseable() {
     for relative in [
         "envelope.schema.json",
+        "error.schema.json",
         "event.schema.json",
         "payloads.schema.json",
     ] {
@@ -478,6 +530,12 @@ fn cli_api_v2_catalog_schema_documents_are_parseable() {
         event["properties"]["payload_kind"]["$ref"],
         "payloads.schema.json#/$defs/payloadKind"
     );
+
+    let error = read_v2_doc_json("error.schema.json");
+    assert_eq!(
+        error["properties"]["api_version"]["const"],
+        "rebecca.cli.v2"
+    );
 }
 
 #[test]
@@ -510,7 +568,15 @@ fn cli_api_examples_match_documented_envelope_shapes() {
 
     assert!(success_payload_kinds.contains(&"cleanup-plan".to_string()));
     assert!(success_payload_kinds.contains(&"project-artifact-cleanup-plan".to_string()));
-    assert!(success_payload_kinds.contains(&"project-artifact-insight".to_string()));
+    assert!(!success_payload_kinds.contains(&"project-artifact-insight".to_string()));
+}
+
+#[test]
+fn cli_api_v2_error_example_matches_documented_shape() {
+    let error = read_v2_doc_json("examples/error-invalid-warning.json");
+    assert_v2_error_schema(&error);
+    assert_eq!(error["command"], "catalog");
+    assert_eq!(error["error"]["code"], "invalid-catalog-selector");
 }
 
 #[test]
@@ -545,82 +611,4 @@ fn cli_api_v2_inspect_examples_validate_against_payload_schema() {
     validator_for_v2_payload_def("inspectLint")
         .validate(&lint["data"])
         .unwrap();
-}
-
-#[test]
-fn purge_inspect_example_fields_are_covered_by_payload_schema() {
-    let payloads = read_doc_json("payloads.schema.json");
-    let example = read_doc_json("examples/success-purge-inspect.json");
-    let data = example["data"].as_object().unwrap();
-    let insight_properties = payloads["$defs"]["projectArtifactInsight"]["properties"]
-        .as_object()
-        .unwrap();
-
-    for field in data.keys() {
-        assert!(
-            insight_properties.contains_key(field),
-            "projectArtifactInsight schema is missing example field {field}"
-        );
-    }
-
-    let summary = data["summary"].as_object().unwrap();
-    let summary_properties = payloads["$defs"]["cleanupSummary"]["properties"]
-        .as_object()
-        .unwrap();
-    for field in summary.keys() {
-        assert!(
-            summary_properties.contains_key(field),
-            "cleanupSummary schema is missing example field {field}"
-        );
-    }
-
-    let total = data["totals_by_artifact"][0].as_object().unwrap();
-    let total_properties = payloads["$defs"]["projectArtifactInsightTotal"]["properties"]
-        .as_object()
-        .unwrap();
-    for field in total.keys() {
-        assert!(
-            total_properties.contains_key(field),
-            "projectArtifactInsightTotal schema is missing example field {field}"
-        );
-    }
-
-    let target = data["top_targets"][0].as_object().unwrap();
-    let target_properties = payloads["$defs"]["projectArtifactInsightTarget"]["properties"]
-        .as_object()
-        .unwrap();
-    for field in target.keys() {
-        assert!(
-            target_properties.contains_key(field),
-            "projectArtifactInsightTarget schema is missing example field {field}"
-        );
-    }
-
-    let diagnostic = data["discovery_diagnostics"][0].as_object().unwrap();
-    let diagnostic_properties =
-        payloads["$defs"]["projectArtifactDiscoveryDiagnostic"]["properties"]
-            .as_object()
-            .unwrap();
-    for field in diagnostic.keys() {
-        assert!(
-            diagnostic_properties.contains_key(field),
-            "projectArtifactDiscoveryDiagnostic schema is missing example field {field}"
-        );
-    }
-}
-
-#[test]
-fn purge_inspect_example_validates_against_payload_schema() {
-    let validator = validator_for_payload_def("projectArtifactInsight");
-    let example = read_doc_json("examples/success-purge-inspect.json");
-    let data = &example["data"];
-
-    validator.validate(data).unwrap();
-
-    let mut invalid = data.clone();
-    invalid["top_targets"][0]["estimate_source"] = serde_json::json!("guessed");
-    assert!(
-        validator.validate(&invalid).is_err(),
-        "schema should reject undocumented estimate_source values"
-    );
 }

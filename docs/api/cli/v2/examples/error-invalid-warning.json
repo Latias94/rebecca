@@ -1,0 +1,13 @@
+{
+  "api_version": "rebecca.cli.v2",
+  "kind": "error",
+  "command": "catalog",
+  "generated_at_unix_seconds": 1782660000,
+  "error": {
+    "code": "invalid-catalog-selector",
+    "title": "Invalid catalog selector",
+    "detail": "catalog selection did not match any items",
+    "exit_code": 1,
+    "source": "rebecca-core"
+  }
+}

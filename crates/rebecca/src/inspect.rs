@@ -15,13 +15,13 @@ use crate::clean::{
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
 use crate::output::{
-    HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
-    print_command_success_with_api_version, print_workflow_success_payload,
+    CliApiContract, HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
+    print_command_success_with_contract, print_workflow_success_payload,
 };
 use crate::purge::resolve_roots;
 use crate::purge_view::ProjectArtifactInsightReport;
+use crate::render;
 use crate::runtime::CliRuntime;
-use crate::{output, render};
 
 #[derive(Debug)]
 pub struct InspectSpaceOptions {
@@ -69,10 +69,8 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
     }
 
     let report = inspect_space_core(&request, runtime.cancellation())?;
-    print_command_success_with_api_version(
-        output::API_VERSION_V2,
-        "inspect space",
-        "inspect-space",
+    print_command_success_with_contract(
+        CliApiContract::v2("inspect space", "inspect-space"),
         options.output_mode,
         || &report,
         || render::inspect::print_space_report(&report),
@@ -148,10 +146,8 @@ pub(crate) fn lint_with_runtime(options: InspectLintOptions, runtime: &CliRuntim
         .with_top_limit(options.top_limit.max(1));
     let report = inspect_lint_core(&request, runtime.cancellation())?;
 
-    print_command_success_with_api_version(
-        output::API_VERSION_V2,
-        "inspect lint",
-        "inspect-lint",
+    print_command_success_with_contract(
+        CliApiContract::v2("inspect lint", "inspect-lint"),
         options.output_mode,
         || &report,
         || render::inspect::print_lint_report(&report),
@@ -169,10 +165,8 @@ fn print_project_artifact_insight_with_events(
     let insight = ProjectArtifactInsightReport::from_plan(plan);
     match mode {
         OutputMode::Human => human_renderer(plan, scan_cache_summary),
-        OutputMode::Json => print_command_success_with_api_version(
-            output::API_VERSION_V2,
-            contract.command,
-            contract.payload_kind,
+        OutputMode::Json => print_command_success_with_contract(
+            contract,
             mode,
             || &insight,
             || unreachable!("json mode renders machine payload"),

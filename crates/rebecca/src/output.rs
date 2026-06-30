@@ -11,14 +11,14 @@ use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
 use crate::text::format_count;
 
-const API_VERSION: &str = "rebecca.cli.v1";
-pub(crate) const API_VERSION_V2: &str = "rebecca.cli.v2";
+const API_VERSION_V1: &str = "rebecca.cli.v1";
+const API_VERSION_V2: &str = "rebecca.cli.v2";
 
 pub(crate) type HumanPlanRenderer =
     fn(&CleanupPlan, Option<ScanCacheProgressSummary>) -> Result<()>;
 pub(crate) type WorkflowSuccessRenderer = fn(
     &CleanupPlan,
-    WorkflowOutputContract,
+    CliApiContract,
     OutputMode,
     HumanPlanRenderer,
     Option<ScanCacheProgressSummary>,
@@ -26,16 +26,16 @@ pub(crate) type WorkflowSuccessRenderer = fn(
 ) -> Result<()>;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct WorkflowOutputContract {
+pub(crate) struct CliApiContract {
     pub(crate) api_version: &'static str,
     pub(crate) command: &'static str,
     pub(crate) payload_kind: &'static str,
 }
 
-impl WorkflowOutputContract {
+impl CliApiContract {
     pub(crate) const fn v1(command: &'static str, payload_kind: &'static str) -> Self {
         Self {
-            api_version: API_VERSION,
+            api_version: API_VERSION_V1,
             command,
             payload_kind,
         }
@@ -49,6 +49,8 @@ impl WorkflowOutputContract {
         }
     }
 }
+
+pub(crate) type WorkflowOutputContract = CliApiContract;
 
 #[derive(Debug, Serialize)]
 struct SuccessEnvelope<'a, T: Serialize + ?Sized> {
@@ -107,7 +109,7 @@ pub(crate) fn print_success<T: Serialize + ?Sized>(
     data: &T,
 ) -> Result<()> {
     let envelope = SuccessEnvelope {
-        api_version: API_VERSION,
+        api_version: API_VERSION_V1,
         kind: "success",
         command,
         payload_kind,
@@ -118,17 +120,15 @@ pub(crate) fn print_success<T: Serialize + ?Sized>(
     Ok(())
 }
 
-pub(crate) fn print_success_with_api_version<T: Serialize + ?Sized>(
-    api_version: &'static str,
-    command: &str,
-    payload_kind: &str,
+pub(crate) fn print_success_with_contract<T: Serialize + ?Sized>(
+    contract: CliApiContract,
     data: &T,
 ) -> Result<()> {
     let envelope = SuccessEnvelope {
-        api_version,
+        api_version: contract.api_version,
         kind: "success",
-        command,
-        payload_kind,
+        command: contract.command,
+        payload_kind: contract.payload_kind,
         generated_at_unix_seconds: unix_now(),
         data,
     };
@@ -157,10 +157,8 @@ where
     }
 }
 
-pub(crate) fn print_command_success_with_api_version<T, P, H>(
-    api_version: &'static str,
-    command: &'static str,
-    payload_kind: &'static str,
+pub(crate) fn print_command_success_with_contract<T, P, H>(
+    contract: CliApiContract,
     mode: OutputMode,
     payload: P,
     print_human: H,
@@ -174,18 +172,12 @@ where
         OutputMode::Human => print_human(),
         OutputMode::Json | OutputMode::Ndjson => {
             let data = payload();
-            print_machine_success_payload_with_api_version(
-                api_version,
-                command,
-                payload_kind,
-                mode,
-                &data,
-            )
+            print_machine_success_payload_with_contract(contract, mode, &data)
         }
     }
 }
 
-pub(crate) fn render_error(command: &str, mode: OutputMode, err: &anyhow::Error) {
+pub(crate) fn render_error(contract: CliApiContract, mode: OutputMode, err: &anyhow::Error) {
     if mode.is_human() {
         eprintln!("{err:#}");
         return;
@@ -197,9 +189,9 @@ pub(crate) fn render_error(command: &str, mode: OutputMode, err: &anyhow::Error)
         OutputMode::Human => unreachable!("human mode handled above"),
         OutputMode::Json => {
             let envelope = ErrorEnvelope {
-                api_version: API_VERSION,
+                api_version: contract.api_version,
                 kind: "error",
-                command,
+                command: contract.command,
                 generated_at_unix_seconds: unix_now(),
                 error,
             };
@@ -210,9 +202,9 @@ pub(crate) fn render_error(command: &str, mode: OutputMode, err: &anyhow::Error)
         }
         OutputMode::Ndjson => {
             let envelope = ErrorEventEnvelope {
-                api_version: API_VERSION,
+                api_version: contract.api_version,
                 kind: "event",
-                command,
+                command: contract.command,
                 sequence: 0,
                 event_kind: "error",
                 generated_at_unix_seconds: unix_now(),
@@ -430,21 +422,15 @@ fn print_machine_success_payload<T: Serialize + ?Sized>(
     }
 }
 
-fn print_machine_success_payload_with_api_version<T: Serialize + ?Sized>(
-    api_version: &'static str,
-    command: &'static str,
-    payload_kind: &'static str,
+fn print_machine_success_payload_with_contract<T: Serialize + ?Sized>(
+    contract: CliApiContract,
     mode: OutputMode,
     payload: &T,
 ) -> Result<()> {
     match mode {
         OutputMode::Human => unreachable!("human mode is rendered by the caller"),
-        OutputMode::Json => {
-            print_success_with_api_version(api_version, command, payload_kind, payload)
-        }
-        OutputMode::Ndjson => {
-            print_success_event_with_api_version(api_version, command, payload_kind, payload)
-        }
+        OutputMode::Json => print_success_with_contract(contract, payload),
+        OutputMode::Ndjson => print_success_event_with_contract(contract, payload),
     }
 }
 
@@ -456,16 +442,10 @@ fn print_machine_workflow_success_payload<T: Serialize + ?Sized>(
 ) -> Result<()> {
     match mode {
         OutputMode::Human => unreachable!("human mode is rendered by the caller"),
-        OutputMode::Json => print_success_with_api_version(
-            contract.api_version,
-            contract.command,
-            contract.payload_kind,
-            payload,
-        ),
+        OutputMode::Json => print_success_with_contract(contract, payload),
         OutputMode::Ndjson => {
-            let mut writer = event_writer.unwrap_or_else(|| {
-                NdjsonEventWriter::new_with_api_version(contract.command, contract.api_version)
-            });
+            let mut writer =
+                event_writer.unwrap_or_else(|| NdjsonEventWriter::with_contract(contract));
             writer.emit_completed(contract.payload_kind, payload)
         }
     }
@@ -480,14 +460,12 @@ pub(crate) fn print_success_event<T: Serialize + ?Sized>(
     writer.emit_completed(payload_kind, data)
 }
 
-pub(crate) fn print_success_event_with_api_version<T: Serialize + ?Sized>(
-    api_version: &'static str,
-    command: &'static str,
-    payload_kind: &str,
+pub(crate) fn print_success_event_with_contract<T: Serialize + ?Sized>(
+    contract: CliApiContract,
     data: &T,
 ) -> Result<()> {
-    let mut writer = NdjsonEventWriter::new_with_api_version(command, api_version);
-    writer.emit_completed(payload_kind, data)
+    let mut writer = NdjsonEventWriter::with_contract(contract);
+    writer.emit_completed(contract.payload_kind, data)
 }
 
 #[derive(Debug, Default)]
@@ -499,13 +477,13 @@ pub(crate) struct NdjsonEventWriter {
 
 impl NdjsonEventWriter {
     pub(crate) fn new(command: &'static str) -> Self {
-        Self::new_with_api_version(command, API_VERSION)
+        Self::with_contract(CliApiContract::v1(command, "event"))
     }
 
-    pub(crate) fn new_with_api_version(command: &'static str, api_version: &'static str) -> Self {
+    pub(crate) fn with_contract(contract: CliApiContract) -> Self {
         Self {
-            command,
-            api_version,
+            command: contract.command,
+            api_version: contract.api_version,
             next_sequence: 0,
         }
     }

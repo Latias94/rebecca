@@ -8,6 +8,7 @@ use rebecca::core::project_artifacts::all_project_artifact_policies;
 use rebecca::core::{RuleDefinition, SafetyLevel};
 
 use crate::cli::OutputMode;
+use crate::output::CliApiContract;
 
 #[derive(Debug)]
 pub struct CatalogOptions {
@@ -29,10 +30,8 @@ pub fn run(options: CatalogOptions) -> Result<()> {
 
     validate_catalog_selection(&filtered, &options)?;
 
-    crate::output::print_command_success_with_api_version(
-        crate::output::API_VERSION_V2,
-        "catalog",
-        "catalog",
+    crate::output::print_command_success_with_contract(
+        CliApiContract::v2("catalog", "catalog"),
         options.output_mode,
         || &filtered,
         || {

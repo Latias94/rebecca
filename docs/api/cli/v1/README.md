@@ -8,7 +8,8 @@ cleanup workflows.
 API v1 remains the stable contract for cleanup execution, purge execution,
 history, config, cache, and doctor commands. Read-only cleanup-intelligence
 surfaces such as `catalog`, `inspect space`, `inspect artifacts`, and
-`inspect lint` use `rebecca.cli.v2`; see `../v2/README.md`.
+`inspect lint` use `rebecca.cli.v2`; `purge inspect` is a compatibility alias
+for the v2 `inspect-artifacts` payload. See `../v2/README.md`.
 
 ## Channel Rules
 
@@ -50,7 +51,6 @@ The `payload_kind` field identifies the shape under `data`:
 - `app-leftovers-cleanup-plan`
 - `project-artifact-cleanup-plan`
 - `project-artifact-catalog`
-- `project-artifact-insight`
 - `cache-purge-report`
 - `history-list`
 - `config-paths`
@@ -92,16 +92,6 @@ Diagnostics are plan-level observations with `kind`, `path`, and `detail`; they
 make partial discovery visible without adding fake cleanup targets or changing
 target counts.
 
-`project-artifact-insight` is emitted by the retained legacy
-`rebecca purge inspect` compatibility command. It is a read-only projection of
-the same project-artifact planner: it never accepts `--yes`, never writes
-cleanup history, and groups estimated space by scan root, project root, and
-artifact kind. Its `top_targets` entries retain `estimate_source`, `status`,
-and `reason` so automation can distinguish cached estimates, skipped targets,
-and actionable cleanup candidates. New integrations should use the v2
-`rebecca inspect artifacts` command, which emits `payload_kind =
-"inspect-artifacts"`.
-
 Rebecca does not emit confidence scores for purge targets. Consumers should use
 the explicit `rule_id`, `status`, `reason_code`, `estimate_source`, and
 `project_artifact` explanation fields. `estimate_source` explains where a byte
@@ -116,7 +106,7 @@ rebecca clean --format ndjson --scan-cache --category system
 rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
 rebecca inspect artifacts --format json --root . --min-age-days 0
-rebecca purge inspect --format json --root . --min-age-days 0 # legacy v1 alias
+rebecca purge inspect --format json --root . --min-age-days 0 # v2 compatibility alias
 rebecca doctor permissions --format json
 ```
 

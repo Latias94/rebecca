@@ -129,12 +129,10 @@ pub(crate) fn run_workflow_with_runtime_config(
     let cancellation = runtime.cancellation();
     let mut progress = PlanProgressReporter::new(
         options.output_mode.is_human() && !options.no_progress,
-        options.output_mode.is_ndjson().then(|| {
-            NdjsonEventWriter::new_with_api_version(
-                options.output_contract.command,
-                options.output_contract.api_version,
-            )
-        }),
+        options
+            .output_mode
+            .is_ndjson()
+            .then(|| NdjsonEventWriter::with_contract(options.output_contract)),
     );
     let applications = info::application_discovery();
     let protected_storage = runtime_config.app_paths.storage_entries();

@@ -36,12 +36,15 @@ fn main() {
         }
 
         let cli = Cli::try_parse();
-        let (command, mode) = cli
+        let (contract, mode) = cli
             .as_ref()
             .ok()
-            .map(|cli| (command_name(&cli.command), command_output_mode(cli)))
-            .unwrap_or(("rebecca", OutputMode::Human));
-        output::render_error(command, mode, &err);
+            .map(|cli| (command_api_contract(&cli.command), command_output_mode(cli)))
+            .unwrap_or((
+                output::CliApiContract::v1("rebecca", "command-error"),
+                OutputMode::Human,
+            ));
+        output::render_error(contract, mode, &err);
         std::process::exit(1);
     }
 }
@@ -280,38 +283,54 @@ fn command_output_mode(cli: &Cli) -> OutputMode {
     cli.format
 }
 
-fn command_name(command: &Command) -> &'static str {
+fn command_api_contract(command: &Command) -> output::CliApiContract {
     match command {
-        Command::Catalog(_) => "catalog",
-        Command::Scan(_) => "scan",
-        Command::Clean(_) => "clean",
+        Command::Catalog(_) => output::CliApiContract::v2("catalog", "catalog"),
+        Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),
+        Command::Clean(_) => output::CliApiContract::v1("clean", "cleanup-plan"),
         Command::Inspect { command } => match command {
-            InspectCommand::Space(_) => "inspect space",
-            InspectCommand::Artifacts(_) => "inspect artifacts",
-            InspectCommand::Lint(_) => "inspect lint",
+            InspectCommand::Space(_) => {
+                output::CliApiContract::v2("inspect space", "inspect-space")
+            }
+            InspectCommand::Artifacts(_) => {
+                output::CliApiContract::v2("inspect artifacts", "inspect-artifacts")
+            }
+            InspectCommand::Lint(_) => output::CliApiContract::v2("inspect lint", "inspect-lint"),
         },
         Command::Purge(args) => {
             if matches!(args.command, Some(PurgeCommand::Inspect(_))) {
-                "purge inspect"
+                output::CliApiContract::v2("purge inspect", "inspect-artifacts")
+            } else if args.list_artifacts {
+                output::CliApiContract::v1("purge", "project-artifact-catalog")
             } else {
-                "purge"
+                output::CliApiContract::v1("purge", "project-artifact-cleanup-plan")
             }
         }
-        Command::History(_) => "history",
+        Command::History(_) => output::CliApiContract::v1("history", "history-list"),
         Command::Cache { command } => match command {
-            CacheCommand::Purge { .. } => "cache purge",
+            CacheCommand::Purge { .. } => {
+                output::CliApiContract::v1("cache purge", "cache-purge-report")
+            }
         },
         Command::Apps { command } => match command {
-            AppsCommand::Scan { .. } => "apps scan",
-            AppsCommand::Clean { .. } => "apps clean",
+            AppsCommand::Scan { .. } => {
+                output::CliApiContract::v1("apps scan", "app-leftovers-cleanup-plan")
+            }
+            AppsCommand::Clean { .. } => {
+                output::CliApiContract::v1("apps clean", "app-leftovers-cleanup-plan")
+            }
         },
         Command::Config { command } => match command {
-            ConfigCommand::Paths => "config paths",
+            ConfigCommand::Paths => output::CliApiContract::v1("config paths", "config-paths"),
         },
         Command::Doctor { command } => match command {
-            DoctorCommand::Permissions => "doctor permissions",
-            DoctorCommand::ActiveProcesses => "doctor active-processes",
+            DoctorCommand::Permissions => {
+                output::CliApiContract::v1("doctor permissions", "permissions-diagnostic")
+            }
+            DoctorCommand::ActiveProcesses => {
+                output::CliApiContract::v1("doctor active-processes", "active-process-diagnostic")
+            }
         },
-        Command::Completion(_) => "completion",
+        Command::Completion(_) => output::CliApiContract::v1("completion", "completion-script"),
     }
 }
