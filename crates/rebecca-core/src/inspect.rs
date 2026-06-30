@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -176,20 +178,14 @@ pub fn inspect_space(
     cancellation: &ScanCancellationToken,
 ) -> Result<SpaceInsightReport> {
     let mut report = SpaceInsightReport::default();
+    let mut top_entries = SpaceInsightTopEntries::new(request.top_limit);
 
     for root in &request.roots {
         check_cancelled(cancellation)?;
-        inspect_root(root, request, cancellation, &mut report)?;
+        inspect_root(root, request, cancellation, &mut report, &mut top_entries)?;
     }
 
-    report.top_entries.sort_by(|left, right| {
-        right
-            .estimated_bytes
-            .cmp(&left.estimated_bytes)
-            .then_with(|| right.files.cmp(&left.files))
-            .then_with(|| left.path.cmp(&right.path))
-    });
-    report.top_entries.truncate(request.top_limit);
+    report.top_entries = top_entries.into_sorted_entries();
     report.diagnostics.sort();
     Ok(report)
 }
@@ -199,6 +195,7 @@ fn inspect_root(
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
     report: &mut SpaceInsightReport,
+    top_entries: &mut SpaceInsightTopEntries,
 ) -> Result<()> {
     let metadata = match std::fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
@@ -303,7 +300,7 @@ fn inspect_root(
                     files_scanned: entry.files,
                     directories_scanned: entry.directories,
                 });
-                report.top_entries.push(entry);
+                top_entries.push(entry);
             }
             Err(err) => report.diagnostics.push(SpaceInsightDiagnostic::new(
                 SpaceInsightDiagnosticKind::ScanFailed,
@@ -329,6 +326,101 @@ fn inspect_root(
         reason: None,
     });
     Ok(())
+}
+
+#[derive(Debug, Default)]
+struct SpaceInsightTopEntries {
+    limit: usize,
+    heap: BinaryHeap<Reverse<SpaceInsightTopCandidate>>,
+    sequence: u64,
+}
+
+impl SpaceInsightTopEntries {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            heap: BinaryHeap::with_capacity(limit),
+            sequence: 0,
+        }
+    }
+
+    fn push(&mut self, entry: SpaceInsightEntry) {
+        if self.limit == 0 {
+            return;
+        }
+
+        let candidate = SpaceInsightTopCandidate {
+            rank: SpaceInsightTopRank::from_entry(&entry),
+            sequence: self.sequence,
+            entry,
+        };
+        self.sequence = self.sequence.saturating_add(1);
+
+        if self.heap.len() < self.limit {
+            self.heap.push(Reverse(candidate));
+            return;
+        }
+
+        if self
+            .heap
+            .peek()
+            .is_some_and(|current| candidate > current.0)
+        {
+            self.heap.pop();
+            self.heap.push(Reverse(candidate));
+        }
+    }
+
+    fn into_sorted_entries(self) -> Vec<SpaceInsightEntry> {
+        let mut candidates = self
+            .heap
+            .into_iter()
+            .map(|Reverse(candidate)| candidate)
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| right.cmp(left));
+        candidates
+            .into_iter()
+            .map(|candidate| candidate.entry)
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SpaceInsightTopCandidate {
+    rank: SpaceInsightTopRank,
+    sequence: u64,
+    entry: SpaceInsightEntry,
+}
+
+impl Ord for SpaceInsightTopCandidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.rank
+            .cmp(&other.rank)
+            .then_with(|| other.sequence.cmp(&self.sequence))
+    }
+}
+
+impl PartialOrd for SpaceInsightTopCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SpaceInsightTopRank {
+    estimated_bytes: u64,
+    files: u64,
+    reverse_path: Reverse<PathBuf>,
+}
+
+impl SpaceInsightTopRank {
+    fn from_entry(entry: &SpaceInsightEntry) -> Self {
+        Self {
+            estimated_bytes: entry.estimated_bytes,
+            files: entry.files,
+            reverse_path: Reverse(entry.path.clone()),
+        }
+    }
 }
 
 fn inspect_entry(

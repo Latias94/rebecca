@@ -33,6 +33,21 @@ fn space_insight_reports_top_entries_in_deterministic_order() {
 }
 
 #[test]
+fn space_insight_top_limit_zero_preserves_totals_without_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("large.bin"), b"abc");
+    write_file(root.join("small.bin"), b"x");
+
+    let request = SpaceInsightRequest::new(vec![root]).with_top_limit(0);
+    let report = inspect_space(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.estimated_bytes, 4);
+    assert_eq!(report.totals.files, 2);
+    assert!(report.top_entries.is_empty());
+}
+
+#[test]
 fn space_insight_reports_root_diagnostics_without_failing() {
     let temp = tempfile::tempdir().unwrap();
     let missing = temp.path().join("missing");
