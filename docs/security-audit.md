@@ -236,10 +236,24 @@ Current limitations:
 
 ## Dry Run, History, And Audit Data
 
-Dry-run is the primary operator contract. Machine-readable CLI output now uses
-the versioned `rebecca.cli.v1` API envelope documented in
-`docs/api/cli/v1/`. Breaking machine-output changes require a new CLI API
-version or an explicit pre-release contract migration.
+Dry-run is the primary operator contract. Cleanup execution, purge execution,
+history, config, cache, and doctor machine output use the versioned
+`rebecca.cli.v1` API envelope documented in `docs/api/cli/v1/`. Read-only
+cleanup-intelligence output uses `rebecca.cli.v2` under `docs/api/cli/v2/` for
+`catalog`, `inspect space`, `inspect artifacts`, and `inspect lint`. Breaking
+machine-output changes require a new CLI API version or an explicit pre-release
+contract migration.
+
+`rebecca catalog` is the canonical audit surface for cleanup rules, project
+artifact policies, warning gates, safety categories, and action kinds. Older
+single-purpose listings may remain for compatibility, but new wrappers should
+consume the unified catalog instead of scraping human text.
+
+`inspect lint` is report-only by design. It may identify duplicate groups,
+large files, empty files, and empty directories, but it does not choose
+deletion winners, mutate hardlinks, shred files, write history, or enter the
+Recycle Bin backend. Reference and protected roots are treated as keep
+candidates for conservative duplicate reclaim estimates.
 
 History is append-only JSONL. It records:
 
@@ -320,6 +334,14 @@ Focused coverage currently includes:
 - `crates/rebecca-core/tests/project_artifacts.rs` for project-artifact
   discovery, context-sensitive cache detection, selector filtering, and recent
   artifact skipping.
+- `crates/rebecca-core/tests/lint_report.rs` for duplicate grouping,
+  reference/protected keep candidates, large and empty file reporting, empty
+  directory ordering, and exclude behavior.
+- `crates/rebecca/tests/cli_catalog.rs` and `cli_inspect.rs` for unified
+  catalog filters, v2 inspect payloads, read-only history boundaries, and
+  canonical inspect command behavior.
+- `crates/rebecca/tests/cli_api.rs` for v1/v2 schema parseability and
+  representative JSON example validation.
 
 Recent targeted verification for this audit baseline:
 
@@ -343,9 +365,9 @@ Recent targeted verification for this audit baseline:
 - Future cleanup-rule expansion must stay batch-sized and include
   family-specific unsafe-near-miss tests, CLI contract coverage, and audit
   updates before new rules are considered complete.
-- `rebecca purge --list-artifacts` is the supported scan-free selector catalog
-  surface; new project-artifact selectors should keep it and the JSON catalog in
-  sync.
+- `rebecca catalog --kind project-artifact` is the canonical scan-free selector
+  catalog surface; `purge --list-artifacts` is retained as a compatibility view
+  and must stay in sync.
 - Protected category coverage is conservative but not exhaustive for all Windows
   applications.
 - The release workflow has not yet been exercised by a public version tag in

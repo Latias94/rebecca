@@ -432,7 +432,11 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
 
 #[test]
 fn cli_api_v2_catalog_schema_documents_are_parseable() {
-    for relative in ["envelope.schema.json", "payloads.schema.json"] {
+    for relative in [
+        "envelope.schema.json",
+        "event.schema.json",
+        "payloads.schema.json",
+    ] {
         let schema = read_v2_doc_json(relative);
         assert_eq!(
             schema["$schema"],
@@ -464,6 +468,16 @@ fn cli_api_v2_catalog_schema_documents_are_parseable() {
     assert_eq!(payloads["$defs"]["inspectSpace"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectArtifacts"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectLint"]["type"], "object");
+
+    let event = read_v2_doc_json("event.schema.json");
+    assert_eq!(
+        event["properties"]["api_version"]["const"],
+        "rebecca.cli.v2"
+    );
+    assert_eq!(
+        event["properties"]["payload_kind"]["$ref"],
+        "payloads.schema.json#/$defs/payloadKind"
+    );
 }
 
 #[test]

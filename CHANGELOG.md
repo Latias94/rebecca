@@ -5,13 +5,30 @@ All notable changes to Rebecca will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `rebecca catalog` now provides a unified read-only catalog for cleanup rules, project artifact policies, warning gates, safety categories, and action kinds using the `rebecca.cli.v2` machine envelope.
+- `rebecca inspect space` now provides read-only disk space insight with root totals, largest entries, diagnostics, JSON output, and NDJSON completion events.
+- `rebecca inspect artifacts` is now the canonical read-only project artifact insight command with JSON/NDJSON `inspect-artifacts` output, grouped totals, top targets, warning-gate awareness, reclaim-limit support, diagnostics, and no cleanup prompts or history writes.
+- `rebecca inspect lint` now reports duplicate groups, large files, empty files, and empty directories without deleting files, remediating duplicates, or writing cleanup history.
+- cleanup rule manifests now use Cleaner Manifest v1 with explicit warning declarations and future option/action shape support.
+- the audited Windows safety catalog now owns safety categories, warning kinds, action kinds, and protected matcher data used by validation and catalog output.
+- cleanup planning now supports explicit warning gates through `--allow-warning <WARNING>` and exposes warning summaries in machine output.
+- project artifact policies now expose stable aliases, default age behavior, trim eligibility, deletion style, ranking metadata, and `--reclaim-limit-bytes` selection.
+- CLI API v2 docs, schemas, and examples now cover catalog, inspect-space, inspect-artifacts, and inspect-lint payload families.
 - `purge inspect` now provides a read-only project artifact insight report with JSON/NDJSON `project-artifact-insight` output, grouped totals, top targets, diagnostics, and no cleanup prompts or history writes.
 - cleanup targets now expose `estimate_source` so machine consumers can distinguish fresh scans, scan-cache hits, unmeasured skipped/blocked targets, and legacy plans.
 - project artifact cleanup plans now include `discovery_diagnostics` for partial discovery issues such as missing configured roots, unreadable directories, metadata failures, and skipped reparse points.
 
 ### Changed
+- `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.
+- `rebecca purge --list-artifacts` is now a compatibility listing generated from the same project artifact policy data as `rebecca catalog --kind project-artifact`.
 - cleanup workflow internals now use explicit command/payload output contracts, shared CLI runtime cancellation, and dedicated human renderers instead of workflow-specific transport branches.
 - planner and project artifact internals were split into focused modules, and configured purge roots now report stale or unreadable workspace entries as diagnostics while explicit `--root` values remain strict.
+- project artifact discovery now applies policy ranking and reclaim-limit selection after measurement so large cleanup plans can be trimmed predictably.
+
+### Breaking
+- warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.
+- new read-only cleanup-intelligence machine payloads use `rebecca.cli.v2`; consumers that assumed every success envelope was `rebecca.cli.v1` must branch on `api_version`.
+- `inspect artifacts` is the canonical project artifact insight command; `purge inspect` remains as a legacy compatibility alias for existing v1 consumers.
 
 ## [0.2.0]
 

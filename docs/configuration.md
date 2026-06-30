@@ -214,11 +214,15 @@ values. It must:
   configured root;
 - treat repeated `--artifact <NAME>` values as an explicit artifact-kind filter,
   accepting directory names, full project-artifact rule ids, or rule id suffixes;
-- support `--list-artifacts` as a scan-free catalog of accepted artifact
-  selectors, with human and JSON output;
-- support `purge inspect` as a read-only insight report that uses the same
-  roots, selectors, depth, age, exclude, scan-cache, and diagnostics pipeline
-  without accepting `--yes`, prompting, executing cleanup, or writing history;
+- support `rebecca catalog --kind project-artifact` as the canonical scan-free
+  catalog of accepted artifact selectors, with `purge --list-artifacts`
+  retained as a purge-specific compatibility listing;
+- support `--reclaim-limit-bytes <BYTES>` as a planning selector that keeps the
+  largest eligible artifacts until the requested reclaim target is met;
+- support `inspect artifacts` as the canonical read-only insight report that
+  uses the same roots, selectors, depth, age, exclude, scan-cache, warning-gate,
+  reclaim-limit, and diagnostics pipeline without accepting `--yes`, prompting,
+  executing cleanup, or writing history;
 - group human output by project path and label artifact kinds separately from
   full target paths;
 - prune a matched artifact directory from further discovery to avoid nested
@@ -245,6 +249,17 @@ and non-Composer `vendor` are intentionally outside the automatic target set;
 Rebecca only includes `vendor` with a sibling `composer.json`, and only includes
 `bin` with a sibling `.csproj`, `.fsproj`, or `.vbproj` plus `Debug` or
 `Release` output.
+
+Project artifact metadata is governed by the Rust policy matrix in
+`rebecca-core`, not ad hoc CLI strings. Each artifact has stable aliases,
+default age behavior, trim eligibility, deletion style, and ranking metadata.
+CLI output and API v2 catalog data are generated from that policy so selectors,
+human labels, and documentation stay aligned.
+
+`inspect lint` is intentionally outside the purge/delete boundary. It scans
+roots and optional `--reference` roots for duplicate groups, large files, empty
+files, and empty directories, then reports conservative reclaim estimates. It
+does not select files for deletion, remediate duplicates, or write history.
 
 Reference source snapshots used for development should be excluded or protected
 by the local environment rather than hardcoded into Rebecca. In this repository,

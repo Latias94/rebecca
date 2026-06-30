@@ -16,6 +16,9 @@ files. Keep each rule small, explicit, and easy to audit.
   They are part of the planner-ready rule definition and should be reserved for
   user-visible gates such as active-process checks or broad-discovery notices.
   Warning kinds must be declared in `crates/rebecca-rules/safety/windows.toml`.
+  Cleanup plans block warning-bearing targets with
+  `warning-gate-required` until the user selects the specific gate with
+  `--allow-warning <WARNING>`.
 
 ## Current Built-in Shape
 
@@ -152,6 +155,10 @@ files. Keep each rule small, explicit, and easy to audit.
   catalog loading. A rule that points at credentials, browser private data,
   protected application data, or non-allowlisted Steam relative targets is
   invalid even before planning expands it on a user's machine.
+- Warning kinds, safety categories, and action kinds are cataloged through
+  `rebecca catalog`. New rules should keep manifest metadata, safety catalog
+  entries, and catalog output explainable enough for GUI wrappers and audit
+  tools to display without scraping human text.
 - `safe`: disposable caches, shader caches, regenerated browser data.
 - `moderate`: developer caches, diagnostic artifacts, package caches.
 - `risky` and above: only when the user impact is well understood.
