@@ -321,6 +321,39 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
     assert!(payload_kinds.contains(&"project-artifact-insight"));
+
+    let insight_schema = &payloads["$defs"]["projectArtifactInsight"];
+    assert_eq!(insight_schema["type"], "object");
+    let insight_required = insight_schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    for field in [
+        "roots",
+        "summary",
+        "totals_by_root",
+        "totals_by_project",
+        "totals_by_artifact",
+        "top_targets",
+        "discovery_diagnostics",
+    ] {
+        assert!(
+            insight_required.contains(&field),
+            "projectArtifactInsight should require {field}"
+        );
+    }
+    assert_eq!(insight_schema["additionalProperties"], false);
+    assert_eq!(
+        payloads["$defs"]["projectArtifactInsightTarget"]["properties"]["estimate_source"]["$ref"],
+        "#/$defs/estimateSource"
+    );
+    assert_eq!(
+        payloads["$defs"]["projectArtifactInsight"]["properties"]["discovery_diagnostics"]["items"]
+            ["$ref"],
+        "#/$defs/projectArtifactDiscoveryDiagnostic"
+    );
 }
 
 #[test]
@@ -354,4 +387,66 @@ fn cli_api_examples_match_documented_envelope_shapes() {
     assert!(success_payload_kinds.contains(&"cleanup-plan".to_string()));
     assert!(success_payload_kinds.contains(&"project-artifact-cleanup-plan".to_string()));
     assert!(success_payload_kinds.contains(&"project-artifact-insight".to_string()));
+}
+
+#[test]
+fn purge_inspect_example_fields_are_covered_by_payload_schema() {
+    let payloads = read_doc_json("payloads.schema.json");
+    let example = read_doc_json("examples/success-purge-inspect.json");
+    let data = example["data"].as_object().unwrap();
+    let insight_properties = payloads["$defs"]["projectArtifactInsight"]["properties"]
+        .as_object()
+        .unwrap();
+
+    for field in data.keys() {
+        assert!(
+            insight_properties.contains_key(field),
+            "projectArtifactInsight schema is missing example field {field}"
+        );
+    }
+
+    let summary = data["summary"].as_object().unwrap();
+    let summary_properties = payloads["$defs"]["cleanupSummary"]["properties"]
+        .as_object()
+        .unwrap();
+    for field in summary.keys() {
+        assert!(
+            summary_properties.contains_key(field),
+            "cleanupSummary schema is missing example field {field}"
+        );
+    }
+
+    let total = data["totals_by_artifact"][0].as_object().unwrap();
+    let total_properties = payloads["$defs"]["projectArtifactInsightTotal"]["properties"]
+        .as_object()
+        .unwrap();
+    for field in total.keys() {
+        assert!(
+            total_properties.contains_key(field),
+            "projectArtifactInsightTotal schema is missing example field {field}"
+        );
+    }
+
+    let target = data["top_targets"][0].as_object().unwrap();
+    let target_properties = payloads["$defs"]["projectArtifactInsightTarget"]["properties"]
+        .as_object()
+        .unwrap();
+    for field in target.keys() {
+        assert!(
+            target_properties.contains_key(field),
+            "projectArtifactInsightTarget schema is missing example field {field}"
+        );
+    }
+
+    let diagnostic = data["discovery_diagnostics"][0].as_object().unwrap();
+    let diagnostic_properties =
+        payloads["$defs"]["projectArtifactDiscoveryDiagnostic"]["properties"]
+            .as_object()
+            .unwrap();
+    for field in diagnostic.keys() {
+        assert!(
+            diagnostic_properties.contains_key(field),
+            "projectArtifactDiscoveryDiagnostic schema is missing example field {field}"
+        );
+    }
 }

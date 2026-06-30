@@ -28,6 +28,111 @@
         "not-measured"
       ]
     },
+    "targetStatus": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "skipped",
+        "blocked",
+        "failed",
+        "completed"
+      ]
+    },
+    "cleanupIssueReason": {
+      "type": "string",
+      "enum": [
+        "safety-opt-in-required",
+        "target-discovery-skipped",
+        "target-discovery-failed",
+        "duplicate-target-path",
+        "safety-policy-skipped",
+        "execution-target-missing",
+        "safety-policy-blocked",
+        "project-artifact-recently-modified",
+        "scan-failed",
+        "execution-failed",
+        "unclassified"
+      ]
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cleanupIssueSummary": {
+      "type": "object",
+      "required": [
+        "status",
+        "reason_code",
+        "targets",
+        "estimated_bytes"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/cleanupIssueReason"
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "cleanupSummary": {
+      "type": "object",
+      "required": [
+        "total_targets",
+        "allowed_targets",
+        "skipped_targets",
+        "blocked_targets",
+        "failed_targets",
+        "completed_targets",
+        "estimated_bytes",
+        "freed_bytes",
+        "pending_reclaim_bytes",
+        "issue_matrix"
+      ],
+      "properties": {
+        "total_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "allowed_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "skipped_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "blocked_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "failed_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "completed_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "freed_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "pending_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "issue_matrix": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupIssueSummary"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "projectArtifactDiscoveryDiagnostic": {
       "type": "object",
       "required": [
@@ -53,6 +158,133 @@
         },
         "detail": {
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "projectArtifactInsightTotal": {
+      "type": "object",
+      "required": [
+        "key",
+        "label",
+        "targets",
+        "estimated_bytes"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "additionalProperties": false
+    },
+    "projectArtifactInsightTarget": {
+      "type": "object",
+      "required": [
+        "rule_id",
+        "artifact",
+        "path",
+        "project_root",
+        "status",
+        "estimated_bytes",
+        "estimate_source",
+        "reason"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "projectArtifactInsight": {
+      "type": "object",
+      "required": [
+        "roots",
+        "summary",
+        "totals_by_root",
+        "totals_by_project",
+        "totals_by_artifact",
+        "top_targets",
+        "discovery_diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/cleanupSummary"
+        },
+        "totals_by_root": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "totals_by_project": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "totals_by_artifact": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "top_targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTarget"
+          }
+        },
+        "discovery_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactDiscoveryDiagnostic"
+          }
         }
       },
       "additionalProperties": false
