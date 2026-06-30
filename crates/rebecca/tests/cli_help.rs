@@ -15,6 +15,7 @@ fn root_help_shows_completion_and_rejects_hidden_default_scan() {
     assert!(stdout.contains("json"));
     assert!(stdout.contains("ndjson"));
     assert!(stdout.contains("completion"));
+    assert!(stdout.contains("catalog"));
     assert!(stdout.contains("scan"));
     assert!(stdout.contains("clean"));
     assert!(stdout.contains("purge"));

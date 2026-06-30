@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebecca.local/schemas/cli/v2/payloads.schema.json",
+  "title": "Rebecca CLI API v2 payload families",
+  "type": "object",
+  "$defs": {
+    "payloadKind": {
+      "type": "string",
+      "enum": [
+        "catalog"
+      ]
+    },
+    "catalogKind": {
+      "type": "string",
+      "enum": [
+        "cleanup-rule",
+        "project-artifact",
+        "warning",
+        "safety-category",
+        "action-kind"
+      ]
+    },
+    "safetyLevel": {
+      "type": "string",
+      "enum": [
+        "safe",
+        "moderate",
+        "risky",
+        "dangerous"
+      ]
+    },
+    "catalog": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/catalogItem"
+      }
+    },
+    "catalogItem": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/cleanupRuleCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/projectArtifactCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/warningCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/safetyCategoryCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/actionKindCatalogItem"
+        }
+      ]
+    },
+    "cleanupRuleCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "category",
+        "name",
+        "safety_level",
+        "restore_hint",
+        "warnings",
+        "targets"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cleanup-rule"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "restore_hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "targets": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "projectArtifactCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "artifact",
+        "rule_id",
+        "rule_suffix",
+        "restore_hint"
+      ],
+      "properties": {
+        "kind": {
+          "const": "project-artifact"
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_suffix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "restore_hint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "warningCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "warning"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "safetyCategoryCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "safety-category"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "actionKindCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "action-kind"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

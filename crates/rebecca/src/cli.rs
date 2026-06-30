@@ -31,6 +31,46 @@ impl std::fmt::Display for OutputMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CatalogKindArg {
+    CleanupRule,
+    ProjectArtifact,
+    Warning,
+    SafetyCategory,
+    ActionKind,
+}
+
+impl From<CatalogKindArg> for rebecca::core::catalog::CatalogItemKind {
+    fn from(kind: CatalogKindArg) -> Self {
+        match kind {
+            CatalogKindArg::CleanupRule => Self::CleanupRule,
+            CatalogKindArg::ProjectArtifact => Self::ProjectArtifact,
+            CatalogKindArg::Warning => Self::Warning,
+            CatalogKindArg::SafetyCategory => Self::SafetyCategory,
+            CatalogKindArg::ActionKind => Self::ActionKind,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SafetyLevelArg {
+    Safe,
+    Moderate,
+    Risky,
+    Dangerous,
+}
+
+impl From<SafetyLevelArg> for rebecca::core::SafetyLevel {
+    fn from(level: SafetyLevelArg) -> Self {
+        match level {
+            SafetyLevelArg::Safe => Self::Safe,
+            SafetyLevelArg::Moderate => Self::Moderate,
+            SafetyLevelArg::Risky => Self::Risky,
+            SafetyLevelArg::Dangerous => Self::Dangerous,
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "rebecca",
@@ -54,6 +94,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// List cleanup rules, project artifacts, warnings, and safety catalog entries.
+    Catalog(CatalogArgs),
     /// Show the built-in cleanup rules that would be considered.
     Scan(ScanArgs),
     /// Build or execute a cleanup plan.
@@ -84,6 +126,28 @@ pub enum Command {
     },
     /// Generate shell completion scripts from the live parser.
     Completion(CompletionArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CatalogArgs {
+    /// Include only one catalog item kind.
+    #[arg(long, value_enum)]
+    pub kind: Option<CatalogKindArg>,
+    /// Include a cleanup or safety category. Can be repeated.
+    #[arg(long = "category")]
+    pub categories: Vec<String>,
+    /// Include a cleanup rule, artifact rule, warning id, safety category, or action id. Can be repeated.
+    #[arg(long = "rule")]
+    pub rules: Vec<String>,
+    /// Include a project artifact selector. Can be repeated.
+    #[arg(long = "artifact")]
+    pub artifacts: Vec<String>,
+    /// Include a warning kind. Can be repeated.
+    #[arg(long = "warning")]
+    pub warnings: Vec<String>,
+    /// Include cleanup rules at a safety level.
+    #[arg(long = "safety-level", value_enum)]
+    pub safety_level: Option<SafetyLevelArg>,
 }
 
 #[derive(Debug, Args)]

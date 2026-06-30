@@ -12,6 +12,7 @@ use crate::cli::OutputMode;
 use crate::text::format_count;
 
 const API_VERSION: &str = "rebecca.cli.v1";
+pub(crate) const API_VERSION_V2: &str = "rebecca.cli.v2";
 
 pub(crate) type HumanPlanRenderer =
     fn(&CleanupPlan, Option<ScanCacheProgressSummary>) -> Result<()>;
@@ -98,6 +99,24 @@ pub(crate) fn print_success<T: Serialize + ?Sized>(
     Ok(())
 }
 
+pub(crate) fn print_success_with_api_version<T: Serialize + ?Sized>(
+    api_version: &'static str,
+    command: &str,
+    payload_kind: &str,
+    data: &T,
+) -> Result<()> {
+    let envelope = SuccessEnvelope {
+        api_version,
+        kind: "success",
+        command,
+        payload_kind,
+        generated_at_unix_seconds: unix_now(),
+        data,
+    };
+    println!("{}", serde_json::to_string_pretty(&envelope)?);
+    Ok(())
+}
+
 pub(crate) fn print_command_success<T, P, H>(
     command: &'static str,
     payload_kind: &'static str,
@@ -115,6 +134,34 @@ where
         OutputMode::Json | OutputMode::Ndjson => {
             let data = payload();
             print_machine_success_payload(command, payload_kind, mode, &data)
+        }
+    }
+}
+
+pub(crate) fn print_command_success_with_api_version<T, P, H>(
+    api_version: &'static str,
+    command: &'static str,
+    payload_kind: &'static str,
+    mode: OutputMode,
+    payload: P,
+    print_human: H,
+) -> Result<()>
+where
+    T: Serialize,
+    P: FnOnce() -> T,
+    H: FnOnce() -> Result<()>,
+{
+    match mode {
+        OutputMode::Human => print_human(),
+        OutputMode::Json | OutputMode::Ndjson => {
+            let data = payload();
+            print_machine_success_payload_with_api_version(
+                api_version,
+                command,
+                payload_kind,
+                mode,
+                &data,
+            )
         }
     }
 }
@@ -175,6 +222,9 @@ fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
                 "invalid-project-artifact-selector",
                 "Invalid project artifact selector",
             ),
+            rebecca::core::RebeccaError::InvalidCatalogSelector(_) => {
+                ("invalid-catalog-selector", "Invalid catalog selector")
+            }
             rebecca::core::RebeccaError::ConfigRead { .. } => {
                 ("config-read-failed", "Configuration read failed")
             }
@@ -361,6 +411,24 @@ fn print_machine_success_payload<T: Serialize + ?Sized>(
     }
 }
 
+fn print_machine_success_payload_with_api_version<T: Serialize + ?Sized>(
+    api_version: &'static str,
+    command: &'static str,
+    payload_kind: &'static str,
+    mode: OutputMode,
+    payload: &T,
+) -> Result<()> {
+    match mode {
+        OutputMode::Human => unreachable!("human mode is rendered by the caller"),
+        OutputMode::Json => {
+            print_success_with_api_version(api_version, command, payload_kind, payload)
+        }
+        OutputMode::Ndjson => {
+            print_success_event_with_api_version(api_version, command, payload_kind, payload)
+        }
+    }
+}
+
 fn print_machine_workflow_success_payload<T: Serialize + ?Sized>(
     contract: WorkflowOutputContract,
     mode: OutputMode,
@@ -387,16 +455,32 @@ pub(crate) fn print_success_event<T: Serialize + ?Sized>(
     writer.emit_completed(payload_kind, data)
 }
 
+pub(crate) fn print_success_event_with_api_version<T: Serialize + ?Sized>(
+    api_version: &'static str,
+    command: &'static str,
+    payload_kind: &str,
+    data: &T,
+) -> Result<()> {
+    let mut writer = NdjsonEventWriter::new_with_api_version(command, api_version);
+    writer.emit_completed(payload_kind, data)
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct NdjsonEventWriter {
     command: &'static str,
+    api_version: &'static str,
     next_sequence: u64,
 }
 
 impl NdjsonEventWriter {
     pub(crate) fn new(command: &'static str) -> Self {
+        Self::new_with_api_version(command, API_VERSION)
+    }
+
+    pub(crate) fn new_with_api_version(command: &'static str, api_version: &'static str) -> Self {
         Self {
             command,
+            api_version,
             next_sequence: 0,
         }
     }
@@ -508,7 +592,7 @@ impl NdjsonEventWriter {
         }
 
         let event = CompletionEvent {
-            api_version: API_VERSION,
+            api_version: self.api_version,
             kind: "event",
             command: self.command,
             sequence: self.take_sequence(),
@@ -527,7 +611,7 @@ impl NdjsonEventWriter {
 
     pub(crate) fn emit_error(&mut self, err: &anyhow::Error) -> Result<()> {
         let event = ErrorEventEnvelope {
-            api_version: API_VERSION,
+            api_version: self.api_version,
             kind: "event",
             command: self.command,
             sequence: self.take_sequence(),
@@ -552,7 +636,7 @@ impl NdjsonEventWriter {
         }
 
         let event = DataEvent {
-            api_version: API_VERSION,
+            api_version: self.api_version,
             kind: "event",
             command: self.command,
             sequence: self.take_sequence(),

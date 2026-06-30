@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebecca.local/schemas/cli/v2/envelope.schema.json",
+  "title": "Rebecca CLI API v2 success envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "kind",
+    "command",
+    "payload_kind",
+    "generated_at_unix_seconds",
+    "data"
+  ],
+  "properties": {
+    "api_version": {
+      "const": "rebecca.cli.v2"
+    },
+    "kind": {
+      "const": "success"
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload_kind": {
+      "$ref": "payloads.schema.json#/$defs/payloadKind"
+    },
+    "generated_at_unix_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "data": true
+  }
+}

@@ -3,6 +3,7 @@ mod common;
 mod isolated;
 
 const API_DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api/cli/v1");
+const API_V2_DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api/cli/v2");
 
 fn parse_json(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).unwrap()
@@ -10,6 +11,11 @@ fn parse_json(bytes: &[u8]) -> serde_json::Value {
 
 fn read_doc_json(relative: &str) -> serde_json::Value {
     let path = std::path::Path::new(API_DOCS).join(relative);
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+fn read_v2_doc_json(relative: &str) -> serde_json::Value {
+    let path = std::path::Path::new(API_V2_DOCS).join(relative);
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 
@@ -23,8 +29,35 @@ fn validator_for_payload_def(def_name: &str) -> jsonschema::Validator {
     jsonschema::validator_for(&schema).unwrap()
 }
 
+fn validator_for_v2_payload_def(def_name: &str) -> jsonschema::Validator {
+    let payloads = read_v2_doc_json("payloads.schema.json");
+    let schema = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": payloads["$defs"].clone(),
+        "$ref": format!("#/$defs/{def_name}"),
+    });
+    jsonschema::validator_for(&schema).unwrap()
+}
+
 fn assert_success_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
+    assert_eq!(value["kind"], "success");
+    assert!(
+        value["command"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert!(
+        value["payload_kind"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert!(value["generated_at_unix_seconds"].as_u64().is_some());
+    assert!(value.get("data").is_some());
+}
+
+fn assert_v2_success_schema(value: &serde_json::Value) {
+    assert_eq!(value["api_version"], "rebecca.cli.v2");
     assert_eq!(value["kind"], "success");
     assert!(
         value["command"]
@@ -367,6 +400,31 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
 }
 
 #[test]
+fn cli_api_v2_catalog_schema_documents_are_parseable() {
+    for relative in ["envelope.schema.json", "payloads.schema.json"] {
+        let schema = read_v2_doc_json(relative);
+        assert_eq!(
+            schema["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+        assert!(schema["$id"].as_str().is_some());
+        assert!(schema["title"].as_str().is_some());
+    }
+
+    let payloads = read_v2_doc_json("payloads.schema.json");
+    let payload_kinds = payloads["$defs"]["payloadKind"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(payload_kinds, ["catalog"]);
+
+    let catalog_item = &payloads["$defs"]["catalogItem"];
+    assert_eq!(catalog_item["oneOf"].as_array().unwrap().len(), 5);
+}
+
+#[test]
 fn cli_api_examples_match_documented_envelope_shapes() {
     let error = read_doc_json("examples/error-invalid-rule.json");
     assert_error_schema(&error);
@@ -397,6 +455,16 @@ fn cli_api_examples_match_documented_envelope_shapes() {
     assert!(success_payload_kinds.contains(&"cleanup-plan".to_string()));
     assert!(success_payload_kinds.contains(&"project-artifact-cleanup-plan".to_string()));
     assert!(success_payload_kinds.contains(&"project-artifact-insight".to_string()));
+}
+
+#[test]
+fn cli_api_v2_catalog_example_validates_against_payload_schema() {
+    let example = read_v2_doc_json("examples/success-catalog.json");
+    assert_v2_success_schema(&example);
+    assert_eq!(example["payload_kind"], "catalog");
+
+    let validator = validator_for_v2_payload_def("catalog");
+    validator.validate(&example["data"]).unwrap();
 }
 
 #[test]

@@ -1,12 +1,12 @@
 use std::sync::OnceLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Platform, RebeccaError, Result};
 
 pub const SAFETY_CATALOG_VERSION: u16 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SafetyCategory {
     Credentials,
@@ -102,7 +102,7 @@ pub struct SafetyKnowledge {
     steam_library_allowlist: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WarningKind {
     id: String,
     description: String,
@@ -118,7 +118,7 @@ impl WarningKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProtectedCategoryKnowledge {
     id: SafetyCategory,
     description: String,

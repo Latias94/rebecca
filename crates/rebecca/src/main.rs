@@ -6,6 +6,7 @@ use std::io;
 mod apps;
 mod cache;
 mod cache_view;
+mod catalog;
 mod clean;
 mod clean_view;
 mod cli;
@@ -20,7 +21,7 @@ mod scan;
 mod text;
 
 use cli::{
-    AppsCommand, CacheCommand, CleanArgs, Cli, Command, CompletionArgs, ConfigCommand,
+    AppsCommand, CacheCommand, CatalogArgs, CleanArgs, Cli, Command, CompletionArgs, ConfigCommand,
     DoctorCommand, HistoryArgs, OutputMode, PurgeArgs, PurgeCommand, ScanArgs,
 };
 use runtime::CliRuntime;
@@ -57,6 +58,7 @@ fn run() -> Result<()> {
     let runtime = CliRuntime::with_ctrlc_handler()?;
 
     match cli.command {
+        Command::Catalog(args) => run_catalog(args, cli.format),
         Command::Scan(args) => run_scan(args, cli.format),
         Command::Clean(args) => run_clean(args, cli.format, &runtime),
         Command::Purge(args) => run_purge(args, cli.format, &runtime),
@@ -108,6 +110,18 @@ fn run() -> Result<()> {
         },
         Command::Completion(args) => run_completion(args),
     }
+}
+
+fn run_catalog(args: CatalogArgs, global_mode: OutputMode) -> Result<()> {
+    catalog::run(catalog::CatalogOptions {
+        output_mode: global_mode,
+        kind: args.kind.map(Into::into),
+        categories: args.categories,
+        rules: args.rules,
+        artifacts: args.artifacts,
+        warnings: args.warnings,
+        safety_level: args.safety_level.map(Into::into),
+    })
 }
 
 fn run_scan(args: ScanArgs, global_mode: OutputMode) -> Result<()> {
@@ -216,6 +230,7 @@ fn command_output_mode(cli: &Cli) -> OutputMode {
 
 fn command_name(command: &Command) -> &'static str {
     match command {
+        Command::Catalog(_) => "catalog",
         Command::Scan(_) => "scan",
         Command::Clean(_) => "clean",
         Command::Purge(args) => {

@@ -1,0 +1,14 @@
+{
+  "api_version": "rebecca.cli.v2",
+  "kind": "success",
+  "command": "catalog",
+  "payload_kind": "catalog",
+  "generated_at_unix_seconds": 1782660000,
+  "data": [
+    {
+      "kind": "warning",
+      "id": "active-process",
+      "description": "The cleaner targets cache data that may be owned by a running application."
+    }
+  ]
+}

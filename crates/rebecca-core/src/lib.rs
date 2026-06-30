@@ -1,6 +1,7 @@
 pub mod app_leftovers;
 pub mod applications;
 pub mod cache;
+pub mod catalog;
 pub mod config;
 pub mod discovery;
 pub mod environment;
