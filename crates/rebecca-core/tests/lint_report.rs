@@ -138,6 +138,46 @@ fn empty_files_large_files_and_empty_directories_are_reported() {
 }
 
 #[test]
+fn top_limit_bounds_lint_sections_while_summary_counts_all_matches() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("large-a.bin"), b"abcdef");
+    write_file(root.join("large-b.bin"), b"abcde");
+    write_file(root.join("empty-a.txt"), b"");
+    write_file(root.join("empty-b.txt"), b"");
+    write_file(root.join("duplicates").join("large-a.bin"), b"matching");
+    write_file(root.join("duplicates").join("large-b.bin"), b"matching");
+    write_file(root.join("duplicates").join("small-a.bin"), b"dup");
+    write_file(root.join("duplicates").join("small-b.bin"), b"dup");
+    fs::create_dir_all(root.join("empty-dir-a").join("nested")).unwrap();
+    fs::create_dir_all(root.join("empty-dir-b")).unwrap();
+
+    let report = inspect_lint(
+        &LintReportRequest::new(vec![root.clone()])
+            .with_large_file_threshold_bytes(100)
+            .with_top_limit(1),
+        &ScanCancellationToken::new(),
+    )
+    .unwrap();
+
+    assert_eq!(report.summary.duplicate_groups, 2);
+    assert_eq!(report.summary.duplicate_files, 4);
+    assert_eq!(report.summary.large_files, 0);
+    assert_eq!(report.summary.empty_files, 2);
+    assert!(report.summary.empty_directories >= 2);
+    assert_eq!(report.duplicate_groups.len(), 1);
+    assert_eq!(report.duplicate_groups[0].size_bytes, 8);
+    assert!(report.large_files.is_empty());
+    assert_eq!(report.empty_files.len(), 1);
+    assert_eq!(report.empty_files[0].path, root.join("empty-a.txt"));
+    assert_eq!(report.empty_directories.len(), 1);
+    assert_eq!(
+        report.empty_directories[0].path,
+        root.join("empty-dir-a").join("nested")
+    );
+}
+
+#[test]
 fn excluded_paths_are_not_reported_or_grouped() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

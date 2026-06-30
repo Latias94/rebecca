@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -121,93 +122,88 @@ pub fn lint_inventory(
     inventory: Inventory,
     cancellation: &ScanCancellationToken,
 ) -> Result<LintReport> {
-    let mut duplicate_groups = duplicate_file_groups(&inventory.files, cancellation)?;
-    duplicate_groups.sort_by(|left, right| {
-        right
-            .conservative_reclaim_bytes
-            .cmp(&left.conservative_reclaim_bytes)
-            .then_with(|| right.size_bytes.cmp(&left.size_bytes))
-            .then_with(|| left.files[0].path.cmp(&right.files[0].path))
-    });
+    let duplicate_selection =
+        duplicate_file_groups(&inventory.files, request.top_limit, cancellation)?;
 
-    let mut large_files = inventory
-        .files
-        .iter()
-        .filter(|file| file.size_bytes >= request.large_file_threshold_bytes)
-        .map(LintFileEntry::from)
-        .collect::<Vec<_>>();
-    large_files.sort_by(|left, right| {
-        right
-            .size_bytes
-            .cmp(&left.size_bytes)
-            .then_with(|| left.path.cmp(&right.path))
-    });
+    let mut large_files = BoundedLintFiles::new(request.top_limit);
+    let mut empty_files = BoundedLintFiles::new(request.top_limit);
+    let mut large_file_count = 0_u64;
+    let mut empty_file_count = 0_u64;
+    for file in &inventory.files {
+        if file.size_bytes >= request.large_file_threshold_bytes {
+            large_file_count = large_file_count.saturating_add(1);
+            large_files.push(
+                LintFileEntry::from(file),
+                LintEntryRank {
+                    primary: file.size_bytes,
+                    reverse_path: Reverse(file.path.clone()),
+                },
+            );
+        }
 
-    let mut empty_files = inventory
-        .files
-        .iter()
-        .filter(|file| file.size_bytes == 0)
-        .map(LintFileEntry::from)
-        .collect::<Vec<_>>();
-    empty_files.sort_by(|left, right| left.path.cmp(&right.path));
+        if file.size_bytes == 0 {
+            empty_file_count = empty_file_count.saturating_add(1);
+            empty_files.push(
+                LintFileEntry::from(file),
+                LintEntryRank {
+                    primary: 0,
+                    reverse_path: Reverse(file.path.clone()),
+                },
+            );
+        }
+    }
 
-    let mut empty_directories = inventory
+    let mut empty_directories = BoundedLintDirectories::new(request.top_limit);
+    let mut empty_directory_count = 0_u64;
+    for directory in inventory
         .directories
         .iter()
         .filter(|directory| directory.is_empty)
-        .map(LintDirectoryEntry::from)
-        .collect::<Vec<_>>();
-    empty_directories.sort_by(|left, right| {
-        right
-            .depth
-            .cmp(&left.depth)
-            .then_with(|| left.path.cmp(&right.path))
-    });
+    {
+        empty_directory_count = empty_directory_count.saturating_add(1);
+        empty_directories.push(
+            LintDirectoryEntry::from(directory),
+            LintEntryRank {
+                primary: directory.depth as u64,
+                reverse_path: Reverse(directory.path.clone()),
+            },
+        );
+    }
 
     let summary = LintReportSummary {
         files_scanned: inventory.files.len() as u64,
         directories_scanned: inventory.directories.len() as u64,
-        duplicate_groups: duplicate_groups.len() as u64,
-        duplicate_files: duplicate_groups
-            .iter()
-            .map(|group| group.total_files)
-            .sum::<u64>(),
-        large_files: large_files.len() as u64,
-        empty_files: empty_files.len() as u64,
-        empty_directories: empty_directories.len() as u64,
-        conservative_reclaim_bytes: duplicate_groups
-            .iter()
-            .map(|group| group.conservative_reclaim_bytes)
-            .sum::<u64>(),
+        duplicate_groups: duplicate_selection.total_groups,
+        duplicate_files: duplicate_selection.total_files,
+        large_files: large_file_count,
+        empty_files: empty_file_count,
+        empty_directories: empty_directory_count,
+        conservative_reclaim_bytes: duplicate_selection.conservative_reclaim_bytes,
     };
-
-    duplicate_groups.truncate(request.top_limit);
-    large_files.truncate(request.top_limit);
-    empty_files.truncate(request.top_limit);
-    empty_directories.truncate(request.top_limit);
 
     Ok(LintReport {
         roots: request.inventory.roots.clone(),
         reference_roots: request.inventory.reference_roots.clone(),
         summary,
-        duplicate_groups,
-        large_files,
-        empty_files,
-        empty_directories,
+        duplicate_groups: duplicate_selection.groups,
+        large_files: large_files.into_sorted_entries(),
+        empty_files: empty_files.into_sorted_entries(),
+        empty_directories: empty_directories.into_sorted_entries(),
         diagnostics: inventory.diagnostics,
     })
 }
 
 fn duplicate_file_groups(
     files: &[InventoryFile],
+    top_limit: usize,
     cancellation: &ScanCancellationToken,
-) -> Result<Vec<DuplicateFileGroup>> {
+) -> Result<DuplicateGroupSelection> {
     let mut by_size = BTreeMap::<u64, Vec<&InventoryFile>>::new();
     for file in files.iter().filter(|file| file.size_bytes > 0) {
         by_size.entry(file.size_bytes).or_default().push(file);
     }
 
-    let mut groups = Vec::new();
+    let mut groups = DuplicateGroupAccumulator::new(top_limit);
     for (size, size_bucket) in by_size {
         check_cancelled(cancellation)?;
         if size_bucket.len() < 2 {
@@ -248,7 +244,52 @@ fn duplicate_file_groups(
         }
     }
 
-    Ok(groups)
+    Ok(groups.into_selection())
+}
+
+#[derive(Debug, Default)]
+struct DuplicateGroupSelection {
+    total_groups: u64,
+    total_files: u64,
+    conservative_reclaim_bytes: u64,
+    groups: Vec<DuplicateFileGroup>,
+}
+
+#[derive(Debug)]
+struct DuplicateGroupAccumulator {
+    total_groups: u64,
+    total_files: u64,
+    conservative_reclaim_bytes: u64,
+    top: BoundedDuplicateGroups,
+}
+
+impl DuplicateGroupAccumulator {
+    fn new(limit: usize) -> Self {
+        Self {
+            total_groups: 0,
+            total_files: 0,
+            conservative_reclaim_bytes: 0,
+            top: BoundedDuplicateGroups::new(limit),
+        }
+    }
+
+    fn push(&mut self, group: DuplicateFileGroup) {
+        self.total_groups = self.total_groups.saturating_add(1);
+        self.total_files = self.total_files.saturating_add(group.total_files);
+        self.conservative_reclaim_bytes = self
+            .conservative_reclaim_bytes
+            .saturating_add(group.conservative_reclaim_bytes);
+        self.top.push(group);
+    }
+
+    fn into_selection(self) -> DuplicateGroupSelection {
+        DuplicateGroupSelection {
+            total_groups: self.total_groups,
+            total_files: self.total_files,
+            conservative_reclaim_bytes: self.conservative_reclaim_bytes,
+            groups: self.top.into_sorted_groups(),
+        }
+    }
 }
 
 impl DuplicateFileGroup {
@@ -276,6 +317,184 @@ impl DuplicateFileGroup {
         }
     }
 }
+
+#[derive(Debug)]
+struct BoundedDuplicateGroups {
+    top: BoundedHeap<DuplicateFileGroup, DuplicateGroupRank>,
+}
+
+impl BoundedDuplicateGroups {
+    fn new(limit: usize) -> Self {
+        Self {
+            top: BoundedHeap::new(limit),
+        }
+    }
+
+    fn push(&mut self, group: DuplicateFileGroup) {
+        let rank = DuplicateGroupRank::from_group(&group);
+        self.top.push(group, rank);
+    }
+
+    fn into_sorted_groups(self) -> Vec<DuplicateFileGroup> {
+        self.top.into_sorted_entries()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DuplicateGroupRank {
+    conservative_reclaim_bytes: u64,
+    size_bytes: u64,
+    reverse_path: Reverse<PathBuf>,
+}
+
+impl DuplicateGroupRank {
+    fn from_group(group: &DuplicateFileGroup) -> Self {
+        Self {
+            conservative_reclaim_bytes: group.conservative_reclaim_bytes,
+            size_bytes: group.size_bytes,
+            reverse_path: Reverse(group.files[0].path.clone()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BoundedLintFiles {
+    top: BoundedHeap<LintFileEntry, LintEntryRank>,
+}
+
+impl BoundedLintFiles {
+    fn new(limit: usize) -> Self {
+        Self {
+            top: BoundedHeap::new(limit),
+        }
+    }
+
+    fn push(&mut self, entry: LintFileEntry, rank: LintEntryRank) {
+        self.top.push(entry, rank);
+    }
+
+    fn into_sorted_entries(self) -> Vec<LintFileEntry> {
+        self.top.into_sorted_entries()
+    }
+}
+
+#[derive(Debug)]
+struct BoundedLintDirectories {
+    top: BoundedHeap<LintDirectoryEntry, LintEntryRank>,
+}
+
+impl BoundedLintDirectories {
+    fn new(limit: usize) -> Self {
+        Self {
+            top: BoundedHeap::new(limit),
+        }
+    }
+
+    fn push(&mut self, entry: LintDirectoryEntry, rank: LintEntryRank) {
+        self.top.push(entry, rank);
+    }
+
+    fn into_sorted_entries(self) -> Vec<LintDirectoryEntry> {
+        self.top.into_sorted_entries()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct LintEntryRank {
+    primary: u64,
+    reverse_path: Reverse<PathBuf>,
+}
+
+#[derive(Debug)]
+struct BoundedHeap<Entry, Rank> {
+    limit: usize,
+    heap: BinaryHeap<Reverse<BoundedHeapItem<Entry, Rank>>>,
+    sequence: u64,
+}
+
+impl<Entry, Rank> BoundedHeap<Entry, Rank>
+where
+    Rank: Ord,
+{
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            heap: BinaryHeap::with_capacity(limit),
+            sequence: 0,
+        }
+    }
+
+    fn push(&mut self, entry: Entry, rank: Rank) {
+        if self.limit == 0 {
+            return;
+        }
+
+        let item = BoundedHeapItem {
+            rank,
+            sequence: self.sequence,
+            entry,
+        };
+        self.sequence = self.sequence.saturating_add(1);
+
+        if self.heap.len() < self.limit {
+            self.heap.push(Reverse(item));
+            return;
+        }
+
+        if self.heap.peek().is_some_and(|current| item > current.0) {
+            self.heap.pop();
+            self.heap.push(Reverse(item));
+        }
+    }
+
+    fn into_sorted_entries(self) -> Vec<Entry> {
+        let mut items = self
+            .heap
+            .into_iter()
+            .map(|Reverse(item)| item)
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| right.cmp(left));
+        items.into_iter().map(|item| item.entry).collect()
+    }
+}
+
+#[derive(Debug)]
+struct BoundedHeapItem<Entry, Rank> {
+    rank: Rank,
+    sequence: u64,
+    entry: Entry,
+}
+
+impl<Entry, Rank> Ord for BoundedHeapItem<Entry, Rank>
+where
+    Rank: Ord,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.rank
+            .cmp(&other.rank)
+            .then_with(|| other.sequence.cmp(&self.sequence))
+    }
+}
+
+impl<Entry, Rank> PartialOrd for BoundedHeapItem<Entry, Rank>
+where
+    Rank: Ord,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<Entry, Rank> PartialEq for BoundedHeapItem<Entry, Rank>
+where
+    Rank: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.rank == other.rank && self.sequence == other.sequence
+    }
+}
+
+impl<Entry, Rank> Eq for BoundedHeapItem<Entry, Rank> where Rank: Eq {}
 
 fn entry_keep_rank(file: &InventoryFile) -> u8 {
     match file.role {
