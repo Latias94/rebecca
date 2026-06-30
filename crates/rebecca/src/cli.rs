@@ -176,7 +176,7 @@ pub struct InspectArtifactsArgs {
     /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
     #[arg(long, alias = "older-than-days", value_name = "DAYS")]
     pub min_age_days: Option<u64>,
-    /// Select largest eligible artifacts until at least this many bytes would be reclaimed.
+    /// Measure ranked eligible artifacts until at least this many bytes would be reclaimed.
     #[arg(long, value_name = "BYTES")]
     pub reclaim_limit_bytes: Option<u64>,
     /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
@@ -319,7 +319,7 @@ pub struct PurgeArgs {
     /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
     #[arg(long, alias = "older-than-days", value_name = "DAYS")]
     pub min_age_days: Option<u64>,
-    /// Select largest eligible artifacts until at least this many bytes would be reclaimed.
+    /// Measure ranked eligible artifacts until at least this many bytes would be reclaimed.
     #[arg(long, value_name = "BYTES")]
     pub reclaim_limit_bytes: Option<u64>,
     /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
@@ -353,7 +353,7 @@ pub struct PurgeInspectArgs {
     /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
     #[arg(long, alias = "older-than-days", value_name = "DAYS")]
     pub min_age_days: Option<u64>,
-    /// Select largest eligible artifacts until at least this many bytes would be reclaimed.
+    /// Measure ranked eligible artifacts until at least this many bytes would be reclaimed.
     #[arg(long, value_name = "BYTES")]
     pub reclaim_limit_bytes: Option<u64>,
     /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.

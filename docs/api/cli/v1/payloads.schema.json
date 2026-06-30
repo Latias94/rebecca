@@ -50,7 +50,7 @@
         "execution-target-missing",
         "safety-policy-blocked",
         "project-artifact-recently-modified",
-        "reclaim-limit-exceeded",
+        "reclaim-limit-satisfied",
         "scan-failed",
         "execution-failed",
         "unclassified"

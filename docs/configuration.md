@@ -218,8 +218,9 @@ values. It must:
 - support `rebecca catalog --kind project-artifact` as the canonical scan-free
   catalog of accepted artifact selectors, with `purge --list-artifacts`
   retained as a purge-specific compatibility listing;
-- support `--reclaim-limit-bytes <BYTES>` as a planning selector that keeps the
-  largest eligible artifacts until the requested reclaim target is met;
+- support `--reclaim-limit-bytes <BYTES>` as a planning selector that measures
+  ranked eligible artifacts until the requested reclaim target is met, then
+  leaves later trim-eligible candidates unmeasured;
 - support `inspect artifacts` as the canonical read-only insight report that
   uses the same roots, selectors, depth, age, exclude, scan-cache, warning-gate,
   reclaim-limit, and diagnostics pipeline without accepting `--yes`, prompting,

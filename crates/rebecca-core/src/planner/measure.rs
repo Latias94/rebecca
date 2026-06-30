@@ -428,7 +428,7 @@ fn project_artifact_allowed_target(
     .with_project_artifact_context(Some(artifact.context.clone()))
 }
 
-fn project_artifact_skipped_target(
+pub(crate) fn project_artifact_skipped_target(
     artifact: &ProjectArtifactCandidate,
     mode: crate::DeleteMode,
     reason_code: CleanupTargetIssueReason,

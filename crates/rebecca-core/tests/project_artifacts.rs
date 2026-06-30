@@ -10,6 +10,7 @@ use rebecca_core::project_artifacts::{
     discover_project_artifacts_with_diagnostics,
 };
 use rebecca_core::scan::ScanCancellationToken;
+use rebecca_core::scan_cache::ScanCacheStore;
 use rebecca_core::{
     CleanupWorkflow, DeleteMode, EstimateSource, PlanRequest, Platform, TargetStatus,
 };
@@ -673,13 +674,13 @@ fn project_artifact_plan_skips_recent_targets_before_sizing() {
 }
 
 #[test]
-fn project_artifact_plan_reclaim_limit_selects_largest_targets_first() {
+fn project_artifact_plan_reclaim_limit_stops_after_ranked_target_satisfies_limit() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     let small_node_modules = workspace.join("small").join("node_modules");
     let large_target = workspace.join("large").join("target");
     let medium_target = workspace.join("medium").join("target");
-    write_fixture_file(small_node_modules.join("pkg.bin"), b"abc");
+    write_fixture_file(small_node_modules.join("pkg.bin"), b"abcde");
     write_fixture_file(workspace.join("small").join("package.json"), b"{}");
     write_fixture_file(large_target.join("debug").join("app.bin"), b"12345");
     write_fixture_file(workspace.join("large").join("Cargo.toml"), b"[package]");
@@ -694,13 +695,14 @@ fn project_artifact_plan_reclaim_limit_selects_largest_targets_first() {
     request.project_artifact_reclaim_limit_bytes = Some(5);
     let cancellation = ScanCancellationToken::new();
     let applications = NoopApplicationDiscovery::new();
+    let cache = ScanCacheStore::new(temp.path().join("cache").join("scan"));
 
     let plan = build_cleanup_plan_with_context(
         &request,
         &[],
         &SystemEnvironment,
         &applications,
-        PlanBuildContext::new(&cancellation),
+        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
         |_| {},
     )
     .unwrap();
@@ -709,22 +711,68 @@ fn project_artifact_plan_reclaim_limit_selects_largest_targets_first() {
     assert_eq!(plan.summary.allowed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 2);
     assert_eq!(plan.summary.estimated_bytes, 5);
+
+    let allowed = plan
+        .targets
+        .iter()
+        .find(|target| target.status == TargetStatus::Allowed)
+        .unwrap();
+    assert_eq!(allowed.path, small_node_modules);
+    assert_eq!(allowed.estimate_source, EstimateSource::FreshScan);
+
+    let skipped = plan
+        .targets
+        .iter()
+        .filter(|target| target.status == TargetStatus::Skipped)
+        .collect::<Vec<_>>();
+    assert_eq!(skipped.len(), 2);
+    assert!(skipped.iter().all(|target| {
+        target.reason_code == Some(CleanupTargetIssueReason::ReclaimLimitSatisfied)
+            && target.estimate_source == EstimateSource::NotMeasured
+            && target.estimated_bytes == 0
+    }));
+    assert!(cache.cache_file_for(&small_node_modules).exists());
+    assert!(!cache.cache_file_for(&large_target).exists());
+    assert!(!cache.cache_file_for(&medium_target).exists());
+}
+
+#[test]
+fn project_artifact_plan_reclaim_limit_zero_skips_trim_eligible_without_measuring() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let node_modules = workspace.join("app").join("node_modules");
+    write_fixture_file(node_modules.join("pkg.bin"), b"abc");
+    write_fixture_file(workspace.join("app").join("package.json"), b"{}");
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    request.project_artifact_roots = vec![workspace];
+    request.project_artifact_max_depth = 4;
+    request.project_artifact_min_age_days = 0;
+    request.project_artifact_reclaim_limit_bytes = Some(0);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let cache = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &SystemEnvironment,
+        &applications,
+        PlanBuildContext::new(&cancellation).with_scan_cache(&cache),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 1);
+    assert_eq!(plan.summary.allowed_targets, 0);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 0);
+    assert_eq!(plan.targets[0].path, node_modules);
     assert_eq!(
-        plan.targets
-            .iter()
-            .find(|target| target.status == TargetStatus::Allowed)
-            .unwrap()
-            .path,
-        large_target
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::ReclaimLimitSatisfied)
     );
-    assert!(
-        plan.targets
-            .iter()
-            .filter(|target| target.status == TargetStatus::Skipped)
-            .all(|target| {
-                target.reason_code == Some(CleanupTargetIssueReason::ReclaimLimitExceeded)
-                    && target.estimate_source == EstimateSource::NotMeasured
-                    && target.estimated_bytes == 0
-            })
-    );
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::NotMeasured);
+    assert!(!cache.cache_file_for(&node_modules).exists());
 }

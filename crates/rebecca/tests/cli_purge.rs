@@ -1065,13 +1065,13 @@ min_age_days = 30
 }
 
 #[test]
-fn purge_reclaim_limit_and_older_than_alias_select_largest_artifacts() {
+fn purge_reclaim_limit_and_older_than_alias_stop_after_ranked_limit() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     let small_node_modules = workspace.join("small").join("node_modules");
     let large_target = workspace.join("large").join("target");
     let medium_target = workspace.join("medium").join("target");
-    write_fixture_file(small_node_modules.join("pkg.bin"), b"abc");
+    write_fixture_file(small_node_modules.join("pkg.bin"), b"abcde");
     write_node_project(workspace.join("small"));
     write_fixture_file(large_target.join("debug").join("app.bin"), b"12345");
     write_rust_project(workspace.join("large"));
@@ -1115,7 +1115,7 @@ fn purge_reclaim_limit_and_older_than_alias_select_largest_artifacts() {
         .unwrap();
     assert_eq!(
         PathBuf::from(allowed["path"].as_str().unwrap()),
-        large_target
+        small_node_modules
     );
 
     assert!(
@@ -1124,7 +1124,7 @@ fn purge_reclaim_limit_and_older_than_alias_select_largest_artifacts() {
             .unwrap()
             .iter()
             .filter(|target| target["status"] == "skipped")
-            .all(|target| target["reason_code"] == "reclaim-limit-exceeded"
+            .all(|target| target["reason_code"] == "reclaim-limit-satisfied"
                 && target["estimated_bytes"] == 0
                 && target["estimate_source"] == "not-measured")
     );

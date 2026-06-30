@@ -27,12 +27,14 @@ All notable changes to Rebecca will be documented in this file.
 - project artifact discovery now applies policy ranking and reclaim-limit selection after measurement so large cleanup plans can be trimmed predictably.
 - v2 commands now use the command API registry for fatal JSON and NDJSON errors instead of the global v1 error envelope.
 - `rebecca cache purge --yes` now moves rebuildable Rebecca cache entries to the Recycle Bin by default and reports pending reclaim bytes separately from permanently reclaimed bytes.
+- Project artifact reclaim limits now stop measurement once ranked trim-eligible candidates satisfy the requested limit, leaving later candidates unmeasured instead of sizing the full candidate set first.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.
 - new read-only cleanup-intelligence machine payloads and fatal errors use `rebecca.cli.v2`; consumers that assumed every machine envelope was `rebecca.cli.v1` must branch on `api_version`.
 - `inspect artifacts` is the canonical project artifact insight command; `purge inspect` remains as a v2 compatibility alias for existing command users.
 - `cache purge` machine output no longer uses `mode: "delete"`; callers must handle `mode: "recoverable-delete"` and `mode: "permanent-delete"` plus the new `pending_reclaim_bytes`, `recoverably_deleted_entries`, and `permanently_deleted_entries` summary fields.
+- Project artifact reclaim-limit skips now use `reason_code: "reclaim-limit-satisfied"` and can leave skipped targets with `estimate_source: "not-measured"` because later candidates are no longer measured after the limit is satisfied.
 
 ## [0.2.0]
 
