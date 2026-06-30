@@ -1918,6 +1918,7 @@ fn planner_expands_steam_library_targets_from_application_discovery() {
             "steamapps\\shadercache",
         )],
         restore_hint: Some("Shader caches will be rebuilt.".to_string()),
+        warnings: Vec::new(),
         provenance: RuleProvenance {
             source: RuleSource::Owned,
             license: "project-owned".to_string(),
@@ -2234,6 +2235,7 @@ fn custom_exact_path_rule(id: &str, path: PathBuf) -> RuleDefinition {
         safety_level: SafetyLevel::Safe,
         path_templates: vec![RuleTargetSpec::ExactPath(path)],
         restore_hint: Some("The target can be rebuilt.".to_string()),
+        warnings: Vec::new(),
         provenance: RuleProvenance {
             source: RuleSource::Owned,
             license: "project-owned".to_string(),
@@ -2251,6 +2253,7 @@ fn custom_risky_rule() -> RuleDefinition {
         safety_level: SafetyLevel::Risky,
         path_templates: vec![RuleTargetSpec::template("%TEMP%")],
         restore_hint: Some("The target can be rebuilt.".to_string()),
+        warnings: Vec::new(),
         provenance: RuleProvenance {
             source: RuleSource::Owned,
             license: "project-owned".to_string(),

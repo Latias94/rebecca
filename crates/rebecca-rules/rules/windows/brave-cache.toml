@@ -1,3 +1,4 @@
+manifest_version = 1
 id = "windows.brave-cache"
 platform = "windows"
 category = "browser"

@@ -207,6 +207,8 @@ pub struct RuleDefinition {
     pub safety_level: SafetyLevel,
     pub path_templates: Vec<RuleTargetSpec>,
     pub restore_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
     pub provenance: RuleProvenance,
 }
 

@@ -1,3 +1,4 @@
+manifest_version = 1
 id = "windows.steam-install-localization-cache"
 platform = "windows"
 category = "application"

@@ -3,15 +3,30 @@
 Built-in Rebecca rules live under `crates/rebecca-rules/rules/windows/` as TOML
 files. Keep each rule small, explicit, and easy to audit.
 
-## Current Shape
+## Cleaner Manifest v1
+
+- Every built-in rule file is a Cleaner Manifest v1 document and must start
+  with `manifest_version = 1`.
+- The current built-in catalog still uses the one-file/one-rule compatibility
+  shape: top-level metadata plus top-level `[[targets]]`.
+- Manifest v1 also supports future cleaner-style `[[options]]` with
+  `[[options.actions]]`. A file must choose top-level `targets` or `options`,
+  never both.
+- Warnings are declared as stable warning-kind strings in `warnings = [...]`.
+  They are part of the planner-ready rule definition and should be reserved for
+  user-visible gates such as active-process checks or broad-discovery notices.
+
+## Current Built-in Shape
 
 - One file per rule.
+- `manifest_version = 1`.
 - Stable env-variable templates only.
 - Use `glob-template` only for bounded profile or filename discovery.
 - Prefer paths that Windows users recognize immediately.
 
 ## Required Fields
 
+- `manifest_version`
 - `id`
 - `platform`
 - `category`

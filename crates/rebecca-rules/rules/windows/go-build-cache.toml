@@ -1,3 +1,4 @@
+manifest_version = 1
 id = "windows.go-build-cache"
 platform = "windows"
 category = "development"

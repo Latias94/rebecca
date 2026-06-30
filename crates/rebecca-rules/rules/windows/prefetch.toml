@@ -1,3 +1,4 @@
+manifest_version = 1
 id = "windows.prefetch"
 platform = "windows"
 category = "system"

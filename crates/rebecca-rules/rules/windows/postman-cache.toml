@@ -1,3 +1,4 @@
+manifest_version = 1
 id = "windows.postman-cache"
 platform = "windows"
 category = "application"

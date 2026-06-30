@@ -1,12 +1,9 @@
-use std::path::PathBuf;
-
 use rebecca_core::{
-    Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
-    SafetyLevel,
+    Platform, RebeccaError, Result, RuleDefinition, RuleSource,
+    manifest::parse_cleaner_manifest_file,
     planner::validate_rule_catalog,
     protection::{ProtectionAssessment, ProtectionPolicy},
 };
-use serde::Deserialize;
 
 macro_rules! builtin_rule_files {
     ($($path:literal),+ $(,)?) => {
@@ -93,7 +90,7 @@ pub fn builtin_rules() -> Result<Vec<RuleDefinition>> {
     let mut rules = Vec::with_capacity(BUILTIN_RULE_FILES.len());
 
     for (path, raw) in BUILTIN_RULE_FILES {
-        rules.push(parse_rule_file(path, raw)?);
+        rules.extend(parse_rule_file(path, raw)?);
     }
 
     validate_builtin_rule_catalog(&rules)?;
@@ -105,12 +102,8 @@ pub fn validate_builtin_rules() -> Result<()> {
     builtin_rules().map(|_| ())
 }
 
-fn parse_rule_file(path: &str, raw: &str) -> Result<RuleDefinition> {
-    let rule = toml::from_str::<CatalogRule>(raw).map_err(|err| {
-        RebeccaError::RuleCatalogInvalid(format!("{path} is invalid TOML catalog data: {err}"))
-    })?;
-
-    Ok(rule.into_rule_definition())
+fn parse_rule_file(path: &str, raw: &str) -> Result<Vec<RuleDefinition>> {
+    parse_cleaner_manifest_file(path, raw)
 }
 
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
@@ -174,60 +167,6 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CatalogRule {
-    id: String,
-    platform: Platform,
-    category: String,
-    name: String,
-    safety_level: SafetyLevel,
-    restore_hint: Option<String>,
-    targets: Vec<CatalogTarget>,
-    provenance: RuleProvenance,
-}
-
-impl CatalogRule {
-    fn into_rule_definition(self) -> RuleDefinition {
-        RuleDefinition {
-            id: self.id,
-            platform: self.platform,
-            category: self.category,
-            name: self.name,
-            safety_level: self.safety_level,
-            path_templates: self
-                .targets
-                .into_iter()
-                .map(CatalogTarget::into_rule_target_spec)
-                .collect(),
-            restore_hint: self.restore_hint,
-            provenance: self.provenance,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
-enum CatalogTarget {
-    Template { value: String },
-    ExactPath { value: PathBuf },
-    GlobTemplate { value: String },
-    SteamInstallTemplate { value: String },
-    SteamLibraryTemplate { value: String },
-}
-
-impl CatalogTarget {
-    fn into_rule_target_spec(self) -> RuleTargetSpec {
-        match self {
-            Self::Template { value } => RuleTargetSpec::template(value),
-            Self::ExactPath { value } => RuleTargetSpec::ExactPath(value),
-            Self::GlobTemplate { value } => RuleTargetSpec::glob_template(value),
-            Self::SteamInstallTemplate { value } => RuleTargetSpec::steam_install_template(value),
-            Self::SteamLibraryTemplate { value } => RuleTargetSpec::steam_library_template(value),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -237,6 +176,12 @@ mod tests {
     };
 
     use super::{builtin_rules, parse_rule_file};
+
+    fn parse_single_rule_file(path: &str, raw: &str) -> RuleDefinition {
+        let rules = parse_rule_file(path, raw).expect("test rule should parse");
+        assert_eq!(rules.len(), 1);
+        rules.into_iter().next().unwrap()
+    }
 
     #[test]
     fn builtin_rule_ids_are_unique() {
@@ -302,6 +247,7 @@ mod tests {
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
             restore_hint: Some("Regenerated automatically.".to_string()),
+            warnings: Vec::new(),
             provenance: RuleProvenance {
                 source: RuleSource::ReferenceOnly,
                 license: "project-owned".to_string(),
@@ -393,6 +339,7 @@ mod tests {
         let err = parse_rule_file(
             "test.toml",
             r#"
+manifest_version = 1
 id = "windows.test"
 platform = "windows"
 category = "system"
@@ -417,9 +364,10 @@ notes = "test"
 
     #[test]
     fn catalog_parser_supports_exact_path_targets() {
-        let rule = parse_rule_file(
+        let rule = parse_single_rule_file(
             "test.toml",
             r#"
+manifest_version = 1
 id = "windows.exact"
 platform = "windows"
 category = "system"
@@ -435,8 +383,7 @@ source = "owned"
 license = "project-owned"
 notes = "test"
 "#,
-        )
-        .expect("exact-path target should parse");
+        );
 
         assert_eq!(rule.path_templates.len(), 1);
         assert!(matches!(
@@ -447,9 +394,10 @@ notes = "test"
 
     #[test]
     fn catalog_parser_supports_glob_template_targets() {
-        let rule = parse_rule_file(
+        let rule = parse_single_rule_file(
             "test.toml",
             r#"
+manifest_version = 1
 id = "windows.glob"
 platform = "windows"
 category = "browser"
@@ -465,8 +413,7 @@ source = "owned"
 license = "project-owned"
 notes = "test"
 "#,
-        )
-        .expect("glob-template target should parse");
+        );
 
         assert!(matches!(
             rule.path_templates[0],
@@ -476,9 +423,10 @@ notes = "test"
 
     #[test]
     fn catalog_parser_supports_steam_discovery_targets() {
-        let rule = parse_rule_file(
+        let rule = parse_single_rule_file(
             "test.toml",
             r#"
+manifest_version = 1
 id = "windows.steam-test"
 platform = "windows"
 category = "application"
@@ -498,8 +446,7 @@ source = "owned"
 license = "project-owned"
 notes = "test"
 "#,
-        )
-        .expect("Steam discovery targets should parse");
+        );
 
         assert!(matches!(
             rule.path_templates[0],
@@ -521,6 +468,7 @@ notes = "test"
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
             restore_hint: None,
+            warnings: Vec::new(),
             provenance: RuleProvenance {
                 source: RuleSource::Owned,
                 license: "project-owned".to_string(),
@@ -542,6 +490,7 @@ notes = "test"
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
             restore_hint: Some("Regenerated automatically.".to_string()),
+            warnings: Vec::new(),
             provenance: RuleProvenance {
                 source: RuleSource::Owned,
                 license: "reference-only".to_string(),
@@ -558,6 +507,7 @@ notes = "test"
         let err = parse_rule_file(
             "test.toml",
             r#"
+manifest_version = 1
 id = "linux.test"
 platform = "linux"
 category = "system"
@@ -593,6 +543,7 @@ notes = "test"
             safety_level: SafetyLevel::Safe,
             path_templates: vec![RuleTargetSpec::template("%TEMP%")],
             restore_hint: Some("Regenerated automatically.".to_string()),
+            warnings: Vec::new(),
             provenance: RuleProvenance {
                 source: RuleSource::Owned,
                 license: "project-owned".to_string(),
@@ -644,6 +595,7 @@ notes = "test"
             safety_level: SafetyLevel::Safe,
             path_templates: vec![target],
             restore_hint: Some("Regenerated automatically.".to_string()),
+            warnings: Vec::new(),
             provenance: RuleProvenance {
                 source: RuleSource::Owned,
                 license: "project-owned".to_string(),

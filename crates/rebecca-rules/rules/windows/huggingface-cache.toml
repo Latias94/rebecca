@@ -1,3 +1,4 @@
+manifest_version = 1
 id = "windows.huggingface-cache"
 platform = "windows"
 category = "development"

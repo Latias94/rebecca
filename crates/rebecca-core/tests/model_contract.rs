@@ -361,6 +361,35 @@ fn rule_target_spec_exposes_placeholder_path_and_dedupe_key() {
 }
 
 #[test]
+fn rule_definition_serialization_preserves_warning_contract() {
+    let mut rule = test_rule("windows.warning-test");
+    rule.warnings = vec!["active-process".to_string(), "broad-discovery".to_string()];
+
+    let json = serde_json::to_value(&rule).expect("rule should serialize");
+    assert_eq!(json["warnings"][0], "active-process");
+    assert_eq!(json["warnings"][1], "broad-discovery");
+
+    let decoded: RuleDefinition = serde_json::from_value(json).expect("rule should deserialize");
+    assert_eq!(
+        decoded.warnings,
+        vec!["active-process".to_string(), "broad-discovery".to_string()]
+    );
+}
+
+#[test]
+fn rule_definition_deserializes_legacy_without_warnings() {
+    let rule = test_rule("windows.legacy-warning-test");
+    let mut json = serde_json::to_value(&rule).expect("rule should serialize");
+    json.as_object_mut()
+        .expect("rule should be object")
+        .remove("warnings");
+
+    let decoded: RuleDefinition = serde_json::from_value(json).expect("legacy rule should load");
+
+    assert!(decoded.warnings.is_empty());
+}
+
+#[test]
 fn safety_level_exposes_label_and_opt_in_flag() {
     assert_eq!(SafetyLevel::Safe.label(), "safe");
     assert_eq!(SafetyLevel::Moderate.label(), "moderate");
@@ -434,6 +463,7 @@ fn test_rule(id: &str) -> RuleDefinition {
         safety_level: SafetyLevel::Safe,
         path_templates: vec![RuleTargetSpec::template("%TEMP%")],
         restore_hint: Some("Regenerated automatically.".to_string()),
+        warnings: Vec::new(),
         provenance: RuleProvenance {
             source: RuleSource::Owned,
             license: "project-owned".to_string(),
