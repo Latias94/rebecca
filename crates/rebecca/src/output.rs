@@ -27,8 +27,27 @@ pub(crate) type WorkflowSuccessRenderer = fn(
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WorkflowOutputContract {
+    pub(crate) api_version: &'static str,
     pub(crate) command: &'static str,
     pub(crate) payload_kind: &'static str,
+}
+
+impl WorkflowOutputContract {
+    pub(crate) const fn v1(command: &'static str, payload_kind: &'static str) -> Self {
+        Self {
+            api_version: API_VERSION,
+            command,
+            payload_kind,
+        }
+    }
+
+    pub(crate) const fn v2(command: &'static str, payload_kind: &'static str) -> Self {
+        Self {
+            api_version: API_VERSION_V2,
+            command,
+            payload_kind,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -437,10 +456,16 @@ fn print_machine_workflow_success_payload<T: Serialize + ?Sized>(
 ) -> Result<()> {
     match mode {
         OutputMode::Human => unreachable!("human mode is rendered by the caller"),
-        OutputMode::Json => print_success(contract.command, contract.payload_kind, payload),
+        OutputMode::Json => print_success_with_api_version(
+            contract.api_version,
+            contract.command,
+            contract.payload_kind,
+            payload,
+        ),
         OutputMode::Ndjson => {
-            let mut writer =
-                event_writer.unwrap_or_else(|| NdjsonEventWriter::new(contract.command));
+            let mut writer = event_writer.unwrap_or_else(|| {
+                NdjsonEventWriter::new_with_api_version(contract.command, contract.api_version)
+            });
             writer.emit_completed(contract.payload_kind, payload)
         }
     }

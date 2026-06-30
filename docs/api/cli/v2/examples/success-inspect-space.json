@@ -1,0 +1,37 @@
+{
+  "api_version": "rebecca.cli.v2",
+  "kind": "success",
+  "command": "inspect space",
+  "payload_kind": "inspect-space",
+  "generated_at_unix_seconds": 1782660000,
+  "data": {
+    "roots": [
+      {
+        "path": "C:\\Users\\example\\workspace",
+        "status": "scanned",
+        "metrics": {
+          "estimated_bytes": 7,
+          "files": 3,
+          "directories": 2
+        }
+      }
+    ],
+    "totals": {
+      "estimated_bytes": 7,
+      "files": 3,
+      "directories": 2
+    },
+    "top_entries": [
+      {
+        "path": "C:\\Users\\example\\workspace\\target",
+        "root": "C:\\Users\\example\\workspace",
+        "kind": "directory",
+        "estimated_bytes": 4,
+        "files": 1,
+        "directories": 1,
+        "estimate_source": "fresh-scan"
+      }
+    ],
+    "diagnostics": []
+  }
+}

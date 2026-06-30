@@ -417,9 +417,9 @@ fn purge_inspect_json_returns_read_only_project_artifact_insight() {
             .exists()
     );
 
-    let envelope = common::support::api_envelope(&output.stdout);
+    let envelope = common::support::api_envelope_v2(&output.stdout);
     assert_eq!(envelope["command"], "purge inspect");
-    assert_eq!(envelope["payload_kind"], "project-artifact-insight");
+    assert_eq!(envelope["payload_kind"], "inspect-artifacts");
 
     let value = &envelope["data"];
     assert_eq!(value["summary"]["total_targets"], 2);
@@ -491,7 +491,7 @@ min_age_days = 0
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    let value: serde_json::Value = common::support::api_data_v2(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 1);
     assert_eq!(value["summary"]["allowed_targets"], 0);
     assert_eq!(value["summary"]["blocked_targets"], 1);
@@ -605,11 +605,16 @@ fn purge_inspect_ndjson_uses_read_only_insight_payload() {
     assert!(
         events
             .iter()
+            .all(|event| event["api_version"] == "rebecca.cli.v2")
+    );
+    assert!(
+        events
+            .iter()
             .all(|event| event["command"] == "purge inspect")
     );
     let completed = events.last().unwrap();
     assert_eq!(completed["event_kind"], "completed");
-    assert_eq!(completed["payload_kind"], "project-artifact-insight");
+    assert_eq!(completed["payload_kind"], "inspect-artifacts");
     assert_eq!(completed["data"]["summary"]["total_targets"], 1);
     assert_eq!(
         completed["data"]["top_targets"][0]["artifact"],

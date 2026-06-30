@@ -8,6 +8,7 @@ pub mod environment;
 pub mod error;
 pub mod executor;
 pub mod history;
+pub mod inspect;
 pub mod manifest;
 pub mod model;
 mod parallelism;

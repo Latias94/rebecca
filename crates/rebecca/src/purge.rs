@@ -2,20 +2,17 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::load_runtime_config;
-use rebecca::core::plan::CleanupPlan;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
-use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
-use crate::output::{
-    HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract, print_workflow_success_payload,
-};
-use crate::purge_view::{ProjectArtifactInsightReport, project_artifact_catalog_entries};
+use crate::inspect;
+use crate::output::WorkflowOutputContract;
+use crate::purge_view::project_artifact_catalog_entries;
 use crate::render;
 use crate::runtime::CliRuntime;
 
-const PROJECT_ARTIFACT_RULES: &[RuleDefinition] = &[];
+pub(crate) const PROJECT_ARTIFACT_RULES: &[RuleDefinition] = &[];
 
 #[derive(Debug)]
 pub struct PurgeOptions {
@@ -74,10 +71,7 @@ pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> R
             no_progress: options.no_progress,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
-            output_contract: WorkflowOutputContract {
-                command: "purge",
-                payload_kind: "project-artifact-cleanup-plan",
-            },
+            output_contract: WorkflowOutputContract::v1("purge", "project-artifact-cleanup-plan"),
             human_renderer: render::purge::print_plan,
             success_renderer: crate::output::print_plan_with_events,
             cancellation_message: "Project artifact purge cancelled.",
@@ -93,58 +87,19 @@ pub(crate) fn inspect_with_runtime(
     options: PurgeInspectOptions,
     runtime: &CliRuntime,
 ) -> Result<()> {
-    let runtime_config = load_runtime_config()?;
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
-        .with_workflow(CleanupWorkflow::ProjectArtifacts);
-    request.project_artifact_roots = resolve_roots(options.roots, &runtime_config.purge.roots)?;
-    request.project_artifact_max_depth =
-        options.max_depth.unwrap_or(runtime_config.purge.max_depth);
-    request.project_artifact_min_age_days = options
-        .min_age_days
-        .unwrap_or(runtime_config.purge.min_age_days);
-    request.project_artifact_selectors = options.artifacts;
-
-    run_workflow_with_runtime_config(
-        WorkflowRunOptions {
-            request,
-            rules: PROJECT_ARTIFACT_RULES,
+    inspect::artifacts_with_runtime(
+        inspect::InspectArtifactsOptions {
             output_mode: options.output_mode,
-            yes: false,
             no_progress: options.no_progress,
             scan_cache: options.scan_cache,
+            roots: options.roots,
+            max_depth: options.max_depth,
+            min_age_days: options.min_age_days,
+            artifacts: options.artifacts,
             exclude_paths: options.exclude_paths,
-            output_contract: WorkflowOutputContract {
-                command: "purge inspect",
-                payload_kind: "project-artifact-insight",
-            },
-            human_renderer: render::purge::print_project_artifact_insight,
-            success_renderer: print_project_artifact_insight_with_events,
-            cancellation_message: "Project artifact inspection cancelled.",
-            unsupported_execution_message: "project artifact inspection is read-only",
-            confirmation_kind: ConfirmationKind::ProjectArtifacts,
+            command: "purge inspect",
         },
-        runtime_config,
         runtime,
-    )
-}
-
-fn print_project_artifact_insight_with_events(
-    plan: &CleanupPlan,
-    contract: WorkflowOutputContract,
-    mode: OutputMode,
-    human_renderer: HumanPlanRenderer,
-    scan_cache_summary: Option<ScanCacheProgressSummary>,
-    event_writer: Option<NdjsonEventWriter>,
-) -> Result<()> {
-    let insight = ProjectArtifactInsightReport::from_plan(plan);
-    print_workflow_success_payload(
-        plan,
-        &insight,
-        contract,
-        mode,
-        human_renderer,
-        scan_cache_summary,
-        event_writer,
     )
 }
 
@@ -163,7 +118,10 @@ fn print_project_artifact_catalog(output_mode: OutputMode) -> Result<()> {
     )
 }
 
-fn resolve_roots(cli_roots: Vec<PathBuf>, config_roots: &[PathBuf]) -> Result<Vec<PathBuf>> {
+pub(crate) fn resolve_roots(
+    cli_roots: Vec<PathBuf>,
+    config_roots: &[PathBuf],
+) -> Result<Vec<PathBuf>> {
     if !cli_roots.is_empty() {
         return cli_roots
             .into_iter()

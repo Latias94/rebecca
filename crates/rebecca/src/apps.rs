@@ -42,10 +42,7 @@ pub(crate) fn scan_with_runtime(options: AppsScanOptions, runtime: &CliRuntime) 
             no_progress: options.no_progress,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
-            output_contract: WorkflowOutputContract {
-                command: "apps scan",
-                payload_kind: "app-leftovers-cleanup-plan",
-            },
+            output_contract: WorkflowOutputContract::v1("apps scan", "app-leftovers-cleanup-plan"),
             human_renderer: render::clean::print_plan,
             success_renderer: crate::output::print_plan_with_events,
             cancellation_message: "App leftovers scan cancelled.",
@@ -74,10 +71,7 @@ pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime
             no_progress: options.no_progress,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
-            output_contract: WorkflowOutputContract {
-                command: "apps clean",
-                payload_kind: "app-leftovers-cleanup-plan",
-            },
+            output_contract: WorkflowOutputContract::v1("apps clean", "app-leftovers-cleanup-plan"),
             human_renderer: render::clean::print_plan,
             success_renderer: crate::output::print_plan_with_events,
             cancellation_message: "App leftovers cleanup cancelled.",

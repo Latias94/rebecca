@@ -89,10 +89,7 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
             no_progress: options.no_progress,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
-            output_contract: WorkflowOutputContract {
-                command: "clean",
-                payload_kind: "cleanup-plan",
-            },
+            output_contract: WorkflowOutputContract::v1("clean", "cleanup-plan"),
             human_renderer: render::clean::print_plan,
             success_renderer: output::print_plan_with_events,
             cancellation_message: "Cleanup cancelled.",
@@ -117,10 +114,12 @@ pub(crate) fn run_workflow_with_runtime_config(
     let cancellation = runtime.cancellation();
     let mut progress = PlanProgressReporter::new(
         options.output_mode.is_human() && !options.no_progress,
-        options
-            .output_mode
-            .is_ndjson()
-            .then(|| NdjsonEventWriter::new(options.output_contract.command)),
+        options.output_mode.is_ndjson().then(|| {
+            NdjsonEventWriter::new_with_api_version(
+                options.output_contract.command,
+                options.output_contract.api_version,
+            )
+        }),
     );
     let applications = info::application_discovery();
     let protected_storage = runtime_config.app_paths.storage_entries();

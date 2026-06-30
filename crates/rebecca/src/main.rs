@@ -12,6 +12,7 @@ mod clean_view;
 mod cli;
 mod history_view;
 mod info;
+mod inspect;
 mod output;
 mod purge;
 mod purge_view;
@@ -22,7 +23,7 @@ mod text;
 
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CleanArgs, Cli, Command, CompletionArgs, ConfigCommand,
-    DoctorCommand, HistoryArgs, OutputMode, PurgeArgs, PurgeCommand, ScanArgs,
+    DoctorCommand, HistoryArgs, InspectCommand, OutputMode, PurgeArgs, PurgeCommand, ScanArgs,
 };
 use runtime::CliRuntime;
 
@@ -61,6 +62,7 @@ fn run() -> Result<()> {
         Command::Catalog(args) => run_catalog(args, cli.format),
         Command::Scan(args) => run_scan(args, cli.format),
         Command::Clean(args) => run_clean(args, cli.format, &runtime),
+        Command::Inspect { command } => run_inspect(command, cli.format, &runtime),
         Command::Purge(args) => run_purge(args, cli.format, &runtime),
         Command::History(args) => run_history(args, cli.format),
         Command::Cache { command } => match command {
@@ -110,6 +112,39 @@ fn run() -> Result<()> {
             DoctorCommand::ActiveProcesses => info::print_active_processes(cli.format),
         },
         Command::Completion(args) => run_completion(args),
+    }
+}
+
+fn run_inspect(
+    command: InspectCommand,
+    global_mode: OutputMode,
+    runtime: &CliRuntime,
+) -> Result<()> {
+    match command {
+        InspectCommand::Space(args) => inspect::space_with_runtime(
+            inspect::InspectSpaceOptions {
+                output_mode: global_mode,
+                no_progress: args.no_progress,
+                scan_cache: args.scan_cache,
+                roots: args.roots,
+                top_limit: args.top_limit,
+            },
+            runtime,
+        ),
+        InspectCommand::Artifacts(args) => inspect::artifacts_with_runtime(
+            inspect::InspectArtifactsOptions {
+                output_mode: global_mode,
+                no_progress: args.no_progress,
+                scan_cache: args.scan_cache,
+                roots: args.roots,
+                max_depth: args.max_depth,
+                min_age_days: args.min_age_days,
+                artifacts: args.artifacts,
+                exclude_paths: args.exclude_paths,
+                command: "inspect artifacts",
+            },
+            runtime,
+        ),
     }
 }
 
@@ -235,6 +270,10 @@ fn command_name(command: &Command) -> &'static str {
         Command::Catalog(_) => "catalog",
         Command::Scan(_) => "scan",
         Command::Clean(_) => "clean",
+        Command::Inspect { command } => match command {
+            InspectCommand::Space(_) => "inspect space",
+            InspectCommand::Artifacts(_) => "inspect artifacts",
+        },
         Command::Purge(args) => {
             if matches!(args.command, Some(PurgeCommand::Inspect(_))) {
                 "purge inspect"

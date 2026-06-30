@@ -449,10 +449,15 @@ fn cli_api_v2_catalog_schema_documents_are_parseable() {
         .iter()
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(payload_kinds, ["catalog"]);
+    assert_eq!(
+        payload_kinds,
+        ["catalog", "inspect-artifacts", "inspect-space"]
+    );
 
     let catalog_item = &payloads["$defs"]["catalogItem"];
     assert_eq!(catalog_item["oneOf"].as_array().unwrap().len(), 5);
+    assert_eq!(payloads["$defs"]["inspectSpace"]["type"], "object");
+    assert_eq!(payloads["$defs"]["inspectArtifacts"]["type"], "object");
 }
 
 #[test]
@@ -496,6 +501,23 @@ fn cli_api_v2_catalog_example_validates_against_payload_schema() {
 
     let validator = validator_for_v2_payload_def("catalog");
     validator.validate(&example["data"]).unwrap();
+}
+
+#[test]
+fn cli_api_v2_inspect_examples_validate_against_payload_schema() {
+    let space = read_v2_doc_json("examples/success-inspect-space.json");
+    assert_v2_success_schema(&space);
+    assert_eq!(space["payload_kind"], "inspect-space");
+    validator_for_v2_payload_def("inspectSpace")
+        .validate(&space["data"])
+        .unwrap();
+
+    let artifacts = read_v2_doc_json("examples/success-inspect-artifacts.json");
+    assert_v2_success_schema(&artifacts);
+    assert_eq!(artifacts["payload_kind"], "inspect-artifacts");
+    validator_for_v2_payload_def("inspectArtifacts")
+        .validate(&artifacts["data"])
+        .unwrap();
 }
 
 #[test]

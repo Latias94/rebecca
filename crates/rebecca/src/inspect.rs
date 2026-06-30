@@ -1,0 +1,169 @@
+use std::path::PathBuf;
+
+use anyhow::{Context, Result, anyhow};
+use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
+use rebecca::core::inspect::{
+    SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
+};
+use rebecca::core::scan_cache::ScanCacheStore;
+use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
+
+use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
+use crate::clean_view::ScanCacheProgressSummary;
+use crate::cli::OutputMode;
+use crate::output::{
+    HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
+    print_command_success_with_api_version, print_workflow_success_payload,
+};
+use crate::purge::{PROJECT_ARTIFACT_RULES, resolve_roots};
+use crate::purge_view::ProjectArtifactInsightReport;
+use crate::runtime::CliRuntime;
+use crate::{output, render};
+
+#[derive(Debug)]
+pub struct InspectSpaceOptions {
+    pub output_mode: OutputMode,
+    pub no_progress: bool,
+    pub scan_cache: bool,
+    pub roots: Vec<PathBuf>,
+    pub top_limit: usize,
+}
+
+#[derive(Debug)]
+pub struct InspectArtifactsOptions {
+    pub output_mode: OutputMode,
+    pub no_progress: bool,
+    pub scan_cache: bool,
+    pub roots: Vec<PathBuf>,
+    pub max_depth: Option<usize>,
+    pub min_age_days: Option<u64>,
+    pub artifacts: Vec<String>,
+    pub exclude_paths: Vec<PathBuf>,
+    pub command: &'static str,
+}
+
+pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRuntime) -> Result<()> {
+    let _progress_enabled = options.output_mode.is_human() && !options.no_progress;
+    let runtime_config = load_runtime_config()?;
+    let roots = resolve_space_roots(options.roots)?;
+    let mut request = SpaceInsightRequest::new(roots).with_top_limit(options.top_limit.max(1));
+    if options.scan_cache {
+        request = request.with_scan_cache(SpaceInsightScanCache::new(
+            ScanCacheStore::from_app_paths(&runtime_config.app_paths),
+            runtime_config.scan_cache_policy,
+        ));
+    }
+
+    let report = inspect_space_core(&request, runtime.cancellation())?;
+    print_command_success_with_api_version(
+        output::API_VERSION_V2,
+        "inspect space",
+        "inspect-space",
+        options.output_mode,
+        || &report,
+        || render::inspect::print_space_report(&report),
+    )
+}
+
+pub(crate) fn artifacts_with_runtime(
+    options: InspectArtifactsOptions,
+    runtime: &CliRuntime,
+) -> Result<()> {
+    let runtime_config = load_runtime_config()?;
+    artifacts_with_runtime_config(options, runtime_config, runtime)
+}
+
+fn artifacts_with_runtime_config(
+    options: InspectArtifactsOptions,
+    runtime_config: AppRuntimeConfig,
+    runtime: &CliRuntime,
+) -> Result<()> {
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    request.project_artifact_roots = resolve_roots(options.roots, &runtime_config.purge.roots)?;
+    request.project_artifact_max_depth =
+        options.max_depth.unwrap_or(runtime_config.purge.max_depth);
+    request.project_artifact_min_age_days = options
+        .min_age_days
+        .unwrap_or(runtime_config.purge.min_age_days);
+    request.project_artifact_selectors = options.artifacts;
+
+    run_workflow_with_runtime_config(
+        WorkflowRunOptions {
+            request,
+            rules: PROJECT_ARTIFACT_RULES,
+            output_mode: options.output_mode,
+            yes: false,
+            no_progress: options.no_progress,
+            scan_cache: options.scan_cache,
+            exclude_paths: options.exclude_paths,
+            output_contract: WorkflowOutputContract::v2(options.command, "inspect-artifacts"),
+            human_renderer: render::purge::print_project_artifact_insight,
+            success_renderer: print_project_artifact_insight_with_events,
+            cancellation_message: "Project artifact inspection cancelled.",
+            unsupported_execution_message: "project artifact inspection is read-only",
+            confirmation_kind: ConfirmationKind::ProjectArtifacts,
+        },
+        runtime_config,
+        runtime,
+    )
+}
+
+fn print_project_artifact_insight_with_events(
+    plan: &rebecca::core::plan::CleanupPlan,
+    contract: WorkflowOutputContract,
+    mode: OutputMode,
+    human_renderer: HumanPlanRenderer,
+    scan_cache_summary: Option<ScanCacheProgressSummary>,
+    event_writer: Option<NdjsonEventWriter>,
+) -> Result<()> {
+    let insight = ProjectArtifactInsightReport::from_plan(plan);
+    match mode {
+        OutputMode::Human => human_renderer(plan, scan_cache_summary),
+        OutputMode::Json => print_command_success_with_api_version(
+            output::API_VERSION_V2,
+            contract.command,
+            contract.payload_kind,
+            mode,
+            || &insight,
+            || unreachable!("json mode renders machine payload"),
+        ),
+        OutputMode::Ndjson => print_workflow_success_payload(
+            plan,
+            &insight,
+            contract,
+            mode,
+            human_renderer,
+            scan_cache_summary,
+            event_writer,
+        ),
+    }
+}
+
+fn resolve_space_roots(cli_roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    let roots = if cli_roots.is_empty() {
+        vec![std::env::current_dir().context("failed to resolve current directory")?]
+    } else {
+        cli_roots
+    };
+
+    roots
+        .into_iter()
+        .map(resolve_existing_space_root)
+        .collect::<Result<Vec<_>>>()
+}
+
+fn resolve_existing_space_root(root: PathBuf) -> Result<PathBuf> {
+    if root.as_os_str().is_empty() {
+        return Err(anyhow!("inspect root cannot be empty"));
+    }
+
+    let absolute = if root.is_absolute() {
+        root
+    } else {
+        std::env::current_dir()
+            .context("failed to resolve current directory")?
+            .join(root)
+    };
+    Ok(absolute)
+}

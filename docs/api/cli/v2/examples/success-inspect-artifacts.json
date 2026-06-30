@@ -1,0 +1,62 @@
+{
+  "api_version": "rebecca.cli.v2",
+  "kind": "success",
+  "command": "inspect artifacts",
+  "payload_kind": "inspect-artifacts",
+  "generated_at_unix_seconds": 1782660000,
+  "data": {
+    "roots": [
+      "C:\\Users\\example\\workspace"
+    ],
+    "summary": {
+      "total_targets": 1,
+      "allowed_targets": 1,
+      "skipped_targets": 0,
+      "blocked_targets": 0,
+      "failed_targets": 0,
+      "completed_targets": 0,
+      "estimated_bytes": 4,
+      "freed_bytes": 0,
+      "pending_reclaim_bytes": 4,
+      "issue_matrix": [],
+      "warning_matrix": []
+    },
+    "totals_by_root": [
+      {
+        "key": "C:\\Users\\example\\workspace",
+        "label": "C:\\Users\\example\\workspace",
+        "targets": 1,
+        "estimated_bytes": 4
+      }
+    ],
+    "totals_by_project": [
+      {
+        "key": "C:\\Users\\example\\workspace\\app",
+        "label": "C:\\Users\\example\\workspace\\app",
+        "targets": 1,
+        "estimated_bytes": 4
+      }
+    ],
+    "totals_by_artifact": [
+      {
+        "key": "target",
+        "label": "target",
+        "targets": 1,
+        "estimated_bytes": 4
+      }
+    ],
+    "top_targets": [
+      {
+        "rule_id": "windows.project-artifact-target",
+        "artifact": "target",
+        "path": "C:\\Users\\example\\workspace\\app\\target",
+        "project_root": "C:\\Users\\example\\workspace\\app",
+        "status": "allowed",
+        "estimated_bytes": 4,
+        "estimate_source": "fresh-scan",
+        "reason": null
+      }
+    ],
+    "discovery_diagnostics": []
+  }
+}

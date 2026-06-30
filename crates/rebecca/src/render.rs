@@ -1,4 +1,5 @@
 pub(crate) mod clean;
+pub(crate) mod inspect;
 pub(crate) mod purge;
 
 use rebecca::core::EstimateSource;
