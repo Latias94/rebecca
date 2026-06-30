@@ -151,16 +151,16 @@ fn print_project_artifact_insight_with_events(
 fn print_project_artifact_catalog(output_mode: OutputMode) -> Result<()> {
     let catalog = project_artifact_catalog_entries();
 
-    if output_mode.is_json() {
-        return crate::output::print_success("purge", "project-artifact-catalog", &catalog);
-    }
-
-    if output_mode.is_ndjson() {
-        return crate::output::print_success_event("purge", "project-artifact-catalog", &catalog);
-    }
-
-    render::purge::print_project_artifact_catalog(&catalog);
-    Ok(())
+    crate::output::print_command_success(
+        "purge",
+        "project-artifact-catalog",
+        output_mode,
+        || &catalog,
+        || {
+            render::purge::print_project_artifact_catalog(&catalog);
+            Ok(())
+        },
+    )
 }
 
 fn resolve_roots(cli_roots: Vec<PathBuf>, config_roots: &[PathBuf]) -> Result<Vec<PathBuf>> {

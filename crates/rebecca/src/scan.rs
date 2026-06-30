@@ -12,16 +12,14 @@ pub fn run(output_mode: OutputMode, categories: Vec<String>, rules: Vec<String>)
         .filter(|rule| selection.matches_rule(rule))
         .collect::<Vec<_>>();
 
-    if output_mode.is_json() {
-        crate::output::print_success("scan", "rule-catalog", &filtered)?;
-        return Ok(());
-    }
-
-    if output_mode.is_ndjson() {
-        crate::output::print_success_event("scan", "rule-catalog", &filtered)?;
-        return Ok(());
-    }
-
-    crate::output::print_rule_catalog(&filtered);
-    Ok(())
+    crate::output::print_command_success(
+        "scan",
+        "rule-catalog",
+        output_mode,
+        || &filtered,
+        || {
+            crate::output::print_rule_catalog(&filtered);
+            Ok(())
+        },
+    )
 }

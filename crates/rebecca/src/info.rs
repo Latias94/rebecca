@@ -40,14 +40,16 @@ pub fn print_history(output_mode: OutputMode, limit: Option<NonZeroUsize>) -> Re
     let store = HistoryStore::new(paths.history_file);
     let history = HistoryProjection::new(store.load()?, limit);
 
-    if output_mode.is_json() {
-        return crate::output::print_success("history", "history-list", history.entries());
-    }
+    crate::output::print_command_success(
+        "history",
+        "history-list",
+        output_mode,
+        || history.entries(),
+        || print_history_human(&history),
+    )
+}
 
-    if output_mode.is_ndjson() {
-        return crate::output::print_success_event("history", "history-list", history.entries());
-    }
-
+fn print_history_human(history: &HistoryProjection) -> Result<()> {
     if history.is_empty() {
         println!("No cleanup history found.");
         return Ok(());
@@ -165,50 +167,37 @@ fn print_history_issue_targets(targets: &[CleanupTarget]) {
 pub fn print_config_paths(output_mode: OutputMode) -> Result<()> {
     let paths = load_app_paths()?;
 
-    if output_mode.is_json() {
-        let value = config_paths_json(&paths);
-        return crate::output::print_success("config paths", "config-paths", &value);
-    }
-
-    if output_mode.is_ndjson() {
-        let value = config_paths_json(&paths);
-        return crate::output::print_success_event("config paths", "config-paths", &value);
-    }
-
-    for entry in paths.storage_entries() {
-        println!(
-            "{}: {} [{}; {}]",
-            entry.id.label(),
-            entry.path.display(),
-            entry.lifecycle.label(),
-            entry.retention.label()
-        );
-    }
-
-    Ok(())
+    crate::output::print_command_success(
+        "config paths",
+        "config-paths",
+        output_mode,
+        || config_paths_json(&paths),
+        || {
+            for entry in paths.storage_entries() {
+                println!(
+                    "{}: {} [{}; {}]",
+                    entry.id.label(),
+                    entry.path.display(),
+                    entry.lifecycle.label(),
+                    entry.retention.label()
+                );
+            }
+            Ok(())
+        },
+    )
 }
 
 pub fn print_privilege_level(output_mode: OutputMode) -> Result<()> {
-    if output_mode.is_json() {
-        let diagnostic = permission_diagnostic();
-        return crate::output::print_success(
-            "doctor permissions",
-            "permissions-diagnostic",
-            &diagnostic,
-        );
-    }
-
-    if output_mode.is_ndjson() {
-        let diagnostic = permission_diagnostic();
-        return crate::output::print_success_event(
-            "doctor permissions",
-            "permissions-diagnostic",
-            &diagnostic,
-        );
-    }
-
-    println!("Privilege level: {}", current_privilege_label());
-    Ok(())
+    crate::output::print_command_success(
+        "doctor permissions",
+        "permissions-diagnostic",
+        output_mode,
+        permission_diagnostic,
+        || {
+            println!("Privilege level: {}", current_privilege_label());
+            Ok(())
+        },
+    )
 }
 
 fn permission_diagnostic() -> PermissionDiagnostic<'static> {

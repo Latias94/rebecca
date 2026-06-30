@@ -24,16 +24,16 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
     };
     let report = purge_app_cache(&paths, mode)?;
 
-    if options.output_mode.is_json() {
-        return crate::output::print_success("cache purge", "cache-purge-report", &report);
-    }
-
-    if options.output_mode.is_ndjson() {
-        return crate::output::print_success_event("cache purge", "cache-purge-report", &report);
-    }
-
-    print!("{}", render_cache_purge_report(&report)?);
-    Ok(())
+    crate::output::print_command_success(
+        "cache purge",
+        "cache-purge-report",
+        options.output_mode,
+        || &report,
+        || {
+            print!("{}", render_cache_purge_report(&report)?);
+            Ok(())
+        },
+    )
 }
 
 fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {

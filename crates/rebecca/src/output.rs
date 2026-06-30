@@ -98,6 +98,31 @@ pub(crate) fn print_success<T: Serialize + ?Sized>(
     Ok(())
 }
 
+pub(crate) fn print_command_success<T, P, H>(
+    command: &'static str,
+    payload_kind: &'static str,
+    mode: OutputMode,
+    payload: P,
+    print_human: H,
+) -> Result<()>
+where
+    T: Serialize,
+    P: FnOnce() -> T,
+    H: FnOnce() -> Result<()>,
+{
+    match mode {
+        OutputMode::Human => print_human(),
+        OutputMode::Json => {
+            let data = payload();
+            print_success(command, payload_kind, &data)
+        }
+        OutputMode::Ndjson => {
+            let data = payload();
+            print_success_event(command, payload_kind, &data)
+        }
+    }
+}
+
 pub(crate) fn render_error(command: &str, mode: OutputMode, err: &anyhow::Error) {
     if mode.is_human() {
         eprintln!("{err:#}");
