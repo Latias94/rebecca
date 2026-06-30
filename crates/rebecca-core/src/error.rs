@@ -162,6 +162,9 @@ pub enum RebeccaError {
     #[error("invalid rule catalog: {0}")]
     RuleCatalogInvalid(String),
 
+    #[error("invalid safety catalog: {0}")]
+    SafetyCatalogInvalid(String),
+
     #[error("path template expansion failed: {0}")]
     PathExpansionFailed(String),
 

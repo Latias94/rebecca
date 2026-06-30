@@ -1,0 +1,228 @@
+catalog_version = 1
+platform = "windows"
+
+critical_path_prefixes = [
+  "C:/Windows",
+  "C:/Program Files",
+  "C:/Program Files (x86)",
+  "C:/ProgramData",
+  "C:/$Recycle.Bin",
+  "C:/Recovery",
+  "C:/System Volume Information",
+]
+
+steam_install_allowlist = [
+  "appcache/httpcache",
+  "appcache/download",
+  "appcache/librarycache",
+  "appcache/shadercache",
+  "appcache/stats",
+  "appcache/appinfo.vdf",
+  "appcache/localization.vdf",
+  "appcache/packageinfo.vdf",
+  "config/avatarcache",
+  "depotcache",
+  "logs",
+]
+
+steam_library_allowlist = [
+  "steamapps/shadercache",
+  "steamapps/downloading",
+  "steamapps/temp",
+]
+
+[[warning_kinds]]
+id = "active-process"
+description = "The cleaner targets cache data that may be owned by a running application."
+
+[[warning_kinds]]
+id = "broad-discovery"
+description = "The cleaner expands bounded discovery patterns and should be previewed before execution."
+
+[[warning_kinds]]
+id = "privileged-location"
+description = "The cleaner may touch locations that commonly require elevated permissions."
+
+[[protected_categories]]
+id = "credentials"
+description = "credential and password-manager data"
+
+[[protected_categories]]
+id = "vpn-proxy-state"
+description = "VPN and proxy configuration"
+
+[[protected_categories]]
+id = "ai-tool-durable-state"
+description = "AI and coding tool durable state"
+
+[[protected_categories]]
+id = "browser-private-data"
+description = "browser private data"
+
+[[protected_categories]]
+id = "cloud-synced-data"
+description = "cloud-synced user data"
+
+[[protected_categories]]
+id = "container-runtime-state"
+description = "container and VM runtime state"
+
+[[protected_categories]]
+id = "startup-automation"
+description = "startup automation"
+
+[[protected_categories]]
+id = "application-durable-data"
+description = "application durable data"
+
+[maintenance_allowlist]
+sequences = [
+  ["appdata", "local", "temp"],
+  ["microsoft", "windows", "wer", "reportarchive"],
+  ["microsoft", "windows", "wer", "reportqueue"],
+  ["windows", "temp"],
+  ["windows", "prefetch"],
+  ["windows", "softwaredistribution", "download"],
+  ["registry", "cache"],
+  ["registry", "index"],
+  ["registry", "src"],
+  ["git", "db"],
+  ["git", "checkouts"],
+  [".conda", "pkgs"],
+  ["anaconda3", "pkgs"],
+  ["miniconda3", "pkgs"],
+  ["miniforge3", "pkgs"],
+  ["mambaforge", "pkgs"],
+  [".rustup", "downloads"],
+  [".rustup", "tmp"],
+  ["appdata", "local", "mozilla", "sccache"],
+  ["appdata", "local", "go-build"],
+  ["go", "pkg", "mod"],
+  [".android", "cache"],
+  [".android", "build-cache"],
+  ["%android_user_home%", "cache"],
+  ["%android_user_home%", "build-cache"],
+  ["pip", "cache"],
+  ["appdata", "local", "uv", "cache"],
+  ["appdata", "local", "pypoetry", "cache", "cache"],
+  ["appdata", "local", "pypoetry", "cache", "artifacts"],
+  ["npm-cache", "_cacache"],
+  ["appdata", "local", "pnpm", "store"],
+  ["appdata", "local", "yarn", "cache"],
+  [".bun", "install", "cache"],
+  ["appdata", "local", "node", "corepack"],
+  [".nuget", "packages"],
+  ["appdata", "local", "nuget", "v3-cache"],
+  ["appdata", "local", "nuget", "plugins-cache"],
+  ["appdata", "local", "nuget", "cache"],
+  [".gradle", "caches"],
+  [".gradle", "notifications"],
+  [".m2", "repository"],
+]
+
+[[protected_patterns]]
+category = "credentials"
+segments = [".ssh", ".gnupg", "1password", "bitwarden"]
+leaf_names = ["credentials.toml", "key4.db", "logins.json"]
+sequences = [
+  ["microsoft", "credentials"],
+  ["microsoft", "protect"],
+  ["microsoft", "crypto"],
+  ["microsoft", "vault"],
+]
+
+[[protected_patterns]]
+category = "vpn-proxy-state"
+segments = [
+  "clash",
+  "clash verge",
+  "tailscale",
+  "wireguard",
+  "v2ray",
+  "shadowsocks",
+  "nekoray",
+  "sing-box",
+]
+
+[[protected_patterns]]
+category = "ai-tool-durable-state"
+segments = [
+  ".codex",
+  ".claude",
+  ".cursor",
+  ".ollama",
+  "claude",
+  "cursor",
+  "ollama",
+  "chatgpt",
+]
+sequences = [
+  ["code", "user"],
+]
+
+[[protected_patterns]]
+category = "cloud-synced-data"
+segments = [
+  "onedrive",
+  "icloud drive",
+  "icloud photos",
+  "dropbox",
+  "google drive",
+  "box",
+  "mega",
+]
+
+[[protected_patterns]]
+category = "container-runtime-state"
+segments = [
+  ".docker",
+  ".podman",
+  ".kube",
+  ".wslconfig",
+  "docker",
+  "docker desktop",
+  "podman",
+  "rancher desktop",
+  "orbstack",
+]
+
+[[protected_patterns]]
+category = "startup-automation"
+sequences = [
+  ["microsoft", "windows", "start menu", "programs", "startup"],
+]
+
+[[protected_patterns]]
+category = "application-durable-data"
+segments = ["local storage", "indexeddb", "service worker", "network"]
+sequences = [
+  ["steam", "userdata"],
+  ["steamapps", "common"],
+  ["steamapps", "workshop"],
+  ["steamapps", "compatdata"],
+  ["pypoetry", "cache", "virtualenvs"],
+  [".conda", "envs"],
+  ["anaconda3", "envs"],
+  ["miniconda3", "envs"],
+  ["miniforge3", "envs"],
+  ["mambaforge", "envs"],
+  [".rustup", "toolchains"],
+  [".rustup", "settings.toml"],
+  [".rustup", "overrides"],
+  [".rustup", "update-hashes"],
+  ["%rustup_home%", "toolchains"],
+  ["%rustup_home%", "settings.toml"],
+  ["%rustup_home%", "overrides"],
+  ["%rustup_home%", "update-hashes"],
+  [".android", "avd"],
+  [".android", "adbkey"],
+  [".android", "adbkey.pub"],
+  [".android", "debug.keystore"],
+  [".android", "repositories.cfg"],
+  ["android", "sdk", "platforms"],
+  ["android", "sdk", "platform-tools"],
+  ["android", "sdk", "build-tools"],
+  ["android", "sdk", "system-images"],
+  ["android", "sdk", "ndk"],
+  ["android", "sdk", "licenses"],
+]

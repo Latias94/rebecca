@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::ProtectedCategory;
+use crate::safety_catalog::{SafetyCategory, SafetyKnowledge};
 
 const ELECTRON_CACHE_APPS: &[&str] = &[
     "code",
@@ -56,30 +57,6 @@ pub(super) fn contains_relative_control_segment(normalized: &str) -> bool {
         .any(|segment| matches!(segment, "." | ".."))
 }
 
-pub(super) fn is_allowed_steam_install_catalog_shape(normalized: &str) -> bool {
-    matches!(
-        normalized,
-        "appcache/httpcache"
-            | "appcache/download"
-            | "appcache/librarycache"
-            | "appcache/shadercache"
-            | "appcache/stats"
-            | "appcache/appinfo.vdf"
-            | "appcache/localization.vdf"
-            | "appcache/packageinfo.vdf"
-            | "config/avatarcache"
-            | "depotcache"
-            | "logs"
-    )
-}
-
-pub(super) fn is_allowed_steam_library_catalog_shape(normalized: &str) -> bool {
-    matches!(
-        normalized,
-        "steamapps/shadercache" | "steamapps/downloading" | "steamapps/temp"
-    )
-}
-
 pub(super) fn contains_traversal(normalized: &str) -> bool {
     normalized
         .split('/')
@@ -113,18 +90,9 @@ pub(super) fn is_root(normalized: &str) -> bool {
     false
 }
 
-pub(super) fn is_windows_critical_path(lower: &str) -> bool {
-    const PROTECTED_PREFIXES: &[&str] = &[
-        "c:/windows",
-        "c:/program files",
-        "c:/program files (x86)",
-        "c:/programdata",
-        "c:/$recycle.bin",
-        "c:/recovery",
-        "c:/system volume information",
-    ];
-
-    PROTECTED_PREFIXES
+pub(super) fn is_windows_critical_path(lower: &str, knowledge: &SafetyKnowledge) -> bool {
+    knowledge
+        .critical_path_prefixes()
         .iter()
         .any(|prefix| same_or_descendant(lower, prefix))
 }
@@ -137,42 +105,37 @@ pub(super) fn is_user_profile_root(lower: &str) -> bool {
     )
 }
 
-pub(super) fn is_allowlisted_maintenance_path(path: &NormalizedPath) -> bool {
+pub(super) fn is_allowlisted_maintenance_path(
+    path: &NormalizedPath,
+    knowledge: &SafetyKnowledge,
+) -> bool {
     let segments = path.segments();
 
-    is_chromium_cache_path(&segments)
+    knowledge.maintenance_allowlist().matches(&segments)
+        || is_chromium_cache_path(&segments)
         || is_firefox_cache_path(&segments)
         || is_electron_cache_path(&segments)
         || is_jetbrains_cache_path(&segments)
-        || is_cargo_cache_path(&segments)
         || is_ccache_cache_path(&segments)
-        || is_conda_cache_path(&segments)
-        || is_rustup_cache_path(&segments)
-        || is_sccache_cache_path(&segments)
-        || is_go_cache_path(&segments)
         || is_android_cache_path(&segments)
         || is_domestic_desktop_app_cache_path(&segments)
-        || is_python_package_manager_cache_path(&segments)
-        || is_node_package_manager_cache_path(&segments)
-        || is_dotnet_package_manager_cache_path(&segments)
-        || is_gradle_cache_path(&segments)
-        || is_maven_cache_path(&segments)
-        || is_windows_maintenance_cache_path(&segments)
-        || is_known_temp_or_report_path(&segments)
 }
 
-pub(super) fn protected_category(path: &NormalizedPath) -> Option<ProtectedCategory> {
+pub(super) fn protected_category(
+    path: &NormalizedPath,
+    knowledge: &SafetyKnowledge,
+) -> Option<ProtectedCategory> {
     let segments = path.segments();
 
-    if is_credential_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::Credentials, &segments) {
         return Some(ProtectedCategory::Credentials);
     }
 
-    if is_vpn_or_proxy_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::VpnProxyState, &segments) {
         return Some(ProtectedCategory::VpnProxyState);
     }
 
-    if is_ai_tool_durable_state_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::AiToolDurableState, &segments) {
         return Some(ProtectedCategory::AiToolDurableState);
     }
 
@@ -180,23 +143,36 @@ pub(super) fn protected_category(path: &NormalizedPath) -> Option<ProtectedCateg
         return Some(ProtectedCategory::BrowserPrivateData);
     }
 
-    if is_cloud_synced_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::CloudSyncedData, &segments) {
         return Some(ProtectedCategory::CloudSyncedData);
     }
 
-    if is_container_runtime_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::ContainerRuntimeState, &segments) {
         return Some(ProtectedCategory::ContainerRuntimeState);
     }
 
-    if is_startup_automation_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::StartupAutomation, &segments) {
         return Some(ProtectedCategory::StartupAutomation);
     }
 
-    if is_application_durable_data_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::ApplicationDurableData, &segments)
+        || is_application_durable_data_path(&segments)
+    {
         return Some(ProtectedCategory::ApplicationDurableData);
     }
 
     None
+}
+
+fn catalog_matches_category(
+    knowledge: &SafetyKnowledge,
+    category: SafetyCategory,
+    segments: &[&str],
+) -> bool {
+    knowledge
+        .protected_patterns()
+        .iter()
+        .any(|pattern| pattern.category() == category && pattern.matches(segments))
 }
 
 pub(super) fn is_app_leftover_cache_path(path: &NormalizedPath) -> bool {
@@ -402,14 +378,6 @@ fn is_tencent_video_cache_path(segments: &[&str]) -> bool {
     has_sequence(segments, &["tencent", "qqlive", "image"])
 }
 
-fn is_cargo_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["registry", "cache"])
-        || has_sequence(segments, &["registry", "index"])
-        || has_sequence(segments, &["registry", "src"])
-        || has_sequence(segments, &["git", "db"])
-        || has_sequence(segments, &["git", "checkouts"])
-}
-
 fn is_ccache_cache_path(segments: &[&str]) -> bool {
     ccache_root_index(segments).is_some_and(|index| {
         segments.get(index + 1).is_some_and(|segment| {
@@ -421,80 +389,6 @@ fn is_ccache_cache_path(segments: &[&str]) -> bool {
                 })
         })
     })
-}
-
-fn is_go_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["appdata", "local", "go-build"])
-        || has_sequence(segments, &["go", "pkg", "mod"])
-}
-
-fn is_rustup_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".rustup", "downloads"]) || has_sequence(segments, &[".rustup", "tmp"])
-}
-
-fn is_sccache_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["appdata", "local", "mozilla", "sccache"])
-}
-
-fn is_conda_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".conda", "pkgs"])
-        || has_sequence(segments, &["anaconda3", "pkgs"])
-        || has_sequence(segments, &["miniconda3", "pkgs"])
-        || has_sequence(segments, &["miniforge3", "pkgs"])
-        || has_sequence(segments, &["mambaforge", "pkgs"])
-}
-
-fn is_python_package_manager_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["pip", "cache"])
-        || has_sequence(segments, &["appdata", "local", "uv", "cache"])
-        || has_sequence(
-            segments,
-            &["appdata", "local", "pypoetry", "cache", "cache"],
-        )
-        || has_sequence(
-            segments,
-            &["appdata", "local", "pypoetry", "cache", "artifacts"],
-        )
-}
-
-fn is_npm_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["npm-cache", "_cacache"])
-}
-
-fn is_node_package_manager_cache_path(segments: &[&str]) -> bool {
-    is_npm_cache_path(segments)
-        || has_sequence(segments, &["appdata", "local", "pnpm", "store"])
-        || has_sequence(segments, &["appdata", "local", "yarn", "cache"])
-        || has_sequence(segments, &[".bun", "install", "cache"])
-        || has_sequence(segments, &["appdata", "local", "node", "corepack"])
-}
-
-fn is_dotnet_package_manager_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".nuget", "packages"])
-        || has_sequence(segments, &["appdata", "local", "nuget", "v3-cache"])
-        || has_sequence(segments, &["appdata", "local", "nuget", "plugins-cache"])
-        || has_sequence(segments, &["appdata", "local", "nuget", "cache"])
-}
-
-fn is_gradle_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".gradle", "caches"])
-        || has_sequence(segments, &[".gradle", "notifications"])
-}
-
-fn is_maven_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".m2", "repository"])
-}
-
-fn is_known_temp_or_report_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["appdata", "local", "temp"])
-        || has_sequence(segments, &["microsoft", "windows", "wer", "reportarchive"])
-        || has_sequence(segments, &["microsoft", "windows", "wer", "reportqueue"])
-}
-
-fn is_windows_maintenance_cache_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["windows", "temp"])
-        || has_sequence(segments, &["windows", "prefetch"])
-        || has_sequence(segments, &["windows", "softwaredistribution", "download"])
 }
 
 fn is_specific_leftover_app_segment(segment: &str) -> bool {
@@ -522,39 +416,6 @@ fn chromium_cache_tail_is_allowed(segments: &[&str], start: usize) -> bool {
         (Some(profile), Some(cache))
             if profile.starts_with("profile ") && is_browser_cache_segment(cache)
     )
-}
-
-fn is_credential_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["microsoft", "credentials"])
-        || has_sequence(segments, &["microsoft", "protect"])
-        || has_sequence(segments, &["microsoft", "crypto"])
-        || has_sequence(segments, &["microsoft", "vault"])
-        || has_any_segment(segments, &[".ssh", ".gnupg", "1password", "bitwarden"])
-        || segments
-            .last()
-            .is_some_and(|leaf| matches!(*leaf, "credentials.toml" | "key4.db" | "logins.json"))
-}
-
-fn is_vpn_or_proxy_path(segments: &[&str]) -> bool {
-    has_any_segment(
-        segments,
-        &[
-            "clash",
-            "clash verge",
-            "tailscale",
-            "wireguard",
-            "v2ray",
-            "shadowsocks",
-            "nekoray",
-            "sing-box",
-        ],
-    )
-}
-
-fn is_ai_tool_durable_state_path(segments: &[&str]) -> bool {
-    has_any_segment(segments, &[".codex", ".claude", ".cursor", ".ollama"])
-        || has_any_segment(segments, &["claude", "cursor", "ollama", "chatgpt"])
-        || has_sequence(segments, &["code", "user"])
 }
 
 fn is_browser_private_data_path(segments: &[&str]) -> bool {
@@ -591,60 +452,8 @@ fn is_browser_private_data_path(segments: &[&str]) -> bool {
     })
 }
 
-fn is_cloud_synced_path(segments: &[&str]) -> bool {
-    has_any_segment(
-        segments,
-        &[
-            "onedrive",
-            "icloud drive",
-            "icloud photos",
-            "dropbox",
-            "google drive",
-            "box",
-            "mega",
-        ],
-    )
-}
-
-fn is_container_runtime_path(segments: &[&str]) -> bool {
-    has_any_segment(
-        segments,
-        &[
-            ".docker",
-            ".podman",
-            ".kube",
-            ".wslconfig",
-            "docker",
-            "docker desktop",
-            "podman",
-            "rancher desktop",
-            "orbstack",
-        ],
-    )
-}
-
-fn is_startup_automation_path(segments: &[&str]) -> bool {
-    has_sequence(
-        segments,
-        &["microsoft", "windows", "start menu", "programs", "startup"],
-    )
-}
-
 fn is_application_durable_data_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &["steam", "userdata"])
-        || has_sequence(segments, &["steamapps", "common"])
-        || has_sequence(segments, &["steamapps", "workshop"])
-        || has_sequence(segments, &["steamapps", "compatdata"])
-        || has_sequence(segments, &["pypoetry", "cache", "virtualenvs"])
-        || is_domestic_desktop_app_durable_state_path(segments)
-        || is_ccache_durable_state_path(segments)
-        || is_conda_durable_state_path(segments)
-        || is_rustup_durable_state_path(segments)
-        || is_android_durable_state_path(segments)
-        || has_any_segment(
-            segments,
-            &["local storage", "indexeddb", "service worker", "network"],
-        )
+    is_domestic_desktop_app_durable_state_path(segments) || is_ccache_durable_state_path(segments)
 }
 
 fn is_domestic_desktop_app_durable_state_path(segments: &[&str]) -> bool {
@@ -673,39 +482,6 @@ fn is_ccache_durable_state_path(segments: &[&str]) -> bool {
     })
 }
 
-fn is_conda_durable_state_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".conda", "envs"])
-        || has_sequence(segments, &["anaconda3", "envs"])
-        || has_sequence(segments, &["miniconda3", "envs"])
-        || has_sequence(segments, &["miniforge3", "envs"])
-        || has_sequence(segments, &["mambaforge", "envs"])
-}
-
-fn is_rustup_durable_state_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".rustup", "toolchains"])
-        || has_sequence(segments, &[".rustup", "settings.toml"])
-        || has_sequence(segments, &[".rustup", "overrides"])
-        || has_sequence(segments, &[".rustup", "update-hashes"])
-        || has_sequence(segments, &["%rustup_home%", "toolchains"])
-        || has_sequence(segments, &["%rustup_home%", "settings.toml"])
-        || has_sequence(segments, &["%rustup_home%", "overrides"])
-        || has_sequence(segments, &["%rustup_home%", "update-hashes"])
-}
-
-fn is_android_durable_state_path(segments: &[&str]) -> bool {
-    has_sequence(segments, &[".android", "avd"])
-        || has_sequence(segments, &[".android", "adbkey"])
-        || has_sequence(segments, &[".android", "adbkey.pub"])
-        || has_sequence(segments, &[".android", "debug.keystore"])
-        || has_sequence(segments, &[".android", "repositories.cfg"])
-        || has_sequence(segments, &["android", "sdk", "platforms"])
-        || has_sequence(segments, &["android", "sdk", "platform-tools"])
-        || has_sequence(segments, &["android", "sdk", "build-tools"])
-        || has_sequence(segments, &["android", "sdk", "system-images"])
-        || has_sequence(segments, &["android", "sdk", "ndk"])
-        || has_sequence(segments, &["android", "sdk", "licenses"])
-}
-
 fn same_or_descendant(path: &str, prefix: &str) -> bool {
     path == prefix
         || path
@@ -729,12 +505,6 @@ fn find_sequence(segments: &[&str], sequence: &[&str]) -> Option<usize> {
 
 fn find_segment(segments: &[&str], needle: &str) -> Option<usize> {
     segments.iter().position(|segment| *segment == needle)
-}
-
-fn has_any_segment(segments: &[&str], needles: &[&str]) -> bool {
-    segments
-        .iter()
-        .any(|segment| needles.iter().any(|needle| segment == needle))
 }
 
 fn ccache_root_index(segments: &[&str]) -> Option<usize> {

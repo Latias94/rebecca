@@ -159,7 +159,10 @@ overlaps Rebecca-owned storage.
 
 Rebecca has built-in protected categories for credentials, browser private
 data, cloud-synced data, application durable data, and other sensitive
-locations. Users can add their own absolute protected paths when a cache-like
+locations. The built-in category and warning knowledge comes from the audited
+Windows safety catalog, while runtime checks still protect filesystem roots,
+path traversal, Rebecca-owned storage, user-profile roots, and reparse-like
+paths. Users can add their own absolute protected paths when a cache-like
 directory should survive cleanup.
 
 Long-lived protection belongs in `config.toml`:
@@ -181,10 +184,11 @@ rebecca purge --root . --exclude "$PWD\target"
 ```
 
 Config and CLI protection feed the same `ProtectionPolicy` used by planning and
-execution. If a cleanup target equals, contains, or is contained by a protected
-path, the target is blocked with the `safety-policy-blocked` reason code before
-scanning or deletion proceeds. This applies to regular cleanup, app-leftovers
-cleanup, and project artifact purge.
+execution, and they are additive to the built-in safety catalog rather than a
+replacement for it. If a cleanup target equals, contains, or is contained by a
+protected path, the target is blocked with the `safety-policy-blocked` reason
+code before scanning or deletion proceeds. This applies to regular cleanup,
+app-leftovers cleanup, and project artifact purge.
 
 ## Project Artifact Purge Boundary
 

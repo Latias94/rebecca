@@ -1,8 +1,9 @@
 use rebecca_core::{
     Platform, RebeccaError, Result, RuleDefinition, RuleSource,
-    manifest::parse_cleaner_manifest_file,
+    manifest::parse_cleaner_manifest_file_with_safety_knowledge,
     planner::validate_rule_catalog,
     protection::{ProtectionAssessment, ProtectionPolicy},
+    safety_catalog::{SafetyKnowledge, parse_safety_catalog_file},
 };
 
 macro_rules! builtin_rule_files {
@@ -86,11 +87,17 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
     "rules/windows/media-player-cache.toml",
 );
 
+const BUILTIN_SAFETY_CATALOG: (&str, &str) = (
+    "safety/windows.toml",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/safety/windows.toml")),
+);
+
 pub fn builtin_rules() -> Result<Vec<RuleDefinition>> {
     let mut rules = Vec::with_capacity(BUILTIN_RULE_FILES.len());
+    let safety_knowledge = builtin_safety_knowledge()?;
 
     for (path, raw) in BUILTIN_RULE_FILES {
-        rules.extend(parse_rule_file(path, raw)?);
+        rules.extend(parse_rule_file(path, raw, &safety_knowledge)?);
     }
 
     validate_builtin_rule_catalog(&rules)?;
@@ -98,16 +105,25 @@ pub fn builtin_rules() -> Result<Vec<RuleDefinition>> {
     Ok(rules)
 }
 
+pub fn builtin_safety_knowledge() -> Result<SafetyKnowledge> {
+    parse_safety_catalog_file(BUILTIN_SAFETY_CATALOG.0, BUILTIN_SAFETY_CATALOG.1)
+}
+
 pub fn validate_builtin_rules() -> Result<()> {
     builtin_rules().map(|_| ())
 }
 
-fn parse_rule_file(path: &str, raw: &str) -> Result<Vec<RuleDefinition>> {
-    parse_cleaner_manifest_file(path, raw)
+fn parse_rule_file(
+    path: &str,
+    raw: &str,
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<Vec<RuleDefinition>> {
+    parse_cleaner_manifest_file_with_safety_knowledge(path, raw, safety_knowledge)
 }
 
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
-    let policy = ProtectionPolicy::new();
+    let safety_knowledge = builtin_safety_knowledge()?;
+    let policy = ProtectionPolicy::new().with_safety_knowledge(&safety_knowledge);
 
     for rule in rules {
         if rule.platform != Platform::Windows {
@@ -171,14 +187,17 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
 mod tests {
     use std::collections::HashSet;
 
+    use rebecca_core::safety_catalog::default_safety_knowledge;
     use rebecca_core::{
         Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel,
     };
 
-    use super::{builtin_rules, parse_rule_file};
+    use super::{builtin_rules, builtin_safety_knowledge, parse_rule_file};
 
     fn parse_single_rule_file(path: &str, raw: &str) -> RuleDefinition {
-        let rules = parse_rule_file(path, raw).expect("test rule should parse");
+        let safety_knowledge =
+            builtin_safety_knowledge().expect("built-in safety catalog should load");
+        let rules = parse_rule_file(path, raw, &safety_knowledge).expect("test rule should parse");
         assert_eq!(rules.len(), 1);
         rules.into_iter().next().unwrap()
     }
@@ -197,6 +216,50 @@ mod tests {
     #[test]
     fn builtin_rules_have_required_metadata() {
         super::validate_builtin_rules().expect("built-in rules should be valid");
+    }
+
+    #[test]
+    fn builtin_safety_catalog_exposes_warning_and_category_knowledge() {
+        let knowledge = builtin_safety_knowledge().expect("built-in safety catalog should load");
+
+        assert!(
+            knowledge
+                .warning_kinds()
+                .iter()
+                .any(|warning| warning.id() == "active-process")
+        );
+        assert!(
+            knowledge
+                .categories()
+                .iter()
+                .any(|category| category.id().label() == "application-durable-data")
+        );
+        assert!(knowledge.is_allowed_steam_install_target("appcache/httpcache"));
+        assert!(knowledge.is_allowed_steam_library_target("steamapps/downloading"));
+    }
+
+    #[test]
+    fn builtin_safety_catalog_matches_core_default_catalog() {
+        let builtin = builtin_safety_knowledge().expect("built-in safety catalog should load");
+        let core_default = default_safety_knowledge();
+
+        assert_eq!(builtin.platform(), core_default.platform());
+        assert_eq!(
+            builtin
+                .warning_kinds()
+                .iter()
+                .map(|warning| warning.id())
+                .collect::<Vec<_>>(),
+            core_default
+                .warning_kinds()
+                .iter()
+                .map(|warning| warning.id())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            builtin.critical_path_prefixes(),
+            core_default.critical_path_prefixes()
+        );
     }
 
     #[test]
@@ -336,6 +399,8 @@ mod tests {
 
     #[test]
     fn catalog_parser_rejects_unknown_fields() {
+        let safety_knowledge =
+            builtin_safety_knowledge().expect("built-in safety catalog should load");
         let err = parse_rule_file(
             "test.toml",
             r#"
@@ -356,6 +421,7 @@ source = "owned"
 license = "project-owned"
 notes = "test"
 "#,
+            &safety_knowledge,
         )
         .unwrap_err();
 
@@ -504,6 +570,8 @@ notes = "test"
 
     #[test]
     fn catalog_parser_rejects_non_windows_platforms() {
+        let safety_knowledge =
+            builtin_safety_knowledge().expect("built-in safety catalog should load");
         let err = parse_rule_file(
             "test.toml",
             r#"
@@ -523,6 +591,7 @@ source = "owned"
 license = "project-owned"
 notes = "test"
 "#,
+            &safety_knowledge,
         )
         .unwrap_err();
 

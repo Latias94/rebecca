@@ -31,7 +31,9 @@ The current design is safety-first:
   and `clean --yes` shares the same planner before execution.
 - `apps scan` and `apps clean` share the planner through an app-leftovers
   workflow that is separate from full uninstall behavior.
-- The planner validates paths through `rebecca-core::protection::ProtectionPolicy`.
+- The planner validates paths through `rebecca-core::protection::ProtectionPolicy`,
+  which combines the auditable safety catalog with runtime-only overlap and
+  filesystem checks.
 - The executor revalidates executable targets through the same policy before a
   backend delete runs, then records deterministic outcomes: protected targets
   become `safety-policy-blocked`, disappeared targets become
@@ -40,8 +42,9 @@ The current design is safety-first:
 - Empty paths, traversal, filesystem roots, critical Windows paths, user profile
   roots, protected categories, Rebecca-owned storage, and existing reparse-like
   paths are blocked.
-- Built-in rules are typed TOML, Windows-scoped, project-owned, and validated
-  against the shared protection model at load time.
+- Built-in rules are Cleaner Manifest v1 TOML, Windows-scoped, project-owned,
+  and validated against the shared protection model and safety catalog at load
+  time.
 - Default execution moves files, or direct child entries of directory targets,
   to the Windows Recycle Bin.
 - History stores request metadata, target paths, byte counts, statuses, reason
@@ -79,6 +82,9 @@ flows, optimize flows, disk mapping, and broad orphan-data cleanup.
 
 Cleanup planning routes target paths through `ProtectionPolicy`, with
 `crates/rebecca-core/src/safety.rs` preserving the older compatibility wrapper.
+The policy consumes compiled `SafetyKnowledge` from
+`crates/rebecca-rules/safety/windows.toml`; `rebecca-core` also embeds the same
+catalog shape so library callers get safe defaults without the rules crate.
 
 The policy blocks:
 
@@ -145,7 +151,11 @@ rules. These are narrow subpaths, not broad app roots:
   `AppData\Local`, `AppData\Roaming`, or `AppData\LocalLow`.
 
 The allowlist exists so protected categories can be conservative without
-blocking known rebuildable caches.
+blocking known rebuildable caches. Pure lists and stable relative target
+allowlists live in the safety catalog; dynamic checks such as traversal,
+filesystem roots, Rebecca-owned storage overlap, user-protected path overlap,
+reparse-point detection, and structured app-specific cache boundaries remain in
+Rust.
 
 ## App Leftovers Boundary
 
@@ -163,7 +173,10 @@ system-owned install roots.
 
 ## Protected Categories
 
-`ProtectionPolicy` currently blocks these categories:
+`ProtectionPolicy` currently blocks these categories. Category descriptions and
+simple segment or sequence matchers are declared in the safety catalog, while
+browser profile boundaries, ccache bucket checks, and domestic desktop-app
+cache-vs-state boundaries remain code-level structural checks.
 
 | Category | Examples |
 |----------|----------|
@@ -183,11 +196,14 @@ delete durable user data are not.
 ## Rule Catalog Governance
 
 Built-in rules live under `crates/rebecca-rules/rules/windows/` and are embedded
-from TOML files. The catalog loader and validators enforce:
+from Cleaner Manifest v1 TOML files. The safety catalog lives under
+`crates/rebecca-rules/safety/windows.toml`. The loaders and validators enforce:
 
-- one typed `RuleDefinition` per file;
+- `manifest_version = 1` for rule manifests and `catalog_version = 1` for the
+  safety catalog;
 - valid TOML with unknown fields rejected;
 - non-empty rule id, category, name, provenance, and target path;
+- rule warning kinds that exist in the safety catalog;
 - unique rule ids and target specs;
 - Windows platform and `windows.` id prefix for built-ins;
 - non-empty restore hints;
@@ -279,6 +295,9 @@ Focused coverage currently includes:
 - `crates/rebecca-core/tests/safety_policy.rs` for path validation, protected
   categories, allowlisted maintenance paths, and Rebecca-owned storage
   protection, including domestic app cache leaves and unsafe near-misses;
+- `crates/rebecca-core/tests/safety_catalog.rs` for safety catalog versioning,
+  category completeness, warning-kind uniqueness, and data-driven matcher
+  coverage;
 - `crates/rebecca-core/tests/planner.rs` for rule selection, target expansion,
   scan-cache behavior, protected storage blocking, protected category blocking,
   Steam target behavior, and app-leftover planning;

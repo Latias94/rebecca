@@ -15,6 +15,7 @@ files. Keep each rule small, explicit, and easy to audit.
 - Warnings are declared as stable warning-kind strings in `warnings = [...]`.
   They are part of the planner-ready rule definition and should be reserved for
   user-visible gates such as active-process checks or broad-discovery notices.
+  Warning kinds must be declared in `crates/rebecca-rules/safety/windows.toml`.
 
 ## Current Built-in Shape
 

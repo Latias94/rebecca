@@ -213,6 +213,9 @@ fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
             rebecca::core::RebeccaError::RuleCatalogInvalid(_) => {
                 ("rule-catalog-invalid", "Rule catalog invalid")
             }
+            rebecca::core::RebeccaError::SafetyCatalogInvalid(_) => {
+                ("safety-catalog-invalid", "Safety catalog invalid")
+            }
             rebecca::core::RebeccaError::Json(_) => ("json-error", "JSON processing failed"),
             rebecca::core::RebeccaError::Io(_) => ("io-error", "I/O failed"),
             rebecca::core::RebeccaError::UserDirsUnavailable => {

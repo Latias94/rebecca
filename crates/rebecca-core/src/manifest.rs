@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::{
     Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleTargetSpec, SafetyLevel,
+    safety_catalog::{SafetyKnowledge, default_safety_knowledge},
 };
 
 const CLEANER_MANIFEST_VERSION: u16 = 1;
@@ -61,14 +62,26 @@ enum ManifestTarget {
 }
 
 pub fn parse_cleaner_manifest_file(path: &str, raw: &str) -> Result<Vec<RuleDefinition>> {
+    parse_cleaner_manifest_file_with_safety_knowledge(path, raw, default_safety_knowledge())
+}
+
+pub fn parse_cleaner_manifest_file_with_safety_knowledge(
+    path: &str,
+    raw: &str,
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<Vec<RuleDefinition>> {
     let manifest = toml::from_str::<CleanerManifest>(raw).map_err(|err| {
         RebeccaError::RuleCatalogInvalid(format!("{path} is invalid cleaner manifest data: {err}"))
     })?;
 
-    compile_cleaner_manifest(path, manifest)
+    compile_cleaner_manifest(path, manifest, safety_knowledge)
 }
 
-fn compile_cleaner_manifest(path: &str, manifest: CleanerManifest) -> Result<Vec<RuleDefinition>> {
+fn compile_cleaner_manifest(
+    path: &str,
+    manifest: CleanerManifest,
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<Vec<RuleDefinition>> {
     if manifest.manifest_version != CLEANER_MANIFEST_VERSION {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
             "{path} uses unsupported cleaner manifest version {}; expected {CLEANER_MANIFEST_VERSION}",
@@ -76,7 +89,7 @@ fn compile_cleaner_manifest(path: &str, manifest: CleanerManifest) -> Result<Vec
         )));
     }
 
-    validate_warnings(path, &manifest.id, &manifest.warnings)?;
+    validate_warnings(path, &manifest.id, &manifest.warnings, safety_knowledge)?;
 
     if manifest.options.is_empty() {
         if manifest.targets.is_empty() {
@@ -134,6 +147,7 @@ fn compile_cleaner_manifest(path: &str, manifest: CleanerManifest) -> Result<Vec
                     restore_hint: restore_hint.as_ref(),
                     warnings: &warnings,
                     provenance: &provenance,
+                    safety_knowledge,
                 },
                 option,
             )
@@ -151,6 +165,7 @@ struct CleanerDefaults<'a> {
     restore_hint: Option<&'a String>,
     warnings: &'a [String],
     provenance: &'a RuleProvenance,
+    safety_knowledge: &'a SafetyKnowledge,
 }
 
 fn compile_option_rule(
@@ -175,6 +190,7 @@ fn compile_option_rule(
         path,
         &format!("{}.{}", defaults.id, option.id),
         &option.warnings,
+        defaults.safety_knowledge,
     )?;
 
     let rule_id = option
@@ -204,11 +220,25 @@ fn compile_option_rule(
     })
 }
 
-fn validate_warnings(path: &str, owner: &str, warnings: &[String]) -> Result<()> {
+fn validate_warnings(
+    path: &str,
+    owner: &str,
+    warnings: &[String],
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<()> {
     for warning in warnings {
         if warning.trim().is_empty() {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
                 "{path} cleaner {owner} contains an empty warning kind"
+            )));
+        }
+        if !safety_knowledge
+            .warning_kinds()
+            .iter()
+            .any(|kind| kind.id().eq_ignore_ascii_case(warning))
+        {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "{path} cleaner {owner} uses unknown warning kind {warning}"
             )));
         }
     }
@@ -344,6 +374,34 @@ notes = "test"
         assert_eq!(rules[0].id, "windows.example-cache");
         assert_eq!(rules[0].name, "Example cache");
         assert_eq!(rules[0].path_templates.len(), 1);
+    }
+
+    #[test]
+    fn manifest_parser_rejects_unknown_warning_kind() {
+        let err = parse_cleaner_manifest_file(
+            "test.toml",
+            r#"
+manifest_version = 1
+id = "windows.example"
+platform = "windows"
+category = "system"
+name = "Example"
+safety_level = "safe"
+warnings = ["unknown-warning"]
+
+[[targets]]
+kind = "template"
+value = "%TEMP%"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "test"
+"#,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("unknown warning kind"));
     }
 
     #[test]

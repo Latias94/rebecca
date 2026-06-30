@@ -8,6 +8,7 @@ use crate::error::{RebeccaError, Result};
 use crate::model::{CleanupWorkflow, PlanRequest, RuleDefinition};
 use crate::plan::CleanupPlan;
 use crate::protection::ProtectionPolicy;
+use crate::safety_catalog::SafetyKnowledge;
 use crate::scan::ScanCancellationToken;
 use crate::scan_cache::{ScanCacheMiss, ScanCachePolicy, ScanCachePruneReport, ScanCacheStore};
 
@@ -85,6 +86,13 @@ impl<'a> PlanBuildContext<'a> {
 
     pub fn with_scan_cache_policy(mut self, scan_cache_policy: ScanCachePolicy) -> Self {
         self.scan_cache_policy = scan_cache_policy;
+        self
+    }
+
+    pub fn with_safety_knowledge(mut self, safety_knowledge: &'a SafetyKnowledge) -> Self {
+        self.protection_policy = self
+            .protection_policy
+            .with_safety_knowledge(safety_knowledge);
         self
     }
 

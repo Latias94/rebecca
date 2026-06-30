@@ -109,6 +109,7 @@ pub(crate) fn run_workflow_with_runtime_config(
     runtime_config: AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<()> {
+    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
     let cancellation = runtime.cancellation();
     let mut progress = PlanProgressReporter::new(
         options.output_mode.is_human() && !options.no_progress,
@@ -126,8 +127,9 @@ pub(crate) fn run_workflow_with_runtime_config(
     let scan_cache_store = options
         .scan_cache
         .then(|| ScanCacheStore::from_app_paths(&runtime_config.app_paths));
-    let mut context =
-        PlanBuildContext::new(cancellation).with_protected_storage(&protected_storage);
+    let mut context = PlanBuildContext::new(cancellation)
+        .with_safety_knowledge(&safety_knowledge)
+        .with_protected_storage(&protected_storage);
     if !protected_paths.is_empty() {
         context = context.with_protected_paths(&protected_paths);
     }
@@ -214,8 +216,9 @@ pub(crate) fn run_workflow_with_runtime_config(
         }
 
         let backend = rebecca::windows::WindowsRecycleBinBackend::new();
-        let mut execution_policy =
-            ProtectionPolicy::new().with_protected_storage(&protected_storage);
+        let mut execution_policy = ProtectionPolicy::new()
+            .with_safety_knowledge(&safety_knowledge)
+            .with_protected_storage(&protected_storage);
         if !protected_paths.is_empty() {
             execution_policy = execution_policy.with_protected_paths(&protected_paths);
         }

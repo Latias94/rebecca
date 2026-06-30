@@ -4,7 +4,6 @@ mod patterns;
 
 use self::patterns::{
     NormalizedPath, contains_relative_control_segment, contains_traversal,
-    is_allowed_steam_install_catalog_shape, is_allowed_steam_library_catalog_shape,
     is_allowlisted_maintenance_path, is_app_leftover_cache_path, is_root, is_user_profile_root,
     is_windows_critical_path, looks_absolute_shape, normalize_raw_shape, normalize_shape_path,
     protected_category,
@@ -13,9 +12,11 @@ use self::patterns::{
 use crate::config::AppStorageEntry;
 use crate::model::RuleTargetSpec;
 use crate::path_overlap::paths_overlap;
+use crate::safety_catalog::{SafetyCategory, SafetyKnowledge, default_safety_knowledge};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProtectionPolicy<'a> {
+    safety_knowledge: &'a SafetyKnowledge,
     protected_storage: Option<&'a [AppStorageEntry]>,
     protected_paths: Option<&'a [PathBuf]>,
 }
@@ -23,9 +24,15 @@ pub struct ProtectionPolicy<'a> {
 impl<'a> ProtectionPolicy<'a> {
     pub fn new() -> Self {
         Self {
+            safety_knowledge: default_safety_knowledge(),
             protected_storage: None,
             protected_paths: None,
         }
+    }
+
+    pub fn with_safety_knowledge(mut self, safety_knowledge: &'a SafetyKnowledge) -> Self {
+        self.safety_knowledge = safety_knowledge;
+        self
     }
 
     pub fn with_protected_storage(mut self, protected_storage: &'a [AppStorageEntry]) -> Self {
@@ -44,6 +51,10 @@ impl<'a> ProtectionPolicy<'a> {
 
     pub fn protected_paths(&self) -> Option<&'a [PathBuf]> {
         self.protected_paths
+    }
+
+    pub fn safety_knowledge(&self) -> &'a SafetyKnowledge {
+        self.safety_knowledge
     }
 
     pub fn assess_path(&self, path: &Path) -> ProtectionAssessment {
@@ -98,18 +109,18 @@ impl<'a> ProtectionPolicy<'a> {
             );
         }
 
-        if is_allowlisted_maintenance_path(&normalized) {
+        if is_allowlisted_maintenance_path(&normalized, self.safety_knowledge) {
             return ProtectionAssessment::Allowed;
         }
 
-        if is_windows_critical_path(&normalized.lower) {
+        if is_windows_critical_path(&normalized.lower, self.safety_knowledge) {
             return blocked(
                 ProtectionBlockKind::WindowsCriticalPath,
                 "critical Windows path is protected".to_string(),
             );
         }
 
-        if let Some(category) = protected_category(&normalized) {
+        if let Some(category) = protected_category(&normalized, self.safety_knowledge) {
             return blocked(
                 ProtectionBlockKind::ProtectedCategory(category),
                 format!("{} is protected", category.description()),
@@ -211,12 +222,12 @@ impl<'a> ProtectionPolicy<'a> {
             RuleTargetSpec::SteamInstallTemplate(template) => self.assess_steam_catalog_shape(
                 "Steam install",
                 template.raw(),
-                is_allowed_steam_install_catalog_shape,
+                SafetyKnowledge::is_allowed_steam_install_target,
             ),
             RuleTargetSpec::SteamLibraryTemplate(template) => self.assess_steam_catalog_shape(
                 "Steam library",
                 template.raw(),
-                is_allowed_steam_library_catalog_shape,
+                SafetyKnowledge::is_allowed_steam_library_target,
             ),
         }
     }
@@ -237,7 +248,7 @@ impl<'a> ProtectionPolicy<'a> {
         &self,
         scope: &'static str,
         raw: &str,
-        is_allowlisted: fn(&str) -> bool,
+        is_allowlisted: fn(&SafetyKnowledge, &str) -> bool,
     ) -> ProtectionAssessment {
         let path = Path::new(raw);
         if let ProtectionAssessment::Blocked(block) = self.assess_relative_target_shape(path) {
@@ -245,7 +256,7 @@ impl<'a> ProtectionPolicy<'a> {
         }
 
         let normalized = normalize_raw_shape(raw);
-        if is_allowlisted(&normalized) {
+        if is_allowlisted(self.safety_knowledge, &normalized) {
             return ProtectionAssessment::Allowed;
         }
 
@@ -326,6 +337,36 @@ pub enum ProtectedCategory {
     ApplicationDurableData,
 }
 
+impl From<SafetyCategory> for ProtectedCategory {
+    fn from(category: SafetyCategory) -> Self {
+        match category {
+            SafetyCategory::Credentials => Self::Credentials,
+            SafetyCategory::VpnProxyState => Self::VpnProxyState,
+            SafetyCategory::AiToolDurableState => Self::AiToolDurableState,
+            SafetyCategory::BrowserPrivateData => Self::BrowserPrivateData,
+            SafetyCategory::CloudSyncedData => Self::CloudSyncedData,
+            SafetyCategory::ContainerRuntimeState => Self::ContainerRuntimeState,
+            SafetyCategory::StartupAutomation => Self::StartupAutomation,
+            SafetyCategory::ApplicationDurableData => Self::ApplicationDurableData,
+        }
+    }
+}
+
+impl From<ProtectedCategory> for SafetyCategory {
+    fn from(category: ProtectedCategory) -> Self {
+        match category {
+            ProtectedCategory::Credentials => Self::Credentials,
+            ProtectedCategory::VpnProxyState => Self::VpnProxyState,
+            ProtectedCategory::AiToolDurableState => Self::AiToolDurableState,
+            ProtectedCategory::BrowserPrivateData => Self::BrowserPrivateData,
+            ProtectedCategory::CloudSyncedData => Self::CloudSyncedData,
+            ProtectedCategory::ContainerRuntimeState => Self::ContainerRuntimeState,
+            ProtectedCategory::StartupAutomation => Self::StartupAutomation,
+            ProtectedCategory::ApplicationDurableData => Self::ApplicationDurableData,
+        }
+    }
+}
+
 impl ProtectedCategory {
     pub fn label(self) -> &'static str {
         match self {
@@ -341,16 +382,18 @@ impl ProtectedCategory {
     }
 
     fn description(self) -> &'static str {
-        match self {
-            Self::Credentials => "credential and password-manager data",
-            Self::VpnProxyState => "VPN and proxy configuration",
-            Self::AiToolDurableState => "AI and coding tool durable state",
-            Self::BrowserPrivateData => "browser private data",
-            Self::CloudSyncedData => "cloud-synced user data",
-            Self::ContainerRuntimeState => "container and VM runtime state",
-            Self::StartupAutomation => "startup automation",
-            Self::ApplicationDurableData => "application durable data",
-        }
+        default_safety_knowledge()
+            .category_description(self.into())
+            .unwrap_or(match self {
+                Self::Credentials => "credential and password-manager data",
+                Self::VpnProxyState => "VPN and proxy configuration",
+                Self::AiToolDurableState => "AI and coding tool durable state",
+                Self::BrowserPrivateData => "browser private data",
+                Self::CloudSyncedData => "cloud-synced user data",
+                Self::ContainerRuntimeState => "container and VM runtime state",
+                Self::StartupAutomation => "startup automation",
+                Self::ApplicationDurableData => "application durable data",
+            })
     }
 }
 

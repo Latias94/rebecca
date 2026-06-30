@@ -17,6 +17,7 @@ pub mod planner;
 pub mod project_artifacts;
 pub mod protection;
 pub mod safety;
+pub mod safety_catalog;
 pub mod scan;
 pub mod scan_cache;
 
