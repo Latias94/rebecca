@@ -32,39 +32,35 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
         return crate::output::print_success_event("cache purge", "cache-purge-report", &report);
     }
 
-    print!("{}", render_cache_purge_report(&report));
+    print!("{}", render_cache_purge_report(&report)?);
     Ok(())
 }
 
-fn render_cache_purge_report(report: &CachePurgeReport) -> String {
+fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
     let projection = CachePurgeProjection::new(report);
     let mut output = String::new();
-    writeln!(output, "Rebecca cache: {}", projection.cache_dir.display()).unwrap();
-    writeln!(output, "Mode: {}", projection.mode_label).unwrap();
+    writeln!(output, "Rebecca cache: {}", projection.cache_dir.display())?;
+    writeln!(output, "Mode: {}", projection.mode_label)?;
     writeln!(
         output,
         "Lifecycle: {} ({})",
         projection.lifecycle_label, projection.retention_label
-    )
-    .unwrap();
+    )?;
     writeln!(
         output,
         "Cache directory exists: {}",
         projection.cache_dir_exists_label
-    )
-    .unwrap();
+    )?;
     writeln!(
         output,
         "Preserves cache directory: {}",
         projection.preserves_cache_dir_label
-    )
-    .unwrap();
+    )?;
     writeln!(
         output,
         "Entries: {}, files: {}, directories: {}",
         projection.summary.total_entries, projection.summary.files, projection.summary.directories
-    )
-    .unwrap();
+    )?;
     writeln!(
         output,
         "Entry status: {} would delete, {} deleted, {} skipped, {} failed",
@@ -72,25 +68,22 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> String {
         projection.summary.deleted_entries,
         projection.summary.skipped_entries,
         projection.summary.failed_entries
-    )
-    .unwrap();
+    )?;
     writeln!(
         output,
         "Estimated bytes: {} ({})",
         projection.summary.estimated_bytes,
         format_bytes(projection.summary.estimated_bytes)
-    )
-    .unwrap();
+    )?;
     writeln!(
         output,
         "Reclaimed bytes: {} ({})",
         projection.summary.reclaimed_bytes,
         format_bytes(projection.summary.reclaimed_bytes)
-    )
-    .unwrap();
+    )?;
 
     if !projection.issue_matrix().is_empty() {
-        writeln!(output, "Issue matrix:").unwrap();
+        writeln!(output, "Issue matrix:")?;
         for issue in projection.issue_matrix() {
             writeln!(
                 output,
@@ -100,25 +93,23 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> String {
                 issue.entries_label,
                 issue.estimated_bytes,
                 format_bytes(issue.estimated_bytes)
-            )
-            .unwrap();
+            )?;
         }
     }
 
     if projection.is_empty() {
-        writeln!(output, "No cache entries found.").unwrap();
-        return output;
+        writeln!(output, "No cache entries found.")?;
+        return Ok(output);
     }
 
     if projection.show_delete_hint() {
         writeln!(
             output,
             "Run with --yes to purge these rebuildable cache entries."
-        )
-        .unwrap();
+        )?;
     }
 
-    writeln!(output, "Cache entries:").unwrap();
+    writeln!(output, "Cache entries:")?;
     for entry in projection.entries() {
         writeln!(
             output,
@@ -129,11 +120,10 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> String {
             entry.files,
             entry.directories,
             entry.reason_suffix
-        )
-        .unwrap();
+        )?;
     }
 
-    output
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -187,7 +177,7 @@ mod tests {
             }],
         };
 
-        let rendered = render_cache_purge_report(&report);
+        let rendered = render_cache_purge_report(&report).unwrap();
 
         assert!(rendered.contains("Issue matrix:"));
         assert!(rendered.contains("- skipped symlink-skipped: 1 entry, 0 (0 B)"));
@@ -208,7 +198,7 @@ mod tests {
             entries: Vec::new(),
         };
 
-        let rendered = render_cache_purge_report(&report);
+        let rendered = render_cache_purge_report(&report).unwrap();
 
         assert!(!rendered.contains("Issue matrix:"));
         assert!(rendered.contains("No cache entries found."));
