@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use rebecca::core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
+use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
 use rebecca::core::project_artifacts::ProjectArtifactDiscoveryDiagnostic;
 use rebecca::core::{EstimateSource, TargetStatus};
+use serde::Serialize;
 
 const LARGEST_ARTIFACT_LIMIT: usize = 5;
+const INSIGHT_TOP_TARGET_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectArtifactPlanProjection<'a> {
@@ -50,6 +52,37 @@ pub(crate) struct ProjectArtifactDiscoveryDiagnosticRow<'a> {
     pub(crate) kind_label: &'static str,
     pub(crate) path: &'a Path,
     pub(crate) detail: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ProjectArtifactInsightReport {
+    pub(crate) roots: Vec<PathBuf>,
+    pub(crate) summary: CleanupSummary,
+    pub(crate) totals_by_root: Vec<ProjectArtifactInsightTotal>,
+    pub(crate) totals_by_project: Vec<ProjectArtifactInsightTotal>,
+    pub(crate) totals_by_artifact: Vec<ProjectArtifactInsightTotal>,
+    pub(crate) top_targets: Vec<ProjectArtifactInsightTarget>,
+    pub(crate) discovery_diagnostics: Vec<ProjectArtifactDiscoveryDiagnostic>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ProjectArtifactInsightTotal {
+    pub(crate) key: String,
+    pub(crate) label: String,
+    pub(crate) targets: usize,
+    pub(crate) estimated_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ProjectArtifactInsightTarget {
+    pub(crate) rule_id: String,
+    pub(crate) artifact: String,
+    pub(crate) path: PathBuf,
+    pub(crate) project_root: Option<PathBuf>,
+    pub(crate) status: TargetStatus,
+    pub(crate) estimated_bytes: u64,
+    pub(crate) estimate_source: EstimateSource,
+    pub(crate) reason: Option<String>,
 }
 
 impl<'a> ProjectArtifactPlanProjection<'a> {
@@ -137,6 +170,20 @@ impl<'a> ProjectArtifactPlanProjection<'a> {
     }
 }
 
+impl ProjectArtifactInsightReport {
+    pub(crate) fn from_plan(plan: &CleanupPlan) -> Self {
+        Self {
+            roots: plan.request.project_artifact_roots.clone(),
+            summary: plan.summary.clone(),
+            totals_by_root: insight_totals(plan, RootGrouping::Root),
+            totals_by_project: insight_totals(plan, RootGrouping::Project),
+            totals_by_artifact: insight_totals(plan, RootGrouping::Artifact),
+            top_targets: insight_top_targets(plan),
+            discovery_diagnostics: plan.discovery_diagnostics.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ProjectArtifactSummaryAccumulator {
     targets: u64,
@@ -146,6 +193,19 @@ struct ProjectArtifactSummaryAccumulator {
     failed_targets: u64,
     blocked_targets: u64,
     skipped_targets: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RootGrouping {
+    Root,
+    Project,
+    Artifact,
+}
+
+#[derive(Debug, Default)]
+struct InsightTotalAccumulator {
+    targets: usize,
+    estimated_bytes: u64,
 }
 
 impl ProjectArtifactSummaryAccumulator {
@@ -256,6 +316,81 @@ fn largest_project_artifact_rows(plan: &CleanupPlan) -> Vec<ProjectArtifactRow<'
 
     targets.truncate(LARGEST_ARTIFACT_LIMIT);
     targets
+}
+
+fn insight_totals(plan: &CleanupPlan, grouping: RootGrouping) -> Vec<ProjectArtifactInsightTotal> {
+    let mut totals = BTreeMap::<String, InsightTotalAccumulator>::new();
+
+    for target in &plan.targets {
+        let key = match grouping {
+            RootGrouping::Root => root_for_target(plan, target.path.as_path())
+                .unwrap_or_else(|| PathBuf::from("(outside configured roots)"))
+                .display()
+                .to_string(),
+            RootGrouping::Project => target
+                .project_artifact
+                .as_ref()
+                .map(|context| context.project_root.display().to_string())
+                .unwrap_or_else(|| {
+                    project_path_for(target.path.as_path())
+                        .display()
+                        .to_string()
+                }),
+            RootGrouping::Artifact => artifact_type_label(&target.rule_id, target.path.as_path()),
+        };
+        let entry = totals.entry(key).or_default();
+        entry.targets = entry.targets.saturating_add(1);
+        entry.estimated_bytes = entry.estimated_bytes.saturating_add(target.estimated_bytes);
+    }
+
+    totals
+        .into_iter()
+        .map(|(key, total)| ProjectArtifactInsightTotal {
+            label: key.clone(),
+            key,
+            targets: total.targets,
+            estimated_bytes: total.estimated_bytes,
+        })
+        .collect()
+}
+
+fn insight_top_targets(plan: &CleanupPlan) -> Vec<ProjectArtifactInsightTarget> {
+    let mut targets = plan
+        .targets
+        .iter()
+        .map(|target| ProjectArtifactInsightTarget {
+            rule_id: target.rule_id.clone(),
+            artifact: artifact_type_label(&target.rule_id, target.path.as_path()),
+            path: target.path.clone(),
+            project_root: target
+                .project_artifact
+                .as_ref()
+                .map(|context| context.project_root.clone()),
+            status: target.status,
+            estimated_bytes: target.estimated_bytes,
+            estimate_source: target.estimate_source,
+            reason: target.reason.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    targets.sort_by(|left, right| {
+        right
+            .estimated_bytes
+            .cmp(&left.estimated_bytes)
+            .then_with(|| left.artifact.cmp(&right.artifact))
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    targets.truncate(INSIGHT_TOP_TARGET_LIMIT);
+    targets
+}
+
+fn root_for_target(plan: &CleanupPlan, path: &Path) -> Option<PathBuf> {
+    plan.request
+        .project_artifact_roots
+        .iter()
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
+        .cloned()
 }
 
 fn artifact_type_label(rule_id: &str, path: &Path) -> String {

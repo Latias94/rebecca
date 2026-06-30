@@ -4,7 +4,8 @@ use rebecca::core::plan::CleanupPlan;
 use crate::clean_view::{CleanPlanProjection, ScanCacheProgressSummary};
 use crate::output::{format_bytes, restore_hint_suffix};
 use crate::purge_view::{
-    ProjectArtifactDiscoveryDiagnosticRow, ProjectArtifactPlanProjection, ProjectArtifactRow,
+    ProjectArtifactDiscoveryDiagnosticRow, ProjectArtifactInsightReport,
+    ProjectArtifactPlanProjection, ProjectArtifactRow,
 };
 use crate::render::{estimate_source_suffix, format_count};
 
@@ -17,6 +18,103 @@ pub(crate) fn print_plan(
     let overview = CleanPlanProjection::new(plan, scan_cache_summary);
     super::clean::print_plan_overview(&overview);
     print_project_artifact_details(plan);
+    Ok(())
+}
+
+pub(crate) fn print_project_artifact_insight(
+    plan: &CleanupPlan,
+    scan_cache_summary: Option<ScanCacheProgressSummary>,
+) -> Result<()> {
+    let insight = ProjectArtifactInsightReport::from_plan(plan);
+
+    println!("Project artifact insight");
+    println!(
+        "Roots: {}",
+        format_count(insight.roots.len() as u64, "root", "roots")
+    );
+    println!("Targets: {}", insight.summary.total_targets);
+    println!(
+        "Estimated bytes: {} ({})",
+        insight.summary.estimated_bytes,
+        format_bytes(insight.summary.estimated_bytes)
+    );
+    println!(
+        "Diagnostics: {}",
+        format_count(
+            insight.discovery_diagnostics.len() as u64,
+            "observation",
+            "observations",
+        )
+    );
+    if let Some(summary) = scan_cache_summary.filter(has_visible_scan_cache_summary) {
+        println!(
+            "Scan cache summary: {} {}, {} {}, {} {}, {} {}",
+            summary.hits,
+            if summary.hits == 1 { "hit" } else { "hits" },
+            summary.misses,
+            if summary.misses == 1 {
+                "miss"
+            } else {
+                "misses"
+            },
+            summary.write_skipped,
+            if summary.write_skipped == 1 {
+                "skipped write"
+            } else {
+                "skipped writes"
+            },
+            summary.pruned,
+            if summary.pruned == 1 {
+                "pruned record"
+            } else {
+                "pruned records"
+            }
+        );
+    }
+
+    if !insight.totals_by_artifact.is_empty() {
+        println!();
+        println!("Artifact totals:");
+        for total in &insight.totals_by_artifact {
+            println!(
+                "- {}: {}, {} bytes ({})",
+                total.label,
+                total.targets,
+                total.estimated_bytes,
+                format_bytes(total.estimated_bytes)
+            );
+        }
+    }
+
+    if !insight.top_targets.is_empty() {
+        println!();
+        println!("Top project artifact targets:");
+        for target in &insight.top_targets {
+            println!(
+                "  - {} [{}] {} bytes ({}) [{}] - {}",
+                target.artifact,
+                target.status.label(),
+                target.estimated_bytes,
+                format_bytes(target.estimated_bytes),
+                target.estimate_source.label(),
+                target.path.display()
+            );
+        }
+    }
+
+    if !insight.discovery_diagnostics.is_empty() {
+        println!();
+        println!("Discovery diagnostics:");
+        for diagnostic in &insight.discovery_diagnostics {
+            println!(
+                "  - {} {} - {}",
+                diagnostic.kind.label(),
+                diagnostic.path.display(),
+                diagnostic.detail
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -152,4 +250,8 @@ fn print_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
             .unwrap_or_default(),
         restore_hint_suffix(target.restore_hint)
     );
+}
+
+fn has_visible_scan_cache_summary(summary: &ScanCacheProgressSummary) -> bool {
+    summary.hits > 0 || summary.misses > 0 || summary.write_skipped > 0 || summary.pruned > 0
 }
