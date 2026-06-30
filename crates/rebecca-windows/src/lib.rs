@@ -1,6 +1,9 @@
-use rebecca_core::error::Result;
+use std::path::Path;
+
+use rebecca_core::cache::{CachePurgeBackend, CachePurgeEntryKind, CachePurgeOutcome};
+use rebecca_core::error::{RebeccaError, Result};
 use rebecca_core::executor::{CleanupBackend, ExecutionOutcome};
-use rebecca_core::plan::CleanupTarget;
+use rebecca_core::plan::{CleanupTarget, CleanupTargetDeletionStyle};
 
 pub mod apps;
 pub mod process;
@@ -29,6 +32,36 @@ impl WindowsRecycleBinBackend {
 impl CleanupBackend for WindowsRecycleBinBackend {
     fn delete(&self, target: &CleanupTarget) -> Result<ExecutionOutcome> {
         platform::delete_to_recycle_bin(&target.path, target.estimated_bytes, target.deletion_style)
+    }
+}
+
+impl CachePurgeBackend for WindowsRecycleBinBackend {
+    fn purge(
+        &self,
+        path: &Path,
+        kind: CachePurgeEntryKind,
+        estimated_bytes: u64,
+    ) -> Result<CachePurgeOutcome> {
+        match kind {
+            CachePurgeEntryKind::File | CachePurgeEntryKind::Directory => {
+                platform::delete_to_recycle_bin(
+                    path,
+                    estimated_bytes,
+                    CleanupTargetDeletionStyle::DeleteWholePath,
+                )
+                .map(|outcome| CachePurgeOutcome {
+                    reclaimed_bytes: outcome.freed_bytes,
+                    pending_reclaim_bytes: outcome.pending_reclaim_bytes,
+                    note: outcome.note,
+                })
+            }
+            CachePurgeEntryKind::Symlink | CachePurgeEntryKind::Other => {
+                Err(RebeccaError::ExecutionFailed(format!(
+                    "cache purge backend does not support {} entries",
+                    kind.label()
+                )))
+            }
+        }
     }
 }
 

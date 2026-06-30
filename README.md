@@ -100,7 +100,7 @@ Reference material under `repo-ref/` is for behavior research only; Rebecca owns
 
 ## Tips
 
-- `clean`, `apps clean`, `purge`, and `cache purge` all preview first; use `--dry-run` before confirming a real run.
+- `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the Recycle Bin, and `cache purge --yes --permanent` opts into irreversible deletion.
 - Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API.
 - Use `inspect space`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
 - Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the Recycle Bin.
@@ -163,6 +163,7 @@ cargo run -p rebecca -- history --format json
 cargo run -p rebecca -- config paths
 cargo run -p rebecca -- cache purge --format json
 cargo run -p rebecca -- cache purge --yes
+cargo run -p rebecca -- cache purge --yes --permanent
 cargo run -p rebecca -- doctor permissions
 ```
 
@@ -254,7 +255,7 @@ The full schema, path precedence, migration, and local-state ownership contract 
 | history file | append-only-history | preserve |
 | cache dir | rebuildable-cache | rebuildable |
 
-`rebecca cache purge` operates only on Rebecca's configured rebuildable cache directory. It previews by default, requires `--yes` to delete direct cache contents, keeps the cache directory itself, reports lifecycle, entry-status, and issue-matrix details in human output and `--format json`, and refuses to run if the cache path overlaps preserved configuration, state, or history paths.
+`rebecca cache purge` operates only on Rebecca's configured rebuildable cache directory. It previews by default, moves direct cache contents to the Recycle Bin with `--yes`, permanently deletes them only with `--yes --permanent`, keeps the cache directory itself, reports lifecycle, entry-status, pending-reclaim, reclaimed-byte, and issue-matrix details in human output and `--format json`, and refuses to run if the cache path overlaps preserved configuration, state, or history paths.
 
 Scan-cache records use a versioned JSON format under the rebuildable cache directory's `scan` subdirectory. The current v1 contract stores the scanned root path, a root metadata fingerprint, the scan report, and the write time. `clean --scan-cache` explicitly enables planner use of eligible regular-file records and freshness-bounded directory records. Directory freshness is governed by a policy seam with a current 5-minute default, so the window can evolve without changing the on-disk record format. Missing, corrupted, stale, expired, or unsupported-version records are treated as cache misses and can be rebuilt. Stale or corrupted cache files are pruned when lookup discovers them, and plan builds also run a best-effort cache prune pass that reports pruned record counts in human output.
 

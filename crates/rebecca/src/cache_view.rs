@@ -29,6 +29,9 @@ pub(crate) struct CachePurgeHumanSummary {
     pub(crate) directories: u64,
     pub(crate) estimated_bytes: u64,
     pub(crate) reclaimed_bytes: u64,
+    pub(crate) pending_reclaim_bytes: u64,
+    pub(crate) recoverably_deleted_entries: usize,
+    pub(crate) permanently_deleted_entries: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +115,9 @@ impl From<&CachePurgeSummary> for CachePurgeHumanSummary {
             directories: summary.directories,
             estimated_bytes: summary.estimated_bytes,
             reclaimed_bytes: summary.reclaimed_bytes,
+            pending_reclaim_bytes: summary.pending_reclaim_bytes,
+            recoverably_deleted_entries: summary.recoverably_deleted_entries,
+            permanently_deleted_entries: summary.permanently_deleted_entries,
         }
     }
 }
@@ -136,7 +142,8 @@ impl<'a> From<&'a CachePurgeEntry> for CachePurgeEntryRow<'a> {
 fn mode_label(mode: CachePurgeMode) -> &'static str {
     match mode {
         CachePurgeMode::DryRun => "dry-run",
-        CachePurgeMode::Delete => "delete",
+        CachePurgeMode::RecoverableDelete => "recoverable-delete",
+        CachePurgeMode::PermanentDelete => "permanent-delete",
     }
 }
 
@@ -175,7 +182,13 @@ mod tests {
                 .count(),
             deleted_entries: entries
                 .iter()
-                .filter(|entry| entry.status == CachePurgeEntryStatus::Deleted)
+                .filter(|entry| {
+                    matches!(
+                        entry.status,
+                        CachePurgeEntryStatus::RecoverablyDeleted
+                            | CachePurgeEntryStatus::PermanentlyDeleted
+                    )
+                })
                 .count(),
             skipped_entries: entries
                 .iter()
@@ -190,9 +203,22 @@ mod tests {
             estimated_bytes: entries.iter().map(|entry| entry.estimated_bytes).sum(),
             reclaimed_bytes: entries
                 .iter()
-                .filter(|entry| entry.status == CachePurgeEntryStatus::Deleted)
+                .filter(|entry| entry.status == CachePurgeEntryStatus::PermanentlyDeleted)
                 .map(|entry| entry.estimated_bytes)
                 .sum(),
+            pending_reclaim_bytes: entries
+                .iter()
+                .filter(|entry| entry.status == CachePurgeEntryStatus::RecoverablyDeleted)
+                .map(|entry| entry.estimated_bytes)
+                .sum(),
+            recoverably_deleted_entries: entries
+                .iter()
+                .filter(|entry| entry.status == CachePurgeEntryStatus::RecoverablyDeleted)
+                .count(),
+            permanently_deleted_entries: entries
+                .iter()
+                .filter(|entry| entry.status == CachePurgeEntryStatus::PermanentlyDeleted)
+                .count(),
             issue_matrix,
         };
 
@@ -203,7 +229,7 @@ mod tests {
             cache_dir_exists: true,
             preserves_cache_dir: true,
             mode,
-            deleted: mode == CachePurgeMode::Delete,
+            deleted: mode != CachePurgeMode::DryRun,
             summary,
             entries,
         }
@@ -215,6 +241,8 @@ mod tests {
             kind: CachePurgeEntryKind::Symlink,
             status: CachePurgeEntryStatus::Skipped,
             estimated_bytes: 0,
+            reclaimed_bytes: 0,
+            pending_reclaim_bytes: 0,
             files: 0,
             directories: 0,
             reason: Some("symlink entries are skipped".to_string()),
@@ -245,7 +273,10 @@ mod tests {
     #[test]
     fn projection_only_prompts_for_confirmation_on_non_empty_dry_runs() {
         let dry_run = cache_report(CachePurgeMode::DryRun, vec![skipped_symlink_entry()]);
-        let delete = cache_report(CachePurgeMode::Delete, vec![skipped_symlink_entry()]);
+        let delete = cache_report(
+            CachePurgeMode::RecoverableDelete,
+            vec![skipped_symlink_entry()],
+        );
         let empty = cache_report(CachePurgeMode::DryRun, Vec::new());
 
         assert!(CachePurgeProjection::new(&dry_run).show_delete_hint());

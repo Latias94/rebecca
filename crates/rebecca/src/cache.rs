@@ -1,7 +1,9 @@
 use std::fmt::Write as _;
 
-use anyhow::Result;
-use rebecca::core::cache::{CachePurgeMode, CachePurgeReport, purge_app_cache};
+use anyhow::{Result, anyhow};
+use rebecca::core::cache::{
+    CachePurgeMode, CachePurgeReport, purge_app_cache, purge_app_cache_with_backend,
+};
 use rebecca::core::config::load_app_paths;
 
 use crate::cache_view::CachePurgeProjection;
@@ -13,16 +15,30 @@ pub struct CachePurgeOptions {
     pub dry_run: bool,
     pub output_mode: OutputMode,
     pub yes: bool,
+    pub permanent: bool,
 }
 
 pub fn purge(options: CachePurgeOptions) -> Result<()> {
     let paths = load_app_paths()?;
+    if options.permanent && (options.dry_run || !options.yes) {
+        return Err(anyhow!(
+            "--permanent requires --yes and cannot be combined with --dry-run"
+        ));
+    }
+
     let mode = if options.yes && !options.dry_run {
-        CachePurgeMode::Delete
+        if options.permanent {
+            CachePurgeMode::PermanentDelete
+        } else {
+            CachePurgeMode::RecoverableDelete
+        }
     } else {
         CachePurgeMode::DryRun
     };
-    let report = purge_app_cache(&paths, mode)?;
+    let report = match mode {
+        CachePurgeMode::DryRun | CachePurgeMode::PermanentDelete => purge_app_cache(&paths, mode)?,
+        CachePurgeMode::RecoverableDelete => purge_app_cache_recoverably(&paths)?,
+    };
 
     crate::output::print_command_success(
         "cache purge",
@@ -34,6 +50,27 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
             Ok(())
         },
     )
+}
+
+#[cfg(feature = "windows")]
+fn purge_app_cache_recoverably(
+    paths: &rebecca::core::config::AppPaths,
+) -> Result<CachePurgeReport> {
+    let backend = rebecca::windows::WindowsRecycleBinBackend::new();
+    Ok(purge_app_cache_with_backend(
+        paths,
+        CachePurgeMode::RecoverableDelete,
+        &backend,
+    )?)
+}
+
+#[cfg(not(feature = "windows"))]
+fn purge_app_cache_recoverably(
+    _paths: &rebecca::core::config::AppPaths,
+) -> Result<CachePurgeReport> {
+    Err(anyhow!(
+        "recoverable cache purge requires a platform recycle-bin backend; rerun with --yes --permanent to delete permanently"
+    ))
 }
 
 fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
@@ -63,9 +100,10 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
     )?;
     writeln!(
         output,
-        "Entry status: {} would delete, {} deleted, {} skipped, {} failed",
+        "Entry status: {} would delete, {} recoverably deleted, {} permanently deleted, {} skipped, {} failed",
         projection.summary.would_delete_entries,
-        projection.summary.deleted_entries,
+        projection.summary.recoverably_deleted_entries,
+        projection.summary.permanently_deleted_entries,
         projection.summary.skipped_entries,
         projection.summary.failed_entries
     )?;
@@ -80,6 +118,12 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
         "Reclaimed bytes: {} ({})",
         projection.summary.reclaimed_bytes,
         format_bytes(projection.summary.reclaimed_bytes)
+    )?;
+    writeln!(
+        output,
+        "Pending reclaim bytes: {} ({})",
+        projection.summary.pending_reclaim_bytes,
+        format_bytes(projection.summary.pending_reclaim_bytes)
     )?;
 
     if !projection.issue_matrix().is_empty() {
@@ -105,7 +149,7 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
     if projection.show_delete_hint() {
         writeln!(
             output,
-            "Run with --yes to purge these rebuildable cache entries."
+            "Run with --yes to move these rebuildable cache entries to the Recycle Bin, or --yes --permanent to delete them permanently."
         )?;
     }
 
@@ -158,6 +202,9 @@ mod tests {
                 directories: 0,
                 estimated_bytes: 0,
                 reclaimed_bytes: 0,
+                pending_reclaim_bytes: 0,
+                recoverably_deleted_entries: 0,
+                permanently_deleted_entries: 0,
                 issue_matrix: vec![CachePurgeIssueSummary {
                     status: CachePurgeEntryStatus::Skipped,
                     reason_code: CachePurgeEntryReason::SymlinkSkipped,
@@ -170,6 +217,8 @@ mod tests {
                 kind: CachePurgeEntryKind::Symlink,
                 status: CachePurgeEntryStatus::Skipped,
                 estimated_bytes: 0,
+                reclaimed_bytes: 0,
+                pending_reclaim_bytes: 0,
                 files: 0,
                 directories: 0,
                 reason: Some("symlink entries are skipped".to_string()),
@@ -181,7 +230,11 @@ mod tests {
 
         assert!(rendered.contains("Issue matrix:"));
         assert!(rendered.contains("- skipped symlink-skipped: 1 entry, 0 (0 B)"));
-        assert!(rendered.contains("Run with --yes to purge these rebuildable cache entries."));
+        assert!(
+            rendered.contains(
+                "Run with --yes to move these rebuildable cache entries to the Recycle Bin"
+            )
+        );
     }
 
     #[test]

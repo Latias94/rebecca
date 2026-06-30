@@ -131,7 +131,7 @@ preserving the existing path fields inside `data`.
 | `config-dir` | `%APPDATA%\Rebecca` | `configuration` | `preserve` | Container for user config. Not a cleanup target. |
 | `state-dir` | `%LOCALAPPDATA%\Rebecca\state` | `durable-state` | `preserve` | Durable local state root. Future state belongs here unless it is rebuildable cache. |
 | `history-file` | `%LOCALAPPDATA%\Rebecca\state\history.jsonl` | `append-only-history` | `preserve` | Append-only cleanup audit trail. Rebecca appends and reads; purge must preserve it. |
-| `cache-dir` | `%LOCALAPPDATA%\Rebecca\cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may remove direct contents but must keep the directory itself. |
+| `cache-dir` | `%LOCALAPPDATA%\Rebecca\cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may move direct contents to the Recycle Bin, and `--yes --permanent` may delete them permanently; both modes must keep the directory itself. |
 
 The scan cache is a derived cache under `<cache_dir>\scan`. It stores versioned
 records for scan reuse and is safe to delete. Rebecca prunes stale, expired, or
@@ -143,12 +143,13 @@ treated as durable history.
 `rebecca cache purge` owns only Rebecca's rebuildable cache directory. It must:
 
 - preview by default;
-- require `--yes` to delete;
-- delete only direct contents of `cache_dir`;
+- require `--yes` before mutating cache entries;
+- move direct contents of `cache_dir` to the Recycle Bin by default;
+- require `--yes --permanent` for irreversible direct-content deletion;
 - preserve `cache_dir` itself;
 - refuse to run if `cache_dir` overlaps preserved config, state, or history;
 - report lifecycle, directory existence, preservation behavior, status counts,
-  and issue-matrix details.
+  pending reclaim bytes, reclaimed bytes, and issue-matrix details.
 
 Cleanup rules must not target Rebecca's own config, state, history, or cache
 paths. Rebecca-owned cache cleanup goes through `rebecca cache purge`.

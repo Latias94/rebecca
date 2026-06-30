@@ -378,9 +378,12 @@ pub enum CacheCommand {
         /// Preview the purge without deleting anything.
         #[arg(long)]
         dry_run: bool,
-        /// Delete rebuildable cache entries instead of previewing them.
+        /// Move rebuildable cache entries to the Recycle Bin instead of previewing them.
         #[arg(long)]
         yes: bool,
+        /// Permanently delete rebuildable cache entries. Requires --yes and conflicts with --dry-run.
+        #[arg(long, requires = "yes", conflicts_with = "dry_run")]
+        permanent: bool,
     },
 }
 

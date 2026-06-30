@@ -17,6 +17,7 @@ All notable changes to Rebecca will be documented in this file.
 - `purge inspect` now provides a read-only project artifact insight report with JSON/NDJSON v2 `inspect-artifacts` output, grouped totals, top targets, diagnostics, and no cleanup prompts or history writes.
 - cleanup targets now expose `estimate_source` so machine consumers can distinguish fresh scans, scan-cache hits, unmeasured skipped/blocked targets, and legacy plans.
 - project artifact cleanup plans now include `discovery_diagnostics` for partial discovery issues such as missing configured roots, unreadable directories, metadata failures, and skipped reparse points.
+- `rebecca cache purge --permanent` now explicitly opts into irreversible Rebecca cache deletion after `--yes`.
 
 ### Changed
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.
@@ -25,11 +26,13 @@ All notable changes to Rebecca will be documented in this file.
 - planner and project artifact internals were split into focused modules, and configured purge roots now report stale or unreadable workspace entries as diagnostics while explicit `--root` values remain strict.
 - project artifact discovery now applies policy ranking and reclaim-limit selection after measurement so large cleanup plans can be trimmed predictably.
 - v2 commands now use the command API registry for fatal JSON and NDJSON errors instead of the global v1 error envelope.
+- `rebecca cache purge --yes` now moves rebuildable Rebecca cache entries to the Recycle Bin by default and reports pending reclaim bytes separately from permanently reclaimed bytes.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.
 - new read-only cleanup-intelligence machine payloads and fatal errors use `rebecca.cli.v2`; consumers that assumed every machine envelope was `rebecca.cli.v1` must branch on `api_version`.
 - `inspect artifacts` is the canonical project artifact insight command; `purge inspect` remains as a v2 compatibility alias for existing command users.
+- `cache purge` machine output no longer uses `mode: "delete"`; callers must handle `mode: "recoverable-delete"` and `mode: "permanent-delete"` plus the new `pending_reclaim_bytes`, `recoverably_deleted_entries`, and `permanently_deleted_entries` summary fields.
 
 ## [0.2.0]
 

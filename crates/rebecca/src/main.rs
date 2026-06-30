@@ -69,10 +69,15 @@ fn run() -> Result<()> {
         Command::Purge(args) => run_purge(args, cli.format, &runtime),
         Command::History(args) => run_history(args, cli.format),
         Command::Cache { command } => match command {
-            CacheCommand::Purge { dry_run, yes } => cache::purge(cache::CachePurgeOptions {
+            CacheCommand::Purge {
+                dry_run,
+                yes,
+                permanent,
+            } => cache::purge(cache::CachePurgeOptions {
                 dry_run,
                 output_mode: cli.format,
                 yes,
+                permanent,
             }),
         },
         Command::Apps { command } => match command {

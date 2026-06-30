@@ -12,12 +12,62 @@ use crate::scan::ScanEngine;
 #[serde(rename_all = "kebab-case")]
 pub enum CachePurgeMode {
     DryRun,
-    Delete,
+    RecoverableDelete,
+    PermanentDelete,
 }
 
 impl CachePurgeMode {
     fn deletes(self) -> bool {
-        matches!(self, Self::Delete)
+        matches!(self, Self::RecoverableDelete | Self::PermanentDelete)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachePurgeOutcome {
+    pub reclaimed_bytes: u64,
+    pub pending_reclaim_bytes: u64,
+    pub note: Option<String>,
+}
+
+impl CachePurgeOutcome {
+    pub fn recoverable(estimated_bytes: u64, note: impl Into<String>) -> Self {
+        Self {
+            reclaimed_bytes: 0,
+            pending_reclaim_bytes: estimated_bytes,
+            note: Some(note.into()),
+        }
+    }
+
+    pub fn permanent(estimated_bytes: u64) -> Self {
+        Self {
+            reclaimed_bytes: estimated_bytes,
+            pending_reclaim_bytes: 0,
+            note: None,
+        }
+    }
+}
+
+pub trait CachePurgeBackend {
+    fn purge(
+        &self,
+        path: &Path,
+        kind: CachePurgeEntryKind,
+        estimated_bytes: u64,
+    ) -> Result<CachePurgeOutcome>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PermanentCachePurgeBackend;
+
+impl CachePurgeBackend for PermanentCachePurgeBackend {
+    fn purge(
+        &self,
+        path: &Path,
+        kind: CachePurgeEntryKind,
+        estimated_bytes: u64,
+    ) -> Result<CachePurgeOutcome> {
+        permanently_delete_cache_entry(path, kind)?;
+        Ok(CachePurgeOutcome::permanent(estimated_bytes))
     }
 }
 
@@ -65,6 +115,9 @@ pub struct CachePurgeSummary {
     pub directories: u64,
     pub estimated_bytes: u64,
     pub reclaimed_bytes: u64,
+    pub pending_reclaim_bytes: u64,
+    pub recoverably_deleted_entries: usize,
+    pub permanently_deleted_entries: usize,
     pub issue_matrix: Vec<CachePurgeIssueSummary>,
 }
 
@@ -82,11 +135,19 @@ impl CachePurgeSummary {
 
             match entry.status {
                 CachePurgeEntryStatus::WouldDelete => summary.would_delete_entries += 1,
-                CachePurgeEntryStatus::Deleted => {
+                CachePurgeEntryStatus::RecoverablyDeleted => {
                     summary.deleted_entries += 1;
+                    summary.recoverably_deleted_entries += 1;
+                    summary.pending_reclaim_bytes = summary
+                        .pending_reclaim_bytes
+                        .saturating_add(entry.pending_reclaim_bytes);
+                }
+                CachePurgeEntryStatus::PermanentlyDeleted => {
+                    summary.deleted_entries += 1;
+                    summary.permanently_deleted_entries += 1;
                     summary.reclaimed_bytes = summary
                         .reclaimed_bytes
-                        .saturating_add(entry.estimated_bytes);
+                        .saturating_add(entry.reclaimed_bytes);
                 }
                 CachePurgeEntryStatus::Skipped => summary.skipped_entries += 1,
                 CachePurgeEntryStatus::Failed => summary.failed_entries += 1,
@@ -126,6 +187,8 @@ pub struct CachePurgeEntry {
     pub kind: CachePurgeEntryKind,
     pub status: CachePurgeEntryStatus,
     pub estimated_bytes: u64,
+    pub reclaimed_bytes: u64,
+    pub pending_reclaim_bytes: u64,
     pub files: u64,
     pub directories: u64,
     pub reason: Option<String>,
@@ -145,6 +208,8 @@ impl CachePurgeEntry {
             kind,
             status: CachePurgeEntryStatus::Failed,
             estimated_bytes: 0,
+            reclaimed_bytes: 0,
+            pending_reclaim_bytes: 0,
             files: 0,
             directories: 0,
             reason: Some(reason),
@@ -163,6 +228,8 @@ impl CachePurgeEntry {
             kind,
             status: CachePurgeEntryStatus::Skipped,
             estimated_bytes: 0,
+            reclaimed_bytes: 0,
+            pending_reclaim_bytes: 0,
             files: 0,
             directories: 0,
             reason: Some(reason.into()),
@@ -195,7 +262,8 @@ impl CachePurgeEntryKind {
 #[serde(rename_all = "kebab-case")]
 pub enum CachePurgeEntryStatus {
     WouldDelete,
-    Deleted,
+    RecoverablyDeleted,
+    PermanentlyDeleted,
     Skipped,
     Failed,
 }
@@ -204,7 +272,8 @@ impl CachePurgeEntryStatus {
     pub fn label(self) -> &'static str {
         match self {
             Self::WouldDelete => "would-delete",
-            Self::Deleted => "deleted",
+            Self::RecoverablyDeleted => "recoverably-deleted",
+            Self::PermanentlyDeleted => "permanently-deleted",
             Self::Skipped => "skipped",
             Self::Failed => "failed",
         }
@@ -234,6 +303,21 @@ impl CachePurgeEntryReason {
 }
 
 pub fn purge_app_cache(paths: &AppPaths, mode: CachePurgeMode) -> Result<CachePurgeReport> {
+    match mode {
+        CachePurgeMode::DryRun | CachePurgeMode::PermanentDelete => {
+            purge_app_cache_with_backend(paths, mode, &PermanentCachePurgeBackend)
+        }
+        CachePurgeMode::RecoverableDelete => Err(RebeccaError::PlatformUnavailable(
+            "recoverable cache purge requires a platform cache purge backend".to_string(),
+        )),
+    }
+}
+
+pub fn purge_app_cache_with_backend<B: CachePurgeBackend>(
+    paths: &AppPaths,
+    mode: CachePurgeMode,
+    backend: &B,
+) -> Result<CachePurgeReport> {
     validate_cache_purge_boundary(paths)?;
 
     let mut report = CachePurgeReport::empty(paths.cache_dir.clone(), mode);
@@ -280,7 +364,7 @@ pub fn purge_app_cache(paths: &AppPaths, mode: CachePurgeMode) -> Result<CachePu
                 err
             ))
         })?;
-        entries.push(purge_cache_entry(entry.path(), mode));
+        entries.push(purge_cache_entry(entry.path(), mode, backend));
     }
 
     entries.sort_by(|left, right| left.path.cmp(&right.path));
@@ -315,7 +399,11 @@ fn validate_cache_purge_boundary(paths: &AppPaths) -> Result<()> {
     Ok(())
 }
 
-fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
+fn purge_cache_entry<B: CachePurgeBackend>(
+    path: PathBuf,
+    mode: CachePurgeMode,
+    backend: &B,
+) -> CachePurgeEntry {
     let metadata = match std::fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(err) => {
@@ -363,15 +451,29 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
         }
     };
 
-    let status = if mode.deletes() {
-        match delete_cache_entry(&path, kind) {
-            Ok(()) => CachePurgeEntryStatus::Deleted,
+    let (status, reason, reclaimed_bytes, pending_reclaim_bytes) = if mode.deletes() {
+        match backend.purge(&path, kind, report.bytes_scanned) {
+            Ok(outcome) => {
+                let status = match mode {
+                    CachePurgeMode::DryRun => unreachable!("dry-run does not call backend"),
+                    CachePurgeMode::RecoverableDelete => CachePurgeEntryStatus::RecoverablyDeleted,
+                    CachePurgeMode::PermanentDelete => CachePurgeEntryStatus::PermanentlyDeleted,
+                };
+                (
+                    status,
+                    outcome.note,
+                    outcome.reclaimed_bytes,
+                    outcome.pending_reclaim_bytes,
+                )
+            }
             Err(err) => {
                 return CachePurgeEntry {
                     path,
                     kind,
                     status: CachePurgeEntryStatus::Failed,
                     estimated_bytes: report.bytes_scanned,
+                    reclaimed_bytes: 0,
+                    pending_reclaim_bytes: 0,
                     files: report.files_scanned,
                     directories: report.directories_scanned,
                     reason: Some(err.to_string()),
@@ -380,7 +482,7 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
             }
         }
     } else {
-        CachePurgeEntryStatus::WouldDelete
+        (CachePurgeEntryStatus::WouldDelete, None, 0, 0)
     };
 
     CachePurgeEntry {
@@ -388,14 +490,16 @@ fn purge_cache_entry(path: PathBuf, mode: CachePurgeMode) -> CachePurgeEntry {
         kind,
         status,
         estimated_bytes: report.bytes_scanned,
+        reclaimed_bytes,
+        pending_reclaim_bytes,
         files: report.files_scanned,
         directories: report.directories_scanned,
-        reason: None,
+        reason,
         reason_code: None,
     }
 }
 
-fn delete_cache_entry(path: &Path, kind: CachePurgeEntryKind) -> std::io::Result<()> {
+fn permanently_delete_cache_entry(path: &Path, kind: CachePurgeEntryKind) -> std::io::Result<()> {
     match kind {
         CachePurgeEntryKind::File => std::fs::remove_file(path),
         CachePurgeEntryKind::Directory => std::fs::remove_dir_all(path),
@@ -406,10 +510,31 @@ fn delete_cache_entry(path: &Path, kind: CachePurgeEntryKind) -> std::io::Result
 #[cfg(test)]
 mod tests {
     use super::{
-        CachePurgeEntry, CachePurgeEntryKind, CachePurgeEntryReason, CachePurgeEntryStatus,
-        CachePurgeIssueSummary, CachePurgeMode, CachePurgeSummary, purge_app_cache,
+        CachePurgeBackend, CachePurgeEntry, CachePurgeEntryKind, CachePurgeEntryReason,
+        CachePurgeEntryStatus, CachePurgeIssueSummary, CachePurgeMode, CachePurgeOutcome,
+        CachePurgeSummary, permanently_delete_cache_entry, purge_app_cache,
+        purge_app_cache_with_backend,
     };
     use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
+    use crate::error::Result;
+
+    #[derive(Debug, Default, Clone, Copy)]
+    struct RecoverableTestBackend;
+
+    impl CachePurgeBackend for RecoverableTestBackend {
+        fn purge(
+            &self,
+            path: &std::path::Path,
+            kind: CachePurgeEntryKind,
+            estimated_bytes: u64,
+        ) -> Result<CachePurgeOutcome> {
+            permanently_delete_cache_entry(path, kind)?;
+            Ok(CachePurgeOutcome::recoverable(
+                estimated_bytes,
+                "moved to test recovery",
+            ))
+        }
+    }
 
     fn app_paths(temp: &tempfile::TempDir) -> AppPaths {
         AppPaths {
@@ -446,6 +571,10 @@ mod tests {
         assert_eq!(report.summary.files, 2);
         assert_eq!(report.summary.directories, 1);
         assert_eq!(report.summary.estimated_bytes, 5);
+        assert_eq!(report.summary.reclaimed_bytes, 0);
+        assert_eq!(report.summary.pending_reclaim_bytes, 0);
+        assert_eq!(report.summary.recoverably_deleted_entries, 0);
+        assert_eq!(report.summary.permanently_deleted_entries, 0);
         assert!(report.summary.issue_matrix.is_empty());
         assert!(paths.cache_dir.join("file.bin").exists());
         assert!(paths.cache_dir.join("nested").join("nested.bin").exists());
@@ -458,23 +587,64 @@ mod tests {
     }
 
     #[test]
-    fn cache_purge_delete_removes_direct_contents_but_keeps_cache_dir() {
+    fn cache_purge_recoverable_delete_removes_contents_and_reports_pending_reclaim() {
         let temp = tempfile::tempdir().unwrap();
         let paths = app_paths(&temp);
         std::fs::create_dir_all(paths.cache_dir.join("nested")).unwrap();
         std::fs::write(paths.cache_dir.join("file.bin"), b"abc").unwrap();
         std::fs::write(paths.cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
-        let report = purge_app_cache(&paths, CachePurgeMode::Delete).unwrap();
+        let report = purge_app_cache_with_backend(
+            &paths,
+            CachePurgeMode::RecoverableDelete,
+            &RecoverableTestBackend,
+        )
+        .unwrap();
 
         assert!(report.deleted);
-        assert_eq!(report.mode, CachePurgeMode::Delete);
+        assert_eq!(report.mode, CachePurgeMode::RecoverableDelete);
         assert_eq!(report.summary.total_entries, 2);
         assert_eq!(report.summary.deleted_entries, 2);
-        assert_eq!(report.summary.reclaimed_bytes, 5);
+        assert_eq!(report.summary.recoverably_deleted_entries, 2);
+        assert_eq!(report.summary.permanently_deleted_entries, 0);
+        assert_eq!(report.summary.reclaimed_bytes, 0);
+        assert_eq!(report.summary.pending_reclaim_bytes, 5);
         assert!(report.summary.issue_matrix.is_empty());
         assert!(paths.cache_dir.exists());
         assert_eq!(std::fs::read_dir(&paths.cache_dir).unwrap().count(), 0);
+        assert!(report.entries.iter().all(|entry| {
+            entry.status == CachePurgeEntryStatus::RecoverablyDeleted
+                && entry.reason.as_deref() == Some("moved to test recovery")
+        }));
+    }
+
+    #[test]
+    fn cache_purge_permanent_delete_removes_direct_contents_but_keeps_cache_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = app_paths(&temp);
+        std::fs::create_dir_all(paths.cache_dir.join("nested")).unwrap();
+        std::fs::write(paths.cache_dir.join("file.bin"), b"abc").unwrap();
+        std::fs::write(paths.cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
+
+        let report = purge_app_cache(&paths, CachePurgeMode::PermanentDelete).unwrap();
+
+        assert!(report.deleted);
+        assert_eq!(report.mode, CachePurgeMode::PermanentDelete);
+        assert_eq!(report.summary.total_entries, 2);
+        assert_eq!(report.summary.deleted_entries, 2);
+        assert_eq!(report.summary.recoverably_deleted_entries, 0);
+        assert_eq!(report.summary.permanently_deleted_entries, 2);
+        assert_eq!(report.summary.reclaimed_bytes, 5);
+        assert_eq!(report.summary.pending_reclaim_bytes, 0);
+        assert!(report.summary.issue_matrix.is_empty());
+        assert!(paths.cache_dir.exists());
+        assert_eq!(std::fs::read_dir(&paths.cache_dir).unwrap().count(), 0);
+        assert!(
+            report
+                .entries
+                .iter()
+                .all(|entry| entry.status == CachePurgeEntryStatus::PermanentlyDeleted)
+        );
     }
 
     #[test]
@@ -522,6 +692,8 @@ mod tests {
                 kind: CachePurgeEntryKind::Symlink,
                 status: CachePurgeEntryStatus::Skipped,
                 estimated_bytes: 0,
+                reclaimed_bytes: 0,
+                pending_reclaim_bytes: 0,
                 files: 0,
                 directories: 0,
                 reason: Some("symlink entries are skipped".to_string()),
@@ -532,6 +704,8 @@ mod tests {
                 kind: CachePurgeEntryKind::Other,
                 status: CachePurgeEntryStatus::Skipped,
                 estimated_bytes: 0,
+                reclaimed_bytes: 0,
+                pending_reclaim_bytes: 0,
                 files: 0,
                 directories: 0,
                 reason: Some("unsupported cache entry type".to_string()),
@@ -542,6 +716,8 @@ mod tests {
                 kind: CachePurgeEntryKind::File,
                 status: CachePurgeEntryStatus::Failed,
                 estimated_bytes: 12,
+                reclaimed_bytes: 0,
+                pending_reclaim_bytes: 0,
                 files: 1,
                 directories: 0,
                 reason: Some("first failure".to_string()),
@@ -552,6 +728,8 @@ mod tests {
                 kind: CachePurgeEntryKind::Directory,
                 status: CachePurgeEntryStatus::Failed,
                 estimated_bytes: 8,
+                reclaimed_bytes: 0,
+                pending_reclaim_bytes: 0,
                 files: 2,
                 directories: 1,
                 reason: Some("second failure".to_string()),
@@ -562,6 +740,8 @@ mod tests {
                 kind: CachePurgeEntryKind::Directory,
                 status: CachePurgeEntryStatus::Failed,
                 estimated_bytes: 7,
+                reclaimed_bytes: 0,
+                pending_reclaim_bytes: 0,
                 files: 3,
                 directories: 1,
                 reason: Some("delete failed".to_string()),
