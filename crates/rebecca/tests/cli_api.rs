@@ -13,6 +13,16 @@ fn read_doc_json(relative: &str) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 
+fn validator_for_payload_def(def_name: &str) -> jsonschema::Validator {
+    let payloads = read_doc_json("payloads.schema.json");
+    let schema = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": payloads["$defs"].clone(),
+        "$ref": format!("#/$defs/{def_name}"),
+    });
+    jsonschema::validator_for(&schema).unwrap()
+}
+
 fn assert_success_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
     assert_eq!(value["kind"], "success");
@@ -449,4 +459,20 @@ fn purge_inspect_example_fields_are_covered_by_payload_schema() {
             "projectArtifactDiscoveryDiagnostic schema is missing example field {field}"
         );
     }
+}
+
+#[test]
+fn purge_inspect_example_validates_against_payload_schema() {
+    let validator = validator_for_payload_def("projectArtifactInsight");
+    let example = read_doc_json("examples/success-purge-inspect.json");
+    let data = &example["data"];
+
+    validator.validate(data).unwrap();
+
+    let mut invalid = data.clone();
+    invalid["top_targets"][0]["estimate_source"] = serde_json::json!("guessed");
+    assert!(
+        validator.validate(&invalid).is_err(),
+        "schema should reject undocumented estimate_source values"
+    );
 }
