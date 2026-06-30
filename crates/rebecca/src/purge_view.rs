@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
 use rebecca::core::project_artifacts::{
-    ProjectArtifactDefinition, ProjectArtifactDiscoveryDiagnostic, all_project_artifact_definitions,
+    ProjectArtifactDiscoveryDiagnostic, ProjectArtifactPolicy, all_project_artifact_policies,
 };
 use rebecca::core::{EstimateSource, TargetStatus};
 use serde::Serialize;
@@ -61,9 +61,14 @@ pub(crate) struct ProjectArtifactDiscoveryDiagnosticRow<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct ProjectArtifactCatalogEntry {
     pub(crate) artifact: &'static str,
+    pub(crate) aliases: Vec<&'static str>,
     pub(crate) rule_id: &'static str,
     pub(crate) rule_suffix: &'static str,
     pub(crate) restore_hint: &'static str,
+    pub(crate) default_min_age_days: u64,
+    pub(crate) trim_eligible: bool,
+    pub(crate) deletion_style: &'static str,
+    pub(crate) ranking: &'static str,
     #[serde(skip)]
     pub(crate) selectors_label: String,
 }
@@ -199,25 +204,27 @@ impl ProjectArtifactInsightReport {
 }
 
 impl ProjectArtifactCatalogEntry {
-    pub(crate) fn from_definition(definition: ProjectArtifactDefinition) -> Self {
+    pub(crate) fn from_policy(policy: &'static ProjectArtifactPolicy) -> Self {
+        let definition = policy.definition;
         let rule_suffix = project_artifact_rule_suffix(definition.rule_id);
         Self {
-            artifact: definition.directory_name,
+            artifact: policy.artifact,
+            aliases: policy.aliases.to_vec(),
             rule_id: definition.rule_id,
             rule_suffix,
             restore_hint: definition.restore_hint,
-            selectors_label: project_artifact_selectors_label(
-                definition.directory_name,
-                definition.rule_id,
-                rule_suffix,
-            ),
+            default_min_age_days: policy.default_min_age_days,
+            trim_eligible: policy.trim_eligible,
+            deletion_style: policy.deletion_style_label(),
+            ranking: policy.ranking.label(),
+            selectors_label: project_artifact_selectors_label(policy, rule_suffix),
         }
     }
 }
 
 pub(crate) fn project_artifact_catalog_entries() -> Vec<ProjectArtifactCatalogEntry> {
-    all_project_artifact_definitions()
-        .map(ProjectArtifactCatalogEntry::from_definition)
+    all_project_artifact_policies()
+        .map(ProjectArtifactCatalogEntry::from_policy)
         .collect()
 }
 
@@ -431,14 +438,25 @@ fn root_for_target(plan: &CleanupPlan, path: &Path) -> Option<PathBuf> {
 }
 
 fn project_artifact_selectors_label(
-    directory_name: &str,
-    rule_id: &str,
-    rule_suffix: &str,
+    policy: &ProjectArtifactPolicy,
+    rule_suffix: &'static str,
 ) -> String {
-    if directory_name.eq_ignore_ascii_case(rule_suffix) {
-        format!("{directory_name}, {rule_id}")
-    } else {
-        format!("{directory_name}, {rule_suffix}, {rule_id}")
+    let mut selectors = Vec::new();
+    push_project_artifact_selector(&mut selectors, policy.definition.directory_name);
+    for alias in policy.aliases {
+        push_project_artifact_selector(&mut selectors, alias);
+    }
+    push_project_artifact_selector(&mut selectors, rule_suffix);
+    push_project_artifact_selector(&mut selectors, policy.definition.rule_id);
+    selectors.join(", ")
+}
+
+fn push_project_artifact_selector(selectors: &mut Vec<&'static str>, selector: &'static str) {
+    if !selectors
+        .iter()
+        .any(|existing| existing.eq_ignore_ascii_case(selector))
+    {
+        selectors.push(selector);
     }
 }
 
@@ -612,25 +630,37 @@ mod tests {
     }
 
     #[test]
-    fn catalog_entry_keeps_machine_payload_stable_and_human_selectors_available() {
-        let entry = ProjectArtifactCatalogEntry::from_definition(ProjectArtifactDefinition {
-            directory_name: "node_modules",
-            rule_id: "windows.project-artifact-node-modules",
-            restore_hint: "Node packages can be reinstalled.",
-        });
+    fn catalog_entry_exposes_policy_fields_and_human_selectors() {
+        let policy = all_project_artifact_policies()
+            .find(|policy| policy.definition.rule_id == "windows.project-artifact-node-modules")
+            .unwrap();
+        let entry = ProjectArtifactCatalogEntry::from_policy(policy);
 
         assert_eq!(entry.artifact, "node_modules");
+        assert_eq!(entry.aliases, vec!["node-modules"]);
         assert_eq!(entry.rule_suffix, "node-modules");
         assert_eq!(
             entry.selectors_label,
             "node_modules, node-modules, windows.project-artifact-node-modules"
         );
+        assert_eq!(entry.default_min_age_days, 7);
+        assert!(entry.trim_eligible);
+        assert_eq!(entry.deletion_style, "delete-whole-path");
+        assert_eq!(entry.ranking, "heavy-dependency-tree");
 
         let value = serde_json::to_value(&entry).unwrap();
         assert_eq!(value["artifact"], "node_modules");
+        assert_eq!(value["aliases"], serde_json::json!(["node-modules"]));
         assert_eq!(value["rule_id"], "windows.project-artifact-node-modules");
         assert_eq!(value["rule_suffix"], "node-modules");
-        assert_eq!(value["restore_hint"], "Node packages can be reinstalled.");
+        assert_eq!(
+            value["restore_hint"],
+            "Dependencies can be restored with the project's package manager."
+        );
+        assert_eq!(value["default_min_age_days"], 7);
+        assert_eq!(value["trim_eligible"], true);
+        assert_eq!(value["deletion_style"], "delete-whole-path");
+        assert_eq!(value["ranking"], "heavy-dependency-tree");
         assert!(value.get("selectors_label").is_none());
     }
 }

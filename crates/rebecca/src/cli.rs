@@ -172,8 +172,11 @@ pub struct InspectArtifactsArgs {
     #[arg(long, value_name = "N")]
     pub max_depth: Option<usize>,
     /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
-    #[arg(long, value_name = "DAYS")]
+    #[arg(long, alias = "older-than-days", value_name = "DAYS")]
     pub min_age_days: Option<u64>,
+    /// Select largest eligible artifacts until at least this many bytes would be reclaimed.
+    #[arg(long, value_name = "BYTES")]
+    pub reclaim_limit_bytes: Option<u64>,
     /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
     #[arg(long = "artifact", value_name = "ARTIFACT")]
     pub artifacts: Vec<String>,
@@ -293,8 +296,11 @@ pub struct PurgeArgs {
     #[arg(long, value_name = "N")]
     pub max_depth: Option<usize>,
     /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
-    #[arg(long, value_name = "DAYS")]
+    #[arg(long, alias = "older-than-days", value_name = "DAYS")]
     pub min_age_days: Option<u64>,
+    /// Select largest eligible artifacts until at least this many bytes would be reclaimed.
+    #[arg(long, value_name = "BYTES")]
+    pub reclaim_limit_bytes: Option<u64>,
     /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
     #[arg(long = "artifact", value_name = "ARTIFACT")]
     pub artifacts: Vec<String>,
@@ -324,8 +330,11 @@ pub struct PurgeInspectArgs {
     #[arg(long, value_name = "N")]
     pub max_depth: Option<usize>,
     /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
-    #[arg(long, value_name = "DAYS")]
+    #[arg(long, alias = "older-than-days", value_name = "DAYS")]
     pub min_age_days: Option<u64>,
+    /// Select largest eligible artifacts until at least this many bytes would be reclaimed.
+    #[arg(long, value_name = "BYTES")]
+    pub reclaim_limit_bytes: Option<u64>,
     /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
     #[arg(long = "artifact", value_name = "ARTIFACT")]
     pub artifacts: Vec<String>,

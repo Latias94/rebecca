@@ -295,6 +295,7 @@ fn cleanup_plan_serialization_preserves_project_artifacts_request_contract() {
     request.project_artifact_roots = vec![PathBuf::from(r"C:\Projects")];
     request.project_artifact_max_depth = 3;
     request.project_artifact_min_age_days = 0;
+    request.project_artifact_reclaim_limit_bytes = Some(4096);
     request.project_artifact_selectors = vec!["node_modules".to_string()];
     let plan = CleanupPlan::empty(request);
 
@@ -303,6 +304,10 @@ fn cleanup_plan_serialization_preserves_project_artifacts_request_contract() {
     assert_eq!(json["request"]["project_artifact_roots"][0], r"C:\Projects");
     assert_eq!(json["request"]["project_artifact_max_depth"], 3);
     assert_eq!(json["request"]["project_artifact_min_age_days"], 0);
+    assert_eq!(
+        json["request"]["project_artifact_reclaim_limit_bytes"],
+        4096
+    );
     assert_eq!(
         json["request"]["project_artifact_selectors"][0],
         "node_modules"
@@ -316,6 +321,10 @@ fn cleanup_plan_serialization_preserves_project_artifacts_request_contract() {
     );
     assert_eq!(decoded.request.project_artifact_max_depth, 3);
     assert_eq!(decoded.request.project_artifact_min_age_days, 0);
+    assert_eq!(
+        decoded.request.project_artifact_reclaim_limit_bytes,
+        Some(4096)
+    );
     assert_eq!(
         decoded.request.project_artifact_selectors,
         vec!["node_modules"]

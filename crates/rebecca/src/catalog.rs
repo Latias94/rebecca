@@ -4,7 +4,7 @@ use rebecca::core::catalog::{
     ProjectArtifactCatalogItem, SafetyCategoryCatalogItem, WarningCatalogItem,
     filter_catalog_items,
 };
-use rebecca::core::project_artifacts::all_project_artifact_definitions;
+use rebecca::core::project_artifacts::all_project_artifact_policies;
 use rebecca::core::{RuleDefinition, SafetyLevel};
 
 use crate::cli::OutputMode;
@@ -50,7 +50,7 @@ pub(crate) fn cleanup_rule_catalog_items(rules: &[RuleDefinition]) -> Vec<Catalo
 }
 
 pub(crate) fn project_artifact_catalog_items() -> Vec<CatalogItem> {
-    all_project_artifact_definitions()
+    all_project_artifact_policies()
         .map(ProjectArtifactCatalogItem::from)
         .map(CatalogItem::ProjectArtifact)
         .collect()
@@ -140,8 +140,8 @@ fn print_catalog(items: &[CatalogItem]) {
             }
             CatalogItem::ProjectArtifact(artifact) => {
                 println!(
-                    "  - {} ({}, {})",
-                    artifact.artifact, artifact.rule_suffix, artifact.rule_id
+                    "  - {} ({}, {}; ranking: {})",
+                    artifact.artifact, artifact.rule_suffix, artifact.rule_id, artifact.ranking
                 );
             }
             CatalogItem::Warning(warning) => {

@@ -671,3 +671,60 @@ fn project_artifact_plan_skips_recent_targets_before_sizing() {
             .is_some_and(|reason| reason.contains("modified within the last 7 days"))
     );
 }
+
+#[test]
+fn project_artifact_plan_reclaim_limit_selects_largest_targets_first() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let small_node_modules = workspace.join("small").join("node_modules");
+    let large_target = workspace.join("large").join("target");
+    let medium_target = workspace.join("medium").join("target");
+    write_fixture_file(small_node_modules.join("pkg.bin"), b"abc");
+    write_fixture_file(workspace.join("small").join("package.json"), b"{}");
+    write_fixture_file(large_target.join("debug").join("app.bin"), b"12345");
+    write_fixture_file(workspace.join("large").join("Cargo.toml"), b"[package]");
+    write_fixture_file(medium_target.join("debug").join("app.bin"), b"rust");
+    write_fixture_file(workspace.join("medium").join("Cargo.toml"), b"[package]");
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    request.project_artifact_roots = vec![workspace];
+    request.project_artifact_max_depth = 4;
+    request.project_artifact_min_age_days = 0;
+    request.project_artifact_reclaim_limit_bytes = Some(5);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &SystemEnvironment,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 3);
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 2);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert_eq!(
+        plan.targets
+            .iter()
+            .find(|target| target.status == TargetStatus::Allowed)
+            .unwrap()
+            .path,
+        large_target
+    );
+    assert!(
+        plan.targets
+            .iter()
+            .filter(|target| target.status == TargetStatus::Skipped)
+            .all(|target| {
+                target.reason_code == Some(CleanupTargetIssueReason::ReclaimLimitExceeded)
+                    && target.estimate_source == EstimateSource::NotMeasured
+                    && target.estimated_bytes == 0
+            })
+    );
+}

@@ -7,14 +7,14 @@ use crate::error::{RebeccaError, Result};
 use crate::scan::ScanCancellationToken;
 
 use super::catalog::{
-    cachedir_tag_definition, is_known_project_artifact_dir_name, rule_match_for_directory,
-    should_prune_scan_dir,
+    is_known_project_artifact_dir_name, policy_for_directory_name, should_prune_scan_dir,
 };
-use super::context::cachedir_tag_context_match;
+use super::context::{cachedir_tag_context_match, project_artifact_context_match};
+use super::policy::CACHEDIR_TAG_POLICY;
 use super::{
-    ProjectArtifactCandidate, ProjectArtifactContextMatch, ProjectArtifactDefinition,
-    ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
-    ProjectArtifactDiscoveryReport, ProjectArtifactScanOptions,
+    ProjectArtifactCandidate, ProjectArtifactContextMatch, ProjectArtifactDiscoveryDiagnostic,
+    ProjectArtifactDiscoveryDiagnosticKind, ProjectArtifactDiscoveryReport, ProjectArtifactPolicy,
+    ProjectArtifactScanOptions,
 };
 
 const CACHEDIR_TAG_FILE_NAME: &str = "CACHEDIR.TAG";
@@ -147,15 +147,11 @@ fn scan_root(
         check_cancelled(cancellation)?;
 
         if let Some(name) = dir.file_name().and_then(|name| name.to_str()) {
-            if let Some(rule_match) = rule_match_for_directory(&dir, name) {
-                push_candidate(
-                    rule_match.definition,
-                    dir,
-                    rule_match.context,
-                    seen_paths,
-                    candidates,
-                );
-                continue;
+            if let Some(policy) = policy_for_directory_name(name) {
+                if let Some(context) = project_artifact_context_match(&dir, policy.context) {
+                    push_candidate(policy, dir, context, seen_paths, candidates);
+                    continue;
+                }
             }
 
             if should_prune_scan_dir(name) {
@@ -169,7 +165,7 @@ fn scan_root(
 
         if depth > 0 && has_valid_cachedir_tag(&dir) {
             push_candidate(
-                cachedir_tag_definition(),
+                &CACHEDIR_TAG_POLICY,
                 dir.clone(),
                 cachedir_tag_context_match(&dir),
                 seen_paths,
@@ -292,7 +288,7 @@ fn has_valid_cachedir_tag(dir: &Path) -> bool {
 }
 
 fn push_candidate(
-    definition: ProjectArtifactDefinition,
+    policy: &'static ProjectArtifactPolicy,
     path: PathBuf,
     context: ProjectArtifactContextMatch,
     seen_paths: &mut BTreeSet<String>,
@@ -301,7 +297,8 @@ fn push_candidate(
     let key = path.as_os_str().to_string_lossy().replace('\\', "/");
     if seen_paths.insert(key.to_ascii_lowercase()) {
         candidates.push(ProjectArtifactCandidate {
-            definition,
+            definition: policy.definition,
+            policy,
             path: path.clone(),
             context,
             modified_at_unix_seconds: modified_at_unix_seconds(&path),

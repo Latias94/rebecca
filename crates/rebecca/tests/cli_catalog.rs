@@ -121,7 +121,12 @@ fn catalog_filters_project_artifacts_by_selector() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["kind"], "project-artifact");
     assert_eq!(items[0]["artifact"], "node_modules");
+    assert_eq!(items[0]["aliases"], serde_json::json!(["node-modules"]));
     assert_eq!(items[0]["rule_id"], "windows.project-artifact-node-modules");
+    assert_eq!(items[0]["default_min_age_days"], 7);
+    assert_eq!(items[0]["trim_eligible"], true);
+    assert_eq!(items[0]["deletion_style"], "delete-whole-path");
+    assert_eq!(items[0]["ranking"], "heavy-dependency-tree");
 }
 
 #[test]

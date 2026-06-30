@@ -41,7 +41,7 @@ pub struct CleanOptions {
 
 pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) request: PlanRequest,
-    pub(crate) rules: &'a [RuleDefinition],
+    pub(crate) rule_source: WorkflowRuleSource<'a>,
     pub(crate) output_mode: OutputMode,
     pub(crate) yes: bool,
     pub(crate) no_progress: bool,
@@ -54,6 +54,21 @@ pub(crate) struct WorkflowRunOptions<'a> {
     #[cfg_attr(windows, allow(dead_code))]
     pub(crate) unsupported_execution_message: &'static str,
     pub(crate) confirmation_kind: ConfirmationKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum WorkflowRuleSource<'a> {
+    RuleCatalog(&'a [RuleDefinition]),
+    NativeWorkflow,
+}
+
+impl<'a> WorkflowRuleSource<'a> {
+    fn rules(self) -> &'a [RuleDefinition] {
+        match self {
+            Self::RuleCatalog(rules) => rules,
+            Self::NativeWorkflow => &[],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -83,7 +98,7 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
     run_workflow(
         WorkflowRunOptions {
             request,
-            rules: &catalog,
+            rule_source: WorkflowRuleSource::RuleCatalog(&catalog),
             output_mode: options.output_mode,
             yes: options.yes,
             no_progress: options.no_progress,
@@ -145,7 +160,7 @@ pub(crate) fn run_workflow_with_runtime_config(
     progress.started()?;
     let plan_result = build_cleanup_plan_with_context(
         &options.request,
-        options.rules,
+        options.rule_source.rules(),
         &SystemEnvironment,
         applications.as_ref(),
         context,

@@ -2,17 +2,17 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::load_runtime_config;
-use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
+use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
-use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
+use crate::clean::{
+    ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
+};
 use crate::cli::OutputMode;
 use crate::inspect;
 use crate::output::WorkflowOutputContract;
 use crate::purge_view::project_artifact_catalog_entries;
 use crate::render;
 use crate::runtime::CliRuntime;
-
-pub(crate) const PROJECT_ARTIFACT_RULES: &[RuleDefinition] = &[];
 
 #[derive(Debug)]
 pub struct PurgeOptions {
@@ -25,6 +25,7 @@ pub struct PurgeOptions {
     pub roots: Vec<PathBuf>,
     pub max_depth: Option<usize>,
     pub min_age_days: Option<u64>,
+    pub reclaim_limit_bytes: Option<u64>,
     pub artifacts: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
 }
@@ -37,6 +38,7 @@ pub struct PurgeInspectOptions {
     pub roots: Vec<PathBuf>,
     pub max_depth: Option<usize>,
     pub min_age_days: Option<u64>,
+    pub reclaim_limit_bytes: Option<u64>,
     pub artifacts: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
 }
@@ -60,12 +62,13 @@ pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> R
     request.project_artifact_min_age_days = options
         .min_age_days
         .unwrap_or(runtime_config.purge.min_age_days);
+    request.project_artifact_reclaim_limit_bytes = options.reclaim_limit_bytes;
     request.project_artifact_selectors = options.artifacts;
 
     run_workflow_with_runtime_config(
         WorkflowRunOptions {
             request,
-            rules: PROJECT_ARTIFACT_RULES,
+            rule_source: WorkflowRuleSource::NativeWorkflow,
             output_mode: options.output_mode,
             yes: options.yes,
             no_progress: options.no_progress,
@@ -95,6 +98,7 @@ pub(crate) fn inspect_with_runtime(
             roots: options.roots,
             max_depth: options.max_depth,
             min_age_days: options.min_age_days,
+            reclaim_limit_bytes: options.reclaim_limit_bytes,
             artifacts: options.artifacts,
             exclude_paths: options.exclude_paths,
             command: "purge inspect",

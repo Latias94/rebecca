@@ -124,6 +124,8 @@ pub(crate) fn print_project_artifact_catalog(catalog: &[ProjectArtifactCatalogEn
         println!("- {}", entry.artifact);
         println!("  selectors: {}", entry.selectors_label);
         println!("  rule: {}", entry.rule_id);
+        println!("  policy: {}, {}", entry.ranking, entry.deletion_style);
+        println!("  min age: {} days", entry.default_min_age_days);
         println!("  restore: {}", entry.restore_hint);
     }
 }

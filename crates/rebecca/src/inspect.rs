@@ -8,14 +8,16 @@ use rebecca::core::inspect::{
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
-use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
+use crate::clean::{
+    ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
+};
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
 use crate::output::{
     HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
     print_command_success_with_api_version, print_workflow_success_payload,
 };
-use crate::purge::{PROJECT_ARTIFACT_RULES, resolve_roots};
+use crate::purge::resolve_roots;
 use crate::purge_view::ProjectArtifactInsightReport;
 use crate::runtime::CliRuntime;
 use crate::{output, render};
@@ -37,6 +39,7 @@ pub struct InspectArtifactsOptions {
     pub roots: Vec<PathBuf>,
     pub max_depth: Option<usize>,
     pub min_age_days: Option<u64>,
+    pub reclaim_limit_bytes: Option<u64>,
     pub artifacts: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
     pub command: &'static str,
@@ -86,12 +89,13 @@ fn artifacts_with_runtime_config(
     request.project_artifact_min_age_days = options
         .min_age_days
         .unwrap_or(runtime_config.purge.min_age_days);
+    request.project_artifact_reclaim_limit_bytes = options.reclaim_limit_bytes;
     request.project_artifact_selectors = options.artifacts;
 
     run_workflow_with_runtime_config(
         WorkflowRunOptions {
             request,
-            rules: PROJECT_ARTIFACT_RULES,
+            rule_source: WorkflowRuleSource::NativeWorkflow,
             output_mode: options.output_mode,
             yes: false,
             no_progress: options.no_progress,

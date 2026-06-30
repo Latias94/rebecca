@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::project_artifacts::ProjectArtifactDefinition;
+use crate::project_artifacts::ProjectArtifactPolicy;
 use crate::safety_catalog::{ProtectedCategoryKnowledge, WarningKind};
 use crate::{RuleDefinition, SafetyLevel};
 
@@ -117,19 +117,34 @@ impl From<&RuleDefinition> for CleanupRuleCatalogItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProjectArtifactCatalogItem {
     pub artifact: String,
+    pub aliases: Vec<String>,
     pub rule_id: String,
     pub rule_suffix: String,
     pub restore_hint: String,
+    pub default_min_age_days: u64,
+    pub trim_eligible: bool,
+    pub deletion_style: String,
+    pub ranking: String,
 }
 
-impl From<ProjectArtifactDefinition> for ProjectArtifactCatalogItem {
-    fn from(definition: ProjectArtifactDefinition) -> Self {
+impl From<&ProjectArtifactPolicy> for ProjectArtifactCatalogItem {
+    fn from(policy: &ProjectArtifactPolicy) -> Self {
+        let definition = policy.definition;
         let rule_suffix = project_artifact_rule_suffix(definition.rule_id);
         Self {
-            artifact: definition.directory_name.to_string(),
+            artifact: policy.artifact.to_string(),
+            aliases: policy
+                .aliases
+                .iter()
+                .map(|alias| alias.to_string())
+                .collect(),
             rule_id: definition.rule_id.to_string(),
             rule_suffix: rule_suffix.to_string(),
             restore_hint: definition.restore_hint.to_string(),
+            default_min_age_days: policy.default_min_age_days,
+            trim_eligible: policy.trim_eligible,
+            deletion_style: policy.deletion_style_label().to_string(),
+            ranking: policy.ranking.label().to_string(),
         }
     }
 }
@@ -211,6 +226,10 @@ impl CatalogQuery {
                 item.artifact.eq_ignore_ascii_case(artifact)
                     || item.rule_id.eq_ignore_ascii_case(artifact)
                     || item.rule_suffix.eq_ignore_ascii_case(artifact)
+                    || item
+                        .aliases
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(artifact))
             }))
             && self.categories.is_empty()
             && matches_any(&self.rule_ids, &item.rule_id)

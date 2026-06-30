@@ -246,6 +246,8 @@ pub struct PlanRequest {
         skip_serializing_if = "is_default_project_artifact_min_age_days"
     )]
     pub project_artifact_min_age_days: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_artifact_reclaim_limit_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub project_artifact_selectors: Vec<String>,
     pub selected_categories: Vec<String>,
@@ -265,6 +267,7 @@ impl PlanRequest {
             project_artifact_roots: Vec::new(),
             project_artifact_max_depth: DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH,
             project_artifact_min_age_days: DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
+            project_artifact_reclaim_limit_bytes: None,
             project_artifact_selectors: Vec::new(),
             selected_categories: Vec::new(),
             selected_rule_ids: Vec::new(),

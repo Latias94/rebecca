@@ -6,7 +6,9 @@ mod catalog;
 mod context;
 mod definitions;
 mod discovery;
+mod policy;
 
+pub(crate) use self::catalog::project_artifact_policy_matches_selectors;
 pub use self::catalog::{
     all_project_artifact_definitions, project_artifact_definition_for_dir_name,
     project_artifact_definitions, project_artifact_matches_selectors,
@@ -15,6 +17,10 @@ pub use self::catalog::{
 pub use self::discovery::{
     discover_project_artifacts, discover_project_artifacts_with_diagnostics,
     recently_modified_reason,
+};
+pub use self::policy::{
+    ProjectArtifactPolicy, ProjectArtifactRanking, all_project_artifact_policies,
+    policy_for_rule_id,
 };
 
 use crate::model::DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH;
@@ -36,6 +42,7 @@ pub struct ProjectArtifactContextMatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectArtifactCandidate {
     pub definition: ProjectArtifactDefinition,
+    pub policy: &'static ProjectArtifactPolicy,
     pub path: PathBuf,
     pub context: ProjectArtifactContextMatch,
     pub modified_at_unix_seconds: Option<u64>,

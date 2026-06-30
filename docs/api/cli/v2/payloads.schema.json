@@ -47,6 +47,7 @@
         "execution-target-missing",
         "safety-policy-blocked",
         "project-artifact-recently-modified",
+        "reclaim-limit-exceeded",
         "scan-failed",
         "execution-failed",
         "unclassified"
@@ -255,9 +256,14 @@
       "required": [
         "kind",
         "artifact",
+        "aliases",
         "rule_id",
         "rule_suffix",
-        "restore_hint"
+        "restore_hint",
+        "default_min_age_days",
+        "trim_eligible",
+        "deletion_style",
+        "ranking"
       ],
       "properties": {
         "kind": {
@@ -266,6 +272,13 @@
         "artifact": {
           "type": "string",
           "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "rule_id": {
           "type": "string",
@@ -278,6 +291,29 @@
         "restore_hint": {
           "type": "string",
           "minLength": 1
+        },
+        "default_min_age_days": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "trim_eligible": {
+          "type": "boolean"
+        },
+        "deletion_style": {
+          "type": "string",
+          "enum": [
+            "preserve-root-contents",
+            "delete-whole-path"
+          ]
+        },
+        "ranking": {
+          "type": "string",
+          "enum": [
+            "heavy-dependency-tree",
+            "build-output",
+            "tool-cache",
+            "test-output",
+            "tagged-cache"
+          ]
         }
       }
     },

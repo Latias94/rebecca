@@ -34,6 +34,7 @@ pub(super) fn project_artifact_context_match(
         ProjectArtifactContext::ComposerVendor => {
             regular_file_context(parent, "composer-vendor", &["composer.json"])
         }
+        ProjectArtifactContext::CachedirTag => Some(cachedir_tag_context_match(path)),
     }
 }
 

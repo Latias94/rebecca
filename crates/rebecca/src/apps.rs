@@ -1,15 +1,13 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
+use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
-use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow};
+use crate::clean::{ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow};
 use crate::cli::OutputMode;
 use crate::output::WorkflowOutputContract;
 use crate::render;
 use crate::runtime::CliRuntime;
-
-const APP_LEFTOVER_RULES: &[RuleDefinition] = &[];
 
 #[derive(Debug)]
 pub struct AppsScanOptions {
@@ -36,7 +34,7 @@ pub(crate) fn scan_with_runtime(options: AppsScanOptions, runtime: &CliRuntime) 
     run_workflow(
         WorkflowRunOptions {
             request,
-            rules: APP_LEFTOVER_RULES,
+            rule_source: WorkflowRuleSource::NativeWorkflow,
             output_mode: options.output_mode,
             yes: false,
             no_progress: options.no_progress,
@@ -65,7 +63,7 @@ pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime
     run_workflow(
         WorkflowRunOptions {
             request,
-            rules: APP_LEFTOVER_RULES,
+            rule_source: WorkflowRuleSource::NativeWorkflow,
             output_mode: options.output_mode,
             yes: options.yes,
             no_progress: options.no_progress,

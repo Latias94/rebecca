@@ -54,6 +54,7 @@ fn purge_help_shows_project_artifact_options() {
     assert!(stdout.contains("--root"));
     assert!(stdout.contains("--max-depth"));
     assert!(stdout.contains("--min-age-days"));
+    assert!(stdout.contains("--reclaim-limit-bytes"));
     assert!(stdout.contains("--artifact"));
     assert!(stdout.contains("--list-artifacts"));
     assert!(stdout.contains("--exclude"));
@@ -134,8 +135,13 @@ fn purge_list_artifacts_json_reports_machine_readable_catalog() {
     let artifacts = value.as_array().unwrap();
     assert!(artifacts.iter().any(|artifact| {
         artifact["artifact"] == "node_modules"
+            && artifact["aliases"] == serde_json::json!(["node-modules"])
             && artifact["rule_id"] == "windows.project-artifact-node-modules"
             && artifact["rule_suffix"] == "node-modules"
+            && artifact["default_min_age_days"] == 7
+            && artifact["trim_eligible"] == true
+            && artifact["deletion_style"] == "delete-whole-path"
+            && artifact["ranking"] == "heavy-dependency-tree"
     }));
     assert!(artifacts.iter().any(|artifact| {
         artifact["artifact"] == "CACHEDIR.TAG"
@@ -1056,6 +1062,72 @@ min_age_days = 30
     assert_eq!(value["request"]["project_artifact_max_depth"], 3);
     assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
     assert_eq!(value["summary"]["allowed_targets"], 1);
+}
+
+#[test]
+fn purge_reclaim_limit_and_older_than_alias_select_largest_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let small_node_modules = workspace.join("small").join("node_modules");
+    let large_target = workspace.join("large").join("target");
+    let medium_target = workspace.join("medium").join("target");
+    write_fixture_file(small_node_modules.join("pkg.bin"), b"abc");
+    write_node_project(workspace.join("small"));
+    write_fixture_file(large_target.join("debug").join("app.bin"), b"12345");
+    write_rust_project(workspace.join("large"));
+    write_fixture_file(medium_target.join("debug").join("app.bin"), b"rust");
+    write_rust_project(workspace.join("medium"));
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--older-than-days",
+            "0",
+            "--reclaim-limit-bytes",
+            "5",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
+    assert_eq!(value["request"]["project_artifact_reclaim_limit_bytes"], 5);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["skipped_targets"], 2);
+    assert_eq!(value["summary"]["estimated_bytes"], 5);
+
+    let allowed = value["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|target| target["status"] == "allowed")
+        .unwrap();
+    assert_eq!(
+        PathBuf::from(allowed["path"].as_str().unwrap()),
+        large_target
+    );
+
+    assert!(
+        value["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|target| target["status"] == "skipped")
+            .all(|target| target["reason_code"] == "reclaim-limit-exceeded"
+                && target["estimated_bytes"] == 0
+                && target["estimate_source"] == "not-measured")
+    );
 }
 
 #[test]
