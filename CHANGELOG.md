@@ -28,6 +28,7 @@ All notable changes to Rebecca will be documented in this file.
 - v2 commands now use the command API registry for fatal JSON and NDJSON errors instead of the global v1 error envelope.
 - `rebecca cache purge --yes` now moves rebuildable Rebecca cache entries to the Recycle Bin by default and reports pending reclaim bytes separately from permanently reclaimed bytes.
 - Project artifact reclaim limits now stop measurement once ranked trim-eligible candidates satisfy the requested limit, leaving later candidates unmeasured instead of sizing the full candidate set first.
+- Parallel project artifact and app-leftover measurement no longer buffers every file-level progress event before reporting target summaries.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.

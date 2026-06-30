@@ -776,3 +776,43 @@ fn project_artifact_plan_reclaim_limit_zero_skips_trim_eligible_without_measurin
     assert_eq!(plan.targets[0].estimate_source, EstimateSource::NotMeasured);
     assert!(!cache.cache_file_for(&node_modules).exists());
 }
+
+#[test]
+fn project_artifact_parallel_measurement_does_not_replay_file_progress() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let node_modules = workspace.join("app").join("node_modules");
+    write_fixture_file(node_modules.join("one.bin"), b"abc");
+    write_fixture_file(node_modules.join("two.bin"), b"de");
+    write_fixture_file(workspace.join("app").join("package.json"), b"{}");
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    request.project_artifact_roots = vec![workspace];
+    request.project_artifact_max_depth = 4;
+    request.project_artifact_min_age_days = 0;
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut file_progress_events = 0;
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &SystemEnvironment,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |event| {
+            if matches!(
+                event,
+                rebecca_core::planner::PlanProgressEvent::FileMeasured { .. }
+            ) {
+                file_progress_events += 1;
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 5);
+    assert_eq!(file_progress_events, 0);
+}

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::app_leftovers::AppLeftoverCandidate;
 use crate::error::{RebeccaError, Result};
@@ -20,16 +20,7 @@ use super::{PlanBuildContext, PlanProgressEvent};
 #[derive(Debug, Clone)]
 pub(crate) struct MeasuredTarget {
     pub(crate) target: CleanupTarget,
-    file_progress: Vec<MeasuredFileProgress>,
     scan_cache_event: Option<MeasuredScanCacheEvent>,
-}
-
-#[derive(Debug, Clone)]
-struct MeasuredFileProgress {
-    path: PathBuf,
-    file_size: u64,
-    files_scanned: u64,
-    bytes_scanned: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -206,17 +197,6 @@ where
             }
         }
     }
-
-    for event in &measured.file_progress {
-        progress(PlanProgressEvent::FileMeasured {
-            rule_id: &measured.target.rule_id,
-            target_path: &measured.target.path,
-            path: event.path.as_path(),
-            file_size: event.file_size,
-            files_scanned: event.files_scanned,
-            bytes_scanned: event.bytes_scanned,
-        });
-    }
 }
 
 pub(crate) fn dedupe_key(path: &Path, _platform: Platform) -> String {
@@ -268,30 +248,18 @@ where
                     );
                     return Ok(MeasuredTarget {
                         target,
-                        file_progress: Vec::new(),
                         scan_cache_event: None,
                     });
                 }
             }
 
-            let mut file_progress = Vec::new();
             let mut scan_cache_event = None;
             let measured_path =
                 measure_path_with_optional_scan_cache(T::path(&candidate), context, |event| {
                     match event {
                         PathMeasureProgressEvent::Scan(ScanProgressEvent::FileMeasured {
-                            path,
-                            file_size,
-                            files_scanned,
-                            bytes_scanned,
-                        }) => {
-                            file_progress.push(MeasuredFileProgress {
-                                path: path.to_path_buf(),
-                                file_size,
-                                files_scanned,
-                                bytes_scanned,
-                            });
-                        }
+                            ..
+                        }) => {}
                         PathMeasureProgressEvent::ScanCacheHit { report } => {
                             scan_cache_event = Some(MeasuredScanCacheEvent::Hit {
                                 estimated_bytes: report.bytes_scanned,
@@ -311,7 +279,6 @@ where
                 .with_estimate_source(measured_path.estimate_source);
             Ok(MeasuredTarget {
                 target,
-                file_progress,
                 scan_cache_event,
             })
         }
@@ -322,7 +289,6 @@ where
                 CleanupTargetIssueReason::SafetyPolicySkipped,
                 reason,
             ),
-            file_progress: Vec::new(),
             scan_cache_event: None,
         }),
         CandidateDisposition::Blocked(reason) => Ok(MeasuredTarget {
@@ -332,7 +298,6 @@ where
                 CleanupTargetIssueReason::SafetyPolicyBlocked,
                 reason,
             ),
-            file_progress: Vec::new(),
             scan_cache_event: None,
         }),
     }
