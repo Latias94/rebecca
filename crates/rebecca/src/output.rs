@@ -296,14 +296,34 @@ pub(crate) fn print_plan_with_events(
     scan_cache_summary: Option<ScanCacheProgressSummary>,
     event_writer: Option<NdjsonEventWriter>,
 ) -> Result<()> {
+    print_workflow_success_payload(
+        plan,
+        plan,
+        contract,
+        mode,
+        human_renderer,
+        scan_cache_summary,
+        event_writer,
+    )
+}
+
+pub(crate) fn print_workflow_success_payload<T: Serialize + ?Sized>(
+    plan: &CleanupPlan,
+    payload: &T,
+    contract: WorkflowOutputContract,
+    mode: OutputMode,
+    human_renderer: HumanPlanRenderer,
+    scan_cache_summary: Option<ScanCacheProgressSummary>,
+    event_writer: Option<NdjsonEventWriter>,
+) -> Result<()> {
     if mode.is_json() {
-        print_success(contract.command, contract.payload_kind, plan)?;
+        print_success(contract.command, contract.payload_kind, payload)?;
         return Ok(());
     }
 
     if mode.is_ndjson() {
         let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new(contract.command));
-        writer.emit_completed(contract.payload_kind, plan)?;
+        writer.emit_completed(contract.payload_kind, payload)?;
         return Ok(());
     }
 

@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
-use rebecca::core::project_artifacts::ProjectArtifactDiscoveryDiagnostic;
+use rebecca::core::project_artifacts::{
+    ProjectArtifactDefinition, ProjectArtifactDiscoveryDiagnostic, all_project_artifact_definitions,
+};
 use rebecca::core::{EstimateSource, TargetStatus};
 use serde::Serialize;
 
@@ -54,6 +56,16 @@ pub(crate) struct ProjectArtifactDiscoveryDiagnosticRow<'a> {
     pub(crate) kind_label: &'static str,
     pub(crate) path: &'a Path,
     pub(crate) detail: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct ProjectArtifactCatalogEntry {
+    pub(crate) artifact: &'static str,
+    pub(crate) rule_id: &'static str,
+    pub(crate) rule_suffix: &'static str,
+    pub(crate) restore_hint: &'static str,
+    #[serde(skip)]
+    pub(crate) selectors_label: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -184,6 +196,29 @@ impl ProjectArtifactInsightReport {
             discovery_diagnostics: plan.discovery_diagnostics.clone(),
         }
     }
+}
+
+impl ProjectArtifactCatalogEntry {
+    pub(crate) fn from_definition(definition: ProjectArtifactDefinition) -> Self {
+        let rule_suffix = project_artifact_rule_suffix(definition.rule_id);
+        Self {
+            artifact: definition.directory_name,
+            rule_id: definition.rule_id,
+            rule_suffix,
+            restore_hint: definition.restore_hint,
+            selectors_label: project_artifact_selectors_label(
+                definition.directory_name,
+                definition.rule_id,
+                rule_suffix,
+            ),
+        }
+    }
+}
+
+pub(crate) fn project_artifact_catalog_entries() -> Vec<ProjectArtifactCatalogEntry> {
+    all_project_artifact_definitions()
+        .map(ProjectArtifactCatalogEntry::from_definition)
+        .collect()
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -395,6 +430,24 @@ fn root_for_target(plan: &CleanupPlan, path: &Path) -> Option<PathBuf> {
         .cloned()
 }
 
+fn project_artifact_selectors_label(
+    directory_name: &str,
+    rule_id: &str,
+    rule_suffix: &str,
+) -> String {
+    if directory_name.eq_ignore_ascii_case(rule_suffix) {
+        format!("{directory_name}, {rule_id}")
+    } else {
+        format!("{directory_name}, {rule_suffix}, {rule_id}")
+    }
+}
+
+fn project_artifact_rule_suffix(rule_id: &'static str) -> &'static str {
+    rule_id
+        .strip_prefix("windows.project-artifact-")
+        .unwrap_or(rule_id)
+}
+
 fn artifact_type_label(rule_id: &str, path: &Path) -> String {
     match rule_id {
         "windows.project-artifact-cachedir-tag" => "CACHEDIR.TAG".to_string(),
@@ -556,5 +609,28 @@ mod tests {
         assert!(artifact_types.contains(&"vendor (Composer)"));
         assert!(artifact_types.contains(&"bin (.NET)"));
         assert!(artifact_types.contains(&"CACHEDIR.TAG"));
+    }
+
+    #[test]
+    fn catalog_entry_keeps_machine_payload_stable_and_human_selectors_available() {
+        let entry = ProjectArtifactCatalogEntry::from_definition(ProjectArtifactDefinition {
+            directory_name: "node_modules",
+            rule_id: "windows.project-artifact-node-modules",
+            restore_hint: "Node packages can be reinstalled.",
+        });
+
+        assert_eq!(entry.artifact, "node_modules");
+        assert_eq!(entry.rule_suffix, "node-modules");
+        assert_eq!(
+            entry.selectors_label,
+            "node_modules, node-modules, windows.project-artifact-node-modules"
+        );
+
+        let value = serde_json::to_value(&entry).unwrap();
+        assert_eq!(value["artifact"], "node_modules");
+        assert_eq!(value["rule_id"], "windows.project-artifact-node-modules");
+        assert_eq!(value["rule_suffix"], "node-modules");
+        assert_eq!(value["restore_hint"], "Node packages can be reinstalled.");
+        assert!(value.get("selectors_label").is_none());
     }
 }

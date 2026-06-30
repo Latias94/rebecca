@@ -3,16 +3,15 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::load_runtime_config;
 use rebecca::core::plan::CleanupPlan;
-use rebecca::core::project_artifacts::{
-    ProjectArtifactDefinition, all_project_artifact_definitions,
-};
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
-use crate::output::{HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract, print_success};
-use crate::purge_view::ProjectArtifactInsightReport;
+use crate::output::{
+    HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract, print_workflow_success_payload,
+};
+use crate::purge_view::{ProjectArtifactInsightReport, project_artifact_catalog_entries};
 use crate::render;
 use crate::runtime::CliRuntime;
 
@@ -138,82 +137,30 @@ fn print_project_artifact_insight_with_events(
     event_writer: Option<NdjsonEventWriter>,
 ) -> Result<()> {
     let insight = ProjectArtifactInsightReport::from_plan(plan);
-
-    if mode.is_json() {
-        return print_success(contract.command, contract.payload_kind, &insight);
-    }
-
-    if mode.is_ndjson() {
-        let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new(contract.command));
-        return writer.emit_completed(contract.payload_kind, &insight);
-    }
-
-    human_renderer(plan, scan_cache_summary)
+    print_workflow_success_payload(
+        plan,
+        &insight,
+        contract,
+        mode,
+        human_renderer,
+        scan_cache_summary,
+        event_writer,
+    )
 }
 
 fn print_project_artifact_catalog(output_mode: OutputMode) -> Result<()> {
-    let definitions = all_project_artifact_definitions().collect::<Vec<_>>();
+    let catalog = project_artifact_catalog_entries();
 
     if output_mode.is_json() {
-        let values = definitions
-            .iter()
-            .map(|definition| {
-                serde_json::json!({
-                    "artifact": definition.directory_name,
-                    "rule_id": definition.rule_id,
-                    "rule_suffix": project_artifact_rule_suffix(definition.rule_id),
-                    "restore_hint": definition.restore_hint,
-                })
-            })
-            .collect::<Vec<_>>();
-        return crate::output::print_success("purge", "project-artifact-catalog", &values);
+        return crate::output::print_success("purge", "project-artifact-catalog", &catalog);
     }
 
     if output_mode.is_ndjson() {
-        let values = definitions
-            .iter()
-            .map(|definition| {
-                serde_json::json!({
-                    "artifact": definition.directory_name,
-                    "rule_id": definition.rule_id,
-                    "rule_suffix": project_artifact_rule_suffix(definition.rule_id),
-                    "restore_hint": definition.restore_hint,
-                })
-            })
-            .collect::<Vec<_>>();
-        return crate::output::print_success_event("purge", "project-artifact-catalog", &values);
+        return crate::output::print_success_event("purge", "project-artifact-catalog", &catalog);
     }
 
-    println!("Supported project artifacts: {}", definitions.len());
-    for definition in definitions {
-        println!("- {}", definition.directory_name);
-        println!(
-            "  selectors: {}",
-            project_artifact_selectors_label(definition)
-        );
-        println!("  rule: {}", definition.rule_id);
-        println!("  restore: {}", definition.restore_hint);
-    }
-
+    render::purge::print_project_artifact_catalog(&catalog);
     Ok(())
-}
-
-fn project_artifact_selectors_label(definition: ProjectArtifactDefinition) -> String {
-    let rule_suffix = project_artifact_rule_suffix(definition.rule_id);
-    if definition.directory_name.eq_ignore_ascii_case(rule_suffix) {
-        format!("{}, {}", definition.directory_name, definition.rule_id)
-    } else {
-        format!(
-            "{}, {}, {}",
-            definition.directory_name, rule_suffix, definition.rule_id
-        )
-    }
-}
-
-fn project_artifact_rule_suffix(rule_id: &str) -> &str {
-    rule_id
-        .strip_prefix("windows.project-artifact-")
-        .unwrap_or(rule_id)
 }
 
 fn resolve_roots(cli_roots: Vec<PathBuf>, config_roots: &[PathBuf]) -> Result<Vec<PathBuf>> {

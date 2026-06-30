@@ -4,8 +4,8 @@ use rebecca::core::plan::CleanupPlan;
 use crate::clean_view::{CleanPlanProjection, ScanCacheProgressSummary};
 use crate::output::{format_bytes, restore_hint_suffix};
 use crate::purge_view::{
-    ProjectArtifactDiscoveryDiagnosticRow, ProjectArtifactInsightReport,
-    ProjectArtifactPlanProjection, ProjectArtifactRow,
+    ProjectArtifactCatalogEntry, ProjectArtifactDiscoveryDiagnosticRow,
+    ProjectArtifactInsightReport, ProjectArtifactPlanProjection, ProjectArtifactRow,
 };
 use crate::render::{estimate_source_suffix, format_count};
 
@@ -116,6 +116,16 @@ pub(crate) fn print_project_artifact_insight(
     }
 
     Ok(())
+}
+
+pub(crate) fn print_project_artifact_catalog(catalog: &[ProjectArtifactCatalogEntry]) {
+    println!("Supported project artifacts: {}", catalog.len());
+    for entry in catalog {
+        println!("- {}", entry.artifact);
+        println!("  selectors: {}", entry.selectors_label);
+        println!("  rule: {}", entry.rule_id);
+        println!("  restore: {}", entry.restore_hint);
+    }
 }
 
 fn print_project_artifact_details(plan: &CleanupPlan) {
