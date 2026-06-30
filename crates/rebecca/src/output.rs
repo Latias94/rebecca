@@ -1,17 +1,33 @@
 use anyhow::Result;
+use rebecca::core::RuleDefinition;
 use rebecca::core::plan::{CleanupIssueSummary, CleanupPlan};
 use rebecca::core::planner::PlanProgressEvent;
-use rebecca::core::{CleanupWorkflow, RuleDefinition};
 use serde::Serialize;
 use serde_json::json;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::clean_view::{CleanPlanProjection, CleanTargetRow, ScanCacheProgressSummary};
+use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
-use crate::purge_view::{ProjectArtifactPlanProjection, ProjectArtifactRow};
 
 const API_VERSION: &str = "rebecca.cli.v1";
+
+pub(crate) type HumanPlanRenderer =
+    fn(&CleanupPlan, Option<ScanCacheProgressSummary>) -> Result<()>;
+pub(crate) type WorkflowSuccessRenderer = fn(
+    &CleanupPlan,
+    WorkflowOutputContract,
+    OutputMode,
+    HumanPlanRenderer,
+    Option<ScanCacheProgressSummary>,
+    Option<NdjsonEventWriter>,
+) -> Result<()>;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WorkflowOutputContract {
+    pub(crate) command: &'static str,
+    pub(crate) payload_kind: &'static str,
+}
 
 #[derive(Debug, Serialize)]
 struct SuccessEnvelope<'a, T: Serialize + ?Sized> {
@@ -273,112 +289,24 @@ where
 
 pub(crate) fn print_plan_with_events(
     plan: &CleanupPlan,
+    contract: WorkflowOutputContract,
     mode: OutputMode,
+    human_renderer: HumanPlanRenderer,
     scan_cache_summary: Option<ScanCacheProgressSummary>,
     event_writer: Option<NdjsonEventWriter>,
 ) -> Result<()> {
-    let command = cleanup_plan_command(plan);
     if mode.is_json() {
-        print_success(command, cleanup_plan_payload_kind(plan), plan)?;
+        print_success(contract.command, contract.payload_kind, plan)?;
         return Ok(());
     }
 
     if mode.is_ndjson() {
-        let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new(command));
-        writer.emit_completed(cleanup_plan_payload_kind(plan), plan)?;
+        let mut writer = event_writer.unwrap_or_else(|| NdjsonEventWriter::new(contract.command));
+        writer.emit_completed(contract.payload_kind, plan)?;
         return Ok(());
     }
 
-    let projection = CleanPlanProjection::new(plan, scan_cache_summary);
-
-    println!("Workflow: {}", projection.workflow_title);
-    println!("Cleanup mode: {}", projection.mode_label);
-    println!("Targets: {}", projection.summary.total_targets);
-    println!("Allowed: {}", projection.summary.allowed_targets);
-    println!("Skipped: {}", projection.summary.skipped_targets);
-    println!("Blocked: {}", projection.summary.blocked_targets);
-    println!("Failed: {}", projection.summary.failed_targets);
-    println!("Completed: {}", projection.summary.completed_targets);
-    println!(
-        "Estimated bytes: {} ({})",
-        projection.summary.estimated_bytes,
-        format_bytes(projection.summary.estimated_bytes)
-    );
-    println!(
-        "Freed bytes: {} ({})",
-        projection.summary.freed_bytes,
-        format_bytes(projection.summary.freed_bytes)
-    );
-    println!(
-        "Pending reclaim bytes: {} ({})",
-        projection.summary.pending_reclaim_bytes,
-        format_bytes(projection.summary.pending_reclaim_bytes)
-    );
-    if !projection.issue_matrix().is_empty() {
-        println!();
-        println!("Issue matrix:");
-        for issue in projection.issue_matrix() {
-            println!(
-                "- {} {}: {}, {} ({})",
-                issue.status_label,
-                issue.reason_label,
-                issue.targets_label,
-                issue.estimated_bytes,
-                format_bytes(issue.estimated_bytes)
-            );
-        }
-    }
-    if let Some(summary) = projection.scan_cache_summary() {
-        println!(
-            "Scan cache summary: {}, {}, {}, {}",
-            summary.hits_label,
-            summary.misses_label,
-            summary.write_skipped_label,
-            summary.pruned_label
-        );
-    }
-
-    if plan.request.workflow == CleanupWorkflow::ProjectArtifacts {
-        print_project_artifact_details(plan);
-        return Ok(());
-    }
-
-    if !projection.largest_targets().is_empty() {
-        println!();
-        println!("Largest estimated targets:");
-        for target in projection.largest_targets() {
-            print_target_line(target, "  -");
-        }
-    }
-
-    if !projection.target_groups().is_empty() {
-        println!();
-        println!("Target details:");
-        for group in projection.target_groups() {
-            println!("{} ({})", group.status_label, group.targets.len());
-            for target in &group.targets {
-                print_target_line(target, "  -");
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn cleanup_plan_command(plan: &CleanupPlan) -> &'static str {
-    match plan.request.workflow {
-        CleanupWorkflow::Rules => "clean",
-        CleanupWorkflow::AppLeftovers => "apps clean",
-        CleanupWorkflow::ProjectArtifacts => "purge",
-    }
-}
-
-fn cleanup_plan_payload_kind(plan: &CleanupPlan) -> &'static str {
-    match plan.request.workflow {
-        CleanupWorkflow::Rules => "cleanup-plan",
-        CleanupWorkflow::AppLeftovers => "app-leftovers-cleanup-plan",
-        CleanupWorkflow::ProjectArtifacts => "project-artifact-cleanup-plan",
-    }
+    human_renderer(plan, scan_cache_summary)
 }
 
 pub(crate) fn print_success_event<T: Serialize + ?Sized>(
@@ -572,89 +500,6 @@ impl NdjsonEventWriter {
         self.next_sequence = self.next_sequence.saturating_add(1);
         sequence
     }
-}
-
-fn print_project_artifact_details(plan: &CleanupPlan) {
-    let projection = ProjectArtifactPlanProjection::new(plan);
-
-    if !projection.recently_modified().is_empty() {
-        println!();
-        println!("Recently modified artifacts:");
-        for target in projection.recently_modified() {
-            print_recent_project_artifact_line(target, "  -");
-        }
-    }
-
-    if projection.project_groups().is_empty() {
-        return;
-    }
-
-    println!();
-    println!("Project artifact details:");
-    for group in projection.project_groups() {
-        println!(
-            "{} ({}, {} bytes ({}) estimated)",
-            group.project_path.display(),
-            group.targets_label,
-            group.estimated_bytes,
-            format_bytes(group.estimated_bytes)
-        );
-        for target in &group.targets {
-            print_project_artifact_line(target, "  -");
-        }
-    }
-}
-
-fn print_recent_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
-    println!(
-        "{prefix} {} [{}] {}{}{}",
-        target.artifact_type,
-        target.status_label,
-        target.path.display(),
-        target
-            .modified_at_unix_seconds
-            .map(|seconds| format!(" (modified at {seconds})"))
-            .unwrap_or_default(),
-        target
-            .reason
-            .map(|reason| format!(" - {reason}"))
-            .unwrap_or_default(),
-    );
-}
-
-fn print_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
-    println!(
-        "{prefix} {} [{}] {} bytes ({}) - {}{}{}{}",
-        target.artifact_type,
-        target.status_label,
-        target.estimated_bytes,
-        format_bytes(target.estimated_bytes),
-        target.path.display(),
-        target
-            .modified_at_unix_seconds
-            .map(|seconds| format!(" (modified at {seconds})"))
-            .unwrap_or_default(),
-        target
-            .reason
-            .map(|reason| format!(" (reason: {reason})"))
-            .unwrap_or_default(),
-        restore_hint_suffix(target.restore_hint)
-    );
-}
-
-fn print_target_line(target: &CleanTargetRow<'_>, prefix: &str) {
-    println!(
-        "{prefix} {} [{}] {} bytes ({}){}{}",
-        target.rule_id,
-        target.path.display(),
-        target.estimated_bytes,
-        format_bytes(target.estimated_bytes),
-        target
-            .reason
-            .map(|reason| format!(" ({reason})"))
-            .unwrap_or_default(),
-        restore_hint_suffix(target.restore_hint)
-    );
 }
 
 pub(crate) fn format_issue_matrix_entry(issue: &CleanupIssueSummary) -> String {

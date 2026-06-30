@@ -21,6 +21,20 @@
       "freed_bytes": 0,
       "pending_reclaim_bytes": 0
     },
-    "targets": []
+    "targets": [
+      {
+        "rule_id": "windows.user-temp",
+        "path": "C:\\Users\\Alice\\AppData\\Local\\Temp",
+        "estimated_bytes": 5,
+        "estimate_source": "fresh-scan",
+        "mode": "dry-run",
+        "status": "allowed",
+        "reason": null,
+        "restore_hint": "Temporary files can be recreated.",
+        "deletion_style": "preserve-root-contents",
+        "freed_bytes": 0,
+        "pending_reclaim_bytes": 0
+      }
+    ]
   }
 }

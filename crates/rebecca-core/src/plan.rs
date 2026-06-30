@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::project_artifacts::ProjectArtifactContextMatch;
+use crate::project_artifacts::{ProjectArtifactContextMatch, ProjectArtifactDiscoveryDiagnostic};
 use crate::{DeleteMode, PlanRequest, TargetStatus};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -12,6 +12,27 @@ pub enum CleanupTargetDeletionStyle {
     #[default]
     PreserveRootContents,
     DeleteWholePath,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EstimateSource {
+    #[default]
+    Unknown,
+    FreshScan,
+    ScanCache,
+    NotMeasured,
+}
+
+impl EstimateSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::FreshScan => "fresh-scan",
+            Self::ScanCache => "scan-cache",
+            Self::NotMeasured => "not-measured",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +63,8 @@ pub struct CleanupTarget {
     pub rule_id: String,
     pub path: PathBuf,
     pub estimated_bytes: u64,
+    #[serde(default)]
+    pub estimate_source: EstimateSource,
     pub mode: DeleteMode,
     pub status: TargetStatus,
     pub reason: Option<String>,
@@ -103,6 +126,7 @@ impl CleanupTarget {
             rule_id: rule_id.into(),
             path,
             estimated_bytes,
+            estimate_source: EstimateSource::FreshScan,
             mode,
             status: TargetStatus::Allowed,
             reason: None,
@@ -142,6 +166,7 @@ impl CleanupTarget {
             rule_id: rule_id.into(),
             path,
             estimated_bytes: 0,
+            estimate_source: EstimateSource::NotMeasured,
             mode,
             status: TargetStatus::Skipped,
             reason: Some(reason.into()),
@@ -181,6 +206,7 @@ impl CleanupTarget {
             rule_id: rule_id.into(),
             path,
             estimated_bytes: 0,
+            estimate_source: EstimateSource::NotMeasured,
             mode,
             status: TargetStatus::Blocked,
             reason: Some(reason.into()),
@@ -223,6 +249,11 @@ impl CleanupTarget {
             rule_id: rule_id.into(),
             path,
             estimated_bytes,
+            estimate_source: if estimated_bytes == 0 {
+                EstimateSource::NotMeasured
+            } else {
+                EstimateSource::FreshScan
+            },
             mode,
             status: TargetStatus::Failed,
             reason: Some(reason.into()),
@@ -254,6 +285,11 @@ impl CleanupTarget {
         self
     }
 
+    pub fn with_estimate_source(mut self, estimate_source: EstimateSource) -> Self {
+        self.estimate_source = estimate_source;
+        self
+    }
+
     pub fn with_restore_hint(mut self, restore_hint: Option<String>) -> Self {
         self.restore_hint = restore_hint;
         self
@@ -265,6 +301,8 @@ pub struct CleanupPlan {
     pub request: PlanRequest,
     pub summary: CleanupSummary,
     pub targets: Vec<CleanupTarget>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub discovery_diagnostics: Vec<ProjectArtifactDiscoveryDiagnostic>,
 }
 
 impl CleanupPlan {
@@ -273,6 +311,7 @@ impl CleanupPlan {
             request,
             summary: CleanupSummary::default(),
             targets: Vec::new(),
+            discovery_diagnostics: Vec::new(),
         }
     }
 

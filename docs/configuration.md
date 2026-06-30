@@ -97,7 +97,8 @@ Parsing rules:
 - Unsupported `version` values fail clearly and are not partially interpreted.
 - Invalid scan-cache policy values fail before cleanup planning.
 - Invalid protected-path entries fail before cleanup planning.
-- Invalid purge root entries fail before cleanup planning.
+- Invalid purge root entries fail while loading config; configured roots that
+  later go missing or become unreadable are reported as discovery diagnostics.
 
 ## Resolution Precedence
 
@@ -201,10 +202,19 @@ values. It must:
   cache targets;
 - treat `--root` values as explicit workspace boundaries that override
   configured roots for one run, rather than broad user-profile scans;
+- reject explicit `--root` paths that are missing, not directories, or reparse
+  points, because the user asked for that exact root;
+- keep configured `[purge].roots` absolute and valid at config-load time while
+  reporting later missing, unreadable, metadata-failing, or reparse-point roots
+  as `discovery_diagnostics` so one stale workspace entry does not abort every
+  configured root;
 - treat repeated `--artifact <NAME>` values as an explicit artifact-kind filter,
   accepting directory names, full project-artifact rule ids, or rule id suffixes;
 - support `--list-artifacts` as a scan-free catalog of accepted artifact
   selectors, with human and JSON output;
+- support `purge inspect` as a read-only insight report that uses the same
+  roots, selectors, depth, age, exclude, scan-cache, and diagnostics pipeline
+  without accepting `--yes`, prompting, executing cleanup, or writing history;
 - group human output by project path and label artifact kinds separately from
   full target paths;
 - prune a matched artifact directory from further discovery to avoid nested
@@ -216,6 +226,11 @@ values. It must:
 Project artifact targets in JSON and history include a `project_artifact`
 object with the matched context, project root, and anchor path that justified
 the match. This is an explainability field, not a confidence score.
+Project artifact cleanup plans and inspect reports also carry
+`estimate_source` on each target: `fresh-scan` means the bytes came from this
+command, `scan-cache` means an enabled scan-cache record supplied the bytes,
+`not-measured` means the target was skipped or blocked before measurement, and
+`unknown` is reserved for legacy serialized plans.
 
 The first supported artifact set tracks high-confidence rebuildable project
 directories such as `node_modules`, `target`, `build`, `dist`, frontend

@@ -27,5 +27,5 @@ pub use model::{
 };
 pub use plan::{
     CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetDeletionStyle,
-    CleanupTargetIssueReason,
+    CleanupTargetIssueReason, EstimateSource,
 };

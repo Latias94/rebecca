@@ -122,6 +122,7 @@ cargo run -p rebecca -- apps clean --format json --dry-run
 cargo run -p rebecca -- apps clean --yes
 
 cargo run -p rebecca -- purge
+cargo run -p rebecca -- purge inspect --root . --format json
 cargo run -p rebecca -- purge --list-artifacts
 cargo run -p rebecca -- purge --list-artifacts --format json
 cargo run -p rebecca -- purge --format json --root . --max-depth 6
@@ -151,6 +152,8 @@ Use `--format ndjson` for long-running cleanup workflows that need progress even
 
 Every machine-readable success response is wrapped in a `rebecca.cli.v1` envelope with `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero.
 
+Cleanup targets expose `estimate_source` so callers can tell whether byte counts came from a fresh scan, an enabled scan-cache hit, a not-yet-measured target, or legacy input.
+
 The contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
 
 ## Built-In Rules
@@ -178,11 +181,15 @@ The workflow does not uninstall applications, execute vendor uninstallers, remov
 
 The current scope is context-sensitive rather than basename-only: `node_modules`, `target`, `build`, `dist`, Python virtual environments and tool caches, frontend framework caches, coverage output, Gradle caches, Zig/Dart/Expo build caches, CocoaPods `Pods`, Composer `vendor`, .NET `bin`/`obj`, plus directories carrying a valid `CACHEDIR.TAG` cache marker. Each built-in artifact is backed by an explicit project-context rule, such as JavaScript workspace markers for `node_modules`, Rust or Maven markers for `target`, Composer `composer.json` for `vendor`, and sibling `.csproj`, `.fsproj`, or `.vbproj` files for .NET `bin`/`obj`; generic names such as `build`, `dist`, `coverage`, `bin`, and `obj` are ignored without that context.
 
-Rebecca does not auto-scan every common project directory under the user profile. By default it scans configured `[purge].roots` when present and falls back to the current directory when no roots are configured; pass repeated `--root <PATH>` values to override configured roots for one run. Known artifact directory names are traversal boundaries even when the directory is not accepted as a cleanup target, which prevents embedded toolchains or installed products from leaking nested `build`, `dist`, `node_modules`, or bytecode caches into the plan. Execution uses the same plan-first model as `clean`: preview is the default, `--yes` is required to move targets to the Windows Recycle Bin, and `--exclude` plus `[protection].protected_paths` can block paths before size scanning or deletion.
+Rebecca does not auto-scan every common project directory under the user profile. By default it scans configured `[purge].roots` when present and falls back to the current directory when no roots are configured; pass repeated `--root <PATH>` values to override configured roots for one run. Explicit `--root` values are strict and fail if the path is missing, not a directory, or a reparse point. Configured roots are resolved as long-lived workspace intent, so a missing or unreadable configured root is reported as a project-artifact discovery diagnostic instead of aborting the whole run. Known artifact directory names are traversal boundaries even when the directory is not accepted as a cleanup target, which prevents embedded toolchains or installed products from leaking nested `build`, `dist`, `node_modules`, or bytecode caches into the plan. Execution uses the same plan-first model as `clean`: preview is the default, `--yes` is required to move targets to the Windows Recycle Bin, and `--exclude` plus `[protection].protected_paths` can block paths before size scanning or deletion.
 
 Machine-readable purge targets include a `project_artifact` explanation object with the matched context, project root, and anchor path that made the target eligible. For example, a `node_modules` target matched by `package.json` reports `matched_context = "node-project"` and the concrete `project_anchor` path rather than a confidence score.
 
+Project artifact plans may also include `discovery_diagnostics` for partial discovery failures such as missing configured roots, unreadable directories, metadata errors, or skipped reparse points. These diagnostics are plan-level observations; they do not create fake cleanup targets or change target counts.
+
 To avoid immediately cleaning active build output, `purge` skips artifact directories modified within the last 7 days by default; pass `--min-age-days 0` to include recent artifacts explicitly. Use repeated `--artifact <NAME>` values to include only selected artifact kinds, using either the directory name such as `node_modules` or a rule id suffix such as `target`; run `rebecca purge --list-artifacts` to print the supported selector catalog without scanning. Human output groups artifact targets by project path and labels each artifact type so large purge plans are easier to scan.
+
+Use `rebecca purge inspect` when you want a read-only space report rather than a cleanup plan. It uses the same selectors, roots, excludes, depth, age window, scan-cache estimation, and diagnostics as `purge`, but it has no `--yes`, never prompts, and never writes cleanup history. Its machine payload is `project-artifact-insight`, grouped by scan root, project root, and artifact kind with a largest-targets list for dashboards or wrappers.
 
 Long-lived purge defaults belong in `config.toml`:
 

@@ -5,6 +5,7 @@ use crate::error::{RebeccaError, Result};
 use crate::model::Platform;
 use crate::plan::{
     CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle, CleanupTargetIssueReason,
+    EstimateSource,
 };
 use crate::project_artifacts::ProjectArtifactCandidate;
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
@@ -29,6 +30,12 @@ struct MeasuredFileProgress {
     file_size: u64,
     files_scanned: u64,
     bytes_scanned: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MeasuredPath {
+    pub(crate) report: ScanReport,
+    pub(crate) estimate_source: EstimateSource,
 }
 
 #[derive(Debug, Clone)]
@@ -269,7 +276,7 @@ where
 
             let mut file_progress = Vec::new();
             let mut scan_cache_event = None;
-            let report =
+            let measured_path =
                 measure_path_with_optional_scan_cache(T::path(&candidate), context, |event| {
                     match event {
                         PathMeasureProgressEvent::Scan(ScanProgressEvent::FileMeasured {
@@ -300,7 +307,8 @@ where
                     }
                 })?;
 
-            let target = allowed_target(&candidate, report.bytes_scanned, mode);
+            let target = allowed_target(&candidate, measured_path.report.bytes_scanned, mode)
+                .with_estimate_source(measured_path.estimate_source);
             Ok(MeasuredTarget {
                 target,
                 file_progress,
@@ -334,7 +342,7 @@ pub(crate) fn measure_path_with_optional_scan_cache<F>(
     path: &Path,
     context: PlanBuildContext<'_>,
     mut progress: F,
-) -> Result<ScanReport>
+) -> Result<MeasuredPath>
 where
     F: for<'a> FnMut(PathMeasureProgressEvent<'a>),
 {
@@ -350,7 +358,10 @@ where
             match store.load_with_policy(path, context.scan_cache_policy()) {
                 ScanCacheLookup::Hit(report) => {
                     progress(PathMeasureProgressEvent::ScanCacheHit { report });
-                    return Ok(report);
+                    return Ok(MeasuredPath {
+                        report,
+                        estimate_source: EstimateSource::ScanCache,
+                    });
                 }
                 ScanCacheLookup::Miss(outcome) => {
                     progress(PathMeasureProgressEvent::ScanCacheMiss {
@@ -380,7 +391,10 @@ where
         }
     }
 
-    Ok(report)
+    Ok(MeasuredPath {
+        report,
+        estimate_source: EstimateSource::FreshScan,
+    })
 }
 
 #[derive(Debug, Clone, Copy)]

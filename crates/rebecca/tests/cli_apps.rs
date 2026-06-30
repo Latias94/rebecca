@@ -68,7 +68,11 @@ fn apps_scan_json_builds_app_leftovers_plan() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "apps scan");
+    assert_eq!(envelope["payload_kind"], "app-leftovers-cleanup-plan");
+
+    let value: serde_json::Value = envelope["data"].clone();
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["request"]["mode"], "dry-run");
     assert_eq!(value["summary"]["allowed_targets"], 1);
@@ -87,6 +91,45 @@ fn apps_scan_json_builds_app_leftovers_plan() {
             .as_str()
             .unwrap()
             .contains("Local Storage")
+    );
+}
+
+#[test]
+fn apps_scan_ndjson_uses_apps_scan_command_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let (local, roaming) = appdata_roots(&temp);
+    write_fixture_file(
+        local.join("Example App").join("Cache").join("cache.bin"),
+        b"abc",
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .args(["apps", "scan", "--format", "ndjson", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert!(events.iter().all(|event| event["command"] == "apps scan"));
+    assert_eq!(
+        events.last().unwrap()["payload_kind"],
+        "app-leftovers-cleanup-plan"
     );
 }
 
@@ -111,7 +154,11 @@ fn apps_scan_json_builds_wechat_leftovers_plan() {
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "apps scan");
+    assert_eq!(envelope["payload_kind"], "app-leftovers-cleanup-plan");
+
+    let value: serde_json::Value = envelope["data"].clone();
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["summary"]["allowed_targets"], 1);
     assert_eq!(value["summary"]["estimated_bytes"], 3);
@@ -120,6 +167,7 @@ fn apps_scan_json_builds_wechat_leftovers_plan() {
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0]["rule_id"], "windows.app-leftover-local-cache");
     assert_eq!(targets[0]["status"], "allowed");
+    assert_eq!(targets[0]["estimate_source"], "fresh-scan");
     assert!(
         PathBuf::from(targets[0]["path"].as_str().unwrap())
             .ends_with(Path::new("WeChat").join("Cache"))

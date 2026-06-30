@@ -25,6 +25,7 @@ fn completed_history_entry(
             pending_reclaim_bytes,
             DeleteMode::RecycleBin,
         )],
+        discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
     plan.targets[0].pending_reclaim_bytes = pending_reclaim_bytes;
@@ -73,6 +74,7 @@ fn protected_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
             CleanupTargetIssueReason::SafetyPolicyBlocked,
             "browser private data is protected",
         )],
+        discovery_diagnostics: Vec::new(),
     };
     plan.recompute_summary();
 
@@ -92,6 +94,7 @@ fn missing_target_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
             CleanupTargetIssueReason::ExecutionTargetMissing,
             "path does not exist",
         )],
+        discovery_diagnostics: Vec::new(),
     };
     plan.recompute_summary();
 
@@ -121,6 +124,7 @@ fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
                 "App leftovers will be rebuilt when the app runs again.".to_string(),
             )),
         ],
+        discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
     plan.targets[0].pending_reclaim_bytes = 12;
@@ -213,6 +217,7 @@ fn history_json_preserves_restore_hints() {
             )
             .with_restore_hint(Some("Temporary files can be recreated.".to_string())),
         ],
+        discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
     plan.targets[0].pending_reclaim_bytes = 11;
@@ -386,6 +391,7 @@ fn history_human_output_lists_restore_hints() {
                 "Steam web caches will be rebuilt on launch.".to_string(),
             )),
         ],
+        discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
     plan.targets[0].pending_reclaim_bytes = 11;
@@ -432,6 +438,7 @@ fn history_human_output_lists_saved_issue_matrix() {
             CleanupTargetIssueReason::DuplicateTargetPath,
             "duplicate target path",
         )],
+        discovery_diagnostics: Vec::new(),
     };
     plan.recompute_summary();
 

@@ -7,12 +7,14 @@ use crate::error::{RebeccaError, Result};
 use crate::scan::ScanCancellationToken;
 
 use super::catalog::{
-    cachedir_tag_context_match, cachedir_tag_definition, is_known_project_artifact_dir_name,
-    rule_match_for_directory, should_prune_scan_dir,
+    cachedir_tag_definition, is_known_project_artifact_dir_name, rule_match_for_directory,
+    should_prune_scan_dir,
 };
+use super::context::cachedir_tag_context_match;
 use super::{
     ProjectArtifactCandidate, ProjectArtifactContextMatch, ProjectArtifactDefinition,
-    ProjectArtifactScanOptions,
+    ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
+    ProjectArtifactDiscoveryReport, ProjectArtifactScanOptions,
 };
 
 const CACHEDIR_TAG_FILE_NAME: &str = "CACHEDIR.TAG";
@@ -22,7 +24,15 @@ pub fn discover_project_artifacts(
     options: &ProjectArtifactScanOptions,
     cancellation: &ScanCancellationToken,
 ) -> Result<Vec<ProjectArtifactCandidate>> {
+    Ok(discover_project_artifacts_with_diagnostics(options, cancellation)?.candidates)
+}
+
+pub fn discover_project_artifacts_with_diagnostics(
+    options: &ProjectArtifactScanOptions,
+    cancellation: &ScanCancellationToken,
+) -> Result<ProjectArtifactDiscoveryReport> {
     let mut candidates = Vec::new();
+    let mut diagnostics = Vec::new();
     let mut seen_paths = BTreeSet::new();
 
     for root in &options.roots {
@@ -32,6 +42,7 @@ pub fn discover_project_artifacts(
             cancellation,
             &mut seen_paths,
             &mut candidates,
+            &mut diagnostics,
         )?;
     }
 
@@ -40,7 +51,12 @@ pub fn discover_project_artifacts(
             .cmp(&right.path)
             .then_with(|| left.definition.rule_id.cmp(right.definition.rule_id))
     });
-    Ok(candidates)
+    diagnostics.sort();
+
+    Ok(ProjectArtifactDiscoveryReport {
+        candidates,
+        diagnostics,
+    })
 }
 
 pub fn recently_modified_reason(path: &Path, min_age_days: u64) -> Option<String> {
@@ -80,16 +96,49 @@ fn scan_root(
     cancellation: &ScanCancellationToken,
     seen_paths: &mut BTreeSet<String>,
     candidates: &mut Vec<ProjectArtifactCandidate>,
+    diagnostics: &mut Vec<ProjectArtifactDiscoveryDiagnostic>,
 ) -> Result<()> {
     check_cancelled(cancellation)?;
 
     let metadata = match fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err.into()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            push_diagnostic(
+                diagnostics,
+                ProjectArtifactDiscoveryDiagnosticKind::RootMissing,
+                root,
+                "project artifact root does not exist",
+            );
+            return Ok(());
+        }
+        Err(err) => {
+            push_diagnostic(
+                diagnostics,
+                ProjectArtifactDiscoveryDiagnosticKind::RootMetadataReadSkipped,
+                root,
+                format!("project artifact root metadata could not be read: {err}"),
+            );
+            return Ok(());
+        }
     };
 
-    if !metadata.is_dir() || crate::safety::is_reparse_like(&metadata) {
+    if !metadata.is_dir() {
+        push_diagnostic(
+            diagnostics,
+            ProjectArtifactDiscoveryDiagnosticKind::RootNotDirectory,
+            root,
+            "project artifact root is not a directory",
+        );
+        return Ok(());
+    }
+
+    if crate::safety::is_reparse_like(&metadata) {
+        push_diagnostic(
+            diagnostics,
+            ProjectArtifactDiscoveryDiagnosticKind::ReparsePointSkipped,
+            root,
+            "project artifact root is a symlink or reparse point",
+        );
         return Ok(());
     }
 
@@ -136,6 +185,12 @@ fn scan_root(
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
             Err(err) => {
+                push_diagnostic(
+                    diagnostics,
+                    ProjectArtifactDiscoveryDiagnosticKind::DirectoryReadSkipped,
+                    &dir,
+                    format!("project artifact directory could not be read: {err}"),
+                );
                 tracing::debug!(
                     path = %dir.display(),
                     error = %err,
@@ -150,6 +205,12 @@ fn scan_root(
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(err) => {
+                    push_diagnostic(
+                        diagnostics,
+                        ProjectArtifactDiscoveryDiagnosticKind::DirectoryEntryReadSkipped,
+                        &dir,
+                        format!("project artifact directory entry could not be read: {err}"),
+                    );
                     tracing::debug!(
                         path = %dir.display(),
                         error = %err,
@@ -162,6 +223,12 @@ fn scan_root(
             let metadata = match fs::symlink_metadata(&path) {
                 Ok(metadata) => metadata,
                 Err(err) => {
+                    push_diagnostic(
+                        diagnostics,
+                        ProjectArtifactDiscoveryDiagnosticKind::MetadataReadSkipped,
+                        &path,
+                        format!("project artifact metadata could not be read: {err}"),
+                    );
                     tracing::debug!(
                         path = %path.display(),
                         error = %err,
@@ -171,8 +238,17 @@ fn scan_root(
                 }
             };
 
-            if metadata.is_dir() && !crate::safety::is_reparse_like(&metadata) {
-                child_dirs.push(path);
+            if metadata.is_dir() {
+                if crate::safety::is_reparse_like(&metadata) {
+                    push_diagnostic(
+                        diagnostics,
+                        ProjectArtifactDiscoveryDiagnosticKind::ReparsePointSkipped,
+                        &path,
+                        "project artifact directory is a symlink or reparse point",
+                    );
+                } else {
+                    child_dirs.push(path);
+                }
             }
         }
 
@@ -183,6 +259,19 @@ fn scan_root(
     }
 
     Ok(())
+}
+
+fn push_diagnostic(
+    diagnostics: &mut Vec<ProjectArtifactDiscoveryDiagnostic>,
+    kind: ProjectArtifactDiscoveryDiagnosticKind,
+    path: &Path,
+    detail: impl Into<String>,
+) {
+    diagnostics.push(ProjectArtifactDiscoveryDiagnostic::new(
+        kind,
+        path.to_path_buf(),
+        detail,
+    ));
 }
 
 fn has_valid_cachedir_tag(dir: &Path) -> bool {

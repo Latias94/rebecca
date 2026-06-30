@@ -150,7 +150,10 @@ pub struct CleanArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct PurgeArgs {
+    #[command(subcommand)]
+    pub command: Option<PurgeCommand>,
     /// Preview the purge plan without deleting anything.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
@@ -179,6 +182,37 @@ pub struct PurgeArgs {
     #[arg(long = "artifact", value_name = "ARTIFACT")]
     pub artifacts: Vec<String>,
     /// Exclude a path from project artifact purge for this run. Can be repeated.
+    #[arg(long = "exclude", value_name = "PATH")]
+    pub exclude_paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PurgeCommand {
+    /// Inspect rebuildable project artifact space without cleanup prompts or history writes.
+    Inspect(PurgeInspectArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PurgeInspectArgs {
+    /// Disable human progress output while building the insight report.
+    #[arg(long)]
+    pub no_progress: bool,
+    /// Use the rebuildable scan cache for eligible target estimates.
+    #[arg(long)]
+    pub scan_cache: bool,
+    /// Directory to scan for project artifacts. Overrides configured purge roots.
+    #[arg(long = "root", value_name = "PATH")]
+    pub roots: Vec<PathBuf>,
+    /// Maximum directory depth to scan below each root. Defaults to config or 6.
+    #[arg(long, value_name = "N")]
+    pub max_depth: Option<usize>,
+    /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
+    #[arg(long, value_name = "DAYS")]
+    pub min_age_days: Option<u64>,
+    /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
+    #[arg(long = "artifact", value_name = "ARTIFACT")]
+    pub artifacts: Vec<String>,
+    /// Exclude a path from project artifact insight for this run. Can be repeated.
     #[arg(long = "exclude", value_name = "PATH")]
     pub exclude_paths: Vec<PathBuf>,
 }

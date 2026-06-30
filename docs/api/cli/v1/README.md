@@ -45,6 +45,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `app-leftovers-cleanup-plan`
 - `project-artifact-cleanup-plan`
 - `project-artifact-catalog`
+- `project-artifact-insight`
 - `cache-purge-report`
 - `history-list`
 - `config-paths`
@@ -53,6 +54,14 @@ The `payload_kind` field identifies the shape under `data`:
 Payload data is intentionally nested under `data` so Rebecca can evolve
 metadata, event transport, and error handling without turning internal core
 models into the top-level API.
+
+Cleanup targets include `estimate_source` so consumers can explain byte total
+trust without changing `estimated_bytes` arithmetic:
+
+- `fresh-scan`: bytes came from a live filesystem scan during this command;
+- `scan-cache`: bytes came from an enabled scan-cache hit;
+- `not-measured`: the target was skipped or blocked before byte measurement;
+- `unknown`: legacy or externally supplied plans that predate this field.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -64,9 +73,22 @@ eligible:
 - `project_anchor`: file or marker directory that justified the match, such as
   `package.json`, `Cargo.toml`, or `CACHEDIR.TAG`.
 
+Project artifact cleanup plans may also include `discovery_diagnostics`.
+Diagnostics are plan-level observations with `kind`, `path`, and `detail`; they
+make partial discovery visible without adding fake cleanup targets or changing
+target counts.
+
+`project-artifact-insight` is emitted by `rebecca purge inspect`. It is a
+read-only projection of the same project-artifact planner: it never accepts
+`--yes`, never writes cleanup history, and groups estimated space by scan root,
+project root, and artifact kind. Its `top_targets` entries retain
+`estimate_source`, `status`, and `reason` so automation can distinguish cached
+estimates, skipped targets, and actionable cleanup candidates.
+
 Rebecca does not emit confidence scores for purge targets. Consumers should use
-the explicit `rule_id`, `status`, `reason_code`, and `project_artifact`
-explanation fields.
+the explicit `rule_id`, `status`, `reason_code`, `estimate_source`, and
+`project_artifact` explanation fields. `estimate_source` explains where a byte
+estimate came from; it is not a freshness guarantee.
 
 ## Examples
 
@@ -75,6 +97,7 @@ rebecca scan --format json
 rebecca clean --format json --category system
 rebecca clean --format ndjson --scan-cache --category system
 rebecca purge --format json --root . --min-age-days 0
+rebecca purge inspect --format json --root . --min-age-days 0
 rebecca doctor permissions --format json
 ```
 

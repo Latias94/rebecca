@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
-use rebecca::core::{DeleteMode, TargetStatus};
+use rebecca::core::{DeleteMode, EstimateSource, TargetStatus};
 
 const LARGEST_TARGET_LIMIT: usize = 5;
 
@@ -56,6 +56,7 @@ pub(crate) struct CleanTargetRow<'a> {
     pub(crate) rule_id: &'a str,
     pub(crate) path: &'a Path,
     pub(crate) estimated_bytes: u64,
+    pub(crate) estimate_source: EstimateSource,
     pub(crate) reason: Option<&'a str>,
     pub(crate) restore_hint: Option<&'a str>,
 }
@@ -146,6 +147,7 @@ impl<'a> From<&'a CleanupTarget> for CleanTargetRow<'a> {
             rule_id: &target.rule_id,
             path: target.path.as_path(),
             estimated_bytes: target.estimated_bytes,
+            estimate_source: target.estimate_source,
             reason: target.reason.as_deref(),
             restore_hint: target.restore_hint.as_deref(),
         }
@@ -241,6 +243,7 @@ mod tests {
             request: PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun),
             summary: CleanupSummary::default(),
             targets,
+            discovery_diagnostics: Vec::new(),
         };
         plan.recompute_summary();
         plan

@@ -12,14 +12,17 @@ use rebecca::core::planner::{
     PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
 };
 use rebecca::core::protection::ProtectionPolicy;
-use rebecca::core::scan::ScanCancellationToken;
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::OutputMode;
-use crate::output::{MachineErrorRendered, NdjsonEventWriter, format_bytes};
-use crate::{info, output};
+use crate::output::{
+    HumanPlanRenderer, MachineErrorRendered, NdjsonEventWriter, WorkflowOutputContract,
+    WorkflowSuccessRenderer, format_bytes,
+};
+use crate::runtime::CliRuntime;
+use crate::{info, output, render};
 
 #[derive(Debug)]
 pub struct CleanOptions {
@@ -43,6 +46,9 @@ pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) no_progress: bool,
     pub(crate) scan_cache: bool,
     pub(crate) exclude_paths: Vec<PathBuf>,
+    pub(crate) output_contract: WorkflowOutputContract,
+    pub(crate) human_renderer: HumanPlanRenderer,
+    pub(crate) success_renderer: WorkflowSuccessRenderer,
     pub(crate) cancellation_message: &'static str,
     #[cfg_attr(windows, allow(dead_code))]
     pub(crate) unsupported_execution_message: &'static str,
@@ -56,7 +62,7 @@ pub(crate) enum ConfirmationKind {
     ProjectArtifacts,
 }
 
-pub fn run(options: CleanOptions) -> Result<()> {
+pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> Result<()> {
     let mode = if options.yes && !options.dry_run {
         DeleteMode::RecycleBin
     } else {
@@ -70,37 +76,46 @@ pub fn run(options: CleanOptions) -> Result<()> {
     request.allow_risky = options.allow_risky;
 
     let catalog = rebecca::rules::builtin_rules()?;
-    run_workflow(WorkflowRunOptions {
-        request,
-        rules: &catalog,
-        output_mode: options.output_mode,
-        yes: options.yes,
-        no_progress: options.no_progress,
-        scan_cache: options.scan_cache,
-        exclude_paths: options.exclude_paths,
-        cancellation_message: "Cleanup cancelled.",
-        unsupported_execution_message: "cleanup execution is Windows-only at this stage; omit --yes to preview",
-        confirmation_kind: ConfirmationKind::Cleanup,
-    })
+    run_workflow(
+        WorkflowRunOptions {
+            request,
+            rules: &catalog,
+            output_mode: options.output_mode,
+            yes: options.yes,
+            no_progress: options.no_progress,
+            scan_cache: options.scan_cache,
+            exclude_paths: options.exclude_paths,
+            output_contract: WorkflowOutputContract {
+                command: "clean",
+                payload_kind: "cleanup-plan",
+            },
+            human_renderer: render::clean::print_plan,
+            success_renderer: output::print_plan_with_events,
+            cancellation_message: "Cleanup cancelled.",
+            unsupported_execution_message: "cleanup execution is Windows-only at this stage; omit --yes to preview",
+            confirmation_kind: ConfirmationKind::Cleanup,
+        },
+        runtime,
+    )
 }
 
-pub(crate) fn run_workflow(options: WorkflowRunOptions<'_>) -> Result<()> {
+pub(crate) fn run_workflow(options: WorkflowRunOptions<'_>, runtime: &CliRuntime) -> Result<()> {
     let runtime_config = load_runtime_config()?;
-    run_workflow_with_runtime_config(options, runtime_config)
+    run_workflow_with_runtime_config(options, runtime_config, runtime)
 }
 
 pub(crate) fn run_workflow_with_runtime_config(
     options: WorkflowRunOptions<'_>,
     runtime_config: AppRuntimeConfig,
+    runtime: &CliRuntime,
 ) -> Result<()> {
-    let cancellation = ScanCancellationToken::new();
-    install_cancellation_handler(cancellation.clone())?;
+    let cancellation = runtime.cancellation();
     let mut progress = PlanProgressReporter::new(
         options.output_mode.is_human() && !options.no_progress,
         options
             .output_mode
             .is_ndjson()
-            .then(|| NdjsonEventWriter::new("clean")),
+            .then(|| NdjsonEventWriter::new(options.output_contract.command)),
     );
     let applications = info::application_discovery();
     let protected_storage = runtime_config.app_paths.storage_entries();
@@ -112,7 +127,7 @@ pub(crate) fn run_workflow_with_runtime_config(
         .scan_cache
         .then(|| ScanCacheStore::from_app_paths(&runtime_config.app_paths));
     let mut context =
-        PlanBuildContext::new(&cancellation).with_protected_storage(&protected_storage);
+        PlanBuildContext::new(cancellation).with_protected_storage(&protected_storage);
     if !protected_paths.is_empty() {
         context = context.with_protected_paths(&protected_paths);
     }
@@ -154,9 +169,11 @@ pub(crate) fn run_workflow_with_runtime_config(
     let event_writer = progress.into_event_writer();
 
     if options.request.mode.is_dry_run() {
-        return output::print_plan_with_events(
+        return (options.success_renderer)(
             &plan,
+            options.output_contract,
             options.output_mode,
+            options.human_renderer,
             scan_cache_summary,
             event_writer,
         );
@@ -174,9 +191,11 @@ pub(crate) fn run_workflow_with_runtime_config(
     #[cfg(windows)]
     {
         if plan.summary.allowed_targets == 0 {
-            return output::print_plan_with_events(
+            return (options.success_renderer)(
                 &plan,
+                options.output_contract,
                 options.output_mode,
+                options.human_renderer,
                 scan_cache_summary,
                 event_writer,
             );
@@ -212,7 +231,14 @@ pub(crate) fn run_workflow_with_runtime_config(
             return finish_stream_with_error(event_writer, err.into());
         }
 
-        output::print_plan_with_events(&plan, options.output_mode, scan_cache_summary, event_writer)
+        (options.success_renderer)(
+            &plan,
+            options.output_contract,
+            options.output_mode,
+            options.human_renderer,
+            scan_cache_summary,
+            event_writer,
+        )
     }
 }
 
@@ -251,11 +277,6 @@ fn merged_protected_paths(config_paths: &[PathBuf], cli_paths: &[PathBuf]) -> Re
         }
     }
     Ok(merged)
-}
-
-fn install_cancellation_handler(token: ScanCancellationToken) -> Result<()> {
-    ctrlc::set_handler(move || token.cancel()).context("failed to install Ctrl+C handler")?;
-    Ok(())
 }
 
 struct PlanProgressReporter {

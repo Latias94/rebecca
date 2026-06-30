@@ -57,6 +57,34 @@ fn purge_help_shows_project_artifact_options() {
     assert!(stdout.contains("--artifact"));
     assert!(stdout.contains("--list-artifacts"));
     assert!(stdout.contains("--exclude"));
+    assert!(stdout.contains("inspect"));
+}
+
+#[test]
+fn purge_inspect_help_rejects_yes_option() {
+    let output = common::command::rebecca()
+        .args(["purge", "inspect", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--root"));
+    assert!(stdout.contains("--scan-cache"));
+    assert!(!stdout.contains("--yes"));
+
+    let output = common::command::rebecca()
+        .args(["purge", "inspect", "--yes"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(common::support::stderr(&output).contains("unexpected argument '--yes'"));
 }
 
 #[test]
@@ -265,10 +293,328 @@ fn purge_human_output_groups_project_artifacts_by_project_path() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Workflow: Project artifacts"));
+    assert!(stdout.contains("Project artifact summary:"));
+    assert!(stdout.contains("- target: 1 target, 4 bytes (4 B) [1 allowed]"));
+    assert!(stdout.contains("- node_modules: 1 target, 3 bytes (3 B) [1 allowed]"));
+    assert!(stdout.contains("Largest project artifact targets:"));
+    let largest_section = stdout
+        .split("Largest project artifact targets:")
+        .nth(1)
+        .expect("largest project artifact section should be present")
+        .split("Recently modified artifacts:")
+        .next()
+        .unwrap()
+        .split("Project artifact details:")
+        .next()
+        .unwrap();
+    let target_position = largest_section
+        .find("- target [allowed]")
+        .expect("target artifact should be listed in largest section");
+    let node_modules_position = largest_section
+        .find("- node_modules [allowed]")
+        .expect("node_modules artifact should be listed in largest section");
+    assert!(
+        target_position < node_modules_position,
+        "largest project artifacts should be sorted by estimated bytes"
+    );
     assert!(stdout.contains("Project artifact details:"));
     assert!(stdout.contains(&workspace.join("app").display().to_string()));
     assert!(stdout.contains("- node_modules [allowed]"));
     assert!(stdout.contains("- target [allowed]"));
+}
+
+#[test]
+fn purge_ndjson_uses_purge_command_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace
+            .join("app")
+            .join("target")
+            .join("debug")
+            .join("app.bin"),
+        b"rust",
+    );
+    write_rust_project(workspace.join("app"));
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "ndjson",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert!(events.iter().all(|event| event["command"] == "purge"));
+    assert_eq!(
+        events.last().unwrap()["payload_kind"],
+        "project-artifact-cleanup-plan"
+    );
+}
+
+#[test]
+fn purge_inspect_json_returns_read_only_project_artifact_insight() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let node_modules_file = workspace.join("app").join("node_modules").join("pkg.bin");
+    let target_file = workspace
+        .join("app")
+        .join("target")
+        .join("debug")
+        .join("app.bin");
+    write_fixture_file(&node_modules_file, b"abc");
+    write_fixture_file(&target_file, b"rust");
+    write_node_project(workspace.join("app"));
+    write_rust_project(workspace.join("app"));
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "inspect",
+            "--format",
+            "json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(node_modules_file.exists());
+    assert!(target_file.exists());
+    assert!(
+        !temp
+            .path()
+            .join("rebecca-state")
+            .join("history.jsonl")
+            .exists()
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "purge inspect");
+    assert_eq!(envelope["payload_kind"], "project-artifact-insight");
+
+    let value = &envelope["data"];
+    assert_eq!(value["summary"]["total_targets"], 2);
+    assert_eq!(value["summary"]["estimated_bytes"], 7);
+    assert_eq!(
+        PathBuf::from(value["roots"][0].as_str().unwrap()),
+        workspace
+    );
+
+    let top_targets = value["top_targets"].as_array().unwrap();
+    assert_eq!(top_targets.len(), 2);
+    assert_eq!(top_targets[0]["artifact"], "target");
+    assert_eq!(top_targets[0]["estimated_bytes"], 4);
+    assert_eq!(top_targets[0]["estimate_source"], "fresh-scan");
+    assert_eq!(top_targets[1]["artifact"], "node_modules");
+
+    let artifact_totals = value["totals_by_artifact"].as_array().unwrap();
+    assert!(artifact_totals.iter().any(|total| {
+        total["label"] == "node_modules" && total["targets"] == 1 && total["estimated_bytes"] == 3
+    }));
+    assert!(artifact_totals.iter().any(|total| {
+        total["label"] == "target" && total["targets"] == 1 && total["estimated_bytes"] == 4
+    }));
+}
+
+#[test]
+fn purge_inspect_honors_filters_depth_exclude_and_configured_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let node_modules = workspace.join("app").join("node_modules");
+    let target = workspace.join("app").join("level1").join("target");
+    write_fixture_file(node_modules.join("pkg.bin"), b"abc");
+    write_node_project(workspace.join("app"));
+    write_fixture_file(target.join("debug").join("app.bin"), b"rust");
+    write_rust_project(workspace.join("app").join("level1"));
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}']
+max_depth = 1
+min_age_days = 0
+"#,
+            workspace.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "inspect",
+            "--format",
+            "json",
+            "--no-progress",
+            "--max-depth",
+            "3",
+            "--artifact",
+            "target",
+            "--exclude",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["total_targets"], 1);
+    assert_eq!(value["summary"]["allowed_targets"], 0);
+    assert_eq!(value["summary"]["blocked_targets"], 1);
+
+    let top_targets = value["top_targets"].as_array().unwrap();
+    assert_eq!(top_targets.len(), 1);
+    assert_eq!(top_targets[0]["artifact"], "target");
+    assert_eq!(top_targets[0]["status"], "blocked");
+    assert!(
+        top_targets[0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("user-protected path")
+    );
+}
+
+#[test]
+fn purge_inspect_human_sorts_top_artifacts_and_reports_diagnostics() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let missing = temp.path().join("missing-workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+    write_node_project(workspace.join("app"));
+    write_fixture_file(
+        workspace
+            .join("app")
+            .join("target")
+            .join("debug")
+            .join("app.bin"),
+        b"rust",
+    );
+    write_rust_project(workspace.join("app"));
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}', '{}']
+max_depth = 3
+min_age_days = 0
+"#,
+            workspace.display(),
+            missing.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["purge", "inspect", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Project artifact insight"));
+    assert!(stdout.contains("Discovery diagnostics:"));
+    assert!(stdout.contains("root-missing"));
+    let target_position = stdout
+        .find("  - target [allowed] 4 bytes")
+        .expect("target should appear in top artifacts");
+    let node_modules_position = stdout
+        .find("  - node_modules [allowed] 3 bytes")
+        .expect("node_modules should appear in top artifacts");
+    assert!(target_position < node_modules_position);
+}
+
+#[test]
+fn purge_inspect_ndjson_uses_read_only_insight_payload() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+    write_node_project(workspace.join("app"));
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "inspect",
+            "--format",
+            "ndjson",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert!(
+        events
+            .iter()
+            .all(|event| event["command"] == "purge inspect")
+    );
+    let completed = events.last().unwrap();
+    assert_eq!(completed["event_kind"], "completed");
+    assert_eq!(completed["payload_kind"], "project-artifact-insight");
+    assert_eq!(completed["data"]["summary"]["total_targets"], 1);
+    assert_eq!(
+        completed["data"]["top_targets"][0]["artifact"],
+        "node_modules"
+    );
 }
 
 #[test]
@@ -298,6 +644,8 @@ fn purge_human_output_highlights_recently_modified_artifacts() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Project artifact summary:"));
+    assert!(stdout.contains("- node_modules: 1 target, 0 bytes (0 B) [1 skipped]"));
     assert!(stdout.contains("Recently modified artifacts:"));
     assert!(stdout.contains("- node_modules [skipped]"));
     assert!(stdout.contains("modified within the last 7 days"));
@@ -453,6 +801,133 @@ min_age_days = 0
     assert_eq!(value["request"]["project_artifact_max_depth"], 2);
     assert_eq!(value["request"]["project_artifact_min_age_days"], 0);
     assert_eq!(value["summary"]["allowed_targets"], 1);
+}
+
+#[test]
+fn purge_json_reports_missing_configured_root_as_discovery_diagnostic() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-workspace");
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}']
+max_depth = 2
+min_age_days = 0
+"#,
+            missing.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["purge", "--format", "json", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["total_targets"], 0);
+    assert!(value["targets"].as_array().unwrap().is_empty());
+
+    let diagnostics = value["discovery_diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0]["kind"], "root-missing");
+    assert_eq!(
+        PathBuf::from(diagnostics[0]["path"].as_str().unwrap()),
+        missing
+    );
+    assert!(
+        diagnostics[0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("does not exist")
+    );
+}
+
+#[test]
+fn purge_human_reports_partial_discovery_diagnostics() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-workspace");
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}']
+max_depth = 2
+min_age_days = 0
+"#,
+            missing.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["purge", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Project artifact discovery diagnostics: 1 observation"));
+    assert!(stdout.contains("Partial discovery may have skipped some paths."));
+    assert!(stdout.contains("root-missing"));
+    assert!(stdout.contains(&missing.display().to_string()));
+}
+
+#[test]
+fn purge_ndjson_completed_event_includes_discovery_diagnostics() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-workspace");
+    write_config(
+        &temp,
+        format!(
+            r#"
+[purge]
+roots = ['{}']
+max_depth = 2
+min_age_days = 0
+"#,
+            missing.display()
+        ),
+    );
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["purge", "--format", "ndjson", "--no-progress"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let completed = events
+        .last()
+        .expect("ndjson should include a completed event");
+
+    assert_eq!(completed["event_kind"], "completed");
+    assert_eq!(completed["data"]["summary"]["total_targets"], 0);
+    assert_eq!(
+        completed["data"]["discovery_diagnostics"][0]["kind"],
+        "root-missing"
+    );
 }
 
 #[test]
@@ -613,6 +1088,7 @@ fn purge_json_skips_recent_artifacts_by_default() {
 
     let target = &value["targets"].as_array().unwrap()[0];
     assert_eq!(target["status"], "skipped");
+    assert_eq!(target["estimate_source"], "not-measured");
     assert_eq!(target["reason_code"], "project-artifact-recently-modified");
     assert!(
         target["reason"]
@@ -676,6 +1152,102 @@ fn purge_json_reports_cachedir_tag_artifacts() {
         PathBuf::from(target["path"].as_str().unwrap())
             .ends_with(Path::new("app").join("tool-cache"))
     );
+}
+
+#[test]
+fn purge_reports_estimate_source_for_scan_cache_reuse() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+    write_node_project(workspace.join("app"));
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--no-progress",
+            "--scan-cache",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["estimated_bytes"], 3);
+    assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_files = fs::read_dir(scan_cache_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    assert_eq!(cache_files.len(), 1);
+
+    let cache_file = &cache_files[0];
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&fs::read(cache_file).unwrap()).unwrap();
+    record["report"]["bytes_scanned"] = serde_json::json!(99);
+    fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--no-progress",
+            "--scan-cache",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["estimated_bytes"], 99);
+    assert_eq!(value["targets"][0]["estimate_source"], "scan-cache");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--no-progress",
+            "--scan-cache",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[estimate: scan-cache]"));
 }
 
 #[test]

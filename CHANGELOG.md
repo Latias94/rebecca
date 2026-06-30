@@ -4,6 +4,15 @@ All notable changes to Rebecca will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `purge inspect` now provides a read-only project artifact insight report with JSON/NDJSON `project-artifact-insight` output, grouped totals, top targets, diagnostics, and no cleanup prompts or history writes.
+- cleanup targets now expose `estimate_source` so machine consumers can distinguish fresh scans, scan-cache hits, unmeasured skipped/blocked targets, and legacy plans.
+- project artifact cleanup plans now include `discovery_diagnostics` for partial discovery issues such as missing configured roots, unreadable directories, metadata failures, and skipped reparse points.
+
+### Changed
+- cleanup workflow internals now use explicit command/payload output contracts, shared CLI runtime cancellation, and dedicated human renderers instead of workflow-specific transport branches.
+- planner and project artifact internals were split into focused modules, and configured purge roots now report stale or unreadable workspace entries as diagnostics while explicit `--root` values remain strict.
+
 ## [0.2.0]
 
 ### Added

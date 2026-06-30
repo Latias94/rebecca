@@ -5,9 +5,14 @@ use rebecca_core::applications::NoopApplicationDiscovery;
 use rebecca_core::environment::SystemEnvironment;
 use rebecca_core::plan::CleanupTargetIssueReason;
 use rebecca_core::planner::{PlanBuildContext, build_cleanup_plan_with_context};
-use rebecca_core::project_artifacts::{ProjectArtifactScanOptions, discover_project_artifacts};
+use rebecca_core::project_artifacts::{
+    ProjectArtifactDiscoveryDiagnosticKind, ProjectArtifactScanOptions, discover_project_artifacts,
+    discover_project_artifacts_with_diagnostics,
+};
 use rebecca_core::scan::ScanCancellationToken;
-use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, TargetStatus};
+use rebecca_core::{
+    CleanupWorkflow, DeleteMode, EstimateSource, PlanRequest, Platform, TargetStatus,
+};
 
 const CACHEDIR_TAG_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
 
@@ -431,6 +436,26 @@ fn project_artifact_scan_respects_max_depth() {
 }
 
 #[test]
+fn project_artifact_discovery_reports_missing_roots_without_candidates() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-workspace");
+
+    let options = ProjectArtifactScanOptions::new(vec![missing.clone()]).with_max_depth(4);
+    let report =
+        discover_project_artifacts_with_diagnostics(&options, &ScanCancellationToken::new())
+            .unwrap();
+
+    assert!(report.candidates.is_empty());
+    assert_eq!(report.diagnostics.len(), 1);
+    assert_eq!(
+        report.diagnostics[0].kind,
+        ProjectArtifactDiscoveryDiagnosticKind::RootMissing
+    );
+    assert_eq!(report.diagnostics[0].path, missing);
+    assert!(report.diagnostics[0].detail.contains("does not exist"));
+}
+
+#[test]
 fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_paths() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
@@ -471,6 +496,7 @@ fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_path
         .find(|target| target.status == TargetStatus::Allowed)
         .unwrap();
     assert_eq!(allowed.rule_id, "windows.project-artifact-node-modules");
+    assert_eq!(allowed.estimate_source, EstimateSource::FreshScan);
     assert!(allowed.restore_hint.is_some());
 
     let blocked = plan
@@ -479,6 +505,7 @@ fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_path
         .find(|target| target.status == TargetStatus::Blocked)
         .unwrap();
     assert_eq!(blocked.path, target);
+    assert_eq!(blocked.estimate_source, EstimateSource::NotMeasured);
     assert_eq!(
         blocked.reason_code,
         Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
@@ -489,6 +516,39 @@ fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_path
             .as_deref()
             .is_some_and(|reason| reason.contains("user-protected path"))
     );
+}
+
+#[test]
+fn project_artifact_plan_surfaces_discovery_diagnostics_without_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing-workspace");
+
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    request.project_artifact_roots = vec![missing.clone()];
+    request.project_artifact_max_depth = 4;
+    request.project_artifact_min_age_days = 0;
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &[],
+        &SystemEnvironment,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 0);
+    assert!(plan.targets.is_empty());
+    assert_eq!(plan.discovery_diagnostics.len(), 1);
+    assert_eq!(
+        plan.discovery_diagnostics[0].kind,
+        ProjectArtifactDiscoveryDiagnosticKind::RootMissing
+    );
+    assert_eq!(plan.discovery_diagnostics[0].path, missing);
 }
 
 #[test]

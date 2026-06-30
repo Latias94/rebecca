@@ -10,7 +10,8 @@
       "mode": "dry-run",
       "workflow": "project-artifacts",
       "project_artifact_roots": [
-        "D:\\SourceCodes\\Rust\\rebecca"
+        "D:\\SourceCodes\\Rust\\rebecca",
+        "D:\\SourceCodes\\Rust\\missing-workspace"
       ],
       "project_artifact_min_age_days": 0,
       "selected_categories": [],
@@ -30,11 +31,19 @@
       "pending_reclaim_bytes": 0,
       "issue_matrix": []
     },
+    "discovery_diagnostics": [
+      {
+        "kind": "root-missing",
+        "path": "D:\\SourceCodes\\Rust\\missing-workspace",
+        "detail": "project artifact root does not exist"
+      }
+    ],
     "targets": [
       {
         "rule_id": "windows.project-artifact-target",
         "path": "D:\\SourceCodes\\Rust\\rebecca\\target",
         "estimated_bytes": 1048576,
+        "estimate_source": "fresh-scan",
         "mode": "dry-run",
         "status": "allowed",
         "reason": null,

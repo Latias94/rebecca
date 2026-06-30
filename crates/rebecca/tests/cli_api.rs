@@ -312,14 +312,19 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         assert!(schema["$id"].as_str().is_some());
         assert!(schema["title"].as_str().is_some());
     }
+
+    let payloads = read_doc_json("payloads.schema.json");
+    let payload_kinds = payloads["$defs"]["payloadKind"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(payload_kinds.contains(&"project-artifact-insight"));
 }
 
 #[test]
 fn cli_api_examples_match_documented_envelope_shapes() {
-    let success = read_doc_json("examples/success-clean.json");
-    assert_success_schema(&success);
-    assert_eq!(success["payload_kind"], "cleanup-plan");
-
     let error = read_doc_json("examples/error-invalid-rule.json");
     assert_error_schema(&error);
     assert_eq!(error["error"]["code"], "invalid-rule-id");
@@ -327,4 +332,26 @@ fn cli_api_examples_match_documented_envelope_shapes() {
     let event = read_doc_json("examples/event-completed.json");
     assert_event_schema(&event);
     assert_eq!(event["event_kind"], "completed");
+
+    let examples_dir = std::path::Path::new(API_DOCS).join("examples");
+    let mut success_payload_kinds = std::fs::read_dir(examples_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("success-") && name.ends_with(".json"))
+        })
+        .map(|path| {
+            let value: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            assert_success_schema(&value);
+            value["payload_kind"].as_str().unwrap().to_owned()
+        })
+        .collect::<Vec<_>>();
+    success_payload_kinds.sort();
+
+    assert!(success_payload_kinds.contains(&"cleanup-plan".to_string()));
+    assert!(success_payload_kinds.contains(&"project-artifact-cleanup-plan".to_string()));
+    assert!(success_payload_kinds.contains(&"project-artifact-insight".to_string()));
 }

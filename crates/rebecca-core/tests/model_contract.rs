@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
+use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason, EstimateSource};
+use rebecca_core::project_artifacts::{
+    ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
+};
 use rebecca_core::{
     CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance,
     RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel,
@@ -22,6 +25,9 @@ fn cleanup_plan_serialization_preserves_target_contract() {
     plan.recompute_summary();
 
     let json = serde_json::to_string(&plan).expect("plan should serialize");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("plan JSON should parse");
+    assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
+
     let decoded: CleanupPlan = serde_json::from_str(&json).expect("plan should deserialize");
 
     assert_eq!(decoded.summary.allowed_targets, 1);
@@ -38,6 +44,10 @@ fn cleanup_plan_serialization_preserves_target_contract() {
     assert_eq!(decoded.targets[0].modified_at_unix_seconds, None);
     assert!(decoded.summary.issue_matrix.is_empty());
     assert!(decoded.targets[0].reason_code.is_none());
+    assert_eq!(
+        decoded.targets[0].estimate_source,
+        EstimateSource::FreshScan
+    );
 }
 
 #[test]
@@ -110,6 +120,111 @@ fn cleanup_plan_deserializes_legacy_issue_fields() {
     assert_eq!(decoded.summary.skipped_targets, 1);
     assert!(decoded.summary.issue_matrix.is_empty());
     assert_eq!(decoded.targets[0].reason_code, None);
+}
+
+#[test]
+fn cleanup_plan_serialization_preserves_estimate_source_contract() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(
+        CleanupTarget::allowed(
+            "windows.user-temp",
+            PathBuf::from("C:/Users/Alice/AppData/Local/Temp"),
+            42,
+            DeleteMode::DryRun,
+        )
+        .with_estimate_source(EstimateSource::ScanCache),
+    );
+    plan.targets.push(CleanupTarget::skipped_with_reason_code(
+        "windows.missing",
+        PathBuf::from("C:/Missing"),
+        DeleteMode::DryRun,
+        CleanupTargetIssueReason::SafetyPolicySkipped,
+        "path does not exist",
+    ));
+    plan.recompute_summary();
+
+    let json = serde_json::to_value(&plan).expect("plan should serialize");
+    assert_eq!(json["targets"][0]["estimate_source"], "scan-cache");
+    assert_eq!(json["targets"][1]["estimate_source"], "not-measured");
+
+    let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
+    assert_eq!(
+        decoded.targets[0].estimate_source,
+        EstimateSource::ScanCache
+    );
+    assert_eq!(
+        decoded.targets[1].estimate_source,
+        EstimateSource::NotMeasured
+    );
+}
+
+#[test]
+fn cleanup_plan_deserializes_legacy_target_without_estimate_source() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.user-temp",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Temp"),
+        42,
+        DeleteMode::DryRun,
+    ));
+    plan.recompute_summary();
+
+    let mut value = serde_json::to_value(&plan).expect("plan should serialize");
+    value["targets"]
+        .as_array_mut()
+        .expect("targets should be array")[0]
+        .as_object_mut()
+        .expect("target should be object")
+        .remove("estimate_source");
+
+    let decoded: CleanupPlan = serde_json::from_value(value).expect("legacy plan should load");
+
+    assert_eq!(decoded.targets[0].estimate_source, EstimateSource::Unknown);
+}
+
+#[test]
+fn cleanup_plan_serialization_preserves_discovery_diagnostics_contract() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+        .with_workflow(CleanupWorkflow::ProjectArtifacts);
+    let mut plan = CleanupPlan::empty(request);
+    plan.discovery_diagnostics
+        .push(ProjectArtifactDiscoveryDiagnostic::new(
+            ProjectArtifactDiscoveryDiagnosticKind::RootMissing,
+            PathBuf::from(r"C:\Missing"),
+            "project artifact root does not exist",
+        ));
+
+    let json = serde_json::to_value(&plan).expect("plan should serialize");
+    assert_eq!(json["discovery_diagnostics"][0]["kind"], "root-missing");
+    assert_eq!(json["discovery_diagnostics"][0]["path"], r"C:\Missing");
+    assert_eq!(
+        json["discovery_diagnostics"][0]["detail"],
+        "project artifact root does not exist"
+    );
+
+    let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
+    assert_eq!(decoded.discovery_diagnostics.len(), 1);
+    assert_eq!(
+        decoded.discovery_diagnostics[0].kind,
+        ProjectArtifactDiscoveryDiagnosticKind::RootMissing
+    );
+}
+
+#[test]
+fn cleanup_plan_deserializes_legacy_without_discovery_diagnostics() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let plan = CleanupPlan::empty(request);
+    let mut value = serde_json::to_value(&plan).expect("plan should serialize");
+    value
+        .as_object_mut()
+        .expect("plan should be object")
+        .remove("discovery_diagnostics");
+
+    let decoded: CleanupPlan = serde_json::from_value(value).expect("legacy plan should load");
+
+    assert!(decoded.discovery_diagnostics.is_empty());
 }
 
 #[test]

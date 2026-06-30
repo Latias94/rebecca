@@ -20,8 +20,8 @@ use rebecca_core::scan::ScanCancellationToken;
 use rebecca_core::scan::ScanReport;
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 use rebecca_core::{
-    CleanupWorkflow, DeleteMode, PlanRequest, Platform, RebeccaError, RuleDefinition,
-    RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
+    CleanupWorkflow, DeleteMode, EstimateSource, PlanRequest, Platform, RebeccaError,
+    RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 
 #[test]
@@ -704,6 +704,7 @@ fn planner_does_not_use_scan_cache_unless_context_enables_it() {
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
     assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
 }
 
 #[test]
@@ -759,6 +760,7 @@ fn planner_uses_scan_cache_when_context_enables_it_for_file_targets() {
     .unwrap();
 
     assert_eq!(plan.summary.estimated_bytes, 99);
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::ScanCache);
     assert_eq!(file_events, 0);
     assert_eq!(cache_events, ["hit:windows.custom-file-cache:99"]);
 }
@@ -800,6 +802,7 @@ fn planner_writes_scan_cache_when_context_enables_it_for_file_targets() {
     .unwrap();
 
     assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
     assert_eq!(cache_events, ["miss:missing"]);
     assert_eq!(
         cache.load(&path),
@@ -864,6 +867,7 @@ fn planner_uses_scan_cache_when_context_enables_it_for_directory_targets() {
     .unwrap();
 
     assert_eq!(plan.summary.estimated_bytes, 99);
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::ScanCache);
     assert_eq!(file_events, 0);
     assert_eq!(cache_events, ["hit:windows.custom-dir-cache:99"]);
 }
@@ -930,6 +934,7 @@ fn planner_rebuilds_expired_scan_cache_for_directory_targets_with_policy() {
     .unwrap();
 
     assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
     assert_eq!(file_events, 1);
     assert_eq!(cache_events, ["miss:expired"]);
     assert_eq!(
@@ -1028,6 +1033,7 @@ fn planner_treats_scan_cache_write_failure_as_soft() {
     .unwrap();
 
     assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
     assert_eq!(cache_events, ["miss:missing", "write-skipped"]);
 }
 
