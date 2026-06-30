@@ -24,7 +24,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca purge --list-artifacts` is now a compatibility listing generated from the same project artifact policy data as `rebecca catalog --kind project-artifact`.
 - cleanup workflow internals now use explicit command/payload output contracts, shared CLI runtime cancellation, and dedicated human renderers instead of workflow-specific transport branches.
 - planner and project artifact internals were split into focused modules, and configured purge roots now report stale or unreadable workspace entries as diagnostics while explicit `--root` values remain strict.
-- project artifact discovery now applies policy ranking and reclaim-limit selection after measurement so large cleanup plans can be trimmed predictably.
+- project artifact discovery now applies policy ranking before reclaim-limit measurement so large cleanup plans can stop sizing lower-ranked candidates once the requested reclaim target is satisfied.
 - v2 commands now use the command API registry for fatal JSON and NDJSON errors instead of the global v1 error envelope.
 - `rebecca cache purge --yes` now moves rebuildable Rebecca cache entries to the Recycle Bin by default and reports pending reclaim bytes separately from permanently reclaimed bytes.
 - Project artifact reclaim limits now stop measurement once ranked trim-eligible candidates satisfy the requested limit, leaving later candidates unmeasured instead of sizing the full candidate set first.
