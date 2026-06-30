@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use ignore::WalkBuilder;
+use ignore::{DirEntry, WalkBuilder};
 use rayon::ThreadPool;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -215,18 +215,18 @@ impl IgnoreWalkerAdapter {
             check_not_cancelled(cancellation)?;
             let entry = entry
                 .map_err(|err| RebeccaError::ScanFailed(ScanFailure::directory_walk(path, &err)))?;
-            let metadata = entry_metadata(entry.path())?;
+            let classification = classify_entry(&entry)?;
 
-            if is_reparse_like(&metadata) {
+            if classification.reparse_like {
                 continue;
             }
 
-            if metadata.is_dir() {
+            if classification.file_type.is_dir() {
                 report.record_directory();
             }
 
-            if metadata.is_file() {
-                let file_size = metadata.len();
+            if classification.file_type.is_file() {
+                let file_size = classification.size_bytes.unwrap_or(0);
                 report.record_file(file_size);
                 progress(ScanProgressEvent::FileMeasured {
                     path: entry.path(),
@@ -239,6 +239,40 @@ impl IgnoreWalkerAdapter {
 
         Ok(report)
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScanEntryClassification {
+    file_type: std::fs::FileType,
+    reparse_like: bool,
+    size_bytes: Option<u64>,
+}
+
+fn classify_entry(entry: &DirEntry) -> Result<ScanEntryClassification> {
+    if let Some(file_type) = entry.file_type() {
+        if file_type.is_file() {
+            return entry_metadata(entry.path()).map(|metadata| ScanEntryClassification {
+                file_type,
+                reparse_like: is_reparse_like(&metadata),
+                size_bytes: Some(metadata.len()),
+            });
+        }
+
+        if file_type.is_dir() {
+            return entry_metadata(entry.path()).map(|metadata| ScanEntryClassification {
+                file_type,
+                reparse_like: is_reparse_like(&metadata),
+                size_bytes: None,
+            });
+        }
+    }
+
+    let metadata = entry_metadata(entry.path())?;
+    Ok(ScanEntryClassification {
+        file_type: metadata.file_type(),
+        reparse_like: is_reparse_like(&metadata),
+        size_bytes: metadata.is_file().then_some(metadata.len()),
+    })
 }
 
 fn cleanup_walk_builder(path: &Path) -> WalkBuilder {
