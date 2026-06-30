@@ -9,6 +9,7 @@
       "enum": [
         "catalog",
         "inspect-artifacts",
+        "inspect-lint",
         "inspect-space"
       ]
     },
@@ -23,6 +24,27 @@
         "fresh-scan",
         "scan-cache",
         "not-measured"
+      ]
+    },
+    "inventoryEntryRole": {
+      "type": "string",
+      "enum": [
+        "scanned",
+        "reference",
+        "protected"
+      ]
+    },
+    "inventoryDiagnosticKind": {
+      "type": "string",
+      "enum": [
+        "root-missing",
+        "root-metadata-read-skipped",
+        "root-not-directory",
+        "reparse-point-skipped",
+        "directory-read-skipped",
+        "directory-entry-read-skipped",
+        "metadata-read-skipped",
+        "excluded"
       ]
     },
     "targetStatus": {
@@ -539,6 +561,223 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/spaceInsightDiagnostic"
+          }
+        }
+      }
+    },
+    "lintReportSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files_scanned",
+        "directories_scanned",
+        "duplicate_groups",
+        "duplicate_files",
+        "large_files",
+        "empty_files",
+        "empty_directories",
+        "conservative_reclaim_bytes"
+      ],
+      "properties": {
+        "files_scanned": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories_scanned": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "duplicate_groups": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "duplicate_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "large_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "empty_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "empty_directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conservative_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "lintFileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "size_bytes",
+        "modified_at_unix_seconds",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "modified_at_unix_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "role": {
+          "$ref": "#/$defs/inventoryEntryRole"
+        }
+      }
+    },
+    "lintDirectoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "depth",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "role": {
+          "$ref": "#/$defs/inventoryEntryRole"
+        }
+      }
+    },
+    "duplicateFileGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size_bytes",
+        "total_files",
+        "keep_candidates",
+        "conservative_reclaim_bytes",
+        "hash",
+        "files"
+      ],
+      "properties": {
+        "size_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "total_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "keep_candidates": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conservative_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        }
+      }
+    },
+    "inventoryDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/inventoryDiagnosticKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "inspectLint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "reference_roots",
+        "summary",
+        "duplicate_groups",
+        "large_files",
+        "empty_files",
+        "empty_directories",
+        "diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reference_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/lintReportSummary"
+        },
+        "duplicate_groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/duplicateFileGroup"
+          }
+        },
+        "large_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        },
+        "empty_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        },
+        "empty_directories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintDirectoryEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/inventoryDiagnostic"
           }
         }
       }

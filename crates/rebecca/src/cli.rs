@@ -139,6 +139,8 @@ pub enum InspectCommand {
     Space(InspectSpaceArgs),
     /// Inspect rebuildable project artifact space.
     Artifacts(InspectArtifactsArgs),
+    /// Report duplicate, large, empty-file, and empty-directory cleanup opportunities.
+    Lint(InspectLintArgs),
 }
 
 #[derive(Debug, Args)]
@@ -183,6 +185,25 @@ pub struct InspectArtifactsArgs {
     /// Exclude a path from project artifact insight for this run. Can be repeated.
     #[arg(long = "exclude", value_name = "PATH")]
     pub exclude_paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct InspectLintArgs {
+    /// Directory to inspect. Can be repeated. Defaults to the current directory.
+    #[arg(long = "root", value_name = "PATH")]
+    pub roots: Vec<PathBuf>,
+    /// Directory whose files should be treated as keep candidates in duplicate groups.
+    #[arg(long = "reference", value_name = "PATH")]
+    pub reference_roots: Vec<PathBuf>,
+    /// Exclude a path from lint inventory for this run. Can be repeated.
+    #[arg(long = "exclude", value_name = "PATH")]
+    pub exclude_paths: Vec<PathBuf>,
+    /// Include files at or above this size in the large-file report.
+    #[arg(long, value_name = "BYTES", default_value_t = rebecca::core::lint::DEFAULT_LARGE_FILE_THRESHOLD_BYTES)]
+    pub large_file_threshold_bytes: u64,
+    /// Maximum number of groups or entries to include per lint report section.
+    #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::lint::DEFAULT_LINT_TOP_LIMIT)]
+    pub top_limit: usize,
 }
 
 #[derive(Debug, Args)]

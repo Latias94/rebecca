@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
 };
+use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
@@ -43,6 +44,16 @@ pub struct InspectArtifactsOptions {
     pub artifacts: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
     pub command: &'static str,
+}
+
+#[derive(Debug)]
+pub struct InspectLintOptions {
+    pub output_mode: OutputMode,
+    pub roots: Vec<PathBuf>,
+    pub reference_roots: Vec<PathBuf>,
+    pub exclude_paths: Vec<PathBuf>,
+    pub large_file_threshold_bytes: u64,
+    pub top_limit: usize,
 }
 
 pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRuntime) -> Result<()> {
@@ -113,6 +124,40 @@ fn artifacts_with_runtime_config(
     )
 }
 
+pub(crate) fn lint_with_runtime(options: InspectLintOptions, runtime: &CliRuntime) -> Result<()> {
+    let runtime_config = load_runtime_config()?;
+    let reference_roots = resolve_optional_roots(options.reference_roots)?;
+    let roots = merge_lint_roots(
+        resolve_space_roots(options.roots)?,
+        reference_roots.as_slice(),
+    );
+    let exclude_paths = resolve_optional_roots(options.exclude_paths)?;
+    let protected_roots = runtime_config
+        .app_paths
+        .storage_entries()
+        .into_iter()
+        .map(|entry| entry.path)
+        .chain(runtime_config.protected_paths)
+        .collect::<Vec<_>>();
+
+    let request = LintReportRequest::new(roots)
+        .with_reference_roots(reference_roots)
+        .with_protected_roots(protected_roots)
+        .with_exclude_paths(exclude_paths)
+        .with_large_file_threshold_bytes(options.large_file_threshold_bytes)
+        .with_top_limit(options.top_limit.max(1));
+    let report = inspect_lint_core(&request, runtime.cancellation())?;
+
+    print_command_success_with_api_version(
+        output::API_VERSION_V2,
+        "inspect lint",
+        "inspect-lint",
+        options.output_mode,
+        || &report,
+        || render::inspect::print_lint_report(&report),
+    )
+}
+
 fn print_project_artifact_insight_with_events(
     plan: &rebecca::core::plan::CleanupPlan,
     contract: WorkflowOutputContract,
@@ -170,4 +215,30 @@ fn resolve_existing_space_root(root: PathBuf) -> Result<PathBuf> {
             .join(root)
     };
     Ok(absolute)
+}
+
+fn resolve_optional_roots(roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    roots
+        .into_iter()
+        .map(resolve_existing_space_root)
+        .collect::<Result<Vec<_>>>()
+}
+
+fn merge_lint_roots(mut roots: Vec<PathBuf>, reference_roots: &[PathBuf]) -> Vec<PathBuf> {
+    for reference in reference_roots {
+        if !roots.iter().any(|root| same_lint_root(root, reference)) {
+            roots.push(reference.clone());
+        }
+    }
+    roots
+}
+
+fn same_lint_root(left: &Path, right: &Path) -> bool {
+    let left = left.as_os_str().to_string_lossy();
+    let right = right.as_os_str().to_string_lossy();
+    if cfg!(windows) {
+        left.eq_ignore_ascii_case(&right)
+    } else {
+        left == right
+    }
 }

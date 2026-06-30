@@ -451,13 +451,19 @@ fn cli_api_v2_catalog_schema_documents_are_parseable() {
         .collect::<Vec<_>>();
     assert_eq!(
         payload_kinds,
-        ["catalog", "inspect-artifacts", "inspect-space"]
+        [
+            "catalog",
+            "inspect-artifacts",
+            "inspect-lint",
+            "inspect-space"
+        ]
     );
 
     let catalog_item = &payloads["$defs"]["catalogItem"];
     assert_eq!(catalog_item["oneOf"].as_array().unwrap().len(), 5);
     assert_eq!(payloads["$defs"]["inspectSpace"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectArtifacts"]["type"], "object");
+    assert_eq!(payloads["$defs"]["inspectLint"]["type"], "object");
 }
 
 #[test]
@@ -517,6 +523,13 @@ fn cli_api_v2_inspect_examples_validate_against_payload_schema() {
     assert_eq!(artifacts["payload_kind"], "inspect-artifacts");
     validator_for_v2_payload_def("inspectArtifacts")
         .validate(&artifacts["data"])
+        .unwrap();
+
+    let lint = read_v2_doc_json("examples/success-inspect-lint.json");
+    assert_v2_success_schema(&lint);
+    assert_eq!(lint["payload_kind"], "inspect-lint");
+    validator_for_v2_payload_def("inspectLint")
+        .validate(&lint["data"])
         .unwrap();
 }
 

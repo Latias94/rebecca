@@ -146,6 +146,17 @@ fn run_inspect(
             },
             runtime,
         ),
+        InspectCommand::Lint(args) => inspect::lint_with_runtime(
+            inspect::InspectLintOptions {
+                output_mode: global_mode,
+                roots: args.roots,
+                reference_roots: args.reference_roots,
+                exclude_paths: args.exclude_paths,
+                large_file_threshold_bytes: args.large_file_threshold_bytes,
+                top_limit: args.top_limit,
+            },
+            runtime,
+        ),
     }
 }
 
@@ -277,6 +288,7 @@ fn command_name(command: &Command) -> &'static str {
         Command::Inspect { command } => match command {
             InspectCommand::Space(_) => "inspect space",
             InspectCommand::Artifacts(_) => "inspect artifacts",
+            InspectCommand::Lint(_) => "inspect lint",
         },
         Command::Purge(args) => {
             if matches!(args.command, Some(PurgeCommand::Inspect(_))) {

@@ -37,6 +37,7 @@ fn inspect_help_lists_space_and_artifacts_subcommands() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("space"));
     assert!(stdout.contains("artifacts"));
+    assert!(stdout.contains("lint"));
 }
 
 #[test]
@@ -238,4 +239,123 @@ fn purge_inspect_compatibility_matches_inspect_artifacts_data() {
     assert_eq!(inspect["payload_kind"], "inspect-artifacts");
     assert_eq!(purge["payload_kind"], "inspect-artifacts");
     assert_eq!(inspect["data"], purge["data"]);
+}
+
+#[test]
+fn inspect_lint_json_reports_duplicates_and_empty_entries_without_writes() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let reference = temp.path().join("reference");
+    let protected = temp.path().join("rebecca-state");
+    let duplicate = workspace.join("copy.bin");
+    let reference_duplicate = reference.join("master.bin");
+    let protected_duplicate = protected.join("protected.bin");
+    let empty_file = workspace.join("empty.txt");
+    let large_file = workspace.join("large.bin");
+    let empty_dir = workspace.join("empty").join("nested");
+    write_fixture_file(&duplicate, b"same");
+    write_fixture_file(&reference_duplicate, b"same");
+    write_fixture_file(&protected_duplicate, b"same");
+    write_fixture_file(&empty_file, b"");
+    write_fixture_file(&large_file, b"abcdef");
+    fs::create_dir_all(&empty_dir).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "lint",
+            "--format",
+            "json",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--root",
+            protected.to_str().unwrap(),
+            "--reference",
+            reference.to_str().unwrap(),
+            "--large-file-threshold-bytes",
+            "5",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(duplicate.exists());
+    assert!(reference_duplicate.exists());
+    assert!(protected_duplicate.exists());
+    assert!(
+        !temp
+            .path()
+            .join("rebecca-state")
+            .join("history.jsonl")
+            .exists()
+    );
+
+    let envelope = common::support::api_envelope_v2(&output.stdout);
+    assert_eq!(envelope["command"], "inspect lint");
+    assert_eq!(envelope["payload_kind"], "inspect-lint");
+
+    let value = &envelope["data"];
+    assert_eq!(value["summary"]["duplicate_groups"], 1);
+    assert_eq!(value["summary"]["duplicate_files"], 3);
+    assert_eq!(value["summary"]["conservative_reclaim_bytes"], 4);
+    assert_eq!(value["summary"]["large_files"], 1);
+    assert_eq!(value["summary"]["empty_files"], 1);
+    assert!(value["summary"]["empty_directories"].as_u64().unwrap() >= 1);
+    let group = &value["duplicate_groups"][0];
+    assert_eq!(group["keep_candidates"], 2);
+    let roles = group["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["role"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(roles, ["protected", "reference", "scanned"]);
+    assert!(
+        value["empty_directories"][0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("nested")
+    );
+}
+
+#[test]
+fn inspect_lint_ndjson_uses_v2_completed_event() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(workspace.join("a.bin"), b"same");
+    write_fixture_file(workspace.join("b.bin"), b"same");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "lint",
+            "--format",
+            "ndjson",
+            "--root",
+            workspace.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["api_version"], "rebecca.cli.v2");
+    assert_eq!(events[0]["event_kind"], "completed");
+    assert_eq!(events[0]["command"], "inspect lint");
+    assert_eq!(events[0]["payload_kind"], "inspect-lint");
+    assert_eq!(events[0]["data"]["summary"]["duplicate_groups"], 1);
 }

@@ -1,10 +1,10 @@
 use std::path::{Component, Path};
 
 pub(crate) fn paths_overlap(left: &Path, right: &Path) -> bool {
-    same_or_child_path(left, right) || same_or_child_path(right, left)
+    path_is_same_or_child(left, right) || path_is_same_or_child(right, left)
 }
 
-fn same_or_child_path(parent: &Path, child: &Path) -> bool {
+pub(crate) fn path_is_same_or_child(parent: &Path, child: &Path) -> bool {
     let parent = comparable_components(parent);
     let child = comparable_components(child);
     !parent.is_empty() && child.len() >= parent.len() && child.starts_with(&parent)

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rebecca::core::inspect::SpaceInsightReport;
+use rebecca::core::lint::LintReport;
 
 use crate::output::format_bytes;
 use crate::render::estimate_source_suffix;
@@ -36,6 +37,90 @@ pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
     if !report.diagnostics.is_empty() {
         println!();
         println!("Inspection diagnostics:");
+        for diagnostic in &report.diagnostics {
+            println!(
+                "  - {} {} - {}",
+                diagnostic.kind.label(),
+                diagnostic.path.display(),
+                diagnostic.detail
+            );
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) fn print_lint_report(report: &LintReport) -> Result<()> {
+    println!("Lint report");
+    println!("Roots: {}", report.roots.len());
+    println!("Reference roots: {}", report.reference_roots.len());
+    println!("Files: {}", report.summary.files_scanned);
+    println!("Directories: {}", report.summary.directories_scanned);
+    println!("Duplicate groups: {}", report.summary.duplicate_groups);
+    println!("Large files: {}", report.summary.large_files);
+    println!("Empty files: {}", report.summary.empty_files);
+    println!("Empty directories: {}", report.summary.empty_directories);
+    println!(
+        "Conservative reclaim estimate: {} ({})",
+        report.summary.conservative_reclaim_bytes,
+        format_bytes(report.summary.conservative_reclaim_bytes)
+    );
+
+    if !report.duplicate_groups.is_empty() {
+        println!();
+        println!("Duplicate groups:");
+        for group in &report.duplicate_groups {
+            println!(
+                "  - {} files, {} bytes each, reclaim {} ({})",
+                group.total_files,
+                group.size_bytes,
+                group.conservative_reclaim_bytes,
+                format_bytes(group.conservative_reclaim_bytes)
+            );
+            for file in &group.files {
+                println!("    - [{}] {}", file.role.label(), file.path.display());
+            }
+        }
+    }
+
+    if !report.large_files.is_empty() {
+        println!();
+        println!("Large files:");
+        for file in &report.large_files {
+            println!(
+                "  - [{}] {} bytes ({}) {}",
+                file.role.label(),
+                file.size_bytes,
+                format_bytes(file.size_bytes),
+                file.path.display()
+            );
+        }
+    }
+
+    if !report.empty_files.is_empty() {
+        println!();
+        println!("Empty files:");
+        for file in &report.empty_files {
+            println!("  - [{}] {}", file.role.label(), file.path.display());
+        }
+    }
+
+    if !report.empty_directories.is_empty() {
+        println!();
+        println!("Empty directories:");
+        for directory in &report.empty_directories {
+            println!(
+                "  - [{}] depth {} {}",
+                directory.role.label(),
+                directory.depth,
+                directory.path.display()
+            );
+        }
+    }
+
+    if !report.diagnostics.is_empty() {
+        println!();
+        println!("Inventory diagnostics:");
         for diagnostic in &report.diagnostics {
             println!(
                 "  - {} {} - {}",

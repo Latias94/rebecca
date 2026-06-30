@@ -1,0 +1,77 @@
+{
+  "api_version": "rebecca.cli.v2",
+  "kind": "success",
+  "command": "inspect lint",
+  "payload_kind": "inspect-lint",
+  "generated_at_unix_seconds": 1782660000,
+  "data": {
+    "roots": [
+      "C:\\Users\\example\\workspace"
+    ],
+    "reference_roots": [
+      "C:\\Users\\example\\archive"
+    ],
+    "summary": {
+      "files_scanned": 4,
+      "directories_scanned": 3,
+      "duplicate_groups": 1,
+      "duplicate_files": 2,
+      "large_files": 1,
+      "empty_files": 1,
+      "empty_directories": 1,
+      "conservative_reclaim_bytes": 4096
+    },
+    "duplicate_groups": [
+      {
+        "size_bytes": 4096,
+        "total_files": 2,
+        "keep_candidates": 1,
+        "conservative_reclaim_bytes": 4096,
+        "hash": "0123456789abcdef",
+        "files": [
+          {
+            "path": "C:\\Users\\example\\archive\\asset.bin",
+            "root": "C:\\Users\\example\\workspace",
+            "size_bytes": 4096,
+            "modified_at_unix_seconds": 1782659000,
+            "role": "reference"
+          },
+          {
+            "path": "C:\\Users\\example\\workspace\\copy.bin",
+            "root": "C:\\Users\\example\\workspace",
+            "size_bytes": 4096,
+            "modified_at_unix_seconds": 1782659100,
+            "role": "scanned"
+          }
+        ]
+      }
+    ],
+    "large_files": [
+      {
+        "path": "C:\\Users\\example\\workspace\\video.mov",
+        "root": "C:\\Users\\example\\workspace",
+        "size_bytes": 209715200,
+        "modified_at_unix_seconds": 1782659200,
+        "role": "scanned"
+      }
+    ],
+    "empty_files": [
+      {
+        "path": "C:\\Users\\example\\workspace\\empty.tmp",
+        "root": "C:\\Users\\example\\workspace",
+        "size_bytes": 0,
+        "modified_at_unix_seconds": 1782659300,
+        "role": "scanned"
+      }
+    ],
+    "empty_directories": [
+      {
+        "path": "C:\\Users\\example\\workspace\\build\\empty",
+        "root": "C:\\Users\\example\\workspace",
+        "depth": 2,
+        "role": "scanned"
+      }
+    ],
+    "diagnostics": []
+  }
+}
