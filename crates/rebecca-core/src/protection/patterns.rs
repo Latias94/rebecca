@@ -197,9 +197,9 @@ fn trim_trailing_separators(path: &str) -> String {
 
 fn is_chromium_cache_path(segments: &[&str]) -> bool {
     find_segment(segments, "user data")
-        .is_some_and(|index| chromium_cache_tail_is_allowed(segments, index + 1))
+        .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index + 1))
         || find_segment(segments, "htmlcache")
-            .is_some_and(|index| chromium_cache_tail_is_allowed(segments, index + 1))
+            .is_some_and(|index| chromium_profile_cache_tail_is_allowed(segments, index + 1))
 }
 
 fn is_gecko_profile_cache_path(segments: &[&str]) -> bool {
@@ -429,37 +429,46 @@ fn is_rebuildable_leftover_leaf(segment: &str) -> bool {
     matches!(segment, "cache" | "code cache" | "gpucache" | "cacheddata")
 }
 
-fn is_browser_cache_segment(segment: &str) -> bool {
-    matches!(segment, "cache" | "code cache" | "gpucache")
+fn is_chromium_profile_cache_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "cache" | "code cache" | "gpucache" | "dawncache" | "media cache"
+    )
 }
 
-fn chromium_cache_tail_is_allowed(segments: &[&str], start: usize) -> bool {
+fn is_chromium_root_cache_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "component_crx_cache"
+            | "graphitedawncache"
+            | "grshadercache"
+            | "shadercache"
+            | "extensions_crx_cache"
+    )
+}
+
+fn chromium_user_data_cache_tail_is_allowed(segments: &[&str], start: usize) -> bool {
+    segments
+        .get(start)
+        .is_some_and(|segment| is_chromium_root_cache_segment(segment))
+        || chromium_profile_cache_tail_is_allowed(segments, start)
+}
+
+fn chromium_profile_cache_tail_is_allowed(segments: &[&str], start: usize) -> bool {
     matches!(
         (segments.get(start), segments.get(start + 1)),
-        (Some(&"default"), Some(cache)) if is_browser_cache_segment(cache)
+        (Some(&"default"), Some(cache)) if is_chromium_profile_cache_segment(cache)
     ) || matches!(
         (segments.get(start), segments.get(start + 1)),
         (Some(profile), Some(cache))
-            if profile.starts_with("profile ") && is_browser_cache_segment(cache)
+            if profile.starts_with("profile ") && is_chromium_profile_cache_segment(cache)
     )
 }
 
 fn is_browser_private_data_path(segments: &[&str]) -> bool {
-    if find_segment(segments, "user data").is_some_and(|index| {
-        segments.get(index + 2).is_some_and(|segment| {
-            matches!(
-                *segment,
-                "history"
-                    | "cookies"
-                    | "login data"
-                    | "web data"
-                    | "local storage"
-                    | "indexeddb"
-                    | "service worker"
-                    | "network"
-            )
-        })
-    }) {
+    if find_segment(segments, "user data")
+        .is_some_and(|index| is_chromium_private_data_tail(segments, index + 1))
+    {
         return true;
     }
 
@@ -480,6 +489,47 @@ fn is_browser_private_data_path(segments: &[&str]) -> bool {
             )
         })
     })
+}
+
+fn is_chromium_private_data_tail(segments: &[&str], start: usize) -> bool {
+    if segments.get(start).is_some_and(|segment| {
+        *segment == "local state"
+            || segment.starts_with("safe browsing")
+            || segment.starts_with("variations")
+    }) {
+        return true;
+    }
+
+    let profile = segments.get(start).copied().unwrap_or_default();
+    if profile != "default" && !profile.starts_with("profile ") {
+        return false;
+    }
+
+    segments
+        .get(start + 1)
+        .is_some_and(|segment| is_chromium_profile_private_data_segment(segment))
+}
+
+fn is_chromium_profile_private_data_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "bookmarks"
+            | "cookies"
+            | "favicons"
+            | "history"
+            | "indexeddb"
+            | "login data"
+            | "local storage"
+            | "network"
+            | "preferences"
+            | "service worker"
+            | "session storage"
+            | "sessions"
+            | "sync data"
+            | "top sites"
+            | "visited links"
+            | "web data"
+    )
 }
 
 fn is_application_durable_data_path(segments: &[&str]) -> bool {

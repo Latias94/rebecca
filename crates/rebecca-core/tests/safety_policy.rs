@@ -54,7 +54,52 @@ fn browser_cache_paths_remain_allowed_while_private_data_is_blocked() {
     ));
     assert!(matches!(
         policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/DawnCache"
+        )),
+        ProtectionAssessment::Allowed
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/Media Cache"
+        )),
+        ProtectionAssessment::Allowed
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/ShaderCache"
+        )),
+        ProtectionAssessment::Allowed
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/component_crx_cache"
+        )),
+        ProtectionAssessment::Allowed
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
             "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/History"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::BrowserPrivateData)
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/Preferences"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::BrowserPrivateData)
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Local State"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::BrowserPrivateData)
+    ));
+    assert!(matches!(
+        policy.assess_path(&PathBuf::from(
+            "C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Safe Browsing Channel IDs-journal"
         )),
         ProtectionAssessment::Blocked(block)
             if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::BrowserPrivateData)
@@ -407,6 +452,13 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
         RuleTargetSpec::template("%USERPROFILE%\\.rustup\\downloads"),
         RuleTargetSpec::template("%USERPROFILE%\\.rustup\\tmp"),
         RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\DawnCache"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Media Cache"),
+        RuleTargetSpec::glob_template(
+            "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\DawnCache",
+        ),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\component_crx_cache"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\ShaderCache"),
         RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
         RuleTargetSpec::template("%APPDATA%\\Figma\\Cache"),
         RuleTargetSpec::template("%APPDATA%\\Notion\\Code Cache"),
@@ -488,6 +540,22 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
         (
             RuleTargetSpec::template(
                 "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Local Storage",
+            ),
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            RuleTargetSpec::template(
+                "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Preferences",
+            ),
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Local State"),
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            RuleTargetSpec::template(
+                "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Safe Browsing Channel IDs-journal",
             ),
             ProtectedCategory::BrowserPrivateData,
         ),

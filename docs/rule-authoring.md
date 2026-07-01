@@ -69,11 +69,14 @@ files. Keep each rule small, explicit, and easy to audit.
   recordings, MRU, registry values, configuration, media files, and account
   state out of built-in rules.
 - Browser-family cache rules should target only regenerable cache leaves. For
-  Chromium-family apps that means `Cache`, `Code Cache`, and `GPUCache`; for
-  Gecko-family apps that means local profile leaves such as `cache2`,
-  `startupCache`, `jumpListCache`, and `OfflineCache`. Keep history, cookies,
-  passwords, sessions, site data, preferences, and profile databases out of
-  built-in cache rules.
+  Chromium-family apps that means profile-local `Cache`, `Code Cache`,
+  `GPUCache`, `DawnCache`, and `Media Cache`, plus base-level
+  `component_crx_cache`, `extensions_crx_cache`, `GraphiteDawnCache`,
+  `GrShaderCache`, and `ShaderCache`; for Gecko-family apps that means local
+  profile leaves such as `cache2`, `startupCache`, `jumpListCache`, and
+  `OfflineCache`. Keep Network state, Safe Browsing journals, Preferences JSON
+  edits, history, cookies, passwords, sessions, site data, preferences, and
+  profile databases out of built-in cache rules.
 - Steam client cache rules should stay under `%LOCALAPPDATA%\Steam\htmlcache`
   unless the rule also implements explicit Steam install/library discovery.
   Do not target `userdata`, `steamapps`, `appcache` metadata, workshop content,

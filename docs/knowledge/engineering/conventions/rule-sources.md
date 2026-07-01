@@ -61,6 +61,9 @@ Candidates worth batch review:
   Gecko-family `cache2`/`startupCache`/`jumpListCache`/`OfflineCache`, Thunderbird
   local cache, and Adobe Reader local cache/search indexes, while excluding
   history, cookies, passwords, sessions, mail stores, preferences, and documents
+- Chromium-family cache expansion may include shader/Dawn/extension-package and
+  legacy media cache directories, but not Network state, Safe Browsing journals,
+  Preferences JSON edits, profile databases, history, cookies, or sessions
 - Windows maintenance caches such as temp files, Prefetch, and update
   download directories
 - Uninstall leftovers and app inventory modeling

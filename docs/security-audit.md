@@ -111,9 +111,16 @@ Rebecca allows bounded maintenance targets that correspond to current built-in
 rules. These are narrow subpaths, not broad app roots:
 
 - user temp directories;
-- Chromium-family cache directories: `Cache`, `Code Cache`, and `GPUCache`
-  under `Default` or bounded `Profile *` profiles for Chrome, Edge, and Brave;
-- Firefox `cache2` and `startupCache` directories;
+- Chromium-family cache directories: profile-local `Cache`, `Code Cache`,
+  `GPUCache`, `DawnCache`, and `Media Cache`, plus base-level
+  `component_crx_cache`, `extensions_crx_cache`, `GraphiteDawnCache`,
+  `GrShaderCache`, and `ShaderCache` for Chrome, Edge, Brave, and Chromium;
+  these are allowed only as bounded browser-cache leaves and exclude Network
+  state, Safe Browsing journals, Preferences edits, history, cookies, sessions,
+  and profile databases;
+- Gecko-family local profile cache directories such as `cache2`, `startupCache`,
+  `jumpListCache`, and `OfflineCache` for Firefox, Waterfox, Zen Browser, and
+  Thunderbird;
 - Electron/VS Code cache directories such as `Cache`, `Code Cache`,
   `GPUCache`, and `CachedData` for explicitly allowlisted app roots including
   Discord, Slack, Postman, Notion, and Figma;

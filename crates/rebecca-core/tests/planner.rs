@@ -1742,6 +1742,14 @@ fn expanded_browser_rules_target_only_regenerable_profile_caches() {
         b"chromium-gpu",
     );
     fixture.write(
+        "local/Chromium/User Data/Default/DawnCache/dawn.bin",
+        &[b'd'; 7],
+    );
+    fixture.write(
+        "local/Chromium/User Data/Default/Media Cache/media.bin",
+        &[b'm'; 8],
+    );
+    fixture.write(
         "local/Chromium/User Data/Profile 1/Cache/cache.bin",
         b"profile-cache",
     );
@@ -1752,6 +1760,34 @@ fn expanded_browser_rules_target_only_regenerable_profile_caches() {
     fixture.write(
         "local/Chromium/User Data/Profile 1/GPUCache/gpu.bin",
         b"profile-gpu",
+    );
+    fixture.write(
+        "local/Chromium/User Data/Profile 1/DawnCache/dawn.bin",
+        &[b'g'; 9],
+    );
+    fixture.write(
+        "local/Chromium/User Data/Profile 1/Media Cache/media.bin",
+        &[b'h'; 10],
+    );
+    fixture.write(
+        "local/Chromium/User Data/component_crx_cache/component.bin",
+        &[b'i'; 11],
+    );
+    fixture.write(
+        "local/Chromium/User Data/extensions_crx_cache/extension.bin",
+        &[b'j'; 12],
+    );
+    fixture.write(
+        "local/Chromium/User Data/GraphiteDawnCache/graphite.bin",
+        &[b'k'; 13],
+    );
+    fixture.write(
+        "local/Chromium/User Data/GrShaderCache/grshader.bin",
+        &[b'l'; 14],
+    );
+    fixture.write(
+        "local/Chromium/User Data/ShaderCache/shader.bin",
+        &[b'n'; 15],
     );
     fixture.write(
         "local/Chromium/User Data/Profile 1/Local Storage/leveldb/LOG",
@@ -1810,17 +1846,24 @@ fn expanded_browser_rules_target_only_regenerable_profile_caches() {
         .map(|target| target.path.to_string_lossy().replace('\\', "/"))
         .collect::<Vec<_>>();
 
-    assert_eq!(plan.summary.allowed_targets, 14);
+    assert_eq!(plan.summary.allowed_targets, 23);
     assert_eq!(plan.summary.skipped_targets, 0);
-    assert_eq!(plan.summary.estimated_bytes, 126);
+    assert_eq!(plan.summary.estimated_bytes, 225);
     assert!(planned_paths.iter().all(|path| {
         path.ends_with("Cache")
             || path.ends_with("Code Cache")
             || path.ends_with("GPUCache")
+            || path.ends_with("DawnCache")
+            || path.ends_with("Media Cache")
             || path.ends_with("cache2")
             || path.ends_with("startupCache")
             || path.ends_with("jumpListCache")
             || path.ends_with("OfflineCache")
+            || path.ends_with("component_crx_cache")
+            || path.ends_with("extensions_crx_cache")
+            || path.ends_with("GraphiteDawnCache")
+            || path.ends_with("GrShaderCache")
+            || path.ends_with("ShaderCache")
     }));
     assert!(planned_paths.iter().all(|path| {
         !path.contains("Local Storage")
@@ -2214,6 +2257,14 @@ fn chromium_rules_expand_profile_cache_patterns() {
         b"ccc",
     );
     fixture.write(
+        "local/Google/Chrome/User Data/Default/DawnCache/default-dawn.bin",
+        &[b'd'; 7],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Default/Media Cache/default-media.bin",
+        &[b'm'; 8],
+    );
+    fixture.write(
         "local/Google/Chrome/User Data/Profile 1/Cache/profile-cache.bin",
         b"dddd",
     );
@@ -2224,6 +2275,46 @@ fn chromium_rules_expand_profile_cache_patterns() {
     fixture.write(
         "local/Google/Chrome/User Data/Profile 1/GPUCache/profile-gpu.bin",
         b"ffffff",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Profile 1/DawnCache/profile-dawn.bin",
+        &[b'g'; 9],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Profile 1/Media Cache/profile-media.bin",
+        &[b'h'; 10],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/component_crx_cache/component.bin",
+        &[b'i'; 11],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/extensions_crx_cache/extension.bin",
+        &[b'j'; 12],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/GraphiteDawnCache/graphite.bin",
+        &[b'k'; 13],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/GrShaderCache/grshader.bin",
+        &[b'l'; 14],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/ShaderCache/shader.bin",
+        &[b'n'; 15],
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Profile 1/Network/Network Persistent State",
+        b"keep",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Profile 1/Preferences",
+        b"keep",
+    );
+    fixture.write(
+        "local/Google/Chrome/User Data/Safe Browsing Channel IDs-journal",
+        b"keep",
     );
     fixture.write(
         "local/Microsoft/Edge/User Data/Default/Cache/default.bin",
@@ -2250,6 +2341,18 @@ fn chromium_rules_expand_profile_cache_patterns() {
         b"123456789012",
     );
     fixture.write(
+        "local/Microsoft/Edge/User Data/Profile 2/DawnCache/profile-dawn.bin",
+        &[b'1'; 19],
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/ShaderCache/shader.bin",
+        &[b'2'; 20],
+    );
+    fixture.write(
+        "local/Microsoft/Edge/User Data/Profile 2/Network/Network Persistent State",
+        b"keep",
+    );
+    fixture.write(
         "local/BraveSoftware/Brave-Browser/User Data/Default/Cache/default.bin",
         &[b'a'; 13],
     );
@@ -2273,6 +2376,18 @@ fn chromium_rules_expand_profile_cache_patterns() {
         "local/BraveSoftware/Brave-Browser/User Data/Profile 3/GPUCache/profile-gpu.bin",
         &[b'f'; 18],
     );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Profile 3/Media Cache/profile-media.bin",
+        &[b'g'; 21],
+    );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/GrShaderCache/grshader.bin",
+        &[b'h'; 22],
+    );
+    fixture.write(
+        "local/BraveSoftware/Brave-Browser/User Data/Profile 3/Preferences",
+        b"keep",
+    );
     let rules = rebecca_rules::builtin_rules().unwrap();
 
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
@@ -2284,8 +2399,8 @@ fn chromium_rules_expand_profile_cache_patterns() {
 
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 
-    assert_eq!(plan.summary.allowed_targets, 18);
-    assert_eq!(plan.summary.estimated_bytes, 171);
+    assert_eq!(plan.summary.allowed_targets, 31);
+    assert_eq!(plan.summary.estimated_bytes, 352);
     assert!(plan.targets.iter().any(|target| {
         target
             .path
@@ -2300,6 +2415,29 @@ fn chromium_rules_expand_profile_cache_patterns() {
         target
             .path
             .ends_with(Path::new("Profile 3").join("GPUCache"))
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("User Data").join("component_crx_cache"))
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("User Data").join("ShaderCache"))
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target
+            .path
+            .ends_with(Path::new("Profile 3").join("Media Cache"))
+    }));
+    assert!(plan.targets.iter().all(|target| {
+        let path = target.path.to_string_lossy();
+        !path.contains("Network")
+            && !path.contains("Preferences")
+            && !path.contains("Safe Browsing")
+            && !path.contains("History")
+            && !path.contains("Cookies")
     }));
 }
 

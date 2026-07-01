@@ -20,6 +20,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca cache purge --permanent` now explicitly opts into irreversible Rebecca cache deletion after `--yes`.
 - the built-in Windows catalog now includes narrow Zoom log, TeamViewer log, and VLC media cache rules derived from BleachBit behavior references and guarded by the `active-process` warning gate.
 - the built-in Windows catalog now includes Chromium, Waterfox, Zen Browser, Thunderbird, and Adobe Reader cache rules with tests that keep history, cookies, mail, preferences, and document data out of scope.
+- Chromium-family browser cache rules now include bounded shader, Dawn, extension-package, and legacy media cache directories while still excluding Network state, Safe Browsing journals, Preferences edits, history, cookies, sessions, and profile databases.
 
 ### Changed
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.

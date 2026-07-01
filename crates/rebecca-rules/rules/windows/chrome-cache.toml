@@ -19,6 +19,14 @@ kind = "template"
 value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\GPUCache"
 
 [[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\DawnCache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Media Cache"
+
+[[targets]]
 kind = "glob-template"
 value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Cache"
 
@@ -30,7 +38,35 @@ value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Code Cache"
 kind = "glob-template"
 value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\GPUCache"
 
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\DawnCache"
+
+[[targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Media Cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\component_crx_cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\extensions_crx_cache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\GraphiteDawnCache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\GrShaderCache"
+
+[[targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\ShaderCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Initial owned catalog based on common Windows cache conventions."
+notes = "Derived from BleachBit (cleaners/google_chrome.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca to target only regenerable Chromium-family cache directories and intentionally exclude Network state, Safe Browsing journals, Preferences JSON edits, cookies, history, sync, passwords, Local Storage, IndexedDB, Service Worker, sessions, and profile databases."
