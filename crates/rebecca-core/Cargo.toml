@@ -35,3 +35,7 @@ tempfile.workspace = true
 [[bench]]
 name = "scan_baseline"
 harness = false
+
+[[bench]]
+name = "perf_matrix"
+harness = false
