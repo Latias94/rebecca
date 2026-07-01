@@ -69,6 +69,47 @@ Get-Content target\release-smoke\SHA256SUMS
 
 Local smoke artifacts are not official releases.
 
+## Performance And Dogfood Preflight
+
+Before a release-facing merge, run the performance matrix or record why it was
+skipped. The matrix is report-only until Rebecca has enough stable baseline
+history for hard thresholds.
+
+```powershell
+pwsh -File scripts\perf\run-benchmark-matrix.ps1
+```
+
+The expected report path is
+`target\perf\rebecca-core-perf_matrix-report.json`.
+
+Run this dogfood checklist on a representative Windows workstation:
+
+```powershell
+cargo run -p rebecca -- catalog validate
+cargo run -p rebecca -- inspect space --root . --top 10 --format json
+cargo run -p rebecca -- inspect artifacts --root . --format json
+cargo run -p rebecca -- inspect lint --root . --top 10 --format json
+cargo run -p rebecca -- clean --dry-run --scan-cache --category system
+cargo run -p rebecca -- clean --dry-run --scan-cache --category system
+cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system --format json
+cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system --format json
+```
+
+For delete smoke, use a dry-run against disposable user-temp data and verify the
+default plan remains recoverable before any real `--yes` run:
+
+```powershell
+$root = Join-Path $env:TEMP "rebecca-delete-smoke"
+New-Item -ItemType Directory -Force -Path $root | Out-Null
+Set-Content -LiteralPath (Join-Path $root "delete-me.tmp") -Value "smoke"
+cargo run -p rebecca -- clean --dry-run --rule windows.user-temp
+```
+
+Record the JSON `estimate_source` values for the backend dogfood runs. Focused
+Windows backend tests and the performance matrix remain the authoritative
+evidence for native fallback behavior until the human clean report exposes
+backend-specific caveats directly.
+
 ## Current Limitations
 
 - The first supported downloadable target is Windows x86_64 MSVC.

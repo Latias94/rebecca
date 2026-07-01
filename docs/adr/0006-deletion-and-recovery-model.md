@@ -1,6 +1,6 @@
 ---
 title: "Deletion and Recovery Model"
-status: "proposed"
+status: "accepted"
 created: "2026-06-23"
 last_updated: "2026-07-01"
 ---
@@ -98,4 +98,4 @@ All destructive commands must build a cleanup plan before execution.
 
 # Status
 
-Proposed.
+Accepted and implemented as the cleanup execution model.
