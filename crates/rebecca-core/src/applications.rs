@@ -206,10 +206,10 @@ fn read_steam_libraryfolders(install_path: &Path) -> Result<Vec<PathBuf>> {
         }
     }
 
-    if paths.is_empty() {
-        if let Some(err) = first_error {
-            return Err(err);
-        }
+    if paths.is_empty()
+        && let Some(err) = first_error
+    {
+        return Err(err);
     }
 
     Ok(dedupe_paths(paths))

@@ -356,21 +356,21 @@ impl CleanupPlan {
                 TargetStatus::Completed => summary.completed_targets += 1,
             }
 
-            if target.status.is_issue() {
-                if let Some(reason_code) = target.reason_code {
-                    let bucket = issue_matrix
-                        .entry((target.status, reason_code))
-                        .or_insert_with(|| CleanupIssueSummary {
-                            status: target.status,
-                            reason_code,
-                            targets: 0,
-                            estimated_bytes: 0,
-                        });
-                    bucket.targets = bucket.targets.saturating_add(1);
-                    bucket.estimated_bytes = bucket
-                        .estimated_bytes
-                        .saturating_add(target.estimated_bytes);
-                }
+            if target.status.is_issue()
+                && let Some(reason_code) = target.reason_code
+            {
+                let bucket = issue_matrix
+                    .entry((target.status, reason_code))
+                    .or_insert_with(|| CleanupIssueSummary {
+                        status: target.status,
+                        reason_code,
+                        targets: 0,
+                        estimated_bytes: 0,
+                    });
+                bucket.targets = bucket.targets.saturating_add(1);
+                bucket.estimated_bytes = bucket
+                    .estimated_bytes
+                    .saturating_add(target.estimated_bytes);
             }
 
             for warning in &target.warnings {

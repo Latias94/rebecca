@@ -303,19 +303,19 @@ where
 {
     match T::assess(&candidate, context.protection_policy()) {
         CandidateDisposition::Allowed => {
-            if min_age_days > 0 {
-                if let Some(reason) = T::recently_modified_reason(&candidate, min_age_days) {
-                    let target = skipped_target(
-                        &candidate,
-                        mode,
-                        CleanupTargetIssueReason::ProjectArtifactRecentlyModified,
-                        reason,
-                    );
-                    return Ok(MeasuredTarget {
-                        target,
-                        scan_cache_event: None,
-                    });
-                }
+            if min_age_days > 0
+                && let Some(reason) = T::recently_modified_reason(&candidate, min_age_days)
+            {
+                let target = skipped_target(
+                    &candidate,
+                    mode,
+                    CleanupTargetIssueReason::ProjectArtifactRecentlyModified,
+                    reason,
+                );
+                return Ok(MeasuredTarget {
+                    target,
+                    scan_cache_event: None,
+                });
             }
 
             let mut scan_cache_event = None;
@@ -383,22 +383,20 @@ where
     }
 
     let cacheable_target = context.scan_cache().is_some() && is_cacheable_scan_target(path);
-    if cacheable_target {
-        if let Some(store) = context.scan_cache() {
-            match store.load_with_policy(path, context.scan_cache_policy()) {
-                ScanCacheLookup::Hit(report) => {
-                    progress(PathMeasureProgressEvent::ScanCacheHit { report });
-                    return Ok(MeasuredPath {
-                        report,
-                        estimate_source: EstimateSource::ScanCache,
-                    });
-                }
-                ScanCacheLookup::Miss(outcome) => {
-                    progress(PathMeasureProgressEvent::ScanCacheMiss {
-                        reason: outcome.reason,
-                        pruned: outcome.pruned,
-                    });
-                }
+    if cacheable_target && let Some(store) = context.scan_cache() {
+        match store.load_with_policy(path, context.scan_cache_policy()) {
+            ScanCacheLookup::Hit(report) => {
+                progress(PathMeasureProgressEvent::ScanCacheHit { report });
+                return Ok(MeasuredPath {
+                    report,
+                    estimate_source: EstimateSource::ScanCache,
+                });
+            }
+            ScanCacheLookup::Miss(outcome) => {
+                progress(PathMeasureProgressEvent::ScanCacheMiss {
+                    reason: outcome.reason,
+                    pruned: outcome.pruned,
+                });
             }
         }
     }
@@ -408,17 +406,16 @@ where
             progress(PathMeasureProgressEvent::Scan(event));
         })?;
 
-    if cacheable_target {
-        if let Some(store) = context.scan_cache() {
-            if let Err(err) = store.store(path, report) {
-                tracing::debug!(
-                    path = %path.display(),
-                    error = %err,
-                    "scan cache write skipped"
-                );
-                progress(PathMeasureProgressEvent::ScanCacheWriteSkipped);
-            }
-        }
+    if cacheable_target
+        && let Some(store) = context.scan_cache()
+        && let Err(err) = store.store(path, report)
+    {
+        tracing::debug!(
+            path = %path.display(),
+            error = %err,
+            "scan cache write skipped"
+        );
+        progress(PathMeasureProgressEvent::ScanCacheWriteSkipped);
     }
 
     Ok(MeasuredPath {

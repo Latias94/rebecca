@@ -147,11 +147,11 @@ fn scan_root(
         check_cancelled(cancellation)?;
 
         if let Some(name) = dir.file_name().and_then(|name| name.to_str()) {
-            if let Some(policy) = policy_for_directory_name(name) {
-                if let Some(context) = project_artifact_context_match(&dir, policy.context) {
-                    push_candidate(policy, dir, context, seen_paths, candidates);
-                    continue;
-                }
+            if let Some(policy) = policy_for_directory_name(name)
+                && let Some(context) = project_artifact_context_match(&dir, policy.context)
+            {
+                push_candidate(policy, dir, context, seen_paths, candidates);
+                continue;
             }
 
             if should_prune_scan_dir(name) {

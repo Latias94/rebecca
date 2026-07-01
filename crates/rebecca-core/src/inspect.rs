@@ -463,14 +463,14 @@ fn measure_entry(
     }
 
     let scan_report = ScanEngine::new().measure_path_with_progress(path, cancellation, |_| {})?;
-    if let Some(scan_cache) = &request.scan_cache {
-        if let Err(err) = scan_cache.store.store(path, scan_report) {
-            tracing::debug!(
-                path = %path.display(),
-                error = %err,
-                "inspect scan cache write skipped"
-            );
-        }
+    if let Some(scan_cache) = &request.scan_cache
+        && let Err(err) = scan_cache.store.store(path, scan_report)
+    {
+        tracing::debug!(
+            path = %path.display(),
+            error = %err,
+            "inspect scan cache write skipped"
+        );
     }
 
     Ok((scan_report, EstimateSource::FreshScan))

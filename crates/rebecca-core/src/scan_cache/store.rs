@@ -230,14 +230,14 @@ fn write_cache_file(cache_file: &Path, raw: &[u8]) -> Result<()> {
 }
 
 fn prune_cache_file(cache_file: &Path) {
-    if let Err(err) = std::fs::remove_file(cache_file) {
-        if err.kind() != std::io::ErrorKind::NotFound {
-            tracing::debug!(
-                path = %cache_file.display(),
-                error = %err,
-                "scan cache prune skipped"
-            );
-        }
+    if let Err(err) = std::fs::remove_file(cache_file)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::debug!(
+            path = %cache_file.display(),
+            error = %err,
+            "scan cache prune skipped"
+        );
     }
 }
 

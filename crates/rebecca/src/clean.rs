@@ -334,12 +334,11 @@ impl PlanProgressReporter {
     fn on_event(&mut self, event: PlanProgressEvent<'_>) {
         self.record_event(event);
 
-        if self.event_error.is_none() {
-            if let Some(writer) = &mut self.event_writer {
-                if let Err(err) = writer.emit_plan_progress(event) {
-                    self.event_error = Some(err);
-                }
-            }
+        if self.event_error.is_none()
+            && let Some(writer) = &mut self.event_writer
+            && let Err(err) = writer.emit_plan_progress(event)
+        {
+            self.event_error = Some(err);
         }
 
         let Some(bar) = &self.bar else {

@@ -73,10 +73,10 @@ impl CatalogItem {
     }
 
     pub fn matches_query(&self, query: &CatalogQuery) -> bool {
-        if let Some(kind) = &query.kind {
-            if self.kind() != *kind {
-                return false;
-            }
+        if let Some(kind) = &query.kind
+            && self.kind() != *kind
+        {
+            return false;
         }
 
         match self {
