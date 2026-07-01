@@ -30,5 +30,6 @@ The report records scenario name, operation, backend, fixture shape, physical fi
 - scan-cache hit
 - serial cleanup deletion
 - parallel cleanup deletion
+- batch-backend cleanup deletion
 
 Keep reports under `target/perf/`; they are local measurement artifacts and should not be committed unless a future release process explicitly asks for a checked-in baseline.

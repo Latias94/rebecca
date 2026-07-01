@@ -30,6 +30,7 @@ All notable changes to Rebecca will be documented in this file.
 - Dry-run cleanup previews now use the rebuildable scan cache by default, with `--no-scan-cache` available when a fully fresh estimate is preferred; `--yes` execution remains fresh-scan by default.
 - The core performance matrix now includes an ordinary-rule planning benchmark for many directory targets.
 - Scan-cache records now use a compact v2 format with scan backend, estimate confidence, optional filesystem identity fields, and future USN checkpoint placeholders.
+- Cleanup execution backends can now receive revalidated, non-overlapping safe batches while still returning per-target outcomes.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.
@@ -49,6 +50,7 @@ All notable changes to Rebecca will be documented in this file.
 - Scan traversal now reuses walker entry type information where possible while preserving root metadata checks and reparse-point protection.
 - `history --limit` now loads only the bounded tail of non-empty history records before building the history projection.
 - Scan-cache writes now use atomic replacement without strict file sync on the default hot path; strict sync remains available as an internal policy option.
+- Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.

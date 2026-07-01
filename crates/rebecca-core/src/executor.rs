@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use rayon::ThreadPool;
 use rayon::prelude::*;
 
-use crate::error::Result;
+use crate::error::{RebeccaError, Result};
 use crate::model::CleanupWorkflow;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::path_overlap::paths_overlap;
@@ -24,6 +24,14 @@ pub struct ExecutionOutcome {
 
 pub trait CleanupBackend {
     fn delete(&self, target: &CleanupTarget) -> Result<ExecutionOutcome>;
+
+    fn supports_batch_delete(&self) -> bool {
+        false
+    }
+
+    fn delete_batch(&self, targets: &[&CleanupTarget]) -> Vec<Result<ExecutionOutcome>> {
+        targets.iter().map(|target| self.delete(target)).collect()
+    }
 }
 
 pub fn execute_cleanup_plan<B: CleanupBackend>(plan: &mut CleanupPlan, backend: &B) -> Result<()> {
@@ -66,16 +74,28 @@ pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
         return Ok(());
     }
 
+    let batch_delete_supported = backend.supports_batch_delete();
     for batch in batches {
-        let outcomes = run_scoped_cleanup(|| {
-            batch
-                .into_par_iter()
-                .map(|index| (index, backend.delete(&plan.targets[index])))
-                .collect::<Vec<_>>()
-        });
+        if batch_delete_supported {
+            let outcomes = {
+                let targets = batch
+                    .iter()
+                    .map(|&index| &plan.targets[index])
+                    .collect::<Vec<_>>();
+                backend.delete_batch(&targets)
+            };
+            apply_batch_delete_results(&mut plan.targets, &batch, outcomes);
+        } else {
+            let outcomes = run_scoped_cleanup(|| {
+                batch
+                    .into_par_iter()
+                    .map(|index| (index, backend.delete(&plan.targets[index])))
+                    .collect::<Vec<_>>()
+            });
 
-        for (index, outcome) in outcomes {
-            apply_delete_result(&mut plan.targets[index], outcome);
+            for (index, outcome) in outcomes {
+                apply_delete_result(&mut plan.targets[index], outcome);
+            }
         }
     }
 
@@ -205,6 +225,31 @@ fn apply_delete_result(target: &mut CleanupTarget, outcome: Result<ExecutionOutc
             target.freed_bytes = 0;
             target.pending_reclaim_bytes = 0;
         }
+    }
+}
+
+fn apply_batch_delete_results(
+    targets: &mut [CleanupTarget],
+    batch: &[usize],
+    outcomes: Vec<Result<ExecutionOutcome>>,
+) {
+    if outcomes.len() != batch.len() {
+        let message = format!(
+            "batch cleanup backend returned {} outcome(s) for {} target(s)",
+            outcomes.len(),
+            batch.len()
+        );
+        for &index in batch {
+            apply_delete_result(
+                &mut targets[index],
+                Err(RebeccaError::ExecutionFailed(message.clone())),
+            );
+        }
+        return;
+    }
+
+    for (&index, outcome) in batch.iter().zip(outcomes) {
+        apply_delete_result(&mut targets[index], outcome);
     }
 }
 

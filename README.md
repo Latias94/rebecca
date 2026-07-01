@@ -80,6 +80,7 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the Recycle Bin.
 - `catalog`, `inspect space`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
 - Default execution uses the Windows Recycle Bin.
+- Windows execution can batch already revalidated, non-overlapping targets into fewer Recycle Bin operations, but status, reason codes, pending bytes, and history remain per target.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.

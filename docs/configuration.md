@@ -197,6 +197,11 @@ protected path, the target is blocked with the `safety-policy-blocked` reason
 code before scanning or deletion proceeds. This applies to regular cleanup,
 app-leftovers cleanup, and project artifact purge.
 
+After execution-time revalidation, Rebecca may group non-overlapping executable
+targets into backend batches to reduce platform deletion overhead. Batching does
+not change the safety boundary: each target still records its own status,
+reason code, pending reclaim bytes, and history outcome.
+
 ## Project Artifact Purge Boundary
 
 `rebecca purge` discovers rebuildable project artifact directories under

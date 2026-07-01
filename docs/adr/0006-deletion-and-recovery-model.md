@@ -2,7 +2,7 @@
 title: "Deletion and Recovery Model"
 status: "proposed"
 created: "2026-06-23"
-last_updated: "2026-06-24"
+last_updated: "2026-07-01"
 ---
 
 # Context
@@ -36,6 +36,9 @@ All destructive commands must build a cleanup plan before execution.
 - Default deletion moves files to the Windows Recycle Bin when possible.
 - Permanent deletion is explicit and requires a stronger flag.
 - Every target passes centralized path validation before deletion.
+- Executors may batch already revalidated, non-overlapping targets for platform
+  efficiency, but backends must return outcomes that map back to individual
+  cleanup targets.
 - Reparse points, junctions, and symlinks are not followed by default.
 - History records both `freed_bytes` and `pending_reclaim_bytes` because moving to Recycle Bin does not immediately free disk space.
 - Skipped, blocked, and failed targets carry stable `reason_code` values, while
@@ -67,6 +70,9 @@ All destructive commands must build a cleanup plan before execution.
 - Users can preview cleanup before any destructive operation.
 - Rules do not decide how deletion happens; they only produce candidates.
 - CLI output must distinguish moved-to-Recycle-Bin from permanently freed bytes.
+- Batch-capable deletion backends reduce platform call overhead without becoming
+  delete authority; failed batch attempts must still resolve to per-target
+  completed or failed outcomes.
 - Some targets may fall back to permanent deletion only when explicitly requested.
 - Human output, JSON output, and history all derive issue diagnostics from the
   core cleanup plan model instead of reclassifying errors in the CLI.
@@ -80,6 +86,7 @@ All destructive commands must build a cleanup plan before execution.
 | Safety | Reparse points are not followed by default | Fixture tests |
 | Auditability | Every attempted target has a history outcome | History tests |
 | Issue observability | Skipped, blocked, and failed targets expose stable reason-code summaries | Core and CLI regression tests |
+| Batch execution safety | Batch-capable backends receive only non-overlapping revalidated targets and preserve per-target outcomes | Executor contract tests |
 
 # Risks & Mitigations
 

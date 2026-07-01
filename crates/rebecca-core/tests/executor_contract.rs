@@ -1,9 +1,9 @@
 use std::cell::Cell;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -389,6 +389,136 @@ fn executor_parallel_batches_independent_targets() {
 }
 
 #[test]
+fn executor_parallel_passes_safe_batches_to_batch_backend() {
+    let temp = tempfile::tempdir().unwrap();
+    let parent = temp.path().join("parent");
+    let child = parent.join("child");
+    let sibling = temp.path().join("sibling");
+    fs::create_dir_all(&child).unwrap();
+    fs::create_dir_all(&sibling).unwrap();
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.parent",
+        parent.clone(),
+        10,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.child",
+        child.clone(),
+        20,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.sibling",
+        sibling.clone(),
+        30,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = BatchBackend::new(BatchBehavior::Success);
+    execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, ProtectionPolicy::new())
+        .unwrap();
+
+    assert_eq!(backend.single_deletes.load(Ordering::SeqCst), 0);
+    assert_eq!(plan.summary.completed_targets, 3);
+    assert_eq!(plan.summary.failed_targets, 0);
+    let batches = backend.batches.lock().unwrap().clone();
+    assert_eq!(batches.len(), 2);
+    assert!(batches.contains(&vec![child, sibling]));
+    assert!(batches.contains(&vec![parent]));
+}
+
+#[test]
+fn executor_parallel_maps_partial_batch_failures_per_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first.tmp");
+    let second = temp.path().join("second.tmp");
+    fs::write(&first, b"trash").unwrap();
+    fs::write(&second, b"trash").unwrap();
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.first",
+        first,
+        10,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.second",
+        second,
+        20,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = BatchBackend::new(BatchBehavior::FailSecond);
+    execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, ProtectionPolicy::new())
+        .unwrap();
+
+    assert_eq!(plan.targets[0].status, TargetStatus::Completed);
+    assert_eq!(plan.targets[0].pending_reclaim_bytes, 10);
+    assert_eq!(plan.targets[1].status, TargetStatus::Failed);
+    assert_eq!(
+        plan.targets[1].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionFailed)
+    );
+    assert_eq!(plan.summary.completed_targets, 1);
+    assert_eq!(plan.summary.failed_targets, 1);
+    assert_eq!(
+        plan.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::ExecutionFailed
+    );
+}
+
+#[test]
+fn executor_parallel_rejects_mismatched_batch_outcome_count() {
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first.tmp");
+    let second = temp.path().join("second.tmp");
+    fs::write(&first, b"trash").unwrap();
+    fs::write(&second, b"trash").unwrap();
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.first",
+        first,
+        10,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.second",
+        second,
+        20,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = BatchBackend::new(BatchBehavior::MismatchedOutcomeCount);
+    execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, ProtectionPolicy::new())
+        .unwrap();
+
+    assert_eq!(plan.summary.completed_targets, 0);
+    assert_eq!(plan.summary.failed_targets, 2);
+    assert!(plan.targets.iter().all(|target| {
+        target.status == TargetStatus::Failed
+            && target.reason_code == Some(CleanupTargetIssueReason::ExecutionFailed)
+            && target
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("returned 1 outcome(s) for 2 target(s)"))
+    }));
+}
+
+#[test]
 fn executor_blocks_app_leftover_durable_paths_before_backend_calls() {
     let mut plan = CleanupPlan::empty(
         PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
@@ -463,6 +593,77 @@ struct BlockingBackend {
     started: AtomicUsize,
     max_active: AtomicUsize,
     gate: Arc<Barrier>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum BatchBehavior {
+    Success,
+    FailSecond,
+    MismatchedOutcomeCount,
+}
+
+struct BatchBackend {
+    batches: Mutex<Vec<Vec<PathBuf>>>,
+    single_deletes: AtomicUsize,
+    behavior: BatchBehavior,
+}
+
+impl BatchBackend {
+    fn new(behavior: BatchBehavior) -> Self {
+        Self {
+            batches: Mutex::new(Vec::new()),
+            single_deletes: AtomicUsize::new(0),
+            behavior,
+        }
+    }
+}
+
+impl CleanupBackend for BatchBackend {
+    fn delete(&self, _target: &CleanupTarget) -> Result<ExecutionOutcome> {
+        self.single_deletes.fetch_add(1, Ordering::SeqCst);
+        Err(rebecca_core::RebeccaError::ExecutionFailed(
+            "single delete should not be called".to_string(),
+        ))
+    }
+
+    fn supports_batch_delete(&self) -> bool {
+        true
+    }
+
+    fn delete_batch(&self, targets: &[&CleanupTarget]) -> Vec<Result<ExecutionOutcome>> {
+        self.batches.lock().unwrap().push(
+            targets
+                .iter()
+                .map(|target| target.path.clone())
+                .collect::<Vec<_>>(),
+        );
+
+        match self.behavior {
+            BatchBehavior::Success => targets.iter().map(|target| batch_success(target)).collect(),
+            BatchBehavior::FailSecond => targets
+                .iter()
+                .enumerate()
+                .map(|(index, target)| {
+                    if index == 1 {
+                        Err(rebecca_core::RebeccaError::ExecutionFailed(
+                            "permission denied".to_string(),
+                        ))
+                    } else {
+                        batch_success(target)
+                    }
+                })
+                .collect(),
+            BatchBehavior::MismatchedOutcomeCount => vec![batch_success(targets[0])],
+        }
+    }
+}
+
+fn batch_success(target: &CleanupTarget) -> Result<ExecutionOutcome> {
+    Ok(ExecutionOutcome {
+        freed_bytes: 0,
+        pending_reclaim_bytes: target.estimated_bytes,
+        note: Some("batch delete".to_string()),
+    })
 }
 
 impl BlockingBackend {
