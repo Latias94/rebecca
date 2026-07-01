@@ -9,6 +9,7 @@ pub mod apps;
 pub mod ntfs_scan;
 pub mod process;
 pub mod steam;
+pub mod usn_cache;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrivilegeLevel {

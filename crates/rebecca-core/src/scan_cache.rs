@@ -118,6 +118,18 @@ impl ScanCacheRecord {
             && now_unix_seconds.saturating_sub(self.written_at_unix_seconds)
                 > policy.directory_record_max_age_seconds()
     }
+
+    pub fn validate_usn_journal(
+        &self,
+        journal_state: &ScanCacheUsnJournalState,
+        changes: &[ScanCacheUsnChange],
+    ) -> ScanCacheUsnValidation {
+        let Some(checkpoint) = &self.identity.usn_checkpoint else {
+            return ScanCacheUsnValidation::Unsupported;
+        };
+
+        checkpoint.validate_journal_range(self.identity.file_id, journal_state, changes)
+    }
 }
 
 fn default_scan_cache_backend() -> ScanBackendKind {
@@ -231,6 +243,111 @@ pub struct ScanCacheUsnCheckpoint {
     pub next_usn: u64,
 }
 
+impl ScanCacheUsnCheckpoint {
+    pub fn validate_journal_range(
+        &self,
+        target_file_id: Option<u64>,
+        journal_state: &ScanCacheUsnJournalState,
+        changes: &[ScanCacheUsnChange],
+    ) -> ScanCacheUsnValidation {
+        if self.journal_id != journal_state.journal_id {
+            return ScanCacheUsnValidation::Invalidated(
+                ScanCacheUsnInvalidationReason::JournalChanged,
+            );
+        }
+
+        if journal_state.first_usn > self.next_usn || journal_state.next_usn < self.next_usn {
+            return ScanCacheUsnValidation::Invalidated(
+                ScanCacheUsnInvalidationReason::RangeUnavailable,
+            );
+        }
+
+        let Some(target_file_id) = target_file_id else {
+            return ScanCacheUsnValidation::Unsupported;
+        };
+
+        if changes
+            .iter()
+            .filter(|change| change.usn >= self.next_usn)
+            .any(|change| change.touches_file_id(target_file_id))
+        {
+            return ScanCacheUsnValidation::Invalidated(
+                ScanCacheUsnInvalidationReason::TargetChanged,
+            );
+        }
+
+        ScanCacheUsnValidation::Clean
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanCacheUsnJournalState {
+    pub journal_id: u64,
+    pub first_usn: u64,
+    pub next_usn: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanCacheUsnChange {
+    pub file_id: u64,
+    pub parent_file_id: Option<u64>,
+    pub ancestor_file_ids: Vec<u64>,
+    pub usn: u64,
+}
+
+impl ScanCacheUsnChange {
+    pub fn new(file_id: u64, parent_file_id: Option<u64>, usn: u64) -> Self {
+        Self {
+            file_id,
+            parent_file_id,
+            ancestor_file_ids: Vec::new(),
+            usn,
+        }
+    }
+
+    pub fn with_ancestor_file_ids(mut self, ancestor_file_ids: Vec<u64>) -> Self {
+        self.ancestor_file_ids = ancestor_file_ids;
+        self
+    }
+
+    fn touches_file_id(&self, target_file_id: u64) -> bool {
+        self.file_id == target_file_id
+            || self.parent_file_id == Some(target_file_id)
+            || self
+                .ancestor_file_ids
+                .iter()
+                .any(|ancestor_file_id| *ancestor_file_id == target_file_id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanCacheUsnValidation {
+    Clean,
+    Unsupported,
+    Invalidated(ScanCacheUsnInvalidationReason),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanCacheUsnInvalidationReason {
+    JournalChanged,
+    RangeUnavailable,
+    TargetChanged,
+}
+
+impl From<ScanCacheUsnInvalidationReason> for ScanCacheMiss {
+    fn from(reason: ScanCacheUsnInvalidationReason) -> Self {
+        match reason {
+            ScanCacheUsnInvalidationReason::JournalChanged => Self::UsnJournalChanged,
+            ScanCacheUsnInvalidationReason::RangeUnavailable => Self::UsnRangeUnavailable,
+            ScanCacheUsnInvalidationReason::TargetChanged => Self::UsnTargetChanged,
+        }
+    }
+}
+
+pub trait ScanCacheUsnValidator {
+    fn validate_record(&self, record: &ScanCacheRecord) -> ScanCacheUsnValidation;
+}
+
 fn optional_identity_matches(stored: Option<u64>, current: Option<u64>) -> bool {
     stored.is_none_or(|stored| current == Some(stored))
 }
@@ -338,6 +455,9 @@ pub enum ScanCacheMiss {
     Expired,
     Corrupted,
     MetadataUnavailable,
+    UsnJournalChanged,
+    UsnRangeUnavailable,
+    UsnTargetChanged,
 }
 
 impl ScanCacheMiss {
@@ -348,11 +468,22 @@ impl ScanCacheMiss {
             Self::Expired => "expired",
             Self::Corrupted => "corrupted",
             Self::MetadataUnavailable => "metadata-unavailable",
+            Self::UsnJournalChanged => "usn-journal-changed",
+            Self::UsnRangeUnavailable => "usn-range-unavailable",
+            Self::UsnTargetChanged => "usn-target-changed",
         }
     }
 
     fn should_prune_cache_file(self) -> bool {
-        matches!(self, Self::Stale | Self::Expired | Self::Corrupted)
+        matches!(
+            self,
+            Self::Stale
+                | Self::Expired
+                | Self::Corrupted
+                | Self::UsnJournalChanged
+                | Self::UsnRangeUnavailable
+                | Self::UsnTargetChanged
+        )
     }
 }
 

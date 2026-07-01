@@ -138,13 +138,16 @@ versioned JSON records for scan reuse and is safe to delete. The current record
 version is `1`; unsupported records are treated as stale, pruned, and rebuilt. Each
 record carries the scanned root path, root metadata fingerprint, scan report,
 write time, scan backend, estimate confidence, and optional filesystem identity
-fields such as volume serial, file id, and future USN checkpoint data. Rebecca
+fields such as volume serial, file id, and USN checkpoint data. Rebecca
 uses atomic replacement for cache writes and keeps strict file sync as an
 internal policy option rather than the default hot-path behavior. Stale,
 expired, corrupted, or unsupported cache files are pruned on lookup and rebuilt
 when needed. Exact records from the portable and Windows native directory
 backends can be reused when the root fingerprint and filesystem identity still
-match. The scan cache must not be treated as durable history.
+match. Missing USN support falls back to the normal fingerprint and identity
+policy; mismatched journal ids, unavailable journal ranges, or target-subtree
+changes conservatively invalidate cached records. The scan cache must not be
+treated as durable history.
 
 ## Cache Purge Boundary
 

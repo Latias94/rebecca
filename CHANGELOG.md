@@ -29,12 +29,13 @@ All notable changes to Rebecca will be documented in this file.
 - Cleanup planning now deduplicates equivalent existing directories by filesystem identity and keeps directory scan cache records valid for their configured freshness window despite root metadata churn.
 - Dry-run cleanup previews now use the rebuildable scan cache by default, with `--no-scan-cache` available when a fully fresh estimate is preferred; `--yes` execution remains fresh-scan by default.
 - The core performance matrix now includes an ordinary-rule planning benchmark for many directory targets.
-- Scan-cache records now use a compact v1 format with scan backend, estimate confidence, optional filesystem identity fields, and future USN checkpoint placeholders.
+- Scan-cache records now use a compact v1 format with scan backend, estimate confidence, optional filesystem identity fields, and USN checkpoint placeholders.
 - Cleanup execution backends can now receive revalidated, non-overlapping safe batches while still returning per-target outcomes.
 - `clean --scan-backend windows-native` now opts into a Windows native directory enumeration backend for cleanup plan estimates, with portable fallback when the native path is unsupported.
 - The core performance matrix now includes a Windows native scan selection scenario for many-small-file fixtures.
 - `rebecca-ntfs` now provides read-only NTFS MFT record parsing, fixup validation, file-name/data-size extraction, reparse detection, subtree aggregation, fixture tests, and a generated-record parser benchmark.
 - `clean --scan-backend windows-ntfs-mft-experimental` now exposes an opt-in experimental backend selector that reports a caveat and falls back to a safe directory scanner until live NTFS volume indexing is enabled.
+- Scan-cache records now have a USN Journal validation model for checkpoint, journal id, range availability, and target-subtree change invalidation; missing USN support falls back to the normal cache policy.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.

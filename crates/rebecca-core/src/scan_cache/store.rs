@@ -9,7 +9,7 @@ use crate::scan::{MeasuredScan, ScanBackendKind, ScanReport};
 use super::{
     SCAN_CACHE_DIR, SCAN_CACHE_PRUNE_BATCH_LIMIT, ScanCacheLookup, ScanCacheMiss,
     ScanCachePathSnapshot, ScanCachePolicy, ScanCachePruneReport, ScanCacheRecord, ScanCacheStore,
-    ScanCacheWriteDurability,
+    ScanCacheUsnValidation, ScanCacheUsnValidator, ScanCacheWriteDurability,
 };
 
 #[cfg(test)]
@@ -149,6 +149,24 @@ impl ScanCacheStore {
     }
 
     pub fn load_with_policy(&self, root: &Path, policy: ScanCachePolicy) -> ScanCacheLookup {
+        self.load_with_policy_and_optional_usn_validator(root, policy, None)
+    }
+
+    pub fn load_with_policy_and_usn_validator(
+        &self,
+        root: &Path,
+        policy: ScanCachePolicy,
+        usn_validator: &dyn ScanCacheUsnValidator,
+    ) -> ScanCacheLookup {
+        self.load_with_policy_and_optional_usn_validator(root, policy, Some(usn_validator))
+    }
+
+    fn load_with_policy_and_optional_usn_validator(
+        &self,
+        root: &Path,
+        policy: ScanCachePolicy,
+        usn_validator: Option<&dyn ScanCacheUsnValidator>,
+    ) -> ScanCacheLookup {
         let cache_file = self.cache_file_for(root);
         let snapshot = match ScanCachePathSnapshot::read_from_path(root) {
             Ok(snapshot) => snapshot,
@@ -184,7 +202,19 @@ impl ScanCacheStore {
                 }
                 ScanCacheLookup::miss(reason)
             }
-            None => ScanCacheLookup::Hit(record.report),
+            None => {
+                if let Some(usn_validator) = usn_validator {
+                    if let ScanCacheUsnValidation::Invalidated(reason) =
+                        usn_validator.validate_record(&record)
+                    {
+                        let reason = ScanCacheMiss::from(reason);
+                        prune_cache_file(&cache_file);
+                        return ScanCacheLookup::pruned_miss(reason);
+                    }
+                }
+
+                ScanCacheLookup::Hit(record.report)
+            }
         }
     }
 
@@ -334,9 +364,30 @@ mod tests {
     use crate::scan::{ScanBackendKind, ScanEstimateConfidence, ScanReport};
     use crate::scan_cache::{
         DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheFileType,
-        ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore, ScanCacheWriteDurability,
+        ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore, ScanCacheUsnChange,
+        ScanCacheUsnCheckpoint, ScanCacheUsnInvalidationReason, ScanCacheUsnJournalState,
+        ScanCacheUsnValidation, ScanCacheUsnValidator, ScanCacheWriteDurability,
     };
     use std::sync::atomic::Ordering;
+
+    struct StaticUsnValidator {
+        validation: ScanCacheUsnValidation,
+    }
+
+    impl StaticUsnValidator {
+        fn new(validation: ScanCacheUsnValidation) -> Self {
+            Self { validation }
+        }
+    }
+
+    impl ScanCacheUsnValidator for StaticUsnValidator {
+        fn validate_record(
+            &self,
+            _record: &crate::scan_cache::ScanCacheRecord,
+        ) -> ScanCacheUsnValidation {
+            self.validation
+        }
+    }
 
     #[test]
     fn scan_cache_round_trips_current_fingerprint() {
@@ -410,6 +461,127 @@ mod tests {
         assert_eq!(parsed["confidence"], "exact");
         assert_eq!(parsed["identity"].as_object().unwrap().len(), 2);
         assert!(parsed["identity"].get("usn_checkpoint").is_none());
+    }
+
+    #[test]
+    fn scan_cache_usn_journal_range_accepts_clean_range() {
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 7,
+            next_usn: 100,
+        };
+        let state = ScanCacheUsnJournalState {
+            journal_id: 7,
+            first_usn: 1,
+            next_usn: 150,
+        };
+        let changes = [ScanCacheUsnChange::new(11, Some(10), 120)];
+
+        assert_eq!(
+            checkpoint.validate_journal_range(Some(42), &state, &changes),
+            ScanCacheUsnValidation::Clean
+        );
+    }
+
+    #[test]
+    fn scan_cache_usn_journal_id_mismatch_invalidates() {
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 7,
+            next_usn: 100,
+        };
+        let state = ScanCacheUsnJournalState {
+            journal_id: 8,
+            first_usn: 1,
+            next_usn: 150,
+        };
+
+        assert_eq!(
+            checkpoint.validate_journal_range(Some(42), &state, &[]),
+            ScanCacheUsnValidation::Invalidated(ScanCacheUsnInvalidationReason::JournalChanged)
+        );
+    }
+
+    #[test]
+    fn scan_cache_usn_unreadable_range_invalidates_conservatively() {
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 7,
+            next_usn: 100,
+        };
+        let state = ScanCacheUsnJournalState {
+            journal_id: 7,
+            first_usn: 120,
+            next_usn: 150,
+        };
+
+        assert_eq!(
+            checkpoint.validate_journal_range(Some(42), &state, &[]),
+            ScanCacheUsnValidation::Invalidated(ScanCacheUsnInvalidationReason::RangeUnavailable)
+        );
+    }
+
+    #[test]
+    fn scan_cache_usn_target_subtree_change_invalidates() {
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 7,
+            next_usn: 100,
+        };
+        let state = ScanCacheUsnJournalState {
+            journal_id: 7,
+            first_usn: 1,
+            next_usn: 150,
+        };
+        let changes =
+            [ScanCacheUsnChange::new(11, Some(10), 120).with_ancestor_file_ids(vec![10, 42])];
+
+        assert_eq!(
+            checkpoint.validate_journal_range(Some(42), &state, &changes),
+            ScanCacheUsnValidation::Invalidated(ScanCacheUsnInvalidationReason::TargetChanged)
+        );
+    }
+
+    #[test]
+    fn scan_cache_missing_usn_support_falls_back_to_normal_hit() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+        store.store(&root, report).unwrap();
+        let validator = StaticUsnValidator::new(ScanCacheUsnValidation::Unsupported);
+
+        let lookup =
+            store.load_with_policy_and_usn_validator(&root, ScanCachePolicy::default(), &validator);
+
+        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+    }
+
+    #[test]
+    fn scan_cache_usn_invalidated_lookup_prunes_record() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+        store.store(&root, report).unwrap();
+        let validator = StaticUsnValidator::new(ScanCacheUsnValidation::Invalidated(
+            ScanCacheUsnInvalidationReason::TargetChanged,
+        ));
+
+        let lookup =
+            store.load_with_policy_and_usn_validator(&root, ScanCachePolicy::default(), &validator);
+
+        assert_eq!(
+            lookup,
+            ScanCacheLookup::pruned_miss(ScanCacheMiss::UsnTargetChanged)
+        );
+        assert!(!store.cache_file_for(&root).exists());
     }
 
     #[test]
