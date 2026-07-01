@@ -2,7 +2,7 @@ use crate::parse::read_u16;
 use crate::{NtfsParseError, Result};
 
 pub fn apply_update_sequence(record: &[u8], sector_size: usize) -> Result<Vec<u8>> {
-    if sector_size < 2 || record.len() < sector_size || record.len() % sector_size != 0 {
+    if sector_size < 2 || record.len() < sector_size || !record.len().is_multiple_of(sector_size) {
         return Err(NtfsParseError::InvalidUpdateSequence);
     }
 

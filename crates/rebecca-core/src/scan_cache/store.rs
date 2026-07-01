@@ -203,14 +203,13 @@ impl ScanCacheStore {
                 ScanCacheLookup::miss(reason)
             }
             None => {
-                if let Some(usn_validator) = usn_validator {
-                    if let ScanCacheUsnValidation::Invalidated(reason) =
+                if let Some(usn_validator) = usn_validator
+                    && let ScanCacheUsnValidation::Invalidated(reason) =
                         usn_validator.validate_record(&record)
-                    {
-                        let reason = ScanCacheMiss::from(reason);
-                        prune_cache_file(&cache_file);
-                        return ScanCacheLookup::pruned_miss(reason);
-                    }
+                {
+                    let reason = ScanCacheMiss::from(reason);
+                    prune_cache_file(&cache_file);
+                    return ScanCacheLookup::pruned_miss(reason);
                 }
 
                 ScanCacheLookup::Hit(record.report)

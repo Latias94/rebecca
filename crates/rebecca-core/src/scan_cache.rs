@@ -313,10 +313,7 @@ impl ScanCacheUsnChange {
     fn touches_file_id(&self, target_file_id: u64) -> bool {
         self.file_id == target_file_id
             || self.parent_file_id == Some(target_file_id)
-            || self
-                .ancestor_file_ids
-                .iter()
-                .any(|ancestor_file_id| *ancestor_file_id == target_file_id)
+            || self.ancestor_file_ids.contains(&target_file_id)
     }
 }
 

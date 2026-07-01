@@ -126,7 +126,7 @@ impl ScanEngine {
     {
         let mut progress = progress;
 
-        match measure_windows_native(request, |event| progress(event)) {
+        match measure_windows_native(request, &mut progress) {
             Ok(measured) => Ok(measured),
             Err(err) if scan_error_can_fallback(&err) => PortableRecursiveScanBackend
                 .measure_path_with_progress(request, progress)
@@ -145,7 +145,7 @@ impl ScanEngine {
     {
         let mut progress = progress;
 
-        match measure_windows_ntfs_mft(request, |event| progress(event)) {
+        match measure_windows_ntfs_mft(request, &mut progress) {
             Ok(measured) => Ok(measured),
             Err(err) if scan_error_can_fallback(&err) => {
                 self.measure_windows_native_with_portable_fallback(request, progress)

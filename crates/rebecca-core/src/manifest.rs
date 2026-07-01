@@ -323,14 +323,14 @@ fn validate_search_kind(
     declared: Option<RuleSearchKind>,
     expected: RuleSearchKind,
 ) -> Result<()> {
-    if let Some(declared) = declared {
-        if declared != expected {
-            return Err(RebeccaError::RuleCatalogInvalid(format!(
-                "{path} cleaner {owner} declares incompatible search kind {}; expected {}",
-                declared.label(),
-                expected.label()
-            )));
-        }
+    if let Some(declared) = declared
+        && declared != expected
+    {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "{path} cleaner {owner} declares incompatible search kind {}; expected {}",
+            declared.label(),
+            expected.label()
+        )));
     }
 
     Ok(())
