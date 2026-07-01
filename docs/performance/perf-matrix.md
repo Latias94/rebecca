@@ -24,6 +24,7 @@ The report records scenario name, operation, backend, fixture shape, physical fi
 - a deep directory tree
 - parallel target measurement
 - duplicate target candidates
+- ordinary rule planning over many directory targets
 - scan-cache miss plus store
 - scan-cache hit
 - serial cleanup deletion

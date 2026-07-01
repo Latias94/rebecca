@@ -148,6 +148,105 @@ fn existing_directory_targets_are_deduplicated_by_filesystem_identity() {
 }
 
 #[test]
+fn duplicate_rule_targets_measure_once_and_keep_rule_outputs() {
+    let fixture = PlannerFixture::new();
+    fixture.write("cache/a.tmp", b"abc");
+    let cache_dir = fixture.root.join("cache");
+    let rules = vec![
+        custom_exact_path_rule("windows.custom-cache-a", cache_dir.clone()),
+        custom_exact_path_rule("windows.custom-cache-b", cache_dir.join(".")),
+    ];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut scanning_events = 0;
+    let mut file_events = 0;
+    let mut finished_rule_ids = Vec::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |event| match event {
+            PlanProgressEvent::TargetScanning { .. } => {
+                scanning_events += 1;
+            }
+            PlanProgressEvent::FileMeasured { .. } => {
+                file_events += 1;
+            }
+            PlanProgressEvent::TargetFinished { rule_id, .. } => {
+                finished_rule_ids.push(rule_id.to_string());
+            }
+            _ => {}
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.total_targets, 2);
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(scanning_events, 1);
+    assert_eq!(file_events, 1);
+    assert_eq!(
+        finished_rule_ids,
+        ["windows.custom-cache-a", "windows.custom-cache-b"]
+    );
+    assert!(plan.targets.iter().any(|target| {
+        target.rule_id == "windows.custom-cache-a" && target.status == TargetStatus::Allowed
+    }));
+    assert!(plan.targets.iter().any(|target| {
+        target.rule_id == "windows.custom-cache-b"
+            && target.status == TargetStatus::Skipped
+            && target.reason_code == Some(CleanupTargetIssueReason::DuplicateTargetPath)
+    }));
+}
+
+#[test]
+fn independent_rule_target_progress_remains_stable() {
+    let fixture = PlannerFixture::new();
+    fixture.write("cache-b/b.tmp", b"bb");
+    fixture.write("cache-a/a.tmp", b"a");
+    let rules = vec![
+        custom_exact_path_rule("windows.custom-cache-b", fixture.root.join("cache-b")),
+        custom_exact_path_rule("windows.custom-cache-a", fixture.root.join("cache-a")),
+    ];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut finished_rule_ids = Vec::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation),
+        |event| {
+            if let PlanProgressEvent::TargetFinished { rule_id, .. } = event {
+                finished_rule_ids.push(rule_id.to_string());
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        finished_rule_ids,
+        ["windows.custom-cache-b", "windows.custom-cache-a"]
+    );
+    assert_eq!(
+        plan.targets
+            .iter()
+            .map(|target| target.rule_id.as_str())
+            .collect::<Vec<_>>(),
+        ["windows.custom-cache-a", "windows.custom-cache-b"]
+    );
+    assert_eq!(plan.summary.estimated_bytes, 3);
+}
+
+#[test]
 fn planner_blocks_targets_overlapping_rebecca_owned_storage() {
     let fixture = PlannerFixture::new();
     let app_paths = app_paths_for_fixture(&fixture);

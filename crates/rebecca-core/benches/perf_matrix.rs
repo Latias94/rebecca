@@ -9,10 +9,14 @@ use rebecca_core::executor::{
     execute_cleanup_plan_with_policy,
 };
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle};
+use rebecca_core::planner::build_cleanup_plan;
 use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::scan::{ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest};
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCacheStore};
-use rebecca_core::{DeleteMode, TargetStatus};
+use rebecca_core::{
+    DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
+    SafetyLevel, TargetStatus,
+};
 use serde::Serialize;
 
 const MANY_SMALL_DIRECTORY_COUNT: usize = 32;
@@ -72,6 +76,14 @@ const SCENARIOS: &[ScenarioMetadata] = &[
         2,
         131_072,
         1024,
+    ),
+    ScenarioMetadata::rule_plan(
+        "rule_plan_32_dirs_1024_files",
+        "many-small-directories",
+        1024,
+        33,
+        131_072,
+        32,
     ),
     ScenarioMetadata::cache(
         "scan_cache_miss_store_many_small_1024_files",
@@ -238,6 +250,23 @@ fn perf_matrix(criterion: &mut Criterion) {
         );
     });
 
+    group.bench_function("rule_plan_32_dirs_1024_files", |bencher| {
+        bencher.iter_batched(
+            create_rule_plan_fixture,
+            |fixture| {
+                let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+                let plan = build_cleanup_plan(black_box(&request), black_box(&fixture.rules))
+                    .expect("rule plan should build");
+
+                assert_eq!(plan.summary.allowed_targets, MANY_SMALL_DIRECTORY_COUNT);
+                assert_eq!(plan.summary.skipped_targets, 0);
+                assert_eq!(plan.summary.estimated_bytes, fixture.expected.bytes);
+                black_box((fixture, plan));
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
     group.bench_function("scan_cache_miss_store_many_small_1024_files", |bencher| {
         let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
         let expected = create_many_small_fixture(fixture.path());
@@ -357,6 +386,13 @@ struct CleanupBenchmarkFixture {
     backend: CleanupFixtureBackend,
 }
 
+#[derive(Debug)]
+struct RulePlanBenchmarkFixture {
+    _temp: tempfile::TempDir,
+    expected: ExpectedScan,
+    rules: Vec<RuleDefinition>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize)]
 struct ScenarioMetadata {
     scenario: &'static str,
@@ -416,6 +452,29 @@ impl ScenarioMetadata {
             target_count,
             cache_mode: "disabled",
             delete_mode: "none",
+        }
+    }
+
+    const fn rule_plan(
+        scenario: &'static str,
+        fixture: &'static str,
+        physical_files: u64,
+        physical_directories: u64,
+        expected_bytes: u64,
+        target_count: u64,
+    ) -> Self {
+        Self {
+            scenario,
+            operation: "rule-plan",
+            backend: "portable-recursive",
+            fixture,
+            physical_files,
+            physical_directories,
+            expected_bytes,
+            progress_events: 0,
+            target_count,
+            cache_mode: "disabled",
+            delete_mode: "dry-run",
         }
     }
 
@@ -633,6 +692,44 @@ fn create_duplicate_scan_targets_fixture(root: &Path) -> Vec<ScanTargetRequest> 
     }
 
     targets
+}
+
+fn create_rule_plan_fixture() -> RulePlanBenchmarkFixture {
+    let temp = tempfile::tempdir().expect("benchmark fixture should be created");
+    let root = temp.path();
+    let expected = create_many_small_fixture(root);
+    let rules = (0..MANY_SMALL_DIRECTORY_COUNT)
+        .map(|directory_index| {
+            benchmark_exact_path_rule(
+                format!("windows.benchmark-cache-{directory_index:02}"),
+                root.join(format!("dir-{directory_index:02}")),
+            )
+        })
+        .collect();
+
+    RulePlanBenchmarkFixture {
+        _temp: temp,
+        expected,
+        rules,
+    }
+}
+
+fn benchmark_exact_path_rule(id: String, path: PathBuf) -> RuleDefinition {
+    RuleDefinition {
+        id,
+        platform: Platform::Windows,
+        category: "benchmark".to_string(),
+        name: "Benchmark cache".to_string(),
+        safety_level: SafetyLevel::Safe,
+        path_templates: vec![RuleTargetSpec::ExactPath(path)],
+        restore_hint: Some("benchmark fixture can be rebuilt".to_string()),
+        warnings: Vec::new(),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "test-fixture".to_string(),
+            notes: "benchmark-only rule".to_string(),
+        },
+    }
 }
 
 fn create_cleanup_fixture() -> CleanupBenchmarkFixture {

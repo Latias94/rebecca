@@ -27,9 +27,12 @@ All notable changes to Rebecca will be documented in this file.
 - CI now runs `cargo deny check` and explicit `rebecca catalog validate` gates, with compatible dependency upgrades and a checked-in dependency policy.
 - Cleanup planning now deduplicates equivalent existing directories by filesystem identity and keeps directory scan cache records valid for their configured freshness window despite root metadata churn.
 - Dry-run cleanup previews now use the rebuildable scan cache by default, with `--no-scan-cache` available when a fully fresh estimate is preferred; `--yes` execution remains fresh-scan by default.
+- The core performance matrix now includes an ordinary-rule planning benchmark for many directory targets.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.
+- Scan measurement now goes through an internal backend contract that records the portable recursive backend and exact estimate confidence for future native backends.
+- Ordinary cleanup rule planning now stages rule candidates before measurement and sizes eligible unique targets on Rebecca's bounded scan pool while preserving duplicate-target skips, safety decisions, metadata, and deterministic output.
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.
 - `rebecca purge --list-artifacts` is now a compatibility listing generated from the same project artifact policy data as `rebecca catalog --kind project-artifact`.
 - cleanup workflow internals now use explicit command/payload output contracts, shared CLI runtime cancellation, and dedicated human renderers instead of workflow-specific transport branches.
