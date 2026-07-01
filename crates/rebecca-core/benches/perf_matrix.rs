@@ -434,10 +434,10 @@ fn perf_matrix(criterion: &mut Criterion) {
                 (cache_fixture, store)
             },
             |(cache_fixture, store)| {
-                let ScanCacheLookup::Hit(cached_report) = store.load(black_box(fixture.path()))
-                else {
+                let ScanCacheLookup::Hit(hit) = store.load(black_box(fixture.path())) else {
                     panic!("cache lookup should hit");
                 };
+                let cached_report = hit.report;
                 assert_report(cached_report, expected);
                 black_box((cache_fixture, cached_report));
             },

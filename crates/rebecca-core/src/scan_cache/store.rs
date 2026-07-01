@@ -7,7 +7,7 @@ use crate::error::{RebeccaError, Result};
 use crate::scan::{MeasuredScan, ScanBackendKind, ScanReport};
 
 use super::{
-    SCAN_CACHE_DIR, SCAN_CACHE_PRUNE_BATCH_LIMIT, ScanCacheLookup, ScanCacheMiss,
+    SCAN_CACHE_DIR, SCAN_CACHE_PRUNE_BATCH_LIMIT, ScanCacheHit, ScanCacheLookup, ScanCacheMiss,
     ScanCachePathSnapshot, ScanCachePolicy, ScanCachePruneReport, ScanCacheRecord, ScanCacheStore,
     ScanCacheUsnValidation, ScanCacheUsnValidator, ScanCacheWriteDurability,
 };
@@ -212,7 +212,7 @@ impl ScanCacheStore {
                     return ScanCacheLookup::pruned_miss(reason);
                 }
 
-                ScanCacheLookup::Hit(record.report)
+                ScanCacheLookup::Hit(ScanCacheHit::from_record(&record))
             }
         }
     }
@@ -363,14 +363,23 @@ mod tests {
     use crate::scan::{ScanBackendKind, ScanEstimateConfidence, ScanReport};
     use crate::scan_cache::{
         DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheFileType,
-        ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore, ScanCacheUsnChange,
-        ScanCacheUsnCheckpoint, ScanCacheUsnInvalidationReason, ScanCacheUsnJournalState,
-        ScanCacheUsnValidation, ScanCacheUsnValidator, ScanCacheWriteDurability,
+        ScanCacheHit, ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore,
+        ScanCacheUsnChange, ScanCacheUsnCheckpoint, ScanCacheUsnInvalidationReason,
+        ScanCacheUsnJournalState, ScanCacheUsnValidation, ScanCacheUsnValidator,
+        ScanCacheWriteDurability,
     };
     use std::sync::atomic::Ordering;
 
     struct StaticUsnValidator {
         validation: ScanCacheUsnValidation,
+    }
+
+    fn hit(report: ScanReport, backend: ScanBackendKind) -> ScanCacheLookup {
+        ScanCacheLookup::Hit(ScanCacheHit {
+            report,
+            backend,
+            confidence: ScanEstimateConfidence::Exact,
+        })
     }
 
     impl StaticUsnValidator {
@@ -409,7 +418,7 @@ mod tests {
         assert_eq!(record.backend, ScanBackendKind::PortableRecursive);
         assert_eq!(record.confidence, ScanEstimateConfidence::Exact);
         assert!(store.cache_file_for(&record.root).exists());
-        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+        assert_eq!(lookup, hit(report, ScanBackendKind::PortableRecursive));
     }
 
     #[test]
@@ -434,7 +443,7 @@ mod tests {
         let lookup = store.load(&root);
 
         assert_eq!(record.backend, ScanBackendKind::WindowsNative);
-        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+        assert_eq!(lookup, hit(report, ScanBackendKind::WindowsNative));
     }
 
     #[test]
@@ -554,7 +563,7 @@ mod tests {
         let lookup =
             store.load_with_policy_and_usn_validator(&root, ScanCachePolicy::default(), &validator);
 
-        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+        assert_eq!(lookup, hit(report, ScanBackendKind::PortableRecursive));
     }
 
     #[test]
@@ -738,7 +747,10 @@ mod tests {
         store.store(&root, first).unwrap();
         store.store(&root, second).unwrap();
 
-        assert_eq!(store.load(&root), ScanCacheLookup::Hit(second));
+        assert_eq!(
+            store.load(&root),
+            hit(second, ScanBackendKind::PortableRecursive)
+        );
     }
 
     #[test]
@@ -792,7 +804,7 @@ mod tests {
 
         let lookup = store.load(&root);
 
-        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+        assert_eq!(lookup, hit(report, ScanBackendKind::PortableRecursive));
         assert!(store.cache_file_for(&root).exists());
     }
 
@@ -847,7 +859,7 @@ mod tests {
 
         let lookup = store.load_with_policy(&root, policy);
 
-        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+        assert_eq!(lookup, hit(report, ScanBackendKind::PortableRecursive));
         assert!(store.cache_file_for(&root).exists());
     }
 

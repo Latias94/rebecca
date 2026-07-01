@@ -3,7 +3,7 @@ use rebecca::core::inspect::SpaceInsightReport;
 use rebecca::core::lint::LintReport;
 
 use crate::output::format_bytes;
-use crate::render::estimate_source_suffix;
+use crate::render::estimate_provenance_suffix;
 
 pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
     println!("Space insight");
@@ -27,7 +27,7 @@ pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
                 entry.kind.label(),
                 entry.estimated_bytes,
                 format_bytes(entry.estimated_bytes),
-                estimate_source_suffix(entry.estimate_source),
+                estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance),
                 entry.files,
                 entry.directories
             );

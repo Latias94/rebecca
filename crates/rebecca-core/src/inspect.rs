@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{RebeccaError, Result};
-use crate::plan::EstimateSource;
+use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
-use crate::scan::{ScanCancellationToken, ScanEngine, ScanReport};
+use crate::scan::{ScanBackendKind, ScanCancellationToken, ScanEngine, ScanReport};
 use crate::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 
 pub const DEFAULT_SPACE_INSIGHT_TOP_LIMIT: usize = 10;
@@ -16,6 +16,7 @@ pub const DEFAULT_SPACE_INSIGHT_TOP_LIMIT: usize = 10;
 pub struct SpaceInsightRequest {
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+    pub scan_backend: ScanBackendKind,
     pub scan_cache: Option<SpaceInsightScanCache>,
 }
 
@@ -24,12 +25,18 @@ impl SpaceInsightRequest {
         Self {
             roots,
             top_limit: DEFAULT_SPACE_INSIGHT_TOP_LIMIT,
+            scan_backend: ScanBackendKind::PortableRecursive,
             scan_cache: None,
         }
     }
 
     pub fn with_top_limit(mut self, top_limit: usize) -> Self {
         self.top_limit = top_limit;
+        self
+    }
+
+    pub fn with_scan_backend(mut self, scan_backend: ScanBackendKind) -> Self {
+        self.scan_backend = scan_backend;
         self
     }
 
@@ -108,6 +115,8 @@ pub struct SpaceInsightEntry {
     pub files: u64,
     pub directories: u64,
     pub estimate_source: EstimateSource,
+    #[serde(default, flatten)]
+    pub estimate_provenance: EstimateProvenance,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -438,32 +447,55 @@ fn inspect_entry(
         SpaceInsightEntryKind::Other
     };
 
-    let (scan_report, estimate_source) = measure_entry(path, request, cancellation)?;
+    let measurement = measure_entry(path, request, cancellation)?;
     Ok(SpaceInsightEntry {
         path: path.to_path_buf(),
         root: root.to_path_buf(),
         kind,
-        estimated_bytes: scan_report.bytes_scanned,
-        files: scan_report.files_scanned,
-        directories: scan_report.directories_scanned,
-        estimate_source,
+        estimated_bytes: measurement.report.bytes_scanned,
+        files: measurement.report.files_scanned,
+        directories: measurement.report.directories_scanned,
+        estimate_source: measurement.estimate_source,
+        estimate_provenance: measurement.estimate_provenance,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SpaceInsightMeasurement {
+    report: ScanReport,
+    estimate_source: EstimateSource,
+    estimate_provenance: EstimateProvenance,
 }
 
 fn measure_entry(
     path: &Path,
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
-) -> Result<(ScanReport, EstimateSource)> {
+) -> Result<SpaceInsightMeasurement> {
     if let Some(scan_cache) = &request.scan_cache {
         match scan_cache.store.load_with_policy(path, scan_cache.policy) {
-            ScanCacheLookup::Hit(report) => return Ok((report, EstimateSource::ScanCache)),
+            ScanCacheLookup::Hit(hit) => {
+                return Ok(SpaceInsightMeasurement {
+                    report: hit.report,
+                    estimate_source: EstimateSource::ScanCache,
+                    estimate_provenance: EstimateProvenance::from_backend_confidence(
+                        hit.backend,
+                        hit.confidence,
+                    ),
+                });
+            }
             ScanCacheLookup::Miss(_) => {}
         }
     }
 
-    let measured_scan = ScanEngine::new().measure_scan_with_progress(path, cancellation, |_| {})?;
-    let scan_report = measured_scan.report;
+    let measured_scan = ScanEngine::new().measure_scan_with_backend(
+        path,
+        cancellation,
+        request.scan_backend,
+        |_| {},
+    )?;
+    let report = measured_scan.report;
+    let estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
     if let Some(scan_cache) = &request.scan_cache
         && let Err(err) =
             scan_cache
@@ -477,7 +509,11 @@ fn measure_entry(
         );
     }
 
-    Ok((scan_report, EstimateSource::FreshScan))
+    Ok(SpaceInsightMeasurement {
+        report,
+        estimate_source: EstimateSource::FreshScan,
+        estimate_provenance,
+    })
 }
 
 fn push_root_skip(

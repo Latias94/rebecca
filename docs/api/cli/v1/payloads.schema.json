@@ -37,6 +37,38 @@
         "not-measured"
       ]
     },
+    "estimateBackend": {
+      "type": "string",
+      "enum": [
+        "portable-recursive",
+        "windows-native",
+        "windows-ntfs-mft-experimental"
+      ]
+    },
+    "estimateConfidence": {
+      "type": "string",
+      "enum": [
+        "exact"
+      ]
+    },
+    "estimateCaveat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "inventoryEntryRole": {
       "type": "string",
       "enum": [
@@ -646,6 +678,22 @@
         },
         "estimate_source": {
           "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
         }
       }
     },
@@ -1012,6 +1060,22 @@
         },
         "estimate_source": {
           "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
         },
         "reason": {
           "type": [

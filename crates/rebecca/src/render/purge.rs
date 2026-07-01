@@ -7,7 +7,7 @@ use crate::purge_view::{
     ProjectArtifactCatalogEntry, ProjectArtifactDiscoveryDiagnosticRow,
     ProjectArtifactInsightReport, ProjectArtifactPlanProjection, ProjectArtifactRow,
 };
-use crate::render::{estimate_source_suffix, format_count};
+use crate::render::{estimate_provenance_suffix, format_count};
 
 const PROJECT_ARTIFACT_DIAGNOSTIC_LIMIT: usize = 5;
 
@@ -250,7 +250,7 @@ fn print_project_artifact_line(target: &ProjectArtifactRow<'_>, prefix: &str) {
         target.status_label,
         target.estimated_bytes,
         format_bytes(target.estimated_bytes),
-        estimate_source_suffix(target.estimate_source),
+        estimate_provenance_suffix(target.estimate_source, target.estimate_provenance),
         target.path.display(),
         target
             .modified_at_unix_seconds

@@ -87,7 +87,55 @@ fn inspect_space_json_reports_top_entries_and_diagnostics() {
         PathBuf::from(value["top_entries"][1]["path"].as_str().unwrap()),
         root.join("zeta")
     );
+    assert_eq!(value["top_entries"][0]["estimate_source"], "fresh-scan");
+    assert_eq!(
+        value["top_entries"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["top_entries"][0]["estimate_confidence"], "exact");
     assert_eq!(value["diagnostics"][0]["kind"], "root-missing");
+}
+
+#[test]
+fn inspect_space_json_accepts_scan_backend_and_reports_fallback_provenance() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("target").join("app.bin"), b"abcd");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "space",
+            "--format",
+            "json",
+            "--scan-backend",
+            "windows-ntfs-mft-experimental",
+            "--root",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let entry = &envelope["data"]["top_entries"][0];
+    assert_eq!(entry["estimate_source"], "fresh-scan");
+    assert!(entry["estimate_backend"].is_string());
+    assert_eq!(entry["estimate_confidence"], "exact");
+    assert!(
+        entry["estimate_fallback_reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
+    );
+    assert_eq!(
+        entry["estimate_caveats"][0]["code"],
+        "experimental-ntfs-mft-fallback"
+    );
 }
 
 #[test]

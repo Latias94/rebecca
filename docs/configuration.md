@@ -252,11 +252,14 @@ values. It must:
 Project artifact targets in JSON and history include a `project_artifact`
 object with the matched context, project root, and anchor path that justified
 the match. This is an explainability field, not a confidence score.
-Project artifact cleanup plans and inspect reports also carry
-`estimate_source` on each target: `fresh-scan` means the bytes came from this
-command, `scan-cache` means an enabled scan-cache record supplied the bytes,
-`not-measured` means the target was skipped or blocked before measurement, and
-`unknown` is reserved for legacy serialized plans.
+Project artifact cleanup plans and inspect reports also carry estimate
+provenance on each target. `estimate_source` explains whether bytes came from
+this command (`fresh-scan`), a valid scan-cache record (`scan-cache`), a skipped
+or blocked unmeasured target (`not-measured`), or legacy serialized input
+(`unknown`). When known, `estimate_backend`, `estimate_confidence`,
+`estimate_fallback_reason`, and `estimate_caveats` identify the scanner,
+confidence, backend fallback, and caveats behind the estimate. These fields are
+explainability metadata, not deletion authority.
 
 The first supported artifact set tracks high-confidence rebuildable project
 directories such as `node_modules`, `target`, `build`, `dist`, frontend

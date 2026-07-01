@@ -105,10 +105,11 @@ Set-Content -LiteralPath (Join-Path $root "delete-me.tmp") -Value "smoke"
 cargo run -p rebecca -- clean --dry-run --rule windows.user-temp
 ```
 
-Record the JSON `estimate_source` values for the backend dogfood runs. Focused
-Windows backend tests and the performance matrix remain the authoritative
-evidence for native fallback behavior until the human clean report exposes
-backend-specific caveats directly.
+Record JSON `estimate_source`, `estimate_backend`, `estimate_confidence`,
+`estimate_fallback_reason`, and `estimate_caveats` values for the backend
+dogfood runs. Focused Windows backend tests and the performance matrix remain
+the authoritative evidence for native and experimental backend fallback
+behavior.
 
 ## Current Limitations
 

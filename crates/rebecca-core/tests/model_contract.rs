@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
-use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason, EstimateSource};
+use rebecca_core::plan::{
+    CleanupPlan, CleanupTarget, CleanupTargetIssueReason, EstimateProvenance, EstimateSource,
+};
 use rebecca_core::project_artifacts::{
     ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
 };
+use rebecca_core::scan::{ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence};
 use rebecca_core::{
     CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance,
     RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel,
@@ -208,6 +211,60 @@ fn cleanup_plan_serialization_preserves_estimate_source_contract() {
 }
 
 #[test]
+fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(
+        CleanupTarget::allowed(
+            "windows.user-temp",
+            PathBuf::from("C:/Users/Alice/AppData/Local/Temp"),
+            42,
+            DeleteMode::DryRun,
+        )
+        .with_estimate_provenance(EstimateProvenance {
+            estimate_backend: Some(ScanBackendKind::WindowsNative),
+            estimate_confidence: Some(ScanEstimateConfidence::Exact),
+            estimate_fallback_reason: Some("windows-native: unavailable".to_string()),
+            estimate_caveats: vec![ScanEstimateCaveat {
+                code: "native-fallback".to_string(),
+                message: "native backend fell back to portable scanning".to_string(),
+            }],
+        }),
+    );
+    plan.recompute_summary();
+
+    let json = serde_json::to_value(&plan).expect("plan should serialize");
+    assert_eq!(json["targets"][0]["estimate_source"], "fresh-scan");
+    assert_eq!(json["targets"][0]["estimate_backend"], "windows-native");
+    assert_eq!(json["targets"][0]["estimate_confidence"], "exact");
+    assert_eq!(
+        json["targets"][0]["estimate_fallback_reason"],
+        "windows-native: unavailable"
+    );
+    assert_eq!(
+        json["targets"][0]["estimate_caveats"][0]["code"],
+        "native-fallback"
+    );
+
+    let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
+    assert_eq!(
+        decoded.targets[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::WindowsNative)
+    );
+    assert_eq!(
+        decoded.targets[0]
+            .estimate_provenance
+            .estimate_fallback_reason
+            .as_deref(),
+        Some("windows-native: unavailable")
+    );
+    assert_eq!(
+        decoded.targets[0].estimate_provenance.estimate_caveats[0].code,
+        "native-fallback"
+    );
+}
+
+#[test]
 fn cleanup_plan_deserializes_legacy_target_without_estimate_source() {
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     let mut plan = CleanupPlan::empty(request);
@@ -230,6 +287,7 @@ fn cleanup_plan_deserializes_legacy_target_without_estimate_source() {
     let decoded: CleanupPlan = serde_json::from_value(value).expect("legacy plan should load");
 
     assert_eq!(decoded.targets[0].estimate_source, EstimateSource::Unknown);
+    assert!(decoded.targets[0].estimate_provenance.is_empty());
 }
 
 #[test]

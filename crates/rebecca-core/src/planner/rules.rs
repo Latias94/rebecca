@@ -231,8 +231,13 @@ where
                 target,
                 progress_policy,
             } => {
-                emit_staged_target_progress(&mut progress, &target, progress_policy, context)?;
-                candidates.push(target);
+                emit_staged_target_progress(
+                    &mut progress,
+                    target.as_ref(),
+                    progress_policy,
+                    context,
+                )?;
+                candidates.push(*target);
             }
             RulePlanCandidate::Measure(measurement) => {
                 progress(PlanProgressEvent::TargetScanning {
@@ -271,7 +276,7 @@ where
 #[derive(Debug, Clone)]
 enum RulePlanCandidate {
     Target {
-        target: CleanupTarget,
+        target: Box<CleanupTarget>,
         progress_policy: TargetProgressPolicy,
     },
     Measure(RuleMeasurementCandidate),
@@ -280,7 +285,7 @@ enum RulePlanCandidate {
 impl RulePlanCandidate {
     fn target(target: CleanupTarget, progress_policy: TargetProgressPolicy) -> Self {
         Self::Target {
-            target,
+            target: Box::new(target),
             progress_policy,
         }
     }
@@ -316,7 +321,8 @@ impl RuleMeasurementCandidate {
                 measured_path.report.bytes_scanned,
                 mode,
             )
-            .with_estimate_source(measured_path.estimate_source),
+            .with_estimate_source(measured_path.estimate_source)
+            .with_estimate_provenance(measured_path.estimate_provenance),
         )
     }
 

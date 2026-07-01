@@ -81,7 +81,7 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - `catalog`, `inspect space`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
 - Default execution uses the Windows Recycle Bin.
 - Windows execution can batch already revalidated, non-overlapping targets into fewer Recycle Bin operations, but status, reason codes, pending bytes, and history remain per target.
-- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; `windows-ntfs-mft-experimental` exposes the future MFT fast path but currently reports a caveat and falls back to a safe directory scanner. The default remains the portable cleanup walker.
+- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; `windows-ntfs-mft-experimental` exposes the future MFT fast path but currently reports a caveat and falls back to a safe directory scanner. `inspect space` accepts the same backend selector for read-only estimates. The default remains the portable cleanup walker.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
@@ -177,7 +177,7 @@ Use `--format ndjson` for long-running cleanup workflows that need progress even
 
 Machine-readable success responses use the unified `rebecca.cli.v1` envelope. Every envelope includes `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero.
 
-Cleanup targets expose `estimate_source` so callers can tell whether byte counts came from a fresh scan, an enabled scan-cache hit, a not-yet-measured target, or legacy input.
+Cleanup, purge, and `inspect space` targets expose estimate provenance. `estimate_source` remains stable, while `estimate_backend`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` explain backend selection, cache reuse, and fallback without changing deletion safety.
 
 The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
 

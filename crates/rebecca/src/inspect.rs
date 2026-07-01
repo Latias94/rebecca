@@ -14,7 +14,7 @@ use crate::clean::{
     ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
 };
 use crate::clean_view::ScanCacheProgressSummary;
-use crate::cli::{OutputMode, ProgressDetail};
+use crate::cli::{OutputMode, ProgressDetail, ScanBackendArg};
 use crate::output::{
     CliApiContract, HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
     print_command_success_with_contract, print_workflow_success_payload,
@@ -29,6 +29,7 @@ pub struct InspectSpaceOptions {
     pub output_mode: OutputMode,
     pub no_progress: bool,
     pub scan_cache: bool,
+    pub scan_backend: ScanBackendArg,
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
 }
@@ -62,7 +63,9 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
     let _progress_enabled = options.output_mode.is_human() && !options.no_progress;
     let runtime_config = load_runtime_config()?;
     let roots = resolve_space_roots(options.roots)?;
-    let mut request = SpaceInsightRequest::new(roots).with_top_limit(options.top_limit.max(1));
+    let mut request = SpaceInsightRequest::new(roots)
+        .with_top_limit(options.top_limit.max(1))
+        .with_scan_backend(options.scan_backend.into());
     if options.scan_cache {
         request = request.with_scan_cache(SpaceInsightScanCache::new(
             ScanCacheStore::from_app_paths(&runtime_config.app_paths),

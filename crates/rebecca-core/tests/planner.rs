@@ -16,13 +16,31 @@ use rebecca_core::planner::{
     build_cleanup_plan_with_environment_and_progress,
     build_cleanup_plan_with_environment_and_progress_and_cancellation,
 };
-use rebecca_core::scan::ScanCancellationToken;
-use rebecca_core::scan::ScanReport;
+use rebecca_core::scan::{
+    ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence, ScanReport,
+};
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 use rebecca_core::{
     CleanupWorkflow, DeleteMode, EstimateSource, PlanRequest, Platform, RebeccaError,
     RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
+
+fn assert_scan_cache_hit(
+    lookup: ScanCacheLookup,
+    expected_report: ScanReport,
+    expected_backend: ScanBackendKind,
+) {
+    match lookup {
+        ScanCacheLookup::Hit(hit) => {
+            assert_eq!(hit.report, expected_report);
+            assert_eq!(hit.backend, expected_backend);
+            assert_eq!(hit.confidence, ScanEstimateConfidence::Exact);
+        }
+        ScanCacheLookup::Miss(outcome) => {
+            panic!("expected scan cache hit, got miss: {:?}", outcome.reason);
+        }
+    }
+}
 
 #[test]
 fn category_filter_includes_only_matching_rules() {
@@ -883,6 +901,14 @@ fn planner_uses_scan_cache_when_context_enables_it_for_file_targets() {
 
     assert_eq!(plan.summary.estimated_bytes, 99);
     assert_eq!(plan.targets[0].estimate_source, EstimateSource::ScanCache);
+    assert_eq!(
+        plan.targets[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::PortableRecursive)
+    );
+    assert_eq!(
+        plan.targets[0].estimate_provenance.estimate_confidence,
+        Some(ScanEstimateConfidence::Exact)
+    );
     assert_eq!(file_events, 0);
     assert_eq!(cache_events, ["hit:windows.custom-file-cache:99"]);
 }
@@ -925,14 +951,19 @@ fn planner_writes_scan_cache_when_context_enables_it_for_file_targets() {
 
     assert_eq!(plan.summary.estimated_bytes, 3);
     assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
-    assert_eq!(cache_events, ["miss:missing"]);
     assert_eq!(
+        plan.targets[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::PortableRecursive)
+    );
+    assert_eq!(cache_events, ["miss:missing"]);
+    assert_scan_cache_hit(
         cache.load(&path),
-        ScanCacheLookup::Hit(ScanReport {
+        ScanReport {
             bytes_scanned: 3,
             files_scanned: 1,
             directories_scanned: 0,
-        })
+        },
+        ScanBackendKind::PortableRecursive,
     );
 }
 
@@ -1057,15 +1088,20 @@ fn planner_rebuilds_expired_scan_cache_for_directory_targets_with_policy() {
 
     assert_eq!(plan.summary.estimated_bytes, 3);
     assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
+    assert_eq!(
+        plan.targets[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::PortableRecursive)
+    );
     assert_eq!(file_events, 1);
     assert_eq!(cache_events, ["miss:expired"]);
-    assert_eq!(
+    assert_scan_cache_hit(
         cache.load(&path),
-        ScanCacheLookup::Hit(ScanReport {
+        ScanReport {
             bytes_scanned: 3,
             files_scanned: 1,
             directories_scanned: 1,
-        })
+        },
+        ScanBackendKind::PortableRecursive,
     );
 }
 

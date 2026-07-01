@@ -244,13 +244,13 @@ Rule planning attaches provenance when it creates each `CleanupTarget`.
 
 **Dependencies:** U1, U2
 
-**Files:** `crates/rebecca/src/clean_view.rs`, `crates/rebecca/src/purge_view.rs`, `crates/rebecca/src/render.rs`, `crates/rebecca/src/render/clean.rs`, `crates/rebecca/src/render/purge.rs`, `crates/rebecca/tests/cli_clean.rs`, `crates/rebecca/tests/cli_purge.rs`, `crates/rebecca/tests/cli_api.rs`, `docs/api/cli/v1/clean.schema.json`
+**Files:** `crates/rebecca/src/clean_view.rs`, `crates/rebecca/src/purge_view.rs`, `crates/rebecca/src/render.rs`, `crates/rebecca/src/render/clean.rs`, `crates/rebecca/src/render/purge.rs`, `crates/rebecca/tests/cli_clean.rs`, `crates/rebecca/tests/cli_purge.rs`, `crates/rebecca/tests/cli_api.rs`, `docs/api/cli/v1/payloads.schema.json`
 
 **Approach:** Project provenance into view rows once, then use render helpers for both clean and purge.
 JSON/NDJSON should expose the full additive fields.
 Human output should add compact trust notes only when backend, fallback, cache, or caveat details matter.
 
-**Patterns to follow:** Existing `estimate_source_suffix`, clean view projection, purge view projection, and CLI contract tests.
+**Patterns to follow:** Existing estimate suffix rendering pattern, clean view projection, purge view projection, and CLI contract tests.
 
 **Test scenarios:**
 
@@ -297,7 +297,7 @@ Human inspect output should show provenance only for cache, fallback, caveat, or
 
 **Dependencies:** U3, U4
 
-**Files:** `README.md`, `CHANGELOG.md`, `docs/release.md`, `docs/configuration.md`, `docs/api/cli/v1/clean.schema.json`, `docs/api/cli/v1/inspect-space.schema.json`, `docs/knowledge/engineering/current-state.md`, `dogfood/`
+**Files:** `README.md`, `CHANGELOG.md`, `docs/release.md`, `docs/configuration.md`, `docs/api/cli/v1/payloads.schema.json`, `docs/knowledge/engineering/current-state.md`, `dogfood/`
 
 **Approach:** Update user docs and schemas after field names settle.
 Add unreleased changelog notes.

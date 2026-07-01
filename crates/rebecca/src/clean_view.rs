@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
-use rebecca::core::{DeleteMode, EstimateSource, TargetStatus};
+use rebecca::core::{DeleteMode, EstimateProvenance, EstimateSource, TargetStatus};
 
 use crate::text::format_count;
 
@@ -67,6 +67,7 @@ pub(crate) struct CleanTargetRow<'a> {
     pub(crate) path: &'a Path,
     pub(crate) estimated_bytes: u64,
     pub(crate) estimate_source: EstimateSource,
+    pub(crate) estimate_provenance: &'a EstimateProvenance,
     pub(crate) reason: Option<&'a str>,
     pub(crate) restore_hint: Option<&'a str>,
     pub(crate) warnings: &'a [String],
@@ -164,6 +165,7 @@ impl<'a> From<&'a CleanupTarget> for CleanTargetRow<'a> {
             path: target.path.as_path(),
             estimated_bytes: target.estimated_bytes,
             estimate_source: target.estimate_source,
+            estimate_provenance: &target.estimate_provenance,
             reason: target.reason.as_deref(),
             restore_hint: target.restore_hint.as_deref(),
             warnings: &target.warnings,

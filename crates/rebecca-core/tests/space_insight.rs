@@ -2,7 +2,7 @@ use rebecca_core::EstimateSource;
 use rebecca_core::inspect::{
     SpaceInsightDiagnosticKind, SpaceInsightRequest, SpaceInsightScanCache, inspect_space,
 };
-use rebecca_core::scan::ScanCancellationToken;
+use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence};
 use rebecca_core::scan_cache::{ScanCachePolicy, ScanCacheStore};
 
 fn write_file(path: impl AsRef<std::path::Path>, bytes: &[u8]) {
@@ -30,6 +30,16 @@ fn space_insight_reports_top_entries_in_deterministic_order() {
     assert_eq!(report.top_entries.len(), 2);
     assert_eq!(report.top_entries[0].path, root.join("alpha"));
     assert_eq!(report.top_entries[1].path, root.join("zeta"));
+    assert_eq!(
+        report.top_entries[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::PortableRecursive)
+    );
+    assert_eq!(
+        report.top_entries[0]
+            .estimate_provenance
+            .estimate_confidence,
+        Some(ScanEstimateConfidence::Exact)
+    );
 }
 
 #[test]
@@ -85,5 +95,51 @@ fn space_insight_preserves_scan_cache_estimate_source() {
         second.top_entries[0].estimate_source,
         EstimateSource::ScanCache
     );
+    assert_eq!(
+        second.top_entries[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::PortableRecursive)
+    );
+    assert_eq!(
+        second.top_entries[0]
+            .estimate_provenance
+            .estimate_confidence,
+        Some(ScanEstimateConfidence::Exact)
+    );
     assert_eq!(second.top_entries[0].estimated_bytes, 4);
+}
+
+#[test]
+fn space_insight_reports_experimental_backend_fallback_provenance() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("target").join("app.bin"), b"abcd");
+    let request = SpaceInsightRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::WindowsNtfsMftExperimental);
+
+    let report = inspect_space(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(
+        report.top_entries[0].estimate_source,
+        EstimateSource::FreshScan
+    );
+    assert!(
+        report.top_entries[0]
+            .estimate_provenance
+            .estimate_backend
+            .is_some()
+    );
+    assert!(
+        report.top_entries[0]
+            .estimate_provenance
+            .estimate_fallback_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
+    );
+    assert!(
+        report.top_entries[0]
+            .estimate_provenance
+            .estimate_caveats
+            .iter()
+            .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
+    );
 }

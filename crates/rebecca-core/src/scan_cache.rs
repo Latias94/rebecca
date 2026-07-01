@@ -411,8 +411,25 @@ pub enum ScanCacheFileType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanCacheHit {
+    pub report: ScanReport,
+    pub backend: ScanBackendKind,
+    pub confidence: ScanEstimateConfidence,
+}
+
+impl ScanCacheHit {
+    pub fn from_record(record: &ScanCacheRecord) -> Self {
+        Self {
+            report: record.report,
+            backend: record.backend,
+            confidence: record.confidence,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanCacheLookup {
-    Hit(ScanReport),
+    Hit(ScanCacheHit),
     Miss(ScanCacheMissOutcome),
 }
 

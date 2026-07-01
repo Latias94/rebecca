@@ -72,13 +72,23 @@ Payload data is intentionally nested under `data` so Rebecca can evolve
 metadata, event transport, and error handling without turning internal core
 models into the top-level API.
 
-Cleanup targets include `estimate_source` so consumers can explain byte total
-trust without changing `estimated_bytes` arithmetic:
+Cleanup and inspect targets include estimate provenance so consumers can explain
+byte total trust without changing `estimated_bytes` arithmetic. `estimate_source`
+remains the stable source field:
 
 - `fresh-scan`: bytes came from a live filesystem scan during this command;
 - `scan-cache`: bytes came from an enabled scan-cache hit;
 - `not-measured`: the target was skipped or blocked before byte measurement;
 - `unknown`: legacy or externally supplied plans that predate this field.
+
+When known, targets also include:
+
+- `estimate_backend`: scanner that produced the byte estimate, such as
+  `portable-recursive`, `windows-native`, or
+  `windows-ntfs-mft-experimental`;
+- `estimate_confidence`: estimate confidence, currently `exact`;
+- `estimate_fallback_reason`: why Rebecca fell back from a requested backend;
+- `estimate_caveats`: structured caveats with `code` and `message`.
 
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
 `warnings`. A target with `reason_code: "warning-gate-required"` was excluded
@@ -113,10 +123,11 @@ Diagnostics are plan-level observations with `kind`, `path`, and `detail`; they
 make partial discovery visible without adding fake cleanup targets or changing
 target counts.
 
-Rebecca does not emit confidence scores for purge targets. Consumers should use
-the explicit `rule_id`, `status`, `reason_code`, `estimate_source`, and
-`project_artifact` explanation fields. `estimate_source` explains where a byte
-estimate came from; it is not a freshness guarantee.
+Purge targets carry the same estimate provenance fields as cleanup targets.
+Consumers should use the explicit `rule_id`, `status`, `reason_code`,
+`estimate_source`, backend/confidence/caveat fields, and `project_artifact`
+explanation fields. Provenance explains where a byte estimate came from; it is
+not a freshness guarantee and is never deletion authority.
 
 ## Examples
 

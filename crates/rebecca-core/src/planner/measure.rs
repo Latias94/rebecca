@@ -5,7 +5,7 @@ use crate::error::{RebeccaError, Result};
 use crate::model::Platform;
 use crate::plan::{
     CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle, CleanupTargetIssueReason,
-    EstimateSource,
+    EstimateProvenance, EstimateSource,
 };
 use crate::project_artifacts::ProjectArtifactCandidate;
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
@@ -23,10 +23,11 @@ pub(crate) struct MeasuredTarget {
     scan_cache_event: Option<MeasuredScanCacheEvent>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct MeasuredPath {
     pub(crate) report: ScanReport,
     pub(crate) estimate_source: EstimateSource,
+    pub(crate) estimate_provenance: EstimateProvenance,
 }
 
 #[derive(Debug, Clone)]
@@ -341,7 +342,8 @@ where
                 })?;
 
             let target = allowed_target(&candidate, measured_path.report.bytes_scanned, mode)
-                .with_estimate_source(measured_path.estimate_source);
+                .with_estimate_source(measured_path.estimate_source)
+                .with_estimate_provenance(measured_path.estimate_provenance);
             Ok(MeasuredTarget {
                 target,
                 scan_cache_event,
@@ -385,11 +387,15 @@ where
     let cacheable_target = context.scan_cache().is_some() && is_cacheable_scan_target(path);
     if cacheable_target && let Some(store) = context.scan_cache() {
         match store.load_with_policy(path, context.scan_cache_policy()) {
-            ScanCacheLookup::Hit(report) => {
-                progress(PathMeasureProgressEvent::ScanCacheHit { report });
+            ScanCacheLookup::Hit(hit) => {
+                progress(PathMeasureProgressEvent::ScanCacheHit { report: hit.report });
                 return Ok(MeasuredPath {
-                    report,
+                    report: hit.report,
                     estimate_source: EstimateSource::ScanCache,
+                    estimate_provenance: EstimateProvenance::from_backend_confidence(
+                        hit.backend,
+                        hit.confidence,
+                    ),
                 });
             }
             ScanCacheLookup::Miss(outcome) => {
@@ -410,6 +416,7 @@ where
         },
     )?;
     let report = measured_scan.report;
+    let estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
 
     if cacheable_target
         && let Some(store) = context.scan_cache()
@@ -427,6 +434,7 @@ where
     Ok(MeasuredPath {
         report,
         estimate_source: EstimateSource::FreshScan,
+        estimate_provenance,
     })
 }
 

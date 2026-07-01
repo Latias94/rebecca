@@ -1071,6 +1071,16 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 4);
     assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
+    assert_eq!(
+        value["targets"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
+    assert!(
+        value["targets"][0]
+            .get("estimate_fallback_reason")
+            .is_none()
+    );
 
     let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
     let cache_files = fs::read_dir(scan_cache_dir)
@@ -1107,6 +1117,16 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 99);
     assert_eq!(value["targets"][0]["estimate_source"], "scan-cache");
+    assert_eq!(
+        value["targets"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
+    assert!(
+        value["targets"][0]
+            .get("estimate_fallback_reason")
+            .is_none()
+    );
     assert!(value.get("scan_cache").is_none());
     assert!(value["summary"].get("scan_cache").is_none());
 }
@@ -1289,7 +1309,7 @@ fn clean_human_output_summarizes_scan_cache_activity() {
     assert!(
         stdout.contains("Scan cache summary: 1 hit, 0 misses, 0 skipped writes, 0 pruned records")
     );
-    assert!(stdout.contains("[estimate: scan-cache]"));
+    assert!(stdout.contains("[estimate: scan-cache, portable-recursive, exact]"));
 }
 
 #[test]

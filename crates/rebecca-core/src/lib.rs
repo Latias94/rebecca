@@ -34,6 +34,6 @@ pub use model::{
 };
 pub use plan::{
     CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetDeletionStyle,
-    CleanupTargetIssueReason, EstimateSource,
+    CleanupTargetIssueReason, EstimateProvenance, EstimateSource,
 };
 pub use warnings::WarningSummary;

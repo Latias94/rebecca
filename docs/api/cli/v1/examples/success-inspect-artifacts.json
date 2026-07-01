@@ -54,6 +54,8 @@
         "status": "allowed",
         "estimated_bytes": 4,
         "estimate_source": "fresh-scan",
+        "estimate_backend": "portable-recursive",
+        "estimate_confidence": "exact",
         "reason": null
       }
     ],

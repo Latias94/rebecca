@@ -45,6 +45,8 @@
         "path": "D:\\SourceCodes\\Rust\\rebecca\\target",
         "estimated_bytes": 1048576,
         "estimate_source": "fresh-scan",
+        "estimate_backend": "portable-recursive",
+        "estimate_confidence": "exact",
         "mode": "dry-run",
         "status": "allowed",
         "reason": null,

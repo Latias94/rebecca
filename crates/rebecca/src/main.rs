@@ -145,6 +145,7 @@ fn run_inspect(
                 output_mode: global_mode,
                 no_progress: args.no_progress,
                 scan_cache: args.scan_cache,
+                scan_backend: args.scan_backend,
                 roots: args.roots,
                 top_limit: args.top_limit,
             },

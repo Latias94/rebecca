@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::project_artifacts::{ProjectArtifactContextMatch, ProjectArtifactDiscoveryDiagnostic};
+use crate::scan::{MeasuredScan, ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence};
 use crate::warnings::WarningSummary;
 use crate::{DeleteMode, PlanRequest, TargetStatus};
 
@@ -33,6 +34,60 @@ impl EstimateSource {
             Self::ScanCache => "scan-cache",
             Self::NotMeasured => "not-measured",
         }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EstimateProvenance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate_backend: Option<ScanBackendKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate_confidence: Option<ScanEstimateConfidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate_fallback_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub estimate_caveats: Vec<ScanEstimateCaveat>,
+}
+
+impl EstimateProvenance {
+    pub fn from_measured_scan(scan: &MeasuredScan) -> Self {
+        Self {
+            estimate_backend: Some(scan.backend),
+            estimate_confidence: Some(scan.confidence),
+            estimate_fallback_reason: scan.fallback_reason.clone(),
+            estimate_caveats: scan.caveats.clone(),
+        }
+    }
+
+    pub fn from_backend_confidence(
+        backend: ScanBackendKind,
+        confidence: ScanEstimateConfidence,
+    ) -> Self {
+        Self {
+            estimate_backend: Some(backend),
+            estimate_confidence: Some(confidence),
+            estimate_fallback_reason: None,
+            estimate_caveats: Vec::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.estimate_backend.is_none()
+            && self.estimate_confidence.is_none()
+            && self.estimate_fallback_reason.is_none()
+            && self.estimate_caveats.is_empty()
+    }
+
+    pub fn has_human_visible_detail(&self, estimate_source: EstimateSource) -> bool {
+        matches!(
+            estimate_source,
+            EstimateSource::Unknown | EstimateSource::ScanCache
+        ) || self.estimate_backend.is_some_and(|backend| {
+            backend != ScanBackendKind::PortableRecursive
+                || !self.estimate_caveats.is_empty()
+                || self.estimate_fallback_reason.is_some()
+        }) || self.estimate_fallback_reason.is_some()
+            || !self.estimate_caveats.is_empty()
     }
 }
 
@@ -68,6 +123,8 @@ pub struct CleanupTarget {
     pub estimated_bytes: u64,
     #[serde(default)]
     pub estimate_source: EstimateSource,
+    #[serde(default, flatten)]
+    pub estimate_provenance: EstimateProvenance,
     pub mode: DeleteMode,
     pub status: TargetStatus,
     pub reason: Option<String>,
@@ -136,6 +193,7 @@ impl CleanupTarget {
             path,
             estimated_bytes,
             estimate_source: EstimateSource::FreshScan,
+            estimate_provenance: EstimateProvenance::default(),
             mode,
             status: TargetStatus::Allowed,
             reason: None,
@@ -177,6 +235,7 @@ impl CleanupTarget {
             path,
             estimated_bytes: 0,
             estimate_source: EstimateSource::NotMeasured,
+            estimate_provenance: EstimateProvenance::default(),
             mode,
             status: TargetStatus::Skipped,
             reason: Some(reason.into()),
@@ -218,6 +277,7 @@ impl CleanupTarget {
             path,
             estimated_bytes: 0,
             estimate_source: EstimateSource::NotMeasured,
+            estimate_provenance: EstimateProvenance::default(),
             mode,
             status: TargetStatus::Blocked,
             reason: Some(reason.into()),
@@ -266,6 +326,7 @@ impl CleanupTarget {
             } else {
                 EstimateSource::FreshScan
             },
+            estimate_provenance: EstimateProvenance::default(),
             mode,
             status: TargetStatus::Failed,
             reason: Some(reason.into()),
@@ -300,6 +361,11 @@ impl CleanupTarget {
 
     pub fn with_estimate_source(mut self, estimate_source: EstimateSource) -> Self {
         self.estimate_source = estimate_source;
+        self
+    }
+
+    pub fn with_estimate_provenance(mut self, estimate_provenance: EstimateProvenance) -> Self {
+        self.estimate_provenance = estimate_provenance;
         self
     }
 

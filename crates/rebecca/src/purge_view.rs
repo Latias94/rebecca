@@ -5,7 +5,7 @@ use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTar
 use rebecca::core::project_artifacts::{
     ProjectArtifactDiscoveryDiagnostic, ProjectArtifactPolicy, all_project_artifact_policies,
 };
-use rebecca::core::{EstimateSource, TargetStatus};
+use rebecca::core::{EstimateProvenance, EstimateSource, TargetStatus};
 use serde::Serialize;
 
 use crate::text::format_count;
@@ -46,6 +46,7 @@ pub(crate) struct ProjectArtifactRow<'a> {
     pub(crate) path: &'a Path,
     pub(crate) estimated_bytes: u64,
     pub(crate) estimate_source: EstimateSource,
+    pub(crate) estimate_provenance: &'a EstimateProvenance,
     pub(crate) modified_at_unix_seconds: Option<u64>,
     pub(crate) reason: Option<&'a str>,
     pub(crate) restore_hint: Option<&'a str>,
@@ -101,6 +102,8 @@ pub(crate) struct ProjectArtifactInsightTarget {
     pub(crate) status: TargetStatus,
     pub(crate) estimated_bytes: u64,
     pub(crate) estimate_source: EstimateSource,
+    #[serde(flatten)]
+    pub(crate) estimate_provenance: EstimateProvenance,
     pub(crate) reason: Option<String>,
 }
 
@@ -293,6 +296,7 @@ impl<'a> From<&'a CleanupTarget> for ProjectArtifactRow<'a> {
             path: target.path.as_path(),
             estimated_bytes: target.estimated_bytes,
             estimate_source: target.estimate_source,
+            estimate_provenance: &target.estimate_provenance,
             modified_at_unix_seconds: target.modified_at_unix_seconds,
             reason: target.reason.as_deref(),
             restore_hint: target.restore_hint.as_deref(),
@@ -413,6 +417,7 @@ fn insight_top_targets(plan: &CleanupPlan) -> Vec<ProjectArtifactInsightTarget> 
             status: target.status,
             estimated_bytes: target.estimated_bytes,
             estimate_source: target.estimate_source,
+            estimate_provenance: target.estimate_provenance.clone(),
             reason: target.reason.clone(),
         })
         .collect::<Vec<_>>();

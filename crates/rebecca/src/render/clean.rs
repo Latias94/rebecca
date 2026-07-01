@@ -3,7 +3,7 @@ use rebecca::core::plan::CleanupPlan;
 
 use crate::clean_view::{CleanPlanProjection, CleanTargetRow, ScanCacheProgressSummary};
 use crate::output::{format_bytes, restore_hint_suffix};
-use crate::render::estimate_source_suffix;
+use crate::render::estimate_provenance_suffix;
 
 pub(crate) fn print_plan(
     plan: &CleanupPlan,
@@ -104,7 +104,7 @@ fn print_target_line(target: &CleanTargetRow<'_>, prefix: &str) {
         target.path.display(),
         target.estimated_bytes,
         format_bytes(target.estimated_bytes),
-        estimate_source_suffix(target.estimate_source),
+        estimate_provenance_suffix(target.estimate_source, target.estimate_provenance),
         target
             .reason
             .map(|reason| format!(" ({reason})"))

@@ -37,6 +37,8 @@ All notable changes to Rebecca will be documented in this file.
 - `clean --scan-backend windows-ntfs-mft-experimental` now exposes an opt-in experimental backend selector that reports a caveat and falls back to a safe directory scanner until live NTFS volume indexing is enabled.
 - Scan-cache records now have a USN Journal validation model for checkpoint, journal id, range availability, and target-subtree change invalidation; missing USN support falls back to the normal cache policy.
 - Cleanup rule targets now expose explicit search semantics in the manifest parser and catalog output, and glob discovery can reuse a per-plan directory enumeration index for compatible rules.
+- Cleanup, purge, and `inspect space` outputs now expose additive v1 estimate provenance fields (`estimate_backend`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats`) while keeping `estimate_source` stable.
+- `inspect space --scan-backend <BACKEND>` now accepts the same scan backend selectors as cleanup dry-runs for read-only space estimates.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.

@@ -188,6 +188,9 @@ pub struct InspectSpaceArgs {
     /// Use the rebuildable scan cache for eligible entry estimates.
     #[arg(long)]
     pub scan_cache: bool,
+    /// Select the scan backend used for inspect space estimates.
+    #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
+    pub scan_backend: ScanBackendArg,
     /// Directory to inspect. Can be repeated. Defaults to the current directory.
     #[arg(long = "root", value_name = "PATH")]
     pub roots: Vec<PathBuf>,

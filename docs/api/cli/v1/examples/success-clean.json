@@ -29,6 +29,8 @@
         "path": "C:\\Users\\Alice\\AppData\\Local\\Temp",
         "estimated_bytes": 5,
         "estimate_source": "fresh-scan",
+        "estimate_backend": "portable-recursive",
+        "estimate_confidence": "exact",
         "mode": "dry-run",
         "status": "allowed",
         "reason": null,

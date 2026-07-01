@@ -1323,6 +1323,11 @@ fn purge_reports_estimate_source_for_scan_cache_reuse() {
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 3);
     assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
+    assert_eq!(
+        value["targets"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
 
     let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
     let cache_files = fs::read_dir(scan_cache_dir)
@@ -1361,6 +1366,11 @@ fn purge_reports_estimate_source_for_scan_cache_reuse() {
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 99);
     assert_eq!(value["targets"][0]["estimate_source"], "scan-cache");
+    assert_eq!(
+        value["targets"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -1382,7 +1392,7 @@ fn purge_reports_estimate_source_for_scan_cache_reuse() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[estimate: scan-cache]"));
+    assert!(stdout.contains("[estimate: scan-cache, portable-recursive, exact]"));
 }
 
 #[test]
@@ -1418,6 +1428,11 @@ fn purge_dry_run_uses_scan_cache_by_default_and_honors_no_scan_cache() {
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 3);
     assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
+    assert_eq!(
+        value["targets"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
 
     let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
     let cache_files = fs::read_dir(scan_cache_dir)
@@ -1455,6 +1470,11 @@ fn purge_dry_run_uses_scan_cache_by_default_and_honors_no_scan_cache() {
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 99);
     assert_eq!(value["targets"][0]["estimate_source"], "scan-cache");
+    assert_eq!(
+        value["targets"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
@@ -1480,6 +1500,11 @@ fn purge_dry_run_uses_scan_cache_by_default_and_honors_no_scan_cache() {
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 3);
     assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
+    assert_eq!(
+        value["targets"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
 }
 
 #[test]
