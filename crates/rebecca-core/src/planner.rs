@@ -9,7 +9,7 @@ use crate::model::{CleanupWorkflow, PlanRequest, RuleDefinition};
 use crate::plan::CleanupPlan;
 use crate::protection::ProtectionPolicy;
 use crate::safety_catalog::SafetyKnowledge;
-use crate::scan::ScanCancellationToken;
+use crate::scan::{ScanBackendKind, ScanCancellationToken};
 use crate::scan_cache::{ScanCacheMiss, ScanCachePolicy, ScanCachePruneReport, ScanCacheStore};
 
 mod app_leftovers;
@@ -64,6 +64,7 @@ pub enum PlanProgressEvent<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct PlanBuildContext<'a> {
     cancellation: &'a ScanCancellationToken,
+    scan_backend: ScanBackendKind,
     scan_cache: Option<&'a ScanCacheStore>,
     scan_cache_policy: ScanCachePolicy,
     protection_policy: ProtectionPolicy<'a>,
@@ -73,10 +74,16 @@ impl<'a> PlanBuildContext<'a> {
     pub fn new(cancellation: &'a ScanCancellationToken) -> Self {
         Self {
             cancellation,
+            scan_backend: ScanBackendKind::PortableRecursive,
             scan_cache: None,
             scan_cache_policy: ScanCachePolicy::default(),
             protection_policy: ProtectionPolicy::new(),
         }
+    }
+
+    pub fn with_scan_backend(mut self, scan_backend: ScanBackendKind) -> Self {
+        self.scan_backend = scan_backend;
+        self
     }
 
     pub fn with_scan_cache(mut self, scan_cache: &'a ScanCacheStore) -> Self {
@@ -110,6 +117,10 @@ impl<'a> PlanBuildContext<'a> {
 
     pub fn cancellation(&self) -> &'a ScanCancellationToken {
         self.cancellation
+    }
+
+    pub fn scan_backend(&self) -> ScanBackendKind {
+        self.scan_backend
     }
 
     pub fn scan_cache(&self) -> Option<&'a ScanCacheStore> {

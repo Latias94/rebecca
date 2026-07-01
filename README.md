@@ -81,6 +81,7 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - `catalog`, `inspect space`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
 - Default execution uses the Windows Recycle Bin.
 - Windows execution can batch already revalidated, non-overlapping targets into fewer Recycle Bin operations, but status, reason codes, pending bytes, and history remain per target.
+- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; the default remains the portable cleanup walker, and unsupported native paths fall back to portable scans.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
@@ -129,6 +130,7 @@ cargo run -p rebecca -- clean --dry-run
 cargo run -p rebecca -- clean --dry-run --format json --category system
 cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.edge-cache
 cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
+cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system
 cargo run -p rebecca -- clean --dry-run --format json --allow-moderate --rule windows.npm-cache
 cargo run -p rebecca -- clean --dry-run --format json --allow-risky --rule windows.npm-cache
 cargo run -p rebecca -- clean --dry-run --exclude "$env:APPDATA\Slack\Cache"
@@ -257,7 +259,7 @@ The full schema, path precedence, migration, and local-state ownership contract 
 
 `rebecca cache purge` operates only on Rebecca's configured rebuildable cache directory. It previews by default, moves direct cache contents to the Recycle Bin with `--yes`, permanently deletes them only with `--yes --permanent`, keeps the cache directory itself, reports lifecycle, entry-status, pending-reclaim, reclaimed-byte, and issue-matrix details in human output and `--format json`, and refuses to run if the cache path overlaps preserved configuration, state, or history paths.
 
-Scan-cache records use a versioned JSON format under the rebuildable cache directory's `scan` subdirectory. The current v2 record stores the scanned root path, root metadata fingerprint, scan report, write time, scan backend, estimate confidence, and optional filesystem identity fields for future USN-based invalidation. `clean --scan-cache` explicitly enables planner use of eligible regular-file records and freshness-bounded directory records. Directory freshness is governed by a policy seam with a current 5-minute default, so the window can evolve without changing user configuration. Missing, corrupted, stale, expired, older-format, or unsupported-version records are treated as cache misses and can be rebuilt. Stale or corrupted cache files are pruned when lookup discovers them, and plan builds also run a best-effort cache prune pass that reports pruned record counts in human output.
+Scan-cache records use a versioned JSON format under the rebuildable cache directory's `scan` subdirectory. The current v2 record stores the scanned root path, root metadata fingerprint, scan report, write time, scan backend, estimate confidence, and optional filesystem identity fields for future USN-based invalidation. `clean --scan-cache` explicitly enables planner use of eligible regular-file records and freshness-bounded directory records. Exact records from the portable and Windows native directory backends can be reused when the root fingerprint and identity still match. Directory freshness is governed by a policy seam with a current 5-minute default, so the window can evolve without changing user configuration. Missing, corrupted, stale, expired, older-format, or unsupported-version records are treated as cache misses and can be rebuilt. Stale or corrupted cache files are pruned when lookup discovers them, and plan builds also run a best-effort cache prune pass that reports pruned record counts in human output.
 
 The config file can override that directory freshness window:
 

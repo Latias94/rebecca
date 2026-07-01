@@ -6,6 +6,7 @@ use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
 };
 use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
+use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
@@ -111,6 +112,7 @@ fn artifacts_with_runtime_config(
             no_progress: options.no_progress,
             progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
+            scan_backend: ScanBackendKind::PortableRecursive,
             exclude_paths: options.exclude_paths,
             output_contract: WorkflowOutputContract::v1(options.command, "inspect-artifacts"),
             human_renderer: render::purge::print_project_artifact_insight,

@@ -2,7 +2,7 @@
 title: "Scan Engine Strategy"
 status: "accepted"
 created: "2026-06-23"
-last_updated: "2026-06-29"
+last_updated: "2026-07-01"
 ---
 
 # Context
@@ -17,9 +17,11 @@ flowchart TD
   B -->|default| C[ScanEngine]
   C --> D[Cleanup traversal policy]
   D --> E[ignore walker adapter]
-  B -->|future adapter| F[NTFS USN/MFT fast path]
+  B -->|opt-in| F[Windows native directory adapter]
+  B -->|future adapter| H[NTFS USN/MFT fast path]
   E --> G[ScanReport + progress events]
   F --> G
+  H --> G
 ```
 
 # Decision
@@ -30,6 +32,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 - Disable search-style ignore filters for cleanup measurement: hidden entries, `.ignore`, `.gitignore`, git excludes, and global gitignore rules do not exclude measured files.
 - Keep symlink and reparse-point traversal disabled.
 - Keep bounded target-level parallelism through Rebecca's shared rayon scan pool.
+- Provide a Windows native directory enumeration backend as an explicit `clean --scan-backend windows-native` opt-in. It uses Windows find data to read entry attributes and file sizes during enumeration, keeps the same reparse protections, and falls back to portable scanning when unsupported.
 - Add NTFS/USN/MFT acceleration only as an optional, feature-gated path.
 - Restrict NTFS fast-path usage to analysis and size discovery, not as a requirement for core cleanup.
 
@@ -58,6 +61,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 - v1 can ship without NTFS internals.
 - Users get reliable behavior before exotic speedups.
 - Later performance work can happen behind a feature flag or internal adapter selection.
+- Windows users can dogfood a native directory backend without making it the default cleanup authority.
 - Benchmarks can compare default traversal against NTFS acceleration on representative datasets.
 - Search-tool ignore rules do not create cleanup-size undercounts.
 
@@ -67,7 +71,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 |--------|--------|-------------|
 | Default scan coverage | Matches expected cleanup target contents, including hidden and ignore-matched files | Integration tests |
 | Performance | Target-level bounded traversal remains stable and benchmarked | Benchmark suite |
-| Safety | NTFS path stays behind a feature flag | Build and code review |
+| Safety | Windows native and future NTFS paths stay opt-in and preserve reparse blocking | Build, code review, and scan backend tests |
 
 # Risks & Mitigations
 

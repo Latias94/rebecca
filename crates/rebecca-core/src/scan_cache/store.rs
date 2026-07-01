@@ -363,6 +363,31 @@ mod tests {
     }
 
     #[test]
+    fn scan_cache_round_trips_exact_native_backend_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file.bin"), b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 1,
+        };
+
+        let record = store
+            .store_measured_scan(
+                &root,
+                crate::scan::MeasuredScan::exact(report, ScanBackendKind::WindowsNative),
+            )
+            .unwrap();
+        let lookup = store.load(&root);
+
+        assert_eq!(record.backend, ScanBackendKind::WindowsNative);
+        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+    }
+
+    #[test]
     fn scan_cache_writes_compact_v2_records_with_identity_metadata() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("target.txt");

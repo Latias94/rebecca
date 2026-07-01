@@ -12,6 +12,7 @@ use rebecca::core::planner::{
     PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
 };
 use rebecca::core::protection::ProtectionPolicy;
+use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
 
@@ -32,6 +33,7 @@ pub struct CleanOptions {
     pub no_progress: bool,
     pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
+    pub scan_backend: ScanBackendKind,
     pub categories: Vec<String>,
     pub rules: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
@@ -48,6 +50,7 @@ pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) no_progress: bool,
     pub(crate) progress_detail: ProgressDetail,
     pub(crate) scan_cache: bool,
+    pub(crate) scan_backend: ScanBackendKind,
     pub(crate) exclude_paths: Vec<PathBuf>,
     pub(crate) output_contract: WorkflowOutputContract,
     pub(crate) human_renderer: HumanPlanRenderer,
@@ -106,6 +109,7 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
             no_progress: options.no_progress,
             progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
+            scan_backend: options.scan_backend,
             exclude_paths: options.exclude_paths,
             output_contract: WorkflowOutputContract::v1("clean", "cleanup-plan"),
             human_renderer: render::clean::print_plan,
@@ -148,6 +152,7 @@ pub(crate) fn run_workflow_with_runtime_config(
         .scan_cache
         .then(|| ScanCacheStore::from_app_paths(&runtime_config.app_paths));
     let mut context = PlanBuildContext::new(cancellation)
+        .with_scan_backend(options.scan_backend)
         .with_safety_knowledge(&safety_knowledge)
         .with_protected_storage(&protected_storage);
     if !protected_paths.is_empty() {

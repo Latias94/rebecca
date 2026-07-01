@@ -135,6 +135,39 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
 }
 
 #[test]
+fn clean_dry_run_accepts_windows_native_scan_backend() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    fs::create_dir_all(&temp_cache).unwrap();
+    fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--category",
+            "system",
+            "--scan-backend",
+            "windows-native",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["request"]["mode"], "dry-run");
+    assert!(value["summary"]["allowed_targets"].as_u64().unwrap() >= 1);
+}
+
+#[test]
 fn clean_defaults_to_preview_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
     let temp_cache = temp.path().join("temp");
@@ -801,6 +834,8 @@ fn clean_help_lists_scan_cache_opt_out() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("--scan-cache"));
     assert!(stdout.contains("--no-scan-cache"));
+    assert!(stdout.contains("--scan-backend"));
+    assert!(stdout.contains("windows-native"));
 }
 
 #[test]

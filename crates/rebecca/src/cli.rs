@@ -44,6 +44,22 @@ impl ProgressDetail {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum ScanBackendArg {
+    #[default]
+    PortableRecursive,
+    WindowsNative,
+}
+
+impl From<ScanBackendArg> for rebecca::core::scan::ScanBackendKind {
+    fn from(value: ScanBackendArg) -> Self {
+        match value {
+            ScanBackendArg::PortableRecursive => Self::PortableRecursive,
+            ScanBackendArg::WindowsNative => Self::WindowsNative,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CatalogKindArg {
     CleanupRule,
@@ -286,6 +302,9 @@ pub struct CleanupExecutionArgs {
     /// Disable the rebuildable scan cache for preview estimates.
     #[arg(long, conflicts_with = "scan_cache")]
     pub no_scan_cache: bool,
+    /// Select the scan backend used for cleanup plan estimates.
+    #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
+    pub scan_backend: ScanBackendArg,
     /// Exclude a path from cleanup for this run. Can be repeated.
     #[arg(long = "exclude", value_name = "PATH")]
     pub exclude_paths: Vec<PathBuf>,

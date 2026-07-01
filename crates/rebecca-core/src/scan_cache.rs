@@ -99,7 +99,6 @@ impl ScanCacheRecord {
     ) -> Option<ScanCacheMiss> {
         if self.version != SCAN_CACHE_VERSION
             || self.root != root
-            || self.backend != ScanBackendKind::PortableRecursive
             || self.confidence != ScanEstimateConfidence::Exact
             || !self.fingerprint.matches_current(&snapshot.fingerprint)
             || !self.identity.matches_current(&snapshot.identity)

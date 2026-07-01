@@ -1,6 +1,8 @@
 mod backend;
 mod portable;
 mod progress;
+#[cfg(windows)]
+mod windows_native;
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -15,6 +17,8 @@ pub use backend::{
 };
 pub use portable::PortableRecursiveScanBackend;
 pub use progress::{ScanCancellationToken, ScanProgressEvent};
+#[cfg(windows)]
+pub use windows_native::WindowsNativeDirectoryScanBackend;
 
 use crate::error::Result;
 use crate::model::DeleteMode;
@@ -80,8 +84,52 @@ impl ScanEngine {
     where
         F: for<'a> FnMut(ScanProgressEvent<'a>),
     {
-        PortableRecursiveScanBackend
-            .measure_path_with_progress(ScanRequest::new(path, cancellation), progress)
+        self.measure_scan_with_backend(
+            path,
+            cancellation,
+            ScanBackendKind::PortableRecursive,
+            progress,
+        )
+    }
+
+    pub fn measure_scan_with_backend<F>(
+        &self,
+        path: &Path,
+        cancellation: &ScanCancellationToken,
+        backend: ScanBackendKind,
+        progress: F,
+    ) -> Result<MeasuredScan>
+    where
+        F: for<'a> FnMut(ScanProgressEvent<'a>),
+    {
+        let request = ScanRequest::new(path, cancellation);
+        match backend {
+            ScanBackendKind::PortableRecursive => {
+                PortableRecursiveScanBackend.measure_path_with_progress(request, progress)
+            }
+            ScanBackendKind::WindowsNative => {
+                self.measure_windows_native_with_portable_fallback(request, progress)
+            }
+        }
+    }
+
+    fn measure_windows_native_with_portable_fallback<F>(
+        &self,
+        request: ScanRequest<'_>,
+        progress: F,
+    ) -> Result<MeasuredScan>
+    where
+        F: for<'a> FnMut(ScanProgressEvent<'a>),
+    {
+        let mut progress = progress;
+
+        match measure_windows_native(request, |event| progress(event)) {
+            Ok(measured) => Ok(measured),
+            Err(err) if scan_error_can_fallback(&err) => PortableRecursiveScanBackend
+                .measure_path_with_progress(request, progress)
+                .map(|measured| measured.with_fallback_reason(format!("windows-native: {err}"))),
+            Err(err) => Err(err),
+        }
     }
 
     pub fn measure_target(&self, target: ScanTargetRequest) -> CleanupTarget {
@@ -160,6 +208,33 @@ impl ScanTargetRequest {
             mode,
         }
     }
+}
+
+fn scan_error_can_fallback(err: &crate::error::RebeccaError) -> bool {
+    matches!(
+        err,
+        crate::error::RebeccaError::PlatformUnavailable(_)
+            | crate::error::RebeccaError::ScanFailed(_)
+    )
+}
+
+#[cfg(windows)]
+fn measure_windows_native<F>(request: ScanRequest<'_>, progress: F) -> Result<MeasuredScan>
+where
+    F: for<'a> FnMut(ScanProgressEvent<'a>),
+{
+    WindowsNativeDirectoryScanBackend.measure_path_with_progress(request, progress)
+}
+
+#[cfg(not(windows))]
+fn measure_windows_native<F>(_request: ScanRequest<'_>, _progress: F) -> Result<MeasuredScan>
+where
+    F: for<'a> FnMut(ScanProgressEvent<'a>),
+{
+    Err(crate::error::RebeccaError::PlatformUnavailable(format!(
+        "{} scan backend is only available on Windows",
+        ScanBackendKind::WindowsNative.label()
+    )))
 }
 
 pub fn scan_parallelism_budget() -> usize {

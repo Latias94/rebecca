@@ -13,7 +13,9 @@ use rebecca_core::planner::{
     PlanProgressEvent, build_cleanup_plan, build_cleanup_plan_with_progress,
 };
 use rebecca_core::protection::ProtectionPolicy;
-use rebecca_core::scan::{ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest};
+use rebecca_core::scan::{
+    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest,
+};
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCacheStore};
 use rebecca_core::{
     DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
@@ -33,6 +35,15 @@ const BYTES_PER_FILE: usize = 128;
 const SCENARIOS: &[ScenarioMetadata] = &[
     ScenarioMetadata::scan(
         "many_small_cold_scan_1024_files",
+        "many-small",
+        1024,
+        33,
+        131_072,
+        0,
+    ),
+    ScenarioMetadata::scan_backend(
+        "many_small_windows_native_scan_1024_files",
+        "windows-native-selected",
         "many-small",
         1024,
         33,
@@ -159,6 +170,28 @@ fn perf_matrix(criterion: &mut Criterion) {
                 .expect("scan should succeed");
             assert_report(report, expected);
             black_box(report);
+        });
+    });
+
+    group.bench_function("many_small_windows_native_scan_1024_files", |bencher| {
+        let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
+        let expected = create_many_small_fixture(fixture.path());
+
+        bencher.iter(|| {
+            let measured = ScanEngine::new()
+                .measure_scan_with_backend(
+                    black_box(fixture.path()),
+                    &ScanCancellationToken::new(),
+                    ScanBackendKind::WindowsNative,
+                    |_| {},
+                )
+                .expect("scan should succeed");
+            assert_report(measured.report, expected);
+            #[cfg(windows)]
+            assert_eq!(measured.backend, ScanBackendKind::WindowsNative);
+            #[cfg(not(windows))]
+            assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+            black_box(measured);
         });
     });
 
@@ -509,6 +542,30 @@ impl ScenarioMetadata {
             scenario,
             operation: "scan",
             backend: "portable-recursive",
+            fixture,
+            physical_files,
+            physical_directories,
+            expected_bytes,
+            progress_events,
+            target_count: 1,
+            cache_mode: "disabled",
+            delete_mode: "none",
+        }
+    }
+
+    const fn scan_backend(
+        scenario: &'static str,
+        backend: &'static str,
+        fixture: &'static str,
+        physical_files: u64,
+        physical_directories: u64,
+        expected_bytes: u64,
+        progress_events: u64,
+    ) -> Self {
+        Self {
+            scenario,
+            operation: "scan",
+            backend,
             fixture,
             physical_files,
             physical_directories,

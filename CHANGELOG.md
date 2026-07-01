@@ -31,6 +31,8 @@ All notable changes to Rebecca will be documented in this file.
 - The core performance matrix now includes an ordinary-rule planning benchmark for many directory targets.
 - Scan-cache records now use a compact v2 format with scan backend, estimate confidence, optional filesystem identity fields, and future USN checkpoint placeholders.
 - Cleanup execution backends can now receive revalidated, non-overlapping safe batches while still returning per-target outcomes.
+- `clean --scan-backend windows-native` now opts into a Windows native directory enumeration backend for cleanup plan estimates, with portable fallback when the native path is unsupported.
+- The core performance matrix now includes a Windows native scan selection scenario for many-small-file fixtures.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.
@@ -50,6 +52,7 @@ All notable changes to Rebecca will be documented in this file.
 - Scan traversal now reuses walker entry type information where possible while preserving root metadata checks and reparse-point protection.
 - `history --limit` now loads only the bounded tail of non-empty history records before building the history projection.
 - Scan-cache writes now use atomic replacement without strict file sync on the default hot path; strict sync remains available as an internal policy option.
+- Scan-cache lookups now accept exact v2 records produced by either the portable recursive scanner or the Windows native directory scanner when root fingerprint and identity still match.
 - Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
 
 ### Breaking

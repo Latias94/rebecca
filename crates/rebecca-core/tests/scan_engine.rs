@@ -53,6 +53,155 @@ fn measured_scan_reports_portable_backend_metadata() {
 }
 
 #[test]
+fn backend_selection_can_force_portable_backend() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+
+    let measured = ScanEngine::new()
+        .measure_scan_with_backend(
+            temp.path(),
+            &ScanCancellationToken::new(),
+            ScanBackendKind::PortableRecursive,
+            |_| {},
+        )
+        .unwrap();
+
+    assert_eq!(measured.report.bytes_scanned, 4);
+    assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+    assert_eq!(measured.fallback_reason, None);
+}
+
+#[test]
+fn windows_native_selection_falls_back_to_portable_when_unavailable() {
+    #[cfg(windows)]
+    {
+        let current_dir = std::env::current_dir().unwrap();
+        let temp = tempfile::tempdir_in(&current_dir).unwrap();
+        fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+        let relative_path = temp.path().strip_prefix(&current_dir).unwrap();
+
+        let measured = ScanEngine::new()
+            .measure_scan_with_backend(
+                relative_path,
+                &ScanCancellationToken::new(),
+                ScanBackendKind::WindowsNative,
+                |_| {},
+            )
+            .unwrap();
+
+        assert_eq!(measured.report.bytes_scanned, 4);
+        assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+        assert!(
+            measured
+                .fallback_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("absolute local path"))
+        );
+    }
+
+    #[cfg(not(windows))]
+    {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+
+        let measured = ScanEngine::new()
+            .measure_scan_with_backend(
+                temp.path(),
+                &ScanCancellationToken::new(),
+                ScanBackendKind::WindowsNative,
+                |_| {},
+            )
+            .unwrap();
+
+        assert_eq!(measured.report.bytes_scanned, 4);
+        assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+        assert!(
+            measured
+                .fallback_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("only available on Windows"))
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_native_backend_matches_portable_fixture_tree() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+    fs::create_dir(temp.path().join("nested")).unwrap();
+    fs::write(temp.path().join("nested").join("b.txt"), b"ef").unwrap();
+
+    let engine = ScanEngine::new();
+    let portable = engine.measure_scan(temp.path()).unwrap();
+    let mut progress_events = 0_u64;
+    let native = engine
+        .measure_scan_with_backend(
+            temp.path(),
+            &ScanCancellationToken::new(),
+            ScanBackendKind::WindowsNative,
+            |event| match event {
+                ScanProgressEvent::FileMeasured { .. } => {
+                    progress_events = progress_events.saturating_add(1);
+                }
+            },
+        )
+        .unwrap();
+
+    assert_eq!(native.report, portable.report);
+    assert_eq!(native.backend, ScanBackendKind::WindowsNative);
+    assert_eq!(native.fallback_reason, None);
+    assert_eq!(progress_events, native.report.files_scanned);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_native_backend_skips_child_reparse_paths_like_portable() {
+    use std::os::windows::fs::symlink_dir;
+
+    let temp = tempfile::tempdir().unwrap();
+    let real = temp.path().join("real");
+    let link = temp.path().join("link");
+    fs::create_dir(&real).unwrap();
+    fs::write(real.join("a.txt"), b"abcd").unwrap();
+
+    if symlink_dir(&real, &link).is_err() {
+        return;
+    }
+
+    let engine = ScanEngine::new();
+    let portable = engine.measure_scan(temp.path()).unwrap();
+    let native = engine
+        .measure_scan_with_backend(
+            temp.path(),
+            &ScanCancellationToken::new(),
+            ScanBackendKind::WindowsNative,
+            |_| {},
+        )
+        .unwrap();
+
+    assert_eq!(native.report, portable.report);
+    assert_eq!(native.report.bytes_scanned, 4);
+    assert_eq!(native.report.files_scanned, 1);
+    assert_eq!(native.report.directories_scanned, 2);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_native_backend_preserves_cancelled_scan_error() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+
+    let token = ScanCancellationToken::new();
+    token.cancel();
+    let err = ScanEngine::new()
+        .measure_scan_with_backend(temp.path(), &token, ScanBackendKind::WindowsNative, |_| {})
+        .unwrap_err();
+
+    assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+}
+
+#[test]
 fn measurement_counts_entries_ignored_by_gitignore() {
     let temp = tempfile::tempdir().unwrap();
     fs::create_dir(temp.path().join(".git")).unwrap();

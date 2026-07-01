@@ -401,10 +401,14 @@ where
         }
     }
 
-    let measured_scan =
-        ScanEngine::new().measure_scan_with_progress(path, context.cancellation(), |event| {
+    let measured_scan = ScanEngine::new().measure_scan_with_backend(
+        path,
+        context.cancellation(),
+        context.scan_backend(),
+        |event| {
             progress(PathMeasureProgressEvent::Scan(event));
-        })?;
+        },
+    )?;
     let report = measured_scan.report;
 
     if cacheable_target

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::load_runtime_config;
+use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
 use crate::clean::{
@@ -76,6 +77,7 @@ pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> R
             no_progress: options.no_progress,
             progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
+            scan_backend: ScanBackendKind::PortableRecursive,
             exclude_paths: options.exclude_paths,
             output_contract: WorkflowOutputContract::v1("purge", "project-artifact-cleanup-plan"),
             human_renderer: render::purge::print_plan,

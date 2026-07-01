@@ -231,6 +231,7 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
                 execution.scan_cache,
                 execution.no_scan_cache,
             ),
+            scan_backend: execution.scan_backend.into(),
             categories: selection.categories,
             rules: selection.rules,
             exclude_paths: execution.exclude_paths,

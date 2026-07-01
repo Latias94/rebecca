@@ -19,6 +19,7 @@ The script runs `cargo bench -p rebecca-core --bench perf_matrix`, reads Criteri
 The report records scenario name, operation, backend, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, and Criterion mean/median timing estimates. The default scenarios cover:
 
 - cold recursive scan over many small files
+- Windows native directory scan selection over many small files
 - recursive scan with file-level progress callbacks
 - one large flat directory
 - a deep directory tree

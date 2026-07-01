@@ -142,7 +142,9 @@ fields such as volume serial, file id, and future USN checkpoint data. Rebecca
 uses atomic replacement for cache writes and keeps strict file sync as an
 internal policy option rather than the default hot-path behavior. Stale,
 expired, corrupted, or unsupported cache files are pruned on lookup and rebuilt
-when needed. The scan cache must not be treated as durable history.
+when needed. Exact records from the portable and Windows native directory
+backends can be reused when the root fingerprint and filesystem identity still
+match. The scan cache must not be treated as durable history.
 
 ## Cache Purge Boundary
 

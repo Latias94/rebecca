@@ -10,12 +10,14 @@ use super::{ScanCancellationToken, ScanProgressEvent, ScanReport};
 #[serde(rename_all = "kebab-case")]
 pub enum ScanBackendKind {
     PortableRecursive,
+    WindowsNative,
 }
 
 impl ScanBackendKind {
     pub const fn label(self) -> &'static str {
         match self {
             Self::PortableRecursive => "portable-recursive",
+            Self::WindowsNative => "windows-native",
         }
     }
 }
@@ -60,6 +62,11 @@ impl MeasuredScan {
             fallback_reason: None,
             caveats: Vec::new(),
         }
+    }
+
+    pub(crate) fn with_fallback_reason(mut self, reason: impl Into<String>) -> Self {
+        self.fallback_reason = Some(reason.into());
+        self
     }
 }
 
