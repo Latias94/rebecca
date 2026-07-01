@@ -244,12 +244,10 @@ Current limitations:
 ## Dry Run, History, And Audit Data
 
 Dry-run is the primary operator contract. Cleanup execution, purge execution,
-history, config, cache, and doctor machine output use the versioned
-`rebecca.cli.v1` API envelope documented in `docs/api/cli/v1/`. Read-only
-cleanup-intelligence output uses `rebecca.cli.v2` under `docs/api/cli/v2/` for
-`catalog`, `inspect space`, `inspect artifacts`, and `inspect lint`. Breaking
-machine-output changes require a new CLI API version or an explicit pre-release
-contract migration.
+history, config, cache, doctor, catalog, and inspect machine output use the
+versioned `rebecca.cli.v1` API envelope documented in `docs/api/cli/v1/`.
+Breaking machine-output changes after release require a new CLI API version or
+an explicit pre-release contract migration.
 
 `rebecca catalog` is the canonical audit surface for cleanup rules, project
 artifact policies, warning gates, safety categories, and action kinds. Older
@@ -345,9 +343,9 @@ Focused coverage currently includes:
   reference/protected keep candidates, large and empty file reporting, empty
   directory ordering, and exclude behavior.
 - `crates/rebecca/tests/cli_catalog.rs` and `cli_inspect.rs` for unified
-  catalog filters, v2 inspect payloads, read-only history boundaries, and
+  catalog filters, inspect payloads, read-only history boundaries, and
   canonical inspect command behavior.
-- `crates/rebecca/tests/cli_api.rs` for v1/v2 schema parseability and
+- `crates/rebecca/tests/cli_api.rs` for v1 schema parseability and
   representative JSON example validation.
 
 Recent targeted verification for this audit baseline:

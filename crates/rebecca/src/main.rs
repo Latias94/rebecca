@@ -84,6 +84,7 @@ fn run() -> Result<()> {
         Command::Apps { command } => match command {
             AppsCommand::Scan {
                 no_progress,
+                progress_detail,
                 scan_cache,
                 no_scan_cache,
                 exclude_paths,
@@ -91,6 +92,7 @@ fn run() -> Result<()> {
                 apps::AppsScanOptions {
                     output_mode: cli.format,
                     no_progress,
+                    progress_detail,
                     scan_cache: effective_scan_cache(true, scan_cache, no_scan_cache),
                     exclude_paths,
                 },
@@ -100,6 +102,7 @@ fn run() -> Result<()> {
                 dry_run,
                 yes,
                 no_progress,
+                progress_detail,
                 scan_cache,
                 no_scan_cache,
                 exclude_paths,
@@ -109,6 +112,7 @@ fn run() -> Result<()> {
                     output_mode: cli.format,
                     yes,
                     no_progress,
+                    progress_detail,
                     scan_cache: effective_scan_cache(
                         workflow_is_dry_run(dry_run, yes),
                         scan_cache,
@@ -150,6 +154,7 @@ fn run_inspect(
             inspect::InspectArtifactsOptions {
                 output_mode: global_mode,
                 no_progress: args.no_progress,
+                progress_detail: args.progress_detail,
                 scan_cache: args.scan_cache,
                 roots: args.roots,
                 max_depth: args.max_depth,
@@ -220,6 +225,7 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             output_mode: global_mode,
             yes,
             no_progress: execution.no_progress,
+            progress_detail: execution.progress_detail,
             scan_cache: effective_scan_cache(
                 is_dry_run,
                 execution.scan_cache,
@@ -242,6 +248,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
         dry_run,
         yes,
         no_progress,
+        progress_detail,
         scan_cache,
         no_scan_cache,
         list_artifacts,
@@ -258,6 +265,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             purge::PurgeInspectOptions {
                 output_mode: global_mode,
                 no_progress: args.no_progress,
+                progress_detail: args.progress_detail,
                 scan_cache: args.scan_cache,
                 roots: args.roots,
                 max_depth: args.max_depth,
@@ -276,6 +284,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             output_mode: global_mode,
             yes,
             no_progress,
+            progress_detail,
             scan_cache: effective_scan_cache(
                 workflow_is_dry_run(dry_run, yes),
                 scan_cache,
@@ -331,25 +340,25 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
     match command {
         Command::Catalog(args) => {
             if matches!(args.command.as_ref(), Some(CatalogCommand::Validate)) {
-                output::CliApiContract::v2("catalog validate", "catalog-validation")
+                output::CliApiContract::v1("catalog validate", "catalog-validation")
             } else {
-                output::CliApiContract::v2("catalog", "catalog")
+                output::CliApiContract::v1("catalog", "catalog")
             }
         }
         Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),
         Command::Clean(_) => output::CliApiContract::v1("clean", "cleanup-plan"),
         Command::Inspect { command } => match command {
             InspectCommand::Space(_) => {
-                output::CliApiContract::v2("inspect space", "inspect-space")
+                output::CliApiContract::v1("inspect space", "inspect-space")
             }
             InspectCommand::Artifacts(_) => {
-                output::CliApiContract::v2("inspect artifacts", "inspect-artifacts")
+                output::CliApiContract::v1("inspect artifacts", "inspect-artifacts")
             }
-            InspectCommand::Lint(_) => output::CliApiContract::v2("inspect lint", "inspect-lint"),
+            InspectCommand::Lint(_) => output::CliApiContract::v1("inspect lint", "inspect-lint"),
         },
         Command::Purge(args) => {
             if matches!(args.command, Some(PurgeCommand::Inspect(_))) {
-                output::CliApiContract::v2("purge inspect", "inspect-artifacts")
+                output::CliApiContract::v1("purge inspect", "inspect-artifacts")
             } else if args.list_artifacts {
                 output::CliApiContract::v1("purge", "project-artifact-catalog")
             } else {

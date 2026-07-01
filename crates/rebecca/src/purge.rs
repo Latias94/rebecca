@@ -7,7 +7,7 @@ use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 use crate::clean::{
     ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
 };
-use crate::cli::OutputMode;
+use crate::cli::{OutputMode, ProgressDetail};
 use crate::inspect;
 use crate::output::WorkflowOutputContract;
 use crate::purge_view::project_artifact_catalog_entries;
@@ -20,6 +20,7 @@ pub struct PurgeOptions {
     pub output_mode: OutputMode,
     pub yes: bool,
     pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub list_artifacts: bool,
     pub roots: Vec<PathBuf>,
@@ -34,6 +35,7 @@ pub struct PurgeOptions {
 pub struct PurgeInspectOptions {
     pub output_mode: OutputMode,
     pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub roots: Vec<PathBuf>,
     pub max_depth: Option<usize>,
@@ -72,6 +74,7 @@ pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> R
             output_mode: options.output_mode,
             yes: options.yes,
             no_progress: options.no_progress,
+            progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
             output_contract: WorkflowOutputContract::v1("purge", "project-artifact-cleanup-plan"),
@@ -94,6 +97,7 @@ pub(crate) fn inspect_with_runtime(
         inspect::InspectArtifactsOptions {
             output_mode: options.output_mode,
             no_progress: options.no_progress,
+            progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
             roots: options.roots,
             max_depth: options.max_depth,

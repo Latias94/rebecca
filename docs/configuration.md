@@ -255,7 +255,7 @@ Rebecca only includes `vendor` with a sibling `composer.json`, and only includes
 Project artifact metadata is governed by the Rust policy matrix in
 `rebecca-core`, not ad hoc CLI strings. Each artifact has stable aliases,
 default age behavior, trim eligibility, deletion style, and ranking metadata.
-CLI output and API v2 catalog data are generated from that policy so selectors,
+CLI output and API catalog data are generated from that policy so selectors,
 human labels, and documentation stay aligned.
 
 `inspect lint` is intentionally outside the purge/delete boundary. It scans

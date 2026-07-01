@@ -55,7 +55,7 @@ pub fn run(options: CatalogOptions) -> Result<()> {
     validate_catalog_selection(&filtered, &options)?;
 
     crate::output::print_command_success_with_contract(
-        CliApiContract::v2("catalog", "catalog"),
+        CliApiContract::v1("catalog", "catalog"),
         options.output_mode,
         || &filtered,
         || {
@@ -71,7 +71,7 @@ pub fn validate(output_mode: OutputMode) -> Result<()> {
     let report = validation_report(&rules, &safety_knowledge);
 
     crate::output::print_command_success_with_contract(
-        CliApiContract::v2("catalog validate", "catalog-validation"),
+        CliApiContract::v1("catalog validate", "catalog-validation"),
         output_mode,
         || &report,
         || {

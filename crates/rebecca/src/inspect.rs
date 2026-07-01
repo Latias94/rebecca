@@ -13,7 +13,7 @@ use crate::clean::{
     ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
 };
 use crate::clean_view::ScanCacheProgressSummary;
-use crate::cli::OutputMode;
+use crate::cli::{OutputMode, ProgressDetail};
 use crate::output::{
     CliApiContract, HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
     print_command_success_with_contract, print_workflow_success_payload,
@@ -36,6 +36,7 @@ pub struct InspectSpaceOptions {
 pub struct InspectArtifactsOptions {
     pub output_mode: OutputMode,
     pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub roots: Vec<PathBuf>,
     pub max_depth: Option<usize>,
@@ -70,7 +71,7 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
 
     let report = inspect_space_core(&request, runtime.cancellation())?;
     print_command_success_with_contract(
-        CliApiContract::v2("inspect space", "inspect-space"),
+        CliApiContract::v1("inspect space", "inspect-space"),
         options.output_mode,
         || &report,
         || render::inspect::print_space_report(&report),
@@ -108,9 +109,10 @@ fn artifacts_with_runtime_config(
             output_mode: options.output_mode,
             yes: false,
             no_progress: options.no_progress,
+            progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
-            output_contract: WorkflowOutputContract::v2(options.command, "inspect-artifacts"),
+            output_contract: WorkflowOutputContract::v1(options.command, "inspect-artifacts"),
             human_renderer: render::purge::print_project_artifact_insight,
             success_renderer: print_project_artifact_insight_with_events,
             cancellation_message: "Project artifact inspection cancelled.",
@@ -147,7 +149,7 @@ pub(crate) fn lint_with_runtime(options: InspectLintOptions, runtime: &CliRuntim
     let report = inspect_lint_core(&request, runtime.cancellation())?;
 
     print_command_success_with_contract(
-        CliApiContract::v2("inspect lint", "inspect-lint"),
+        CliApiContract::v1("inspect lint", "inspect-lint"),
         options.output_mode,
         || &report,
         || render::inspect::print_lint_report(&report),

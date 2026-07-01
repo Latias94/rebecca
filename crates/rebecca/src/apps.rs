@@ -4,7 +4,7 @@ use anyhow::Result;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
 use crate::clean::{ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow};
-use crate::cli::OutputMode;
+use crate::cli::{OutputMode, ProgressDetail};
 use crate::output::WorkflowOutputContract;
 use crate::render;
 use crate::runtime::CliRuntime;
@@ -13,6 +13,7 @@ use crate::runtime::CliRuntime;
 pub struct AppsScanOptions {
     pub output_mode: OutputMode,
     pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub exclude_paths: Vec<PathBuf>,
 }
@@ -23,6 +24,7 @@ pub struct AppsCleanOptions {
     pub output_mode: OutputMode,
     pub yes: bool,
     pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub exclude_paths: Vec<PathBuf>,
 }
@@ -38,6 +40,7 @@ pub(crate) fn scan_with_runtime(options: AppsScanOptions, runtime: &CliRuntime) 
             output_mode: options.output_mode,
             yes: false,
             no_progress: options.no_progress,
+            progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
             output_contract: WorkflowOutputContract::v1("apps scan", "app-leftovers-cleanup-plan"),
@@ -67,6 +70,7 @@ pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime
             output_mode: options.output_mode,
             yes: options.yes,
             no_progress: options.no_progress,
+            progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
             output_contract: WorkflowOutputContract::v1("apps clean", "app-leftovers-cleanup-plan"),

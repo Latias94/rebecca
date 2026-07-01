@@ -31,6 +31,19 @@ impl std::fmt::Display for OutputMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum ProgressDetail {
+    #[default]
+    Target,
+    File,
+}
+
+impl ProgressDetail {
+    pub(crate) fn includes_file_events(self) -> bool {
+        matches!(self, Self::File)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CatalogKindArg {
     CleanupRule,
@@ -170,6 +183,9 @@ pub struct InspectArtifactsArgs {
     /// Disable human progress output while building the insight report.
     #[arg(long)]
     pub no_progress: bool,
+    /// Select progress detail for supported NDJSON and human plan-building updates.
+    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+    pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
     #[arg(long)]
     pub scan_cache: bool,
@@ -261,6 +277,9 @@ pub struct CleanupExecutionArgs {
     /// Disable human progress output while building the cleanup plan.
     #[arg(long)]
     pub no_progress: bool,
+    /// Select progress detail for supported NDJSON and human plan-building updates.
+    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+    pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
     #[arg(long)]
     pub scan_cache: bool,
@@ -315,6 +334,9 @@ pub struct PurgeArgs {
     /// Disable human progress output while building the purge plan.
     #[arg(long)]
     pub no_progress: bool,
+    /// Select progress detail for supported NDJSON and human plan-building updates.
+    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+    pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
     #[arg(long)]
     pub scan_cache: bool,
@@ -355,6 +377,9 @@ pub struct PurgeInspectArgs {
     /// Disable human progress output while building the insight report.
     #[arg(long)]
     pub no_progress: bool,
+    /// Select progress detail for supported NDJSON and human plan-building updates.
+    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+    pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
     #[arg(long)]
     pub scan_cache: bool,
@@ -408,6 +433,9 @@ pub enum AppsCommand {
         /// Disable human progress output while building the app leftovers plan.
         #[arg(long)]
         no_progress: bool,
+        /// Select progress detail for supported NDJSON and human plan-building updates.
+        #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+        progress_detail: ProgressDetail,
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,
@@ -429,6 +457,9 @@ pub enum AppsCommand {
         /// Disable human progress output while building the app leftovers plan.
         #[arg(long)]
         no_progress: bool,
+        /// Select progress detail for supported NDJSON and human plan-building updates.
+        #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+        progress_detail: ProgressDetail,
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,

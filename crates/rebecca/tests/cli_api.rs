@@ -3,7 +3,6 @@ mod common;
 mod isolated;
 
 const API_DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api/cli/v1");
-const API_V2_DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api/cli/v2");
 
 fn parse_json(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).unwrap()
@@ -14,23 +13,8 @@ fn read_doc_json(relative: &str) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 
-fn read_v2_doc_json(relative: &str) -> serde_json::Value {
-    let path = std::path::Path::new(API_V2_DOCS).join(relative);
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-
 fn validator_for_payload_def(def_name: &str) -> jsonschema::Validator {
     let payloads = read_doc_json("payloads.schema.json");
-    let schema = serde_json::json!({
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": payloads["$defs"].clone(),
-        "$ref": format!("#/$defs/{def_name}"),
-    });
-    jsonschema::validator_for(&schema).unwrap()
-}
-
-fn validator_for_v2_payload_def(def_name: &str) -> jsonschema::Validator {
-    let payloads = read_v2_doc_json("payloads.schema.json");
     let schema = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": payloads["$defs"].clone(),
@@ -56,30 +40,8 @@ fn assert_success_schema(value: &serde_json::Value) {
     assert!(value.get("data").is_some());
 }
 
-fn assert_v2_success_schema(value: &serde_json::Value) {
-    assert_eq!(value["api_version"], "rebecca.cli.v2");
-    assert_eq!(value["kind"], "success");
-    assert!(
-        value["command"]
-            .as_str()
-            .is_some_and(|value| !value.is_empty())
-    );
-    assert!(
-        value["payload_kind"]
-            .as_str()
-            .is_some_and(|value| !value.is_empty())
-    );
-    assert!(value["generated_at_unix_seconds"].as_u64().is_some());
-    assert!(value.get("data").is_some());
-}
-
 fn assert_error_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
-    assert_error_shape(value);
-}
-
-fn assert_v2_error_schema(value: &serde_json::Value) {
-    assert_eq!(value["api_version"], "rebecca.cli.v2");
     assert_error_shape(value);
 }
 
@@ -115,11 +77,6 @@ fn assert_error_shape(value: &serde_json::Value) {
 
 fn assert_event_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
-    assert_event_shape(value);
-}
-
-fn assert_v2_event_schema(value: &serde_json::Value) {
-    assert_eq!(value["api_version"], "rebecca.cli.v2");
     assert_event_shape(value);
 }
 
@@ -229,7 +186,7 @@ fn clean_format_json_unknown_rule_returns_error_envelope_on_stderr() {
 }
 
 #[test]
-fn catalog_format_json_invalid_selector_returns_v2_error_envelope() {
+fn catalog_format_json_invalid_selector_returns_error_envelope() {
     let output = common::command::rebecca()
         .args([
             "catalog",
@@ -245,7 +202,7 @@ fn catalog_format_json_invalid_selector_returns_v2_error_envelope() {
     assert!(output.stdout.is_empty());
 
     let value = parse_json(&output.stderr);
-    assert_v2_error_schema(&value);
+    assert_error_schema(&value);
     assert_eq!(value["command"], "catalog");
     assert_eq!(value["error"]["code"], "invalid-catalog-selector");
     assert!(
@@ -335,6 +292,101 @@ fn clean_format_ndjson_emits_lifecycle_events() {
 }
 
 #[test]
+fn clean_format_ndjson_omits_file_measured_events_by_default() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    std::fs::create_dir_all(&temp_cache).unwrap();
+    for index in 0..8 {
+        std::fs::write(temp_cache.join(format!("cache-{index}.tmp")), b"cache").unwrap();
+    }
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("TEMP", &temp_cache)
+        .args([
+            "clean",
+            "--format",
+            "ndjson",
+            "--no-scan-cache",
+            "--rule",
+            "windows.user-temp",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event_kind"] == "target-finished")
+    );
+    assert!(events.last().unwrap()["event_kind"] == "completed");
+    assert!(
+        events
+            .iter()
+            .all(|event| event["event_kind"] != "file-measured"),
+        "default ndjson should not include file-level events: {stdout}"
+    );
+}
+
+#[test]
+fn clean_format_ndjson_file_progress_detail_emits_file_measured_events() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    std::fs::create_dir_all(&temp_cache).unwrap();
+    for index in 0..8 {
+        std::fs::write(temp_cache.join(format!("cache-{index}.tmp")), b"cache").unwrap();
+    }
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("TEMP", &temp_cache)
+        .args([
+            "clean",
+            "--format",
+            "ndjson",
+            "--progress-detail",
+            "file",
+            "--no-scan-cache",
+            "--rule",
+            "windows.user-temp",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let file_events = events
+        .iter()
+        .filter(|event| event["event_kind"] == "file-measured")
+        .count();
+
+    assert_eq!(
+        file_events, 8,
+        "verbose ndjson should include file events: {stdout}"
+    );
+    assert!(events.last().unwrap()["event_kind"] == "completed");
+}
+
+#[test]
 fn clean_format_ndjson_unknown_rule_terminates_with_error_event() {
     let temp = tempfile::tempdir().unwrap();
     let output = isolated::isolated_rebecca(&temp)
@@ -364,7 +416,7 @@ fn clean_format_ndjson_unknown_rule_terminates_with_error_event() {
 }
 
 #[test]
-fn inspect_artifacts_format_ndjson_invalid_root_returns_v2_error_event() {
+fn inspect_artifacts_format_ndjson_invalid_root_returns_error_event() {
     let temp = tempfile::tempdir().unwrap();
     let missing = temp.path().join("missing-workspace");
     let output = isolated::isolated_rebecca(&temp)
@@ -389,7 +441,7 @@ fn inspect_artifacts_format_ndjson_invalid_root_returns_v2_error_event() {
         .collect::<Vec<_>>();
 
     let error = events.last().unwrap();
-    assert_v2_event_schema(error);
+    assert_event_schema(error);
     assert_eq!(error["command"], "inspect artifacts");
     assert_eq!(error["event_kind"], "error");
     assert_eq!(error["error"]["code"], "invalid-purge-root");
@@ -482,38 +534,19 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
 }
 
 #[test]
-fn cli_api_v2_catalog_schema_documents_are_parseable() {
-    for relative in [
-        "envelope.schema.json",
-        "error.schema.json",
-        "event.schema.json",
-        "payloads.schema.json",
-    ] {
-        let schema = read_v2_doc_json(relative);
-        assert_eq!(
-            schema["$schema"],
-            "https://json-schema.org/draft/2020-12/schema"
-        );
-        assert!(schema["$id"].as_str().is_some());
-        assert!(schema["title"].as_str().is_some());
-    }
-
-    let payloads = read_v2_doc_json("payloads.schema.json");
+fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
+    let payloads = read_doc_json("payloads.schema.json");
     let payload_kinds = payloads["$defs"]["payloadKind"]["enum"]
         .as_array()
         .unwrap()
         .iter()
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(
-        payload_kinds,
-        [
-            "catalog",
-            "inspect-artifacts",
-            "inspect-lint",
-            "inspect-space"
-        ]
-    );
+    assert!(payload_kinds.contains(&"catalog"));
+    assert!(payload_kinds.contains(&"catalog-validation"));
+    assert!(payload_kinds.contains(&"inspect-artifacts"));
+    assert!(payload_kinds.contains(&"inspect-lint"));
+    assert!(payload_kinds.contains(&"inspect-space"));
 
     let catalog_item = &payloads["$defs"]["catalogItem"];
     assert_eq!(catalog_item["oneOf"].as_array().unwrap().len(), 5);
@@ -521,20 +554,20 @@ fn cli_api_v2_catalog_schema_documents_are_parseable() {
     assert_eq!(payloads["$defs"]["inspectArtifacts"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectLint"]["type"], "object");
 
-    let event = read_v2_doc_json("event.schema.json");
+    let event = read_doc_json("event.schema.json");
     assert_eq!(
         event["properties"]["api_version"]["const"],
-        "rebecca.cli.v2"
+        "rebecca.cli.v1"
     );
     assert_eq!(
         event["properties"]["payload_kind"]["$ref"],
         "payloads.schema.json#/$defs/payloadKind"
     );
 
-    let error = read_v2_doc_json("error.schema.json");
+    let error = read_doc_json("error.schema.json");
     assert_eq!(
         error["properties"]["api_version"]["const"],
-        "rebecca.cli.v2"
+        "rebecca.cli.v1"
     );
 }
 
@@ -572,43 +605,43 @@ fn cli_api_examples_match_documented_envelope_shapes() {
 }
 
 #[test]
-fn cli_api_v2_error_example_matches_documented_shape() {
-    let error = read_v2_doc_json("examples/error-invalid-warning.json");
-    assert_v2_error_schema(&error);
+fn cli_api_catalog_error_example_matches_documented_shape() {
+    let error = read_doc_json("examples/error-invalid-warning.json");
+    assert_error_schema(&error);
     assert_eq!(error["command"], "catalog");
     assert_eq!(error["error"]["code"], "invalid-catalog-selector");
 }
 
 #[test]
-fn cli_api_v2_catalog_example_validates_against_payload_schema() {
-    let example = read_v2_doc_json("examples/success-catalog.json");
-    assert_v2_success_schema(&example);
+fn cli_api_catalog_example_validates_against_payload_schema() {
+    let example = read_doc_json("examples/success-catalog.json");
+    assert_success_schema(&example);
     assert_eq!(example["payload_kind"], "catalog");
 
-    let validator = validator_for_v2_payload_def("catalog");
+    let validator = validator_for_payload_def("catalog");
     validator.validate(&example["data"]).unwrap();
 }
 
 #[test]
-fn cli_api_v2_inspect_examples_validate_against_payload_schema() {
-    let space = read_v2_doc_json("examples/success-inspect-space.json");
-    assert_v2_success_schema(&space);
+fn cli_api_inspect_examples_validate_against_payload_schema() {
+    let space = read_doc_json("examples/success-inspect-space.json");
+    assert_success_schema(&space);
     assert_eq!(space["payload_kind"], "inspect-space");
-    validator_for_v2_payload_def("inspectSpace")
+    validator_for_payload_def("inspectSpace")
         .validate(&space["data"])
         .unwrap();
 
-    let artifacts = read_v2_doc_json("examples/success-inspect-artifacts.json");
-    assert_v2_success_schema(&artifacts);
+    let artifacts = read_doc_json("examples/success-inspect-artifacts.json");
+    assert_success_schema(&artifacts);
     assert_eq!(artifacts["payload_kind"], "inspect-artifacts");
-    validator_for_v2_payload_def("inspectArtifacts")
+    validator_for_payload_def("inspectArtifacts")
         .validate(&artifacts["data"])
         .unwrap();
 
-    let lint = read_v2_doc_json("examples/success-inspect-lint.json");
-    assert_v2_success_schema(&lint);
+    let lint = read_doc_json("examples/success-inspect-lint.json");
+    assert_success_schema(&lint);
     assert_eq!(lint["payload_kind"], "inspect-lint");
-    validator_for_v2_payload_def("inspectLint")
+    validator_for_payload_def("inspectLint")
         .validate(&lint["data"])
         .unwrap();
 }

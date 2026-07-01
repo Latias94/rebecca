@@ -51,7 +51,7 @@ fn catalog_help_lists_validate_subcommand_without_hiding_filters() {
 }
 
 #[test]
-fn catalog_json_uses_v2_envelope_and_lists_warning_entries() {
+fn catalog_json_uses_v1_envelope_and_lists_warning_entries() {
     let output = common::command::rebecca()
         .args(["catalog", "--format", "json", "--kind", "warning"])
         .output()
@@ -64,7 +64,7 @@ fn catalog_json_uses_v2_envelope_and_lists_warning_entries() {
     );
 
     let envelope = catalog_envelope(&output.stdout);
-    assert_eq!(envelope["api_version"], "rebecca.cli.v2");
+    assert_eq!(envelope["api_version"], "rebecca.cli.v1");
     assert_eq!(envelope["command"], "catalog");
     assert_eq!(envelope["payload_kind"], "catalog");
 
@@ -114,7 +114,7 @@ fn catalog_validate_json_reports_machine_readable_health_summary() {
     );
 
     let envelope = catalog_envelope(&output.stdout);
-    assert_eq!(envelope["api_version"], "rebecca.cli.v2");
+    assert_eq!(envelope["api_version"], "rebecca.cli.v1");
     assert_eq!(envelope["command"], "catalog validate");
     assert_eq!(envelope["payload_kind"], "catalog-validation");
     assert_eq!(envelope["data"]["valid"], true);
@@ -223,7 +223,7 @@ fn catalog_invalid_selector_reports_machine_readable_error() {
     assert!(output.stdout.is_empty());
 
     let envelope: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
-    assert_eq!(envelope["api_version"], "rebecca.cli.v2");
+    assert_eq!(envelope["api_version"], "rebecca.cli.v1");
     assert_eq!(envelope["kind"], "error");
     assert_eq!(envelope["command"], "catalog");
     assert_eq!(envelope["error"]["code"], "invalid-catalog-selector");

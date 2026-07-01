@@ -425,7 +425,7 @@ fn purge_inspect_json_returns_read_only_project_artifact_insight() {
             .exists()
     );
 
-    let envelope = common::support::api_envelope_v2(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
     assert_eq!(envelope["command"], "purge inspect");
     assert_eq!(envelope["payload_kind"], "inspect-artifacts");
 
@@ -499,7 +499,7 @@ min_age_days = 0
         common::support::stderr(&output)
     );
 
-    let value: serde_json::Value = common::support::api_data_v2(&output.stdout);
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["total_targets"], 1);
     assert_eq!(value["summary"]["allowed_targets"], 0);
     assert_eq!(value["summary"]["blocked_targets"], 1);
@@ -613,12 +613,18 @@ fn purge_inspect_ndjson_uses_read_only_insight_payload() {
     assert!(
         events
             .iter()
-            .all(|event| event["api_version"] == "rebecca.cli.v2")
+            .all(|event| event["api_version"] == "rebecca.cli.v1")
     );
     assert!(
         events
             .iter()
             .all(|event| event["command"] == "purge inspect")
+    );
+    assert!(
+        events
+            .iter()
+            .all(|event| event["event_kind"] != "file-measured"),
+        "default ndjson should not include file-level events: {stdout}"
     );
     let completed = events.last().unwrap();
     assert_eq!(completed["event_kind"], "completed");
@@ -628,6 +634,56 @@ fn purge_inspect_ndjson_uses_read_only_insight_payload() {
         completed["data"]["top_targets"][0]["artifact"],
         "node_modules"
     );
+}
+
+#[test]
+fn purge_inspect_ndjson_file_progress_detail_keeps_artifact_progress_target_level() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let node_modules = workspace.join("app").join("node_modules");
+    for index in 0..4 {
+        write_fixture_file(node_modules.join(format!("pkg-{index}.bin")), b"abc");
+    }
+    write_node_project(workspace.join("app"));
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "inspect",
+            "--format",
+            "ndjson",
+            "--progress-detail",
+            "file",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["event_kind"] == "file-measured")
+            .count(),
+        0,
+        "project artifact insight should keep target-level progress: {stdout}"
+    );
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert_eq!(events.last().unwrap()["api_version"], "rebecca.cli.v1");
 }
 
 #[test]

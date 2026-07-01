@@ -12,7 +12,6 @@ use crate::cli::OutputMode;
 use crate::text::format_count;
 
 const API_VERSION_V1: &str = "rebecca.cli.v1";
-const API_VERSION_V2: &str = "rebecca.cli.v2";
 
 pub(crate) type HumanPlanRenderer =
     fn(&CleanupPlan, Option<ScanCacheProgressSummary>) -> Result<()>;
@@ -36,14 +35,6 @@ impl CliApiContract {
     pub(crate) const fn v1(command: &'static str, payload_kind: &'static str) -> Self {
         Self {
             api_version: API_VERSION_V1,
-            command,
-            payload_kind,
-        }
-    }
-
-    pub(crate) const fn v2(command: &'static str, payload_kind: &'static str) -> Self {
-        Self {
-            api_version: API_VERSION_V2,
             command,
             payload_kind,
         }

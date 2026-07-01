@@ -9,7 +9,9 @@ use rebecca_core::executor::{
     execute_cleanup_plan_with_policy,
 };
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle};
-use rebecca_core::planner::build_cleanup_plan;
+use rebecca_core::planner::{
+    PlanProgressEvent, build_cleanup_plan, build_cleanup_plan_with_progress,
+};
 use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::scan::{ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest};
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCacheStore};
@@ -84,6 +86,15 @@ const SCENARIOS: &[ScenarioMetadata] = &[
         33,
         131_072,
         32,
+    ),
+    ScenarioMetadata::rule_plan_progress(
+        "rule_plan_target_progress_32_dirs_1024_files",
+        "many-small-directories",
+        1024,
+        33,
+        131_072,
+        32,
+        64,
     ),
     ScenarioMetadata::cache(
         "scan_cache_miss_store_many_small_1024_files",
@@ -262,6 +273,36 @@ fn perf_matrix(criterion: &mut Criterion) {
                 assert_eq!(plan.summary.skipped_targets, 0);
                 assert_eq!(plan.summary.estimated_bytes, fixture.expected.bytes);
                 black_box((fixture, plan));
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.bench_function("rule_plan_target_progress_32_dirs_1024_files", |bencher| {
+        bencher.iter_batched(
+            create_rule_plan_fixture,
+            |fixture| {
+                let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+                let mut emitted_progress_events = 0_u64;
+                let plan = build_cleanup_plan_with_progress(
+                    black_box(&request),
+                    black_box(&fixture.rules),
+                    |event| {
+                        if !matches!(event, PlanProgressEvent::FileMeasured { .. }) {
+                            emitted_progress_events = emitted_progress_events.saturating_add(1);
+                        }
+                    },
+                )
+                .expect("rule plan should build");
+
+                assert_eq!(plan.summary.allowed_targets, MANY_SMALL_DIRECTORY_COUNT);
+                assert_eq!(plan.summary.skipped_targets, 0);
+                assert_eq!(plan.summary.estimated_bytes, fixture.expected.bytes);
+                assert_eq!(
+                    emitted_progress_events,
+                    (MANY_SMALL_DIRECTORY_COUNT * 2) as u64
+                );
+                black_box((fixture, plan, emitted_progress_events));
             },
             BatchSize::SmallInput,
         );
@@ -472,6 +513,30 @@ impl ScenarioMetadata {
             physical_directories,
             expected_bytes,
             progress_events: 0,
+            target_count,
+            cache_mode: "disabled",
+            delete_mode: "dry-run",
+        }
+    }
+
+    const fn rule_plan_progress(
+        scenario: &'static str,
+        fixture: &'static str,
+        physical_files: u64,
+        physical_directories: u64,
+        expected_bytes: u64,
+        target_count: u64,
+        progress_events: u64,
+    ) -> Self {
+        Self {
+            scenario,
+            operation: "rule-plan-progress",
+            backend: "portable-recursive",
+            fixture,
+            physical_files,
+            physical_directories,
+            expected_bytes,
+            progress_events,
             target_count,
             cache_mode: "disabled",
             delete_mode: "dry-run",

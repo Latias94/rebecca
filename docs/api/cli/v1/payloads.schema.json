@@ -10,14 +10,23 @@
         "active-process-diagnostic",
         "app-leftovers-cleanup-plan",
         "cache-purge-report",
+        "catalog",
+        "catalog-validation",
         "cleanup-plan",
         "config-paths",
         "history-list",
+        "inspect-artifacts",
+        "inspect-lint",
+        "inspect-space",
         "permissions-diagnostic",
         "project-artifact-catalog",
         "project-artifact-cleanup-plan",
         "rule-catalog"
       ]
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
     },
     "estimateSource": {
       "type": "string",
@@ -26,6 +35,27 @@
         "fresh-scan",
         "scan-cache",
         "not-measured"
+      ]
+    },
+    "inventoryEntryRole": {
+      "type": "string",
+      "enum": [
+        "scanned",
+        "reference",
+        "protected"
+      ]
+    },
+    "inventoryDiagnosticKind": {
+      "type": "string",
+      "enum": [
+        "root-missing",
+        "root-metadata-read-skipped",
+        "root-not-directory",
+        "reparse-point-skipped",
+        "directory-read-skipped",
+        "directory-entry-read-skipped",
+        "metadata-read-skipped",
+        "excluded"
       ]
     },
     "targetStatus": {
@@ -56,12 +86,9 @@
         "unclassified"
       ]
     },
-    "nonNegativeInteger": {
-      "type": "integer",
-      "minimum": 0
-    },
     "cleanupIssueSummary": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "status",
         "reason_code",
@@ -81,11 +108,11 @@
         "estimated_bytes": {
           "$ref": "#/$defs/nonNegativeInteger"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "cleanupWarningSummary": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "warning",
         "targets",
@@ -102,11 +129,11 @@
         "estimated_bytes": {
           "$ref": "#/$defs/nonNegativeInteger"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "cleanupSummary": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "total_targets",
         "allowed_targets",
@@ -160,11 +187,11 @@
             "$ref": "#/$defs/cleanupWarningSummary"
           }
         }
-      },
-      "additionalProperties": false
+      }
     },
     "activeProcessMatch": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "process_id",
         "executable_name",
@@ -190,11 +217,11 @@
             "minLength": 1
           }
         }
-      },
-      "additionalProperties": false
+      }
     },
     "activeProcessDiagnostic": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "platform",
         "platform_supported",
@@ -225,8 +252,815 @@
             "null"
           ]
         }
-      },
-      "additionalProperties": false
+      }
+    },
+    "catalogValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "rule_count",
+        "target_count",
+        "category_count",
+        "warning_count",
+        "safety_category_count",
+        "categories",
+        "checks"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "rule_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "target_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "category_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "warning_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "safety_category_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "catalogKind": {
+      "type": "string",
+      "enum": [
+        "cleanup-rule",
+        "project-artifact",
+        "warning",
+        "safety-category",
+        "action-kind"
+      ]
+    },
+    "safetyLevel": {
+      "type": "string",
+      "enum": [
+        "safe",
+        "moderate",
+        "risky",
+        "dangerous"
+      ]
+    },
+    "catalog": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/catalogItem"
+      }
+    },
+    "catalogItem": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/cleanupRuleCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/projectArtifactCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/warningCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/safetyCategoryCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/actionKindCatalogItem"
+        }
+      ]
+    },
+    "cleanupRuleCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "category",
+        "name",
+        "safety_level",
+        "restore_hint",
+        "warnings",
+        "targets"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cleanup-rule"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "restore_hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "projectArtifactCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "artifact",
+        "aliases",
+        "rule_id",
+        "rule_suffix",
+        "restore_hint",
+        "default_min_age_days",
+        "trim_eligible",
+        "deletion_style",
+        "ranking"
+      ],
+      "properties": {
+        "kind": {
+          "const": "project-artifact"
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_suffix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "restore_hint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default_min_age_days": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "trim_eligible": {
+          "type": "boolean"
+        },
+        "deletion_style": {
+          "type": "string",
+          "enum": [
+            "preserve-root-contents",
+            "delete-whole-path"
+          ]
+        },
+        "ranking": {
+          "type": "string",
+          "enum": [
+            "heavy-dependency-tree",
+            "build-output",
+            "tool-cache",
+            "test-output",
+            "tagged-cache"
+          ]
+        }
+      }
+    },
+    "warningCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "warning"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "safetyCategoryCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "safety-category"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "actionKindCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "action-kind"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "spaceInsightMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "estimated_bytes",
+        "files",
+        "directories"
+      ],
+      "properties": {
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "spaceInsightRootStatus": {
+      "type": "string",
+      "enum": [
+        "scanned",
+        "skipped"
+      ]
+    },
+    "spaceInsightEntryKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "directory",
+        "other"
+      ]
+    },
+    "spaceInsightDiagnosticKind": {
+      "type": "string",
+      "enum": [
+        "root-missing",
+        "root-metadata-read-skipped",
+        "root-not-directory",
+        "reparse-point-skipped",
+        "directory-read-skipped",
+        "directory-entry-read-skipped",
+        "metadata-read-skipped",
+        "scan-failed"
+      ]
+    },
+    "spaceInsightRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "metrics"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/spaceInsightRootStatus"
+        },
+        "metrics": {
+          "$ref": "#/$defs/spaceInsightMetrics"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "spaceInsightEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "kind",
+        "estimated_bytes",
+        "files",
+        "directories",
+        "estimate_source"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/spaceInsightEntryKind"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        }
+      }
+    },
+    "spaceInsightDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/spaceInsightDiagnosticKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "inspectSpace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "totals",
+        "top_entries",
+        "diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightRoot"
+          }
+        },
+        "totals": {
+          "$ref": "#/$defs/spaceInsightMetrics"
+        },
+        "top_entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightDiagnostic"
+          }
+        }
+      }
+    },
+    "lintReportSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files_scanned",
+        "directories_scanned",
+        "duplicate_groups",
+        "duplicate_files",
+        "large_files",
+        "empty_files",
+        "empty_directories",
+        "conservative_reclaim_bytes"
+      ],
+      "properties": {
+        "files_scanned": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories_scanned": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "duplicate_groups": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "duplicate_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "large_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "empty_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "empty_directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conservative_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "lintFileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "size_bytes",
+        "modified_at_unix_seconds",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "modified_at_unix_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "role": {
+          "$ref": "#/$defs/inventoryEntryRole"
+        }
+      }
+    },
+    "lintDirectoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "depth",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "role": {
+          "$ref": "#/$defs/inventoryEntryRole"
+        }
+      }
+    },
+    "duplicateFileGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size_bytes",
+        "total_files",
+        "keep_candidates",
+        "conservative_reclaim_bytes",
+        "hash",
+        "files"
+      ],
+      "properties": {
+        "size_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "total_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "keep_candidates": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conservative_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        }
+      }
+    },
+    "inventoryDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/inventoryDiagnosticKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "inspectLint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "reference_roots",
+        "summary",
+        "duplicate_groups",
+        "large_files",
+        "empty_files",
+        "empty_directories",
+        "diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reference_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/lintReportSummary"
+        },
+        "duplicate_groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/duplicateFileGroup"
+          }
+        },
+        "large_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        },
+        "empty_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        },
+        "empty_directories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintDirectoryEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/inventoryDiagnostic"
+          }
+        }
+      }
+    },
+    "projectArtifactDiscoveryDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "root-missing",
+            "root-metadata-read-skipped",
+            "root-not-directory",
+            "reparse-point-skipped",
+            "directory-read-skipped",
+            "directory-entry-read-skipped",
+            "metadata-read-skipped"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "projectArtifactInsightTotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "targets",
+        "estimated_bytes"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "projectArtifactInsightTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "artifact",
+        "path",
+        "project_root",
+        "status",
+        "estimated_bytes",
+        "estimate_source",
+        "reason"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "inspectArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "summary",
+        "totals_by_root",
+        "totals_by_project",
+        "totals_by_artifact",
+        "top_targets",
+        "discovery_diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/cleanupSummary"
+        },
+        "totals_by_root": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "totals_by_project": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "totals_by_artifact": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "top_targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTarget"
+          }
+        },
+        "discovery_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactDiscoveryDiagnostic"
+          }
+        }
+      }
     }
   }
 }

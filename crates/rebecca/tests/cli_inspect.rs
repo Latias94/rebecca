@@ -71,7 +71,7 @@ fn inspect_space_json_reports_top_entries_and_diagnostics() {
         common::support::stderr(&output)
     );
 
-    let envelope = common::support::api_envelope_v2(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
     assert_eq!(envelope["command"], "inspect space");
     assert_eq!(envelope["payload_kind"], "inspect-space");
 
@@ -91,7 +91,7 @@ fn inspect_space_json_reports_top_entries_and_diagnostics() {
 }
 
 #[test]
-fn inspect_space_ndjson_uses_v2_completed_event() {
+fn inspect_space_ndjson_uses_v1_completed_event() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
@@ -121,7 +121,7 @@ fn inspect_space_ndjson_uses_v2_completed_event() {
         .collect::<Vec<_>>();
     assert_eq!(events.len(), 1);
     let completed = events.first().unwrap();
-    assert_eq!(completed["api_version"], "rebecca.cli.v2");
+    assert_eq!(completed["api_version"], "rebecca.cli.v1");
     assert_eq!(completed["event_kind"], "completed");
     assert_eq!(completed["command"], "inspect space");
     assert_eq!(completed["payload_kind"], "inspect-space");
@@ -173,7 +173,7 @@ fn inspect_artifacts_json_reports_read_only_project_artifact_insight() {
             .exists()
     );
 
-    let envelope = common::support::api_envelope_v2(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
     assert_eq!(envelope["command"], "inspect artifacts");
     assert_eq!(envelope["payload_kind"], "inspect-artifacts");
 
@@ -234,8 +234,8 @@ fn purge_inspect_compatibility_matches_inspect_artifacts_data() {
         common::support::stderr(&purge_output)
     );
 
-    let inspect = common::support::api_envelope_v2(&inspect_output.stdout);
-    let purge = common::support::api_envelope_v2(&purge_output.stdout);
+    let inspect = common::support::api_envelope(&inspect_output.stdout);
+    let purge = common::support::api_envelope(&purge_output.stdout);
     assert_eq!(inspect["payload_kind"], "inspect-artifacts");
     assert_eq!(purge["payload_kind"], "inspect-artifacts");
     assert_eq!(inspect["data"], purge["data"]);
@@ -294,7 +294,7 @@ fn inspect_lint_json_reports_duplicates_and_empty_entries_without_writes() {
             .exists()
     );
 
-    let envelope = common::support::api_envelope_v2(&output.stdout);
+    let envelope = common::support::api_envelope(&output.stdout);
     assert_eq!(envelope["command"], "inspect lint");
     assert_eq!(envelope["payload_kind"], "inspect-lint");
 
@@ -323,7 +323,7 @@ fn inspect_lint_json_reports_duplicates_and_empty_entries_without_writes() {
 }
 
 #[test]
-fn inspect_lint_ndjson_uses_v2_completed_event() {
+fn inspect_lint_ndjson_uses_v1_completed_event() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     write_fixture_file(workspace.join("a.bin"), b"same");
@@ -353,7 +353,7 @@ fn inspect_lint_ndjson_uses_v2_completed_event() {
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["api_version"], "rebecca.cli.v2");
+    assert_eq!(events[0]["api_version"], "rebecca.cli.v1");
     assert_eq!(events[0]["event_kind"], "completed");
     assert_eq!(events[0]["command"], "inspect lint");
     assert_eq!(events[0]["payload_kind"], "inspect-lint");

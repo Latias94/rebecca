@@ -1,5 +1,5 @@
 {
-  "api_version": "rebecca.cli.v2",
+  "api_version": "rebecca.cli.v1",
   "kind": "success",
   "command": "inspect artifacts",
   "payload_kind": "inspect-artifacts",

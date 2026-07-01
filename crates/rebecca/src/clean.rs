@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
@@ -16,7 +16,7 @@ use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
 
 use crate::clean_view::ScanCacheProgressSummary;
-use crate::cli::OutputMode;
+use crate::cli::{OutputMode, ProgressDetail};
 use crate::output::{
     HumanPlanRenderer, MachineErrorRendered, NdjsonEventWriter, WorkflowOutputContract,
     WorkflowSuccessRenderer, format_bytes,
@@ -30,6 +30,7 @@ pub struct CleanOptions {
     pub output_mode: OutputMode,
     pub yes: bool,
     pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub categories: Vec<String>,
     pub rules: Vec<String>,
@@ -45,6 +46,7 @@ pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) output_mode: OutputMode,
     pub(crate) yes: bool,
     pub(crate) no_progress: bool,
+    pub(crate) progress_detail: ProgressDetail,
     pub(crate) scan_cache: bool,
     pub(crate) exclude_paths: Vec<PathBuf>,
     pub(crate) output_contract: WorkflowOutputContract,
@@ -102,6 +104,7 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
             output_mode: options.output_mode,
             yes: options.yes,
             no_progress: options.no_progress,
+            progress_detail: options.progress_detail,
             scan_cache: options.scan_cache,
             exclude_paths: options.exclude_paths,
             output_contract: WorkflowOutputContract::v1("clean", "cleanup-plan"),
@@ -129,6 +132,7 @@ pub(crate) fn run_workflow_with_runtime_config(
     let cancellation = runtime.cancellation();
     let mut progress = PlanProgressReporter::new(
         options.output_mode.is_human() && !options.no_progress,
+        options.progress_detail,
         options
             .output_mode
             .is_ndjson()
@@ -300,14 +304,16 @@ fn merged_protected_paths(config_paths: &[PathBuf], cli_paths: &[PathBuf]) -> Re
 
 struct PlanProgressReporter {
     bar: Option<ProgressBar>,
+    detail: ProgressDetail,
     event_writer: Option<NdjsonEventWriter>,
     event_error: Option<anyhow::Error>,
     scanned_targets: u64,
+    human_file_progress: HumanFileProgressThrottle,
     scan_cache_summary: ScanCacheProgressSummary,
 }
 
 impl PlanProgressReporter {
-    fn new(enabled: bool, event_writer: Option<NdjsonEventWriter>) -> Self {
+    fn new(enabled: bool, detail: ProgressDetail, event_writer: Option<NdjsonEventWriter>) -> Self {
         let bar = enabled.then(|| {
             let bar = ProgressBar::new_spinner();
             bar.enable_steady_tick(Duration::from_millis(120));
@@ -317,9 +323,11 @@ impl PlanProgressReporter {
 
         Self {
             bar,
+            detail,
             event_writer,
             event_error: None,
             scanned_targets: 0,
+            human_file_progress: HumanFileProgressThrottle::new(),
             scan_cache_summary: ScanCacheProgressSummary::default(),
         }
     }
@@ -336,6 +344,7 @@ impl PlanProgressReporter {
 
         if self.event_error.is_none()
             && let Some(writer) = &mut self.event_writer
+            && self.detail.should_emit_machine_event(event)
             && let Err(err) = writer.emit_plan_progress(event)
         {
             self.event_error = Some(err);
@@ -366,10 +375,12 @@ impl PlanProgressReporter {
                 bytes_scanned,
                 ..
             } => {
-                bar.set_message(format!(
-                    "Scanning files: {files_scanned}, {}",
-                    format_bytes(bytes_scanned)
-                ));
+                if self.detail.includes_file_events() && self.human_file_progress.should_refresh() {
+                    bar.set_message(format!(
+                        "Scanning files: {files_scanned}, {}",
+                        format_bytes(bytes_scanned)
+                    ));
+                }
             }
             PlanProgressEvent::ScanCacheHit {
                 rule_id,
@@ -455,6 +466,43 @@ impl PlanProgressReporter {
 
     fn into_event_writer(self) -> Option<NdjsonEventWriter> {
         self.event_writer
+    }
+}
+
+impl ProgressDetail {
+    fn should_emit_machine_event(self, event: PlanProgressEvent<'_>) -> bool {
+        !matches!(event, PlanProgressEvent::FileMeasured { .. }) || self.includes_file_events()
+    }
+}
+
+#[derive(Debug)]
+struct HumanFileProgressThrottle {
+    events_since_refresh: u64,
+    last_refresh: Instant,
+}
+
+impl HumanFileProgressThrottle {
+    const FILE_INTERVAL: u64 = 64;
+    const TIME_INTERVAL: Duration = Duration::from_millis(250);
+
+    fn new() -> Self {
+        Self {
+            events_since_refresh: 0,
+            last_refresh: Instant::now(),
+        }
+    }
+
+    fn should_refresh(&mut self) -> bool {
+        self.events_since_refresh = self.events_since_refresh.saturating_add(1);
+        if self.events_since_refresh < Self::FILE_INTERVAL
+            && self.last_refresh.elapsed() < Self::TIME_INTERVAL
+        {
+            return false;
+        }
+
+        self.events_since_refresh = 0;
+        self.last_refresh = Instant::now();
+        true
     }
 }
 

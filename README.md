@@ -6,7 +6,6 @@
 <p align="center">
   <a href="docs/security-audit.md">Safety audit</a> ·
   <a href="docs/api/cli/v1/README.md">CLI API v1</a> ·
-  <a href="docs/api/cli/v2/README.md">CLI API v2</a> ·
   <a href="docs/release.md">Release integrity</a> ·
   <a href="docs/rule-authoring.md">Rule authoring</a>
 </p>
@@ -88,8 +87,8 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - Use `--exclude <PATH>` or `[protection].protected_paths` to keep a path out of a run.
 - Dry-run human output highlights the largest estimated targets first and then groups the full target list by status.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for eligible targets.
-- Human `clean` runs show progress by default and honor `Ctrl+C` for cancellation; use `--no-progress` for quiet logs.
-- `--format ndjson` keeps machine output clean for long-running cleanup workflows.
+- Human `clean` runs show target-level progress by default and honor `Ctrl+C` for cancellation; use `--no-progress` for quiet logs.
+- `--format ndjson` keeps machine output clean for long-running cleanup workflows. It emits target-level progress by default; add `--progress-detail file` only when a wrapper needs per-file scan events.
 - Warning-bearing cleanup rules are blocked until their named gate is selected with `--allow-warning <WARNING>`; `--allow-moderate` and `--allow-risky` still control safety-level admission.
 
 For the current destructive-operation boundary and known safety gaps, see [Rebecca Cleanup Safety Audit](docs/security-audit.md).
@@ -170,13 +169,13 @@ cargo run -p rebecca -- doctor permissions
 ## CLI API
 
 Use `--format json` when a caller needs one final result.
-Use `--format ndjson` for long-running cleanup workflows that need progress events.
+Use `--format ndjson` for long-running cleanup workflows that need progress events. NDJSON defaults to target-level progress; use `--progress-detail file` for verbose per-file scan events.
 
-Machine-readable success responses are versioned by surface. Cleanup execution, purge execution, history, config, cache, and doctor commands currently use `rebecca.cli.v1`. The read-only cleanup-intelligence commands `catalog`, `inspect space`, `inspect artifacts`, and `inspect lint` use `rebecca.cli.v2`. Every envelope includes `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero.
+Machine-readable success responses use the unified `rebecca.cli.v1` envelope. Every envelope includes `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero.
 
 Cleanup targets expose `estimate_source` so callers can tell whether byte counts came from a fresh scan, an enabled scan-cache hit, a not-yet-measured target, or legacy input.
 
-The v1 contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md). The v2 cleanup-intelligence contract lives in [docs/api/cli/v2](docs/api/cli/v2/README.md).
+The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
 
 ## Built-In Rules
 
@@ -211,7 +210,7 @@ Project artifact plans may also include `discovery_diagnostics` for partial disc
 
 To avoid immediately cleaning active build output, `purge` skips artifact directories modified within the last 7 days by default; pass `--min-age-days 0` to include recent artifacts explicitly. Use repeated `--artifact <NAME>` values to include only selected artifact kinds, using either the directory name such as `node_modules` or a rule id suffix such as `target`; run `rebecca catalog --kind project-artifact` for the canonical selector catalog, or `rebecca purge --list-artifacts` for the legacy purge-specific listing. Pass `--reclaim-limit-bytes <BYTES>` when you want Rebecca to measure ranked eligible artifacts until a reclaim target is met, leaving later candidates unmeasured. Human output groups artifact targets by project path and labels each artifact type so large purge plans are easier to scan.
 
-Use `rebecca inspect artifacts` when you want a read-only project artifact report rather than a cleanup plan. It uses the same selectors, roots, excludes, depth, age window, scan-cache estimation, warning gates, reclaim limit, and diagnostics as `purge`, but it has no `--yes`, never prompts, and never writes cleanup history. Its v2 machine payload is `inspect-artifacts`, grouped by scan root, project root, and artifact kind with a largest-targets list for dashboards or wrappers. `rebecca purge inspect` is retained as a legacy compatibility alias for this report.
+Use `rebecca inspect artifacts` when you want a read-only project artifact report rather than a cleanup plan. It uses the same selectors, roots, excludes, depth, age window, scan-cache estimation, warning gates, reclaim limit, and diagnostics as `purge`, but it has no `--yes`, never prompts, and never writes cleanup history. Its machine payload is `inspect-artifacts`, grouped by scan root, project root, and artifact kind with a largest-targets list for dashboards or wrappers. `rebecca purge inspect` is retained as a legacy compatibility alias for this report.
 
 `rebecca inspect lint` provides report-only duplicate, large-file, empty-file, and empty-directory findings. It computes conservative reclaim estimates, treats `--reference` roots and protected paths as keep candidates, and intentionally does not perform duplicate remediation or write cleanup history.
 

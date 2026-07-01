@@ -5,11 +5,10 @@ automation. Human text remains the default. Machine consumers should always
 request `--format json` for final results or `--format ndjson` for long-running
 cleanup workflows.
 
-API v1 remains the stable contract for cleanup execution, purge execution,
-history, config, cache, and doctor commands. Read-only cleanup-intelligence
-surfaces such as `catalog`, `inspect space`, `inspect artifacts`, and
-`inspect lint` use `rebecca.cli.v2`; `purge inspect` is a compatibility alias
-for the v2 `inspect-artifacts` payload. See `../v2/README.md`.
+API v1 is the only CLI machine contract. Cleanup execution, purge execution,
+history, config, cache, doctor, catalog, and read-only inspect commands all
+emit `api_version = "rebecca.cli.v1"`. `rebecca purge inspect` is retained as
+a compatibility alias for the `inspect-artifacts` payload.
 
 ## Channel Rules
 
@@ -42,6 +41,13 @@ such as `invalid-rule-id`, `invalid-category`, `config-parse-failed`, and
 NDJSON events use `event.schema.json`. Consumers should read stdout line by
 line and parse each line independently.
 
+Cleanup workflow NDJSON defaults to target-level progress: `started`,
+`target-scanning`, `target-finished`, scan-cache events, and terminal
+`completed` or `error` events. File-level `file-measured` events are omitted by
+default to avoid turning large scans into one JSON line per file. Ordinary
+cleanup scans can opt into file-level scan details with
+`--progress-detail file` when a debugger or GUI explicitly needs them.
+
 ## Payload Kinds
 
 The `payload_kind` field identifies the shape under `data`:
@@ -51,6 +57,11 @@ The `payload_kind` field identifies the shape under `data`:
 - `app-leftovers-cleanup-plan`
 - `project-artifact-cleanup-plan`
 - `project-artifact-catalog`
+- `catalog`
+- `catalog-validation`
+- `inspect-space`
+- `inspect-artifacts`
+- `inspect-lint`
 - `cache-purge-report`
 - `history-list`
 - `config-paths`
@@ -76,6 +87,16 @@ until the user selects the named gate with `--allow-warning <warning>`.
 `active-process-diagnostic` is emitted by `rebecca doctor active-processes`.
 It reports whether process inspection is available and lists running processes
 that match cleanup rules carrying the `active-process` warning.
+
+`catalog` is emitted by `rebecca catalog`. The payload is a typed array of
+cleanup rules, project artifact policies, warning gates, safety categories, and
+supported action kinds. `catalog-validation` is emitted by
+`rebecca catalog validate`.
+
+`inspect-space`, `inspect-artifacts`, and `inspect-lint` are read-only cleanup
+intelligence reports. They inventory disk usage, project artifact reclaim
+opportunities, or duplicate/large/empty file findings without prompting,
+executing cleanup, writing history, or mutating files.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -103,10 +124,14 @@ estimate came from; it is not a freshness guarantee.
 rebecca scan --format json
 rebecca clean --format json --category system
 rebecca clean --format ndjson --scan-cache --category system
+rebecca clean --format ndjson --progress-detail file --rule windows.user-temp
 rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
+rebecca catalog --format json --kind warning
+rebecca inspect space --format json --root .
 rebecca inspect artifacts --format json --root . --min-age-days 0
-rebecca purge inspect --format json --root . --min-age-days 0 # v2 compatibility alias
+rebecca purge inspect --format json --root . --min-age-days 0
+rebecca inspect lint --format json --root .
 rebecca doctor permissions --format json
 ```
 
