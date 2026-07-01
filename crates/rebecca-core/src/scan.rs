@@ -1,52 +1,28 @@
-use std::path::{Path, PathBuf};
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
+mod backend;
+mod portable;
+mod progress;
 
-use ignore::{DirEntry, WalkBuilder};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
 use rayon::ThreadPool;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
+pub use backend::{
+    MeasuredScan, ScanBackend, ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence,
+    ScanRequest,
+};
+pub use portable::PortableRecursiveScanBackend;
+pub use progress::{ScanCancellationToken, ScanProgressEvent};
+
+use crate::error::Result;
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
-use crate::safety::{
-    PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path, is_reparse_like,
-};
-
-#[derive(Debug, Clone, Default)]
-pub struct ScanCancellationToken {
-    cancelled: Arc<AtomicBool>,
-}
+use crate::safety::{PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path};
 
 static SCAN_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
-
-impl ScanCancellationToken {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ScanProgressEvent<'a> {
-    FileMeasured {
-        path: &'a Path,
-        file_size: u64,
-        files_scanned: u64,
-        bytes_scanned: u64,
-    },
-}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanReport {
@@ -56,12 +32,12 @@ pub struct ScanReport {
 }
 
 impl ScanReport {
-    fn record_file(&mut self, bytes: u64) {
+    pub(crate) fn record_file(&mut self, bytes: u64) {
         self.files_scanned = self.files_scanned.saturating_add(1);
         self.bytes_scanned = self.bytes_scanned.saturating_add(bytes);
     }
 
-    fn record_directory(&mut self) {
+    pub(crate) fn record_directory(&mut self) {
         self.directories_scanned = self.directories_scanned.saturating_add(1);
     }
 }
@@ -75,7 +51,11 @@ impl ScanEngine {
     }
 
     pub fn measure_path(&self, path: &Path) -> Result<ScanReport> {
-        self.measure_path_with_progress(path, &ScanCancellationToken::new(), |_| {})
+        self.measure_scan(path).map(|measured| measured.report)
+    }
+
+    pub fn measure_scan(&self, path: &Path) -> Result<MeasuredScan> {
+        self.measure_scan_with_progress(path, &ScanCancellationToken::new(), |_| {})
     }
 
     pub fn measure_path_with_progress<F>(
@@ -87,34 +67,21 @@ impl ScanEngine {
     where
         F: for<'a> FnMut(ScanProgressEvent<'a>),
     {
-        check_not_cancelled(cancellation)?;
-        let metadata = root_metadata(path)?;
+        self.measure_scan_with_progress(path, cancellation, progress)
+            .map(|measured| measured.report)
+    }
 
-        if is_reparse_like(&metadata) {
-            return Err(RebeccaError::SafetyBlocked(
-                "symlink or reparse point traversal is disabled".to_string(),
-            ));
-        }
-
-        if metadata.is_file() {
-            let file_size = metadata.len();
-            let mut progress = progress;
-            let mut report = ScanReport::default();
-            report.record_file(file_size);
-            progress(ScanProgressEvent::FileMeasured {
-                path,
-                file_size,
-                files_scanned: report.files_scanned,
-                bytes_scanned: report.bytes_scanned,
-            });
-            return Ok(report);
-        }
-
-        if metadata.is_dir() {
-            return IgnoreWalkerAdapter.measure_directory(path, cancellation, progress);
-        }
-
-        Ok(ScanReport::default())
+    pub fn measure_scan_with_progress<F>(
+        &self,
+        path: &Path,
+        cancellation: &ScanCancellationToken,
+        progress: F,
+    ) -> Result<MeasuredScan>
+    where
+        F: for<'a> FnMut(ScanProgressEvent<'a>),
+    {
+        PortableRecursiveScanBackend
+            .measure_path_with_progress(ScanRequest::new(path, cancellation), progress)
     }
 
     pub fn measure_target(&self, target: ScanTargetRequest) -> CleanupTarget {
@@ -193,122 +160,6 @@ impl ScanTargetRequest {
             mode,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct IgnoreWalkerAdapter;
-
-impl IgnoreWalkerAdapter {
-    fn measure_directory<F>(
-        self,
-        path: &Path,
-        cancellation: &ScanCancellationToken,
-        mut progress: F,
-    ) -> Result<ScanReport>
-    where
-        F: for<'a> FnMut(ScanProgressEvent<'a>),
-    {
-        let mut report = ScanReport::default();
-        let walker = cleanup_walk_builder(path).build();
-
-        for entry in walker {
-            check_not_cancelled(cancellation)?;
-            let entry = entry
-                .map_err(|err| RebeccaError::ScanFailed(ScanFailure::directory_walk(path, &err)))?;
-            let classification = classify_entry(&entry)?;
-
-            if classification.reparse_like {
-                continue;
-            }
-
-            if classification.file_type.is_dir() {
-                report.record_directory();
-            }
-
-            if classification.file_type.is_file() {
-                let file_size = classification.size_bytes.unwrap_or(0);
-                report.record_file(file_size);
-                progress(ScanProgressEvent::FileMeasured {
-                    path: entry.path(),
-                    file_size,
-                    files_scanned: report.files_scanned,
-                    bytes_scanned: report.bytes_scanned,
-                });
-            }
-        }
-
-        Ok(report)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ScanEntryClassification {
-    file_type: std::fs::FileType,
-    reparse_like: bool,
-    size_bytes: Option<u64>,
-}
-
-fn classify_entry(entry: &DirEntry) -> Result<ScanEntryClassification> {
-    if let Some(file_type) = entry.file_type() {
-        if file_type.is_file() {
-            return entry_metadata(entry.path()).map(|metadata| ScanEntryClassification {
-                file_type,
-                reparse_like: is_reparse_like(&metadata),
-                size_bytes: Some(metadata.len()),
-            });
-        }
-
-        if file_type.is_dir() {
-            return entry_metadata(entry.path()).map(|metadata| ScanEntryClassification {
-                file_type,
-                reparse_like: is_reparse_like(&metadata),
-                size_bytes: None,
-            });
-        }
-    }
-
-    let metadata = entry_metadata(entry.path())?;
-    Ok(ScanEntryClassification {
-        file_type: metadata.file_type(),
-        reparse_like: is_reparse_like(&metadata),
-        size_bytes: metadata.is_file().then_some(metadata.len()),
-    })
-}
-
-fn cleanup_walk_builder(path: &Path) -> WalkBuilder {
-    let mut builder = WalkBuilder::new(path);
-    builder.standard_filters(false).follow_links(false);
-    builder
-}
-
-fn root_metadata(path: &Path) -> Result<std::fs::Metadata> {
-    std::fs::symlink_metadata(path).map_err(|err| {
-        RebeccaError::ScanFailed(ScanFailure::from_io(
-            path,
-            ScanFailurePhase::RootMetadata,
-            &err,
-        ))
-    })
-}
-
-fn entry_metadata(path: &Path) -> Result<std::fs::Metadata> {
-    std::fs::symlink_metadata(path).map_err(|err| {
-        RebeccaError::ScanFailed(ScanFailure::from_io(
-            path,
-            ScanFailurePhase::EntryMetadata,
-            &err,
-        ))
-    })
-}
-
-fn check_not_cancelled(cancellation: &ScanCancellationToken) -> Result<()> {
-    if cancellation.is_cancelled() {
-        return Err(RebeccaError::OperationCancelled(
-            "scan was cancelled".to_string(),
-        ));
-    }
-
-    Ok(())
 }
 
 pub fn scan_parallelism_budget() -> usize {

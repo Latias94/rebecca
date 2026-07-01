@@ -1,7 +1,10 @@
 use std::fs;
 
 use rebecca_core::error::{ScanFailureKind, ScanFailurePhase};
-use rebecca_core::scan::{ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest};
+use rebecca_core::scan::{
+    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanEstimateConfidence, ScanProgressEvent,
+    ScanTargetRequest,
+};
 use rebecca_core::{DeleteMode, RebeccaError, TargetStatus};
 
 #[test]
@@ -31,6 +34,22 @@ fn measures_directory_report_from_fixture_files() {
     assert_eq!(report.bytes_scanned, 6);
     assert_eq!(report.files_scanned, 2);
     assert_eq!(report.directories_scanned, 2);
+}
+
+#[test]
+fn measured_scan_reports_portable_backend_metadata() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+
+    let measured = ScanEngine::new().measure_scan(temp.path()).unwrap();
+
+    assert_eq!(measured.report.bytes_scanned, 4);
+    assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+    assert_eq!(measured.backend.label(), "portable-recursive");
+    assert_eq!(measured.confidence, ScanEstimateConfidence::Exact);
+    assert_eq!(measured.confidence.label(), "exact");
+    assert_eq!(measured.fallback_reason, None);
+    assert!(measured.caveats.is_empty());
 }
 
 #[test]
