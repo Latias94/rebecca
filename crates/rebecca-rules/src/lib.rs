@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
+
 use rebecca_core::{
-    Platform, RebeccaError, Result, RuleDefinition, RuleSource,
+    Platform, RebeccaError, Result, RuleDefinition, RuleSource, SafetyLevel,
     manifest::parse_cleaner_manifest_file_with_safety_knowledge,
     planner::validate_rule_catalog,
     protection::{
@@ -102,12 +104,16 @@ const BUILTIN_SAFETY_CATALOG: (&str, &str) = (
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/safety/windows.toml")),
 );
 
+const BUILTIN_RULE_CATEGORIES: &[&str] = &["application", "browser", "development", "system"];
+
 pub fn builtin_rules() -> Result<Vec<RuleDefinition>> {
     let mut rules = Vec::with_capacity(BUILTIN_RULE_FILES.len());
     let safety_knowledge = builtin_safety_knowledge()?;
 
     for (path, raw) in BUILTIN_RULE_FILES {
-        rules.extend(parse_rule_file(path, raw, &safety_knowledge)?);
+        let parsed_rules = parse_rule_file(path, raw, &safety_knowledge)?;
+        validate_builtin_rule_file(path, &parsed_rules)?;
+        rules.extend(parsed_rules);
     }
 
     validate_builtin_rule_catalog(&rules)?;
@@ -131,6 +137,37 @@ fn parse_rule_file(
     parse_cleaner_manifest_file_with_safety_knowledge(path, raw, safety_knowledge)
 }
 
+fn validate_builtin_rule_file(path: &str, rules: &[RuleDefinition]) -> Result<()> {
+    let Some(stem) = builtin_rule_file_stem(path) else {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule file {path} must be a .toml file"
+        )));
+    };
+    let expected_id = format!("windows.{stem}");
+    let option_id_prefix = format!("{expected_id}.");
+
+    if rules.is_empty() {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule file {path} must compile at least one rule"
+        )));
+    }
+
+    for rule in rules {
+        if rule.id != expected_id && !rule.id.starts_with(&option_id_prefix) {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule file {path} produced rule {}; expected {expected_id} or {option_id_prefix}*",
+                rule.id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn builtin_rule_file_stem(path: &str) -> Option<&str> {
+    path.rsplit(['/', '\\']).next()?.strip_suffix(".toml")
+}
+
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
     let safety_knowledge = builtin_safety_knowledge()?;
     let policy = ProtectionPolicy::new().with_safety_knowledge(&safety_knowledge);
@@ -149,6 +186,8 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                 rule.id
             )));
         }
+
+        validate_builtin_rule_metadata(rule, &safety_knowledge)?;
 
         if rule
             .restore_hint
@@ -191,6 +230,107 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                     block.message
                 )));
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_builtin_rule_metadata(
+    rule: &RuleDefinition,
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<()> {
+    validate_trimmed_rule_metadata(rule, "id", &rule.id)?;
+    validate_trimmed_rule_metadata(rule, "category", &rule.category)?;
+    validate_trimmed_rule_metadata(rule, "name", &rule.name)?;
+    if let Some(restore_hint) = &rule.restore_hint {
+        validate_trimmed_rule_metadata(rule, "restore hint", restore_hint)?;
+    }
+    validate_trimmed_rule_metadata(rule, "provenance license", &rule.provenance.license)?;
+    validate_trimmed_rule_metadata(rule, "provenance notes", &rule.provenance.notes)?;
+
+    if !is_canonical_windows_rule_id(&rule.id) {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} must use canonical lowercase windows.<slug> rule id syntax",
+            rule.id
+        )));
+    }
+
+    if !BUILTIN_RULE_CATEGORIES.contains(&rule.category.as_str()) {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} uses unsupported category {}; allowed categories: {}",
+            rule.id,
+            rule.category,
+            BUILTIN_RULE_CATEGORIES.join(", ")
+        )));
+    }
+
+    if matches!(
+        rule.safety_level,
+        SafetyLevel::Risky | SafetyLevel::Dangerous
+    ) {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} must not use {} safety level",
+            rule.id,
+            rule.safety_level.label()
+        )));
+    }
+
+    validate_builtin_rule_warnings(rule, safety_knowledge)
+}
+
+fn validate_trimmed_rule_metadata(rule: &RuleDefinition, field: &str, value: &str) -> Result<()> {
+    if value != value.trim() {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} {field} must not contain leading or trailing whitespace",
+            rule.id
+        )));
+    }
+
+    Ok(())
+}
+
+fn is_canonical_windows_rule_id(id: &str) -> bool {
+    let Some(rest) = id.strip_prefix("windows.") else {
+        return false;
+    };
+
+    !rest.is_empty() && rest.split('.').all(is_rule_id_slug_segment)
+}
+
+fn is_rule_id_slug_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && !segment.starts_with('-')
+        && !segment.ends_with('-')
+        && !segment.contains("--")
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn validate_builtin_rule_warnings(
+    rule: &RuleDefinition,
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<()> {
+    let mut seen = BTreeSet::new();
+
+    for warning in &rule.warnings {
+        if !seen.insert(warning.as_str()) {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} contains duplicate warning kind {}",
+                rule.id, warning
+            )));
+        }
+
+        if !safety_knowledge
+            .warning_kinds()
+            .iter()
+            .any(|kind| kind.id() == warning)
+        {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} warning kind {} must match a canonical safety catalog warning id",
+                rule.id, warning
+            )));
         }
     }
 
@@ -349,6 +489,112 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("owned provenance source"));
+    }
+
+    #[test]
+    fn builtin_rule_file_rejects_rule_ids_that_drift_from_file_name() {
+        let err = super::validate_builtin_rule_file(
+            "rules/windows/user-temp.toml",
+            &[rule_with_target(RuleTargetSpec::template("%TEMP%"))],
+        )
+        .expect_err("file name should constrain the produced rule id");
+
+        assert!(err.to_string().contains("produced rule windows.test"));
+
+        let option_rule = RuleDefinition {
+            id: "windows.user-temp.option".to_string(),
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        };
+        super::validate_builtin_rule_file("rules/windows/user-temp.toml", &[option_rule])
+            .expect("option rule ids should be allowed under the file id prefix");
+
+        let backslash_path_rule = RuleDefinition {
+            id: "windows.user-temp".to_string(),
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        };
+        super::validate_builtin_rule_file("rules\\windows\\user-temp.toml", &[backslash_path_rule])
+            .expect("catalog path validation should accept Windows separators");
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_unsupported_categories() {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+            category: "messaging".to_string(),
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        }])
+        .expect_err("unknown built-in categories should be rejected");
+
+        assert!(err.to_string().contains("unsupported category"));
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_non_canonical_rule_ids() {
+        for id in [
+            "windows.Chrome_Cache",
+            "windows.chrome--cache",
+            "windows.chrome-",
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+                id: id.to_string(),
+                ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+            }])
+            .expect_err("non-canonical rule id should be rejected");
+
+            assert!(
+                err.to_string()
+                    .contains("canonical lowercase windows.<slug> rule id syntax"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_untrimmed_metadata() {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+            name: " Test".to_string(),
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        }])
+        .expect_err("built-in metadata should be canonicalized before shipping");
+
+        assert!(
+            err.to_string()
+                .contains("must not contain leading or trailing whitespace")
+        );
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_risky_and_dangerous_safety_levels() {
+        for safety_level in [SafetyLevel::Risky, SafetyLevel::Dangerous] {
+            let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+                safety_level,
+                ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+            }])
+            .expect_err("built-in rules should not require risky opt-in levels");
+
+            assert!(err.to_string().contains("must not use"), "{err}");
+        }
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_non_canonical_or_duplicate_warnings() {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+            warnings: vec!["ACTIVE-PROCESS".to_string()],
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        }])
+        .expect_err("built-in warnings should use canonical ids");
+
+        assert!(
+            err.to_string()
+                .contains("canonical safety catalog warning id")
+        );
+
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+            warnings: vec!["active-process".to_string(), "active-process".to_string()],
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        }])
+        .expect_err("duplicate warning ids should be rejected");
+
+        assert!(err.to_string().contains("duplicate warning kind"));
     }
 
     #[test]
