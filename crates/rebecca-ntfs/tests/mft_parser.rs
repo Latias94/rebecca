@@ -108,6 +108,46 @@ fn parent_child_tree_aggregation_sums_subtree_bytes() {
 }
 
 #[test]
+fn tree_resolves_child_paths_case_insensitively() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            6,
+            mft_record(
+                6,
+                true,
+                true,
+                vec![file_name_attr(5, "Cache", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            7,
+            mft_record(
+                7,
+                true,
+                false,
+                vec![file_name_attr(6, "DATA.BIN", 0), resident_data_attr(b"abc")],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap());
+
+    let tree = MftTree::from_records(records);
+    let entry = tree.find_path(5, ["cache", "data.bin"]).unwrap();
+
+    assert_eq!(entry.record_id, 7);
+}
+
+#[test]
 fn deleted_and_pathless_records_are_reported_as_caveats() {
     let deleted = MftRecord::parse(
         11,
@@ -198,6 +238,88 @@ fn attribute_list_records_report_caveat() {
 }
 
 #[test]
+fn subtree_aggregation_surfaces_record_caveats() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            13,
+            mft_record(
+                13,
+                true,
+                false,
+                vec![
+                    file_name_attr(5, "listed.bin", 0),
+                    attribute_list_attr(),
+                    nonresident_data_attr(7),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap());
+
+    let tree = MftTree::from_records(records);
+    let summary = tree.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 7);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "attribute-list-present")
+    );
+}
+
+#[test]
+fn subtree_aggregation_caveats_multiple_non_dos_file_names() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            14,
+            mft_record(
+                14,
+                true,
+                false,
+                vec![
+                    file_name_attr(5, "first.bin", 0),
+                    file_name_attr_with_namespace(5, "second.bin", 0, 0),
+                    nonresident_data_attr(11),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap());
+
+    let tree = MftTree::from_records(records);
+    let summary = tree.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 11);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "multiple-file-names")
+    );
+}
+
+#[test]
 fn truncated_data_returns_error_without_panic() {
     let err = MftRecord::parse(1, b"FILE", SECTOR_SIZE).unwrap_err();
 
@@ -251,6 +373,15 @@ fn standard_information_attr(file_attributes: u32) -> Vec<u8> {
 }
 
 fn file_name_attr(parent_id: u64, name: &str, file_attributes: u32) -> Vec<u8> {
+    file_name_attr_with_namespace(parent_id, name, file_attributes, 1)
+}
+
+fn file_name_attr_with_namespace(
+    parent_id: u64,
+    name: &str,
+    file_attributes: u32,
+    namespace: u8,
+) -> Vec<u8> {
     let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
     let mut value = vec![0_u8; 66 + (name_utf16.len() * 2)];
     put_u64(&mut value, 0, parent_id);
@@ -258,7 +389,7 @@ fn file_name_attr(parent_id: u64, name: &str, file_attributes: u32) -> Vec<u8> {
     put_u64(&mut value, 48, 0);
     put_u32(&mut value, 56, file_attributes);
     value[64] = name_utf16.len() as u8;
-    value[65] = 1;
+    value[65] = namespace;
     for (index, character) in name_utf16.iter().enumerate() {
         put_u16(&mut value, 66 + (index * 2), *character);
     }

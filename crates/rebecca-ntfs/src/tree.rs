@@ -18,15 +18,28 @@ impl MftTree {
         let mut caveats = Vec::new();
 
         for record in records {
-            caveats.extend(record.caveats.clone());
             if !record.in_use {
+                caveats.extend(record.caveats);
                 continue;
             }
 
             let Some(file_name) = record.primary_file_name() else {
+                caveats.extend(record.caveats);
                 continue;
             };
 
+            let mut entry_caveats = record.caveats.clone();
+            if non_dos_file_name_count(&record) > 1 {
+                entry_caveats.push(ParseCaveat::new(
+                    "multiple-file-names",
+                    format!(
+                        "record {} has multiple non-DOS file names; hardlink accounting may be ambiguous",
+                        record.record_id
+                    ),
+                ));
+            }
+
+            caveats.extend(entry_caveats.clone());
             let entry = MftTreeEntry {
                 record_id: record.record_id,
                 parent_record_id: file_name.parent_record_id,
@@ -38,6 +51,7 @@ impl MftTree {
                 },
                 is_directory: record.is_directory,
                 is_reparse_point: record.is_reparse_point,
+                caveats: entry_caveats,
             };
             if entry.parent_record_id != entry.record_id {
                 children
@@ -57,6 +71,26 @@ impl MftTree {
 
     pub fn get(&self, record_id: u64) -> Option<&MftTreeEntry> {
         self.entries.get(&record_id)
+    }
+
+    pub fn find_child(&self, parent_record_id: u64, name: &str) -> Option<&MftTreeEntry> {
+        self.children
+            .get(&parent_record_id)?
+            .iter()
+            .filter_map(|record_id| self.entries.get(record_id))
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+    }
+
+    pub fn find_path<'a>(
+        &self,
+        root_record_id: u64,
+        components: impl IntoIterator<Item = &'a str>,
+    ) -> Option<&MftTreeEntry> {
+        let mut current = self.entries.get(&root_record_id)?;
+        for component in components {
+            current = self.find_child(current.record_id, component)?;
+        }
+        Some(current)
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &MftTreeEntry> {
@@ -84,6 +118,7 @@ impl MftTree {
                 ));
                 continue;
             };
+            summary.caveats.extend(entry.caveats.clone());
 
             if entry.is_reparse_point {
                 summary.caveats.push(ParseCaveat::new(
@@ -108,6 +143,14 @@ impl MftTree {
     }
 }
 
+fn non_dos_file_name_count(record: &MftRecord) -> usize {
+    record
+        .file_names
+        .iter()
+        .filter(|name| !matches!(name.namespace, crate::record::FileNameNamespace::Dos))
+        .count()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MftTreeEntry {
     pub record_id: u64,
@@ -116,6 +159,7 @@ pub struct MftTreeEntry {
     pub logical_size: u64,
     pub is_directory: bool,
     pub is_reparse_point: bool,
+    pub caveats: Vec<ParseCaveat>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
