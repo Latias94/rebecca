@@ -93,6 +93,26 @@ pub enum RuleTargetSpec {
     SteamLibraryTemplate(PathTemplate),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuleSearchKind {
+    File,
+    Glob,
+    SteamInstall,
+    SteamLibrary,
+}
+
+impl RuleSearchKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Glob => "glob",
+            Self::SteamInstall => "steam-install",
+            Self::SteamLibrary => "steam-library",
+        }
+    }
+}
+
 impl RuleTargetSpec {
     pub fn template(template: impl Into<String>) -> Self {
         Self::Template(PathTemplate::new(template))
@@ -117,6 +137,15 @@ impl RuleTargetSpec {
             | Self::SteamInstallTemplate(template)
             | Self::SteamLibraryTemplate(template) => PathBuf::from(template.raw()),
             Self::ExactPath(path) => path.clone(),
+        }
+    }
+
+    pub fn search_kind(&self) -> RuleSearchKind {
+        match self {
+            Self::Template(_) | Self::ExactPath(_) => RuleSearchKind::File,
+            Self::GlobTemplate(_) => RuleSearchKind::Glob,
+            Self::SteamInstallTemplate(_) => RuleSearchKind::SteamInstall,
+            Self::SteamLibraryTemplate(_) => RuleSearchKind::SteamLibrary,
         }
     }
 

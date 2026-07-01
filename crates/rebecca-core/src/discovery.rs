@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +11,27 @@ use crate::error::{RebeccaError, Result};
 use crate::model::RuleTargetSpec;
 use crate::path_template::expand_template;
 use crate::protection::{ProtectionAssessment, ProtectionPolicy};
+
+#[derive(Debug, Default)]
+pub struct DiscoveryIndex {
+    glob_directories: BTreeMap<PathBuf, Vec<GlobDirectoryEntry>>,
+}
+
+impl DiscoveryIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cached_glob_directory_count(&self) -> usize {
+        self.glob_directories.len()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GlobDirectoryEntry {
+    file_name: OsString,
+    path: PathBuf,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TargetResolution {
@@ -27,6 +50,19 @@ pub fn resolve_rule_target_with_applications<A>(
     target: &RuleTargetSpec,
     env: &impl Environment,
     applications: &A,
+) -> Result<TargetResolution>
+where
+    A: ApplicationDiscovery + ?Sized,
+{
+    let mut discovery_index = DiscoveryIndex::new();
+    resolve_rule_target_with_applications_and_index(target, env, applications, &mut discovery_index)
+}
+
+pub fn resolve_rule_target_with_applications_and_index<A>(
+    target: &RuleTargetSpec,
+    env: &impl Environment,
+    applications: &A,
+    discovery_index: &mut DiscoveryIndex,
 ) -> Result<TargetResolution>
 where
     A: ApplicationDiscovery + ?Sized,
@@ -50,7 +86,7 @@ where
                 }
             };
 
-            let paths = discover_glob_paths(&pattern)?;
+            let paths = discover_glob_paths_with_index(&pattern, discovery_index)?;
             if paths.is_empty() {
                 Ok(TargetResolution::Skipped(
                     "glob pattern matched no existing paths".to_string(),
@@ -134,12 +170,20 @@ fn unsafe_steam_relative_path_error(path: &Path) -> RebeccaError {
     ))
 }
 
-fn discover_glob_paths(pattern: &Path) -> Result<Vec<PathBuf>> {
+fn discover_glob_paths_with_index(
+    pattern: &Path,
+    discovery_index: &mut DiscoveryIndex,
+) -> Result<Vec<PathBuf>> {
     let normalized = normalize_separators(&pattern.as_os_str().to_string_lossy());
     let segments = split_segments(&normalized);
 
     let mut results = Vec::new();
-    expand_segments(root_path(&normalized), &segments, &mut results)?;
+    expand_segments(
+        root_path(&normalized),
+        &segments,
+        discovery_index,
+        &mut results,
+    )?;
     results.sort();
     results.dedup();
 
@@ -149,6 +193,7 @@ fn discover_glob_paths(pattern: &Path) -> Result<Vec<PathBuf>> {
 fn expand_segments(
     current: PathBuf,
     remaining: &[String],
+    discovery_index: &mut DiscoveryIndex,
     results: &mut Vec<PathBuf>,
 ) -> Result<()> {
     let Some((segment, tail)) = remaining.split_first() else {
@@ -161,7 +206,7 @@ fn expand_segments(
     if !has_wildcards(segment) {
         let mut next = current;
         next.push(segment);
-        return expand_segments(next, tail, results);
+        return expand_segments(next, tail, discovery_index, results);
     }
 
     if !current.is_dir() {
@@ -169,14 +214,35 @@ fn expand_segments(
     }
 
     let matcher = segment_matcher(segment)?;
-    for entry in fs::read_dir(&current)? {
-        let entry = entry?;
-        if matcher.is_match(entry.file_name()) {
-            expand_segments(entry.path(), tail, results)?;
+    for entry in read_glob_directory(&current, discovery_index)? {
+        if matcher.is_match(&entry.file_name) {
+            expand_segments(entry.path, tail, discovery_index, results)?;
         }
     }
 
     Ok(())
+}
+
+fn read_glob_directory(
+    current: &Path,
+    discovery_index: &mut DiscoveryIndex,
+) -> Result<Vec<GlobDirectoryEntry>> {
+    if let Some(entries) = discovery_index.glob_directories.get(current) {
+        return Ok(entries.clone());
+    }
+
+    let entries = fs::read_dir(current)?
+        .map(|entry| {
+            entry.map(|entry| GlobDirectoryEntry {
+                file_name: entry.file_name(),
+                path: entry.path(),
+            })
+        })
+        .collect::<std::io::Result<Vec<_>>>()?;
+    discovery_index
+        .glob_directories
+        .insert(current.to_path_buf(), entries.clone());
+    Ok(entries)
 }
 
 fn normalize_separators(raw: &str) -> String {

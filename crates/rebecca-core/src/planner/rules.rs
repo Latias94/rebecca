@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use rayon::prelude::*;
 
 use crate::applications::ApplicationDiscovery;
-use crate::discovery::{TargetResolution, resolve_rule_target_with_applications};
+use crate::discovery::{
+    DiscoveryIndex, TargetResolution, resolve_rule_target_with_applications_and_index,
+};
 use crate::environment::Environment;
 use crate::error::{RebeccaError, Result};
 use crate::model::{PlanRequest, RuleDefinition};
@@ -40,6 +42,7 @@ where
 
     let mut staged_candidates = Vec::new();
     let mut seen_paths = BTreeSet::new();
+    let mut discovery_index = DiscoveryIndex::new();
 
     for rule in rules {
         if rule.platform != request.platform {
@@ -97,42 +100,46 @@ where
         }
 
         for spec in &rule.path_templates {
-            let expanded_paths =
-                match resolve_rule_target_with_applications(spec, env, applications) {
-                    Ok(TargetResolution::Paths(paths)) => paths,
-                    Ok(TargetResolution::Skipped(reason)) => {
-                        staged_candidates.push(RulePlanCandidate::target(
-                            with_rule_metadata(
-                                CleanupTarget::skipped_with_reason_code(
-                                    rule.id.clone(),
-                                    spec.placeholder_path(),
-                                    request.mode,
-                                    CleanupTargetIssueReason::TargetDiscoverySkipped,
-                                    reason,
-                                ),
-                                rule,
+            let expanded_paths = match resolve_rule_target_with_applications_and_index(
+                spec,
+                env,
+                applications,
+                &mut discovery_index,
+            ) {
+                Ok(TargetResolution::Paths(paths)) => paths,
+                Ok(TargetResolution::Skipped(reason)) => {
+                    staged_candidates.push(RulePlanCandidate::target(
+                        with_rule_metadata(
+                            CleanupTarget::skipped_with_reason_code(
+                                rule.id.clone(),
+                                spec.placeholder_path(),
+                                request.mode,
+                                CleanupTargetIssueReason::TargetDiscoverySkipped,
+                                reason,
                             ),
-                            TargetProgressPolicy::Silent,
-                        ));
-                        continue;
-                    }
-                    Err(err) => {
-                        staged_candidates.push(RulePlanCandidate::target(
-                            with_rule_metadata(
-                                CleanupTarget::blocked_with_reason_code(
-                                    rule.id.clone(),
-                                    spec.placeholder_path(),
-                                    request.mode,
-                                    CleanupTargetIssueReason::TargetDiscoveryFailed,
-                                    err.to_string(),
-                                ),
-                                rule,
+                            rule,
+                        ),
+                        TargetProgressPolicy::Silent,
+                    ));
+                    continue;
+                }
+                Err(err) => {
+                    staged_candidates.push(RulePlanCandidate::target(
+                        with_rule_metadata(
+                            CleanupTarget::blocked_with_reason_code(
+                                rule.id.clone(),
+                                spec.placeholder_path(),
+                                request.mode,
+                                CleanupTargetIssueReason::TargetDiscoveryFailed,
+                                err.to_string(),
                             ),
-                            TargetProgressPolicy::Silent,
-                        ));
-                        continue;
-                    }
-                };
+                            rule,
+                        ),
+                        TargetProgressPolicy::Silent,
+                    ));
+                    continue;
+                }
+            };
 
             for expanded in expanded_paths {
                 let path_key = dedupe_key(&expanded, request.platform);

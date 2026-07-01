@@ -36,6 +36,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca-ntfs` now provides read-only NTFS MFT record parsing, fixup validation, file-name/data-size extraction, reparse detection, subtree aggregation, fixture tests, and a generated-record parser benchmark.
 - `clean --scan-backend windows-ntfs-mft-experimental` now exposes an opt-in experimental backend selector that reports a caveat and falls back to a safe directory scanner until live NTFS volume indexing is enabled.
 - Scan-cache records now have a USN Journal validation model for checkpoint, journal id, range availability, and target-subtree change invalidation; missing USN support falls back to the normal cache policy.
+- Cleanup rule targets now expose explicit search semantics in the manifest parser and catalog output, and glob discovery can reuse a per-plan directory enumeration index for compatible rules.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.

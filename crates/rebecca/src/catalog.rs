@@ -207,13 +207,14 @@ fn print_catalog(items: &[CatalogItem]) {
         match item {
             CatalogItem::CleanupRule(rule) => {
                 println!(
-                    "  - {} [{}] {} ({}, {} target{}){}",
+                    "  - {} [{}] {} ({}, {} target{}, search: {}){}",
                     rule.id,
                     rule.safety_level.label(),
                     rule.name,
                     rule.category,
                     rule.targets,
                     if rule.targets == 1 { "" } else { "s" },
+                    rule.search_kinds.join(", "),
                     warning_suffix(&rule.warnings),
                 );
             }

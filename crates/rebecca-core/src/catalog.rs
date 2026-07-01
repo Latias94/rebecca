@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::project_artifacts::ProjectArtifactPolicy;
@@ -97,6 +99,7 @@ pub struct CleanupRuleCatalogItem {
     pub safety_level: SafetyLevel,
     pub restore_hint: Option<String>,
     pub warnings: Vec<String>,
+    pub search_kinds: Vec<String>,
     pub targets: usize,
 }
 
@@ -109,6 +112,13 @@ impl From<&RuleDefinition> for CleanupRuleCatalogItem {
             safety_level: rule.safety_level,
             restore_hint: rule.restore_hint.clone(),
             warnings: rule.warnings.clone(),
+            search_kinds: rule
+                .path_templates
+                .iter()
+                .map(|target| target.search_kind().label().to_string())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             targets: rule.path_templates.len(),
         }
     }

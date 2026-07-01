@@ -5,7 +5,8 @@ use rebecca_core::applications::{
     StaticApplicationDiscovery, SteamInstallation, parse_steam_libraryfolders,
 };
 use rebecca_core::discovery::{
-    TargetResolution, resolve_rule_target, resolve_rule_target_with_applications,
+    DiscoveryIndex, TargetResolution, resolve_rule_target, resolve_rule_target_with_applications,
+    resolve_rule_target_with_applications_and_index,
 };
 use rebecca_core::environment::MapEnvironment;
 
@@ -64,6 +65,63 @@ fn glob_template_with_no_matches_is_skipped() {
         resolution,
         TargetResolution::Skipped("glob pattern matched no existing paths".to_string())
     );
+}
+
+#[test]
+fn glob_template_shared_index_reuses_compatible_directory_listing() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("Profiles").join("alice").join("cache2")).unwrap();
+    fs::create_dir_all(root.join("Profiles").join("alice").join("startupCache")).unwrap();
+    fs::create_dir_all(root.join("Profiles").join("bob").join("cache2")).unwrap();
+    fs::create_dir_all(root.join("Profiles").join("bob").join("startupCache")).unwrap();
+
+    let env = MapEnvironment::new().with_var("ROOT", root.as_os_str().to_os_string());
+    let applications = StaticApplicationDiscovery::new();
+    let mut index = DiscoveryIndex::new();
+    let cache_target = RuleTargetSpec::glob_template("%ROOT%\\Profiles\\*\\cache2");
+    let startup_target = RuleTargetSpec::glob_template("%ROOT%\\Profiles\\*\\startupCache");
+
+    let first = resolve_rule_target_with_applications_and_index(
+        &cache_target,
+        &env,
+        &applications,
+        &mut index,
+    )
+    .unwrap();
+    let cached_after_first = index.cached_glob_directory_count();
+    let second = resolve_rule_target_with_applications_and_index(
+        &startup_target,
+        &env,
+        &applications,
+        &mut index,
+    )
+    .unwrap();
+
+    assert!(matches!(first, TargetResolution::Paths(paths) if paths.len() == 2));
+    assert!(matches!(second, TargetResolution::Paths(paths) if paths.len() == 2));
+    assert_eq!(cached_after_first, index.cached_glob_directory_count());
+}
+
+#[test]
+fn exact_search_semantics_do_not_use_glob_index() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("Profiles").join("alice").join("cache2")).unwrap();
+
+    let env = MapEnvironment::new().with_var("ROOT", root.as_os_str().to_os_string());
+    let applications = StaticApplicationDiscovery::new();
+    let mut index = DiscoveryIndex::new();
+    let glob_target = RuleTargetSpec::glob_template("%ROOT%\\Profiles\\*\\cache2");
+    let exact_target = RuleTargetSpec::template("%ROOT%\\Profiles\\alice\\cache2");
+
+    resolve_rule_target_with_applications_and_index(&glob_target, &env, &applications, &mut index)
+        .unwrap();
+    let cached_after_glob = index.cached_glob_directory_count();
+    resolve_rule_target_with_applications_and_index(&exact_target, &env, &applications, &mut index)
+        .unwrap();
+
+    assert_eq!(cached_after_glob, index.cached_glob_directory_count());
 }
 
 #[test]

@@ -29,8 +29,8 @@ pub mod warnings;
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use model::{
     CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
-    DeleteMode, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSelection,
-    RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
+    DeleteMode, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance,
+    RuleSearchKind, RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 pub use plan::{
     CleanupIssueSummary, CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetDeletionStyle,

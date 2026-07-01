@@ -357,6 +357,7 @@
         "safety_level",
         "restore_hint",
         "warnings",
+        "search_kinds",
         "targets"
       ],
       "properties": {
@@ -389,6 +390,18 @@
           "items": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        "search_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "file",
+              "glob",
+              "steam-install",
+              "steam-library"
+            ]
           }
         },
         "targets": {

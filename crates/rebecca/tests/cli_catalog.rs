@@ -171,6 +171,7 @@ fn catalog_filters_cleanup_rules_by_category_safety_and_rule() {
     assert_eq!(items[0]["id"], "windows.npm-cache");
     assert_eq!(items[0]["category"], "development");
     assert_eq!(items[0]["safety_level"], "moderate");
+    assert_eq!(items[0]["search_kinds"], serde_json::json!(["file"]));
 }
 
 #[test]
