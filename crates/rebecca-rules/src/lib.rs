@@ -2,7 +2,9 @@ use rebecca_core::{
     Platform, RebeccaError, Result, RuleDefinition, RuleSource,
     manifest::parse_cleaner_manifest_file_with_safety_knowledge,
     planner::validate_rule_catalog,
-    protection::{ProtectionAssessment, ProtectionPolicy},
+    protection::{
+        ProtectionAssessment, ProtectionPolicy, is_regenerable_browser_cache_target_shape,
+    },
     safety_catalog::{SafetyKnowledge, parse_safety_catalog_file},
 };
 
@@ -176,6 +178,10 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
         }
 
         for spec in &rule.path_templates {
+            if rule.category.eq_ignore_ascii_case("browser") {
+                validate_browser_cache_target_shape(rule, spec)?;
+            }
+
             if let ProtectionAssessment::Blocked(block) = policy.assess_catalog_target_shape(spec) {
                 return Err(RebeccaError::RuleCatalogInvalid(format!(
                     "built-in rule {} target {} is blocked by {}: {}",
@@ -189,6 +195,21 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn validate_browser_cache_target_shape(
+    rule: &RuleDefinition,
+    spec: &rebecca_core::RuleTargetSpec,
+) -> Result<()> {
+    if is_regenerable_browser_cache_target_shape(spec) {
+        return Ok(());
+    }
+
+    Err(RebeccaError::RuleCatalogInvalid(format!(
+        "built-in browser rule {} target {} is outside the regenerable browser cache boundary",
+        rule.id,
+        spec.placeholder_path().display()
+    )))
 }
 
 #[cfg(test)]
@@ -668,6 +689,57 @@ notes = "test"
                 err.to_string().contains(expected),
                 "{err} should mention {expected}"
             );
+        }
+    }
+
+    #[test]
+    fn builtin_browser_catalog_accepts_regenerable_cache_boundary_shapes() {
+        for target in [
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
+            RuleTargetSpec::glob_template(
+                "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\DawnCache",
+            ),
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\ShaderCache"),
+            RuleTargetSpec::template(
+                "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\component_crx_cache",
+            ),
+            RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
+            RuleTargetSpec::glob_template("%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\jumpListCache"),
+            RuleTargetSpec::glob_template("%LOCALAPPDATA%\\Zen\\Profiles\\*\\OfflineCache"),
+        ] {
+            super::validate_builtin_rule_catalog(&[browser_rule_with_target(target)])
+                .expect("browser cache target shape should be accepted");
+        }
+    }
+
+    #[test]
+    fn builtin_browser_catalog_rejects_targets_outside_cache_boundary() {
+        for target in [
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\History"),
+            RuleTargetSpec::template(
+                "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Preferences",
+            ),
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Storage"),
+            RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Local State"),
+            RuleTargetSpec::glob_template(
+                "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cookies.sqlite",
+            ),
+            RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\storage"),
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[browser_rule_with_target(target)])
+                .expect_err("browser target outside the cache boundary should be rejected");
+            assert!(
+                err.to_string()
+                    .contains("regenerable browser cache boundary"),
+                "{err}"
+            );
+        }
+    }
+
+    fn browser_rule_with_target(target: RuleTargetSpec) -> RuleDefinition {
+        RuleDefinition {
+            category: "browser".to_string(),
+            ..rule_with_target(target)
         }
     }
 

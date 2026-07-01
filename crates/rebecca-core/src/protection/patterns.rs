@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::ProtectedCategory;
+use crate::model::RuleTargetSpec;
 use crate::safety_catalog::{SafetyCategory, SafetyKnowledge};
 
 const ELECTRON_CACHE_APPS: &[&str] = &[
@@ -44,6 +45,18 @@ pub(super) fn normalize_shape_path(path: &Path) -> String {
 pub(super) fn normalize_raw_shape(raw: &str) -> String {
     let replaced = raw.replace('\\', "/");
     trim_trailing_separators(replaced.trim()).to_ascii_lowercase()
+}
+
+pub(super) fn is_regenerable_browser_cache_target_shape(spec: &RuleTargetSpec) -> bool {
+    let raw = spec.placeholder_path().to_string_lossy().to_string();
+    let normalized = normalize_raw_shape(&raw);
+    let segments = normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+
+    is_chromium_browser_cache_target_shape(&segments)
+        || is_gecko_browser_cache_target_shape(&segments)
 }
 
 pub(super) fn looks_absolute_shape(normalized: &str) -> bool {
@@ -211,12 +224,9 @@ fn is_gecko_profile_cache_path(segments: &[&str]) -> bool {
         return false;
     }
 
-    segments.get(index + 2).is_some_and(|segment| {
-        matches!(
-            *segment,
-            "cache2" | "startupcache" | "jumplistcache" | "offlinecache"
-        )
-    })
+    segments
+        .get(index + 2)
+        .is_some_and(|segment| is_gecko_profile_cache_segment(segment))
 }
 
 fn gecko_profile_root_is_allowed(segments: &[&str], profiles_index: usize) -> bool {
@@ -447,6 +457,20 @@ fn is_chromium_root_cache_segment(segment: &str) -> bool {
     )
 }
 
+fn is_chromium_browser_cache_target_shape(segments: &[&str]) -> bool {
+    let Some(user_data_index) = find_segment(segments, "user data") else {
+        return false;
+    };
+
+    match &segments[user_data_index + 1..] {
+        [cache] => is_chromium_root_cache_segment(cache),
+        [profile, cache] => {
+            is_chromium_profile_segment(profile) && is_chromium_profile_cache_segment(cache)
+        }
+        _ => false,
+    }
+}
+
 fn chromium_user_data_cache_tail_is_allowed(segments: &[&str], start: usize) -> bool {
     segments
         .get(start)
@@ -462,6 +486,29 @@ fn chromium_profile_cache_tail_is_allowed(segments: &[&str], start: usize) -> bo
         (segments.get(start), segments.get(start + 1)),
         (Some(profile), Some(cache))
             if profile.starts_with("profile ") && is_chromium_profile_cache_segment(cache)
+    )
+}
+
+fn is_chromium_profile_segment(segment: &str) -> bool {
+    segment == "default" || segment == "profile *" || segment.starts_with("profile ")
+}
+
+fn is_gecko_browser_cache_target_shape(segments: &[&str]) -> bool {
+    let Some(profiles_index) = find_segment(segments, "profiles") else {
+        return false;
+    };
+
+    gecko_profile_root_is_allowed(segments, profiles_index)
+        && matches!(
+            &segments[profiles_index + 1..],
+            [profile, cache] if !profile.is_empty() && is_gecko_profile_cache_segment(cache)
+        )
+}
+
+fn is_gecko_profile_cache_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "cache2" | "startupcache" | "jumplistcache" | "offlinecache"
     )
 }
 

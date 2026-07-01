@@ -4,6 +4,7 @@ use rebecca_core::RuleTargetSpec;
 use rebecca_core::config::AppPaths;
 use rebecca_core::protection::{
     ProtectedCategory, ProtectionAssessment, ProtectionBlockKind, ProtectionPolicy,
+    is_regenerable_browser_cache_target_shape,
 };
 use rebecca_core::safety::{PathDisposition, assess_existing_path, assess_path};
 
@@ -681,6 +682,40 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
                     if block.kind == ProtectionBlockKind::ProtectedCategory(expected_category)
             ),
             "{target:?} should be blocked as {expected_category:?}"
+        );
+    }
+}
+
+#[test]
+fn browser_cache_target_shape_boundary_accepts_only_regenerable_cache_leaves() {
+    for target in [
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"),
+        RuleTargetSpec::glob_template(
+            "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\DawnCache",
+        ),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\ShaderCache"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\component_crx_cache"),
+        RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"),
+        RuleTargetSpec::glob_template("%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\jumpListCache"),
+        RuleTargetSpec::glob_template("%LOCALAPPDATA%\\Zen\\Profiles\\*\\OfflineCache"),
+    ] {
+        assert!(
+            is_regenerable_browser_cache_target_shape(&target),
+            "{target:?} should be an approved browser cache shape"
+        );
+    }
+
+    for target in [
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\History"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Preferences"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Storage"),
+        RuleTargetSpec::template("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Local State"),
+        RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cookies.sqlite"),
+        RuleTargetSpec::glob_template("%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\storage"),
+    ] {
+        assert!(
+            !is_regenerable_browser_cache_target_shape(&target),
+            "{target:?} should stay outside the browser cache boundary"
         );
     }
 }

@@ -4,9 +4,10 @@ mod patterns;
 
 use self::patterns::{
     NormalizedPath, contains_relative_control_segment, contains_traversal,
-    is_allowlisted_maintenance_path, is_app_leftover_cache_path, is_root, is_user_profile_root,
-    is_windows_critical_path, looks_absolute_shape, normalize_raw_shape, normalize_shape_path,
-    protected_category,
+    is_allowlisted_maintenance_path, is_app_leftover_cache_path,
+    is_regenerable_browser_cache_target_shape as is_regenerable_browser_cache_target_shape_impl,
+    is_root, is_user_profile_root, is_windows_critical_path, looks_absolute_shape,
+    normalize_raw_shape, normalize_shape_path, protected_category,
 };
 
 use crate::config::AppStorageEntry;
@@ -271,6 +272,10 @@ impl Default for ProtectionPolicy<'_> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn is_regenerable_browser_cache_target_shape(spec: &RuleTargetSpec) -> bool {
+    is_regenerable_browser_cache_target_shape_impl(spec)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
