@@ -65,7 +65,7 @@ impl ScanCacheRecord {
     ) -> Option<ScanCacheMiss> {
         if self.version != SCAN_CACHE_VERSION
             || self.root != root
-            || &self.fingerprint != fingerprint
+            || !self.fingerprint.matches_current(fingerprint)
         {
             return Some(ScanCacheMiss::Stale);
         }
@@ -127,6 +127,18 @@ impl ScanCacheFingerprint {
             len: metadata.len(),
             modified_unix_seconds,
         })
+    }
+
+    fn matches_current(&self, current: &Self) -> bool {
+        if self.file_type != current.file_type {
+            return false;
+        }
+
+        if self.file_type == ScanCacheFileType::Directory {
+            return true;
+        }
+
+        self.len == current.len && self.modified_unix_seconds == current.modified_unix_seconds
     }
 }
 

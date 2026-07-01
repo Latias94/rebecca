@@ -125,6 +125,29 @@ fn overlapping_templates_are_deduplicated_before_sizing() {
 }
 
 #[test]
+fn existing_directory_targets_are_deduplicated_by_filesystem_identity() {
+    let fixture = PlannerFixture::new();
+    fixture.write("cache/a.tmp", b"abc");
+    let cache_dir = fixture.root.join("cache");
+    let rules = vec![
+        custom_exact_path_rule("windows.custom-cache-a", cache_dir.clone()),
+        custom_exact_path_rule("windows.custom-cache-b", cache_dir.join(".")),
+    ];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+
+    let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
+
+    assert_eq!(plan.summary.total_targets, 2);
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 3);
+    assert!(plan.targets.iter().any(|target| {
+        target.status == TargetStatus::Skipped
+            && target.reason_code == Some(CleanupTargetIssueReason::DuplicateTargetPath)
+    }));
+}
+
+#[test]
 fn planner_blocks_targets_overlapping_rebecca_owned_storage() {
     let fixture = PlannerFixture::new();
     let app_paths = app_paths_for_fixture(&fixture);

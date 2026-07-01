@@ -296,8 +296,8 @@ mod tests {
     use super::{path_hash, unix_now};
     use crate::scan::ScanReport;
     use crate::scan_cache::{
-        DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheLookup,
-        ScanCacheMiss, ScanCachePolicy, ScanCacheStore,
+        DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheFileType,
+        ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore,
     };
 
     #[test]
@@ -454,6 +454,41 @@ mod tests {
 
         assert_eq!(lookup, ScanCacheLookup::pruned_miss(ScanCacheMiss::Stale));
         assert!(!store.cache_file_for(&root).exists());
+    }
+
+    #[test]
+    fn scan_cache_directory_record_survives_root_metadata_churn_within_freshness_window() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file.bin"), b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 1,
+        };
+        let mut record = store.store(&root, report).unwrap();
+        assert_eq!(record.fingerprint.file_type, ScanCacheFileType::Directory);
+        record.fingerprint.len = record.fingerprint.len.saturating_add(1);
+        record.fingerprint.modified_unix_seconds = Some(
+            record
+                .fingerprint
+                .modified_unix_seconds
+                .unwrap_or_default()
+                .saturating_sub(1),
+        );
+        std::fs::write(
+            store.cache_file_for(&root),
+            serde_json::to_vec_pretty(&record).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(root.join("new-file.bin"), b"changed").unwrap();
+
+        let lookup = store.load(&root);
+
+        assert_eq!(lookup, ScanCacheLookup::Hit(report));
+        assert!(store.cache_file_for(&root).exists());
     }
 
     #[test]

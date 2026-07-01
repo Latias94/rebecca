@@ -10,7 +10,7 @@ use crate::plan::{
 use crate::project_artifacts::ProjectArtifactCandidate;
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{
-    PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy,
+    PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy, is_reparse_like,
 };
 use crate::scan::{ScanEngine, ScanProgressEvent, ScanReport};
 use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss};
@@ -199,14 +199,79 @@ where
     }
 }
 
-pub(crate) fn dedupe_key(path: &Path, _platform: Platform) -> String {
+pub(crate) fn dedupe_key(path: &Path, platform: Platform) -> String {
+    if let Some(identity) = directory_identity(path) {
+        return format!("dir-identity:{}:{}", identity.device, identity.file_index);
+    }
+
     let mut normalized = path.as_os_str().to_string_lossy().replace('\\', "/");
 
     while normalized.ends_with('/') && normalized.len() > 3 {
         normalized.pop();
     }
 
-    normalized.to_ascii_lowercase()
+    if matches!(platform, Platform::Windows) {
+        normalized.to_ascii_lowercase()
+    } else {
+        normalized
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DirectoryIdentity {
+    device: u64,
+    file_index: u64,
+}
+
+#[cfg(windows)]
+fn directory_identity(path: &Path) -> Option<DirectoryIdentity> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+    };
+
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if !metadata.is_dir() || is_reparse_like(&metadata) {
+        return None;
+    }
+
+    let file = std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(path)
+        .ok()?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }.ok()?;
+    let file_index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+
+    Some(DirectoryIdentity {
+        device: u64::from(info.dwVolumeSerialNumber),
+        file_index,
+    })
+}
+
+#[cfg(unix)]
+fn directory_identity(path: &Path) -> Option<DirectoryIdentity> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if !metadata.is_dir() || is_reparse_like(&metadata) {
+        return None;
+    }
+
+    Some(DirectoryIdentity {
+        device: metadata.dev(),
+        file_index: metadata.ino(),
+    })
+}
+
+#[cfg(not(any(windows, unix)))]
+fn directory_identity(_path: &Path) -> Option<DirectoryIdentity> {
+    None
 }
 
 pub(crate) fn prune_scan_cache<F>(context: PlanBuildContext<'_>, progress: &mut F)
