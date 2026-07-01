@@ -786,7 +786,38 @@ fn clean_dry_run_accepts_no_progress_flag() {
 }
 
 #[test]
-fn clean_dry_run_does_not_write_scan_cache_by_default_for_file_targets() {
+fn clean_help_lists_scan_cache_opt_out() {
+    let output = common::command::rebecca()
+        .args(["clean", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--scan-cache"));
+    assert!(stdout.contains("--no-scan-cache"));
+}
+
+#[test]
+fn clean_scan_cache_flags_conflict() {
+    let output = common::command::rebecca()
+        .args(["clean", "--scan-cache", "--no-scan-cache"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("--scan-cache"));
+    assert!(stderr.contains("--no-scan-cache"));
+}
+
+#[test]
+fn clean_dry_run_writes_scan_cache_by_default_for_file_targets() {
     let temp = tempfile::tempdir().unwrap();
     let explorer = temp
         .path()
@@ -817,6 +848,81 @@ fn clean_dry_run_does_not_write_scan_cache_by_default_for_file_targets() {
 
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["summary"]["estimated_bytes"], 5);
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_entries = fs::read_dir(scan_cache_dir).unwrap().count();
+    assert_eq!(cache_entries, 1);
+}
+
+#[test]
+fn clean_dry_run_no_scan_cache_does_not_write_file_target_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let explorer = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Windows")
+        .join("Explorer");
+    fs::create_dir_all(&explorer).unwrap();
+    fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--no-scan-cache",
+            "--rule",
+            "windows.thumbnail-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["estimated_bytes"], 5);
+    assert!(!temp.path().join("rebecca-cache").join("scan").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn clean_yes_does_not_write_scan_cache_by_default() {
+    let temp = tempfile::tempdir().unwrap();
+    let explorer = temp
+        .path()
+        .join("local")
+        .join("Microsoft")
+        .join("Windows")
+        .join("Explorer");
+    fs::create_dir_all(&explorer).unwrap();
+    fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--yes",
+            "--format",
+            "json",
+            "--rule",
+            "windows.thumbnail-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["request"]["mode"], "recycle-bin");
     assert!(!temp.path().join("rebecca-cache").join("scan").exists());
 }
 

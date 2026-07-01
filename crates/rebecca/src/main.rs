@@ -85,12 +85,13 @@ fn run() -> Result<()> {
             AppsCommand::Scan {
                 no_progress,
                 scan_cache,
+                no_scan_cache,
                 exclude_paths,
             } => apps::scan_with_runtime(
                 apps::AppsScanOptions {
                     output_mode: cli.format,
                     no_progress,
-                    scan_cache,
+                    scan_cache: effective_scan_cache(true, scan_cache, no_scan_cache),
                     exclude_paths,
                 },
                 &runtime,
@@ -100,6 +101,7 @@ fn run() -> Result<()> {
                 yes,
                 no_progress,
                 scan_cache,
+                no_scan_cache,
                 exclude_paths,
             } => apps::clean_with_runtime(
                 apps::AppsCleanOptions {
@@ -107,7 +109,11 @@ fn run() -> Result<()> {
                     output_mode: cli.format,
                     yes,
                     no_progress,
-                    scan_cache,
+                    scan_cache: effective_scan_cache(
+                        workflow_is_dry_run(dry_run, yes),
+                        scan_cache,
+                        no_scan_cache,
+                    ),
                     exclude_paths,
                 },
                 &runtime,
@@ -207,13 +213,18 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
         execution,
         risk,
     } = args;
+    let is_dry_run = workflow_is_dry_run(dry_run, yes);
     clean::run_with_runtime(
         clean::CleanOptions {
             dry_run,
             output_mode: global_mode,
             yes,
             no_progress: execution.no_progress,
-            scan_cache: execution.scan_cache,
+            scan_cache: effective_scan_cache(
+                is_dry_run,
+                execution.scan_cache,
+                execution.no_scan_cache,
+            ),
             categories: selection.categories,
             rules: selection.rules,
             exclude_paths: execution.exclude_paths,
@@ -232,6 +243,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
         yes,
         no_progress,
         scan_cache,
+        no_scan_cache,
         list_artifacts,
         roots,
         max_depth,
@@ -264,7 +276,11 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             output_mode: global_mode,
             yes,
             no_progress,
-            scan_cache,
+            scan_cache: effective_scan_cache(
+                workflow_is_dry_run(dry_run, yes),
+                scan_cache,
+                no_scan_cache,
+            ),
             list_artifacts,
             roots,
             max_depth,
@@ -275,6 +291,14 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
         },
         runtime,
     )
+}
+
+fn workflow_is_dry_run(dry_run: bool, yes: bool) -> bool {
+    dry_run || !yes
+}
+
+fn effective_scan_cache(is_dry_run: bool, scan_cache: bool, no_scan_cache: bool) -> bool {
+    !no_scan_cache && (scan_cache || is_dry_run)
 }
 
 fn run_history(args: HistoryArgs, global_mode: OutputMode) -> Result<()> {

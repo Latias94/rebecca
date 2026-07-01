@@ -264,6 +264,9 @@ pub struct CleanupExecutionArgs {
     /// Use the rebuildable scan cache for eligible target estimates.
     #[arg(long)]
     pub scan_cache: bool,
+    /// Disable the rebuildable scan cache for preview estimates.
+    #[arg(long, conflicts_with = "scan_cache")]
+    pub no_scan_cache: bool,
     /// Exclude a path from cleanup for this run. Can be repeated.
     #[arg(long = "exclude", value_name = "PATH")]
     pub exclude_paths: Vec<PathBuf>,
@@ -315,6 +318,9 @@ pub struct PurgeArgs {
     /// Use the rebuildable scan cache for eligible target estimates.
     #[arg(long)]
     pub scan_cache: bool,
+    /// Disable the rebuildable scan cache for preview estimates.
+    #[arg(long, conflicts_with = "scan_cache")]
+    pub no_scan_cache: bool,
     /// List supported project artifact selectors without scanning.
     #[arg(long)]
     pub list_artifacts: bool,
@@ -405,6 +411,9 @@ pub enum AppsCommand {
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,
+        /// Disable the rebuildable scan cache for preview estimates.
+        #[arg(long, conflicts_with = "scan_cache")]
+        no_scan_cache: bool,
         /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
         #[arg(long = "exclude", value_name = "PATH")]
         exclude_paths: Vec<PathBuf>,
@@ -423,6 +432,9 @@ pub enum AppsCommand {
         /// Use the rebuildable scan cache for eligible target estimates.
         #[arg(long)]
         scan_cache: bool,
+        /// Disable the rebuildable scan cache for preview estimates.
+        #[arg(long, conflicts_with = "scan_cache")]
+        no_scan_cache: bool,
         /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
         #[arg(long = "exclude", value_name = "PATH")]
         exclude_paths: Vec<PathBuf>,

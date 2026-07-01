@@ -45,6 +45,24 @@ fn apps_help_shows_scan_and_clean_subcommands() {
 }
 
 #[test]
+fn apps_clean_help_lists_scan_cache_opt_out() {
+    let output = common::command::rebecca()
+        .args(["apps", "clean", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--scan-cache"));
+    assert!(stdout.contains("--no-scan-cache"));
+}
+
+#[test]
 fn apps_scan_json_builds_app_leftovers_plan() {
     let temp = tempfile::tempdir().unwrap();
     let (local, roaming) = appdata_roots(&temp);
@@ -414,6 +432,47 @@ fn apps_clean_defaults_to_preview_without_deleting() {
     assert_eq!(value["request"]["workflow"], "app-leftovers");
     assert_eq!(value["request"]["mode"], "dry-run");
     assert_eq!(value["summary"]["allowed_targets"], 1);
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_entries = fs::read_dir(scan_cache_dir).unwrap().count();
+    assert_eq!(cache_entries, 1);
+}
+
+#[test]
+fn apps_clean_no_scan_cache_disables_preview_cache_writes() {
+    let temp = tempfile::tempdir().unwrap();
+    let (local, roaming) = appdata_roots(&temp);
+    let cache_file = local.join("Example App").join("Cache").join("cache.bin");
+    write_fixture_file(&cache_file, b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .args([
+            "apps",
+            "clean",
+            "--format",
+            "json",
+            "--no-progress",
+            "--no-scan-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(cache_file.exists(), "apps clean should preview by default");
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["request"]["workflow"], "app-leftovers");
+    assert_eq!(value["request"]["mode"], "dry-run");
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert!(!temp.path().join("rebecca-cache").join("scan").exists());
 }
 
 #[test]

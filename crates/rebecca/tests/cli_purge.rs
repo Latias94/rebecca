@@ -58,6 +58,8 @@ fn purge_help_shows_project_artifact_options() {
     assert!(stdout.contains("--artifact"));
     assert!(stdout.contains("--list-artifacts"));
     assert!(stdout.contains("--exclude"));
+    assert!(stdout.contains("--scan-cache"));
+    assert!(stdout.contains("--no-scan-cache"));
     assert!(stdout.contains("inspect"));
 }
 
@@ -1325,6 +1327,103 @@ fn purge_reports_estimate_source_for_scan_cache_reuse() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("[estimate: scan-cache]"));
+}
+
+#[test]
+fn purge_dry_run_uses_scan_cache_by_default_and_honors_no_scan_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    write_fixture_file(
+        workspace.join("app").join("node_modules").join("pkg.bin"),
+        b"abc",
+    );
+    write_node_project(workspace.join("app"));
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["estimated_bytes"], 3);
+    assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
+
+    let scan_cache_dir = temp.path().join("rebecca-cache").join("scan");
+    let cache_files = fs::read_dir(scan_cache_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    assert_eq!(cache_files.len(), 1);
+
+    let cache_file = &cache_files[0];
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&fs::read(cache_file).unwrap()).unwrap();
+    record["report"]["bytes_scanned"] = serde_json::json!(99);
+    fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["estimated_bytes"], 99);
+    assert_eq!(value["targets"][0]["estimate_source"], "scan-cache");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--no-progress",
+            "--no-scan-cache",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["estimated_bytes"], 3);
+    assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
 }
 
 #[test]
