@@ -81,7 +81,7 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - `catalog`, `inspect space`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
 - Default execution uses the Windows Recycle Bin.
 - Windows execution can batch already revalidated, non-overlapping targets into fewer Recycle Bin operations, but status, reason codes, pending bytes, and history remain per target.
-- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; the default remains the portable cleanup walker, and unsupported native paths fall back to portable scans.
+- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; `windows-ntfs-mft-experimental` exposes the future MFT fast path but currently reports a caveat and falls back to a safe directory scanner. The default remains the portable cleanup walker.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
@@ -131,6 +131,7 @@ cargo run -p rebecca -- clean --dry-run --format json --category system
 cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.edge-cache
 cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system
+cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system
 cargo run -p rebecca -- clean --dry-run --format json --allow-moderate --rule windows.npm-cache
 cargo run -p rebecca -- clean --dry-run --format json --allow-risky --rule windows.npm-cache
 cargo run -p rebecca -- clean --dry-run --exclude "$env:APPDATA\Slack\Cache"

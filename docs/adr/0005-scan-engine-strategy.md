@@ -33,7 +33,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 - Keep symlink and reparse-point traversal disabled.
 - Keep bounded target-level parallelism through Rebecca's shared rayon scan pool.
 - Provide a Windows native directory enumeration backend as an explicit `clean --scan-backend windows-native` opt-in. It uses Windows find data to read entry attributes and file sizes during enumeration, keeps the same reparse protections, and falls back to portable scanning when unsupported.
-- Add NTFS/USN/MFT acceleration only as an optional, feature-gated path.
+- Add NTFS/USN/MFT acceleration only as an optional, feature-gated path. `clean --scan-backend windows-ntfs-mft-experimental` currently exposes the selector and caveat/fallback contract without enabling live volume indexing.
 - Restrict NTFS fast-path usage to analysis and size discovery, not as a requirement for core cleanup.
 
 # Alternatives Considered
@@ -62,6 +62,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 - Users get reliable behavior before exotic speedups.
 - Later performance work can happen behind a feature flag or internal adapter selection.
 - Windows users can dogfood a native directory backend without making it the default cleanup authority.
+- The experimental MFT selector can be tested by wrappers without granting it deletion authority or live-volume access.
 - Benchmarks can compare default traversal against NTFS acceleration on representative datasets.
 - Search-tool ignore rules do not create cleanup-size undercounts.
 

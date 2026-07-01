@@ -11,6 +11,7 @@ use super::{ScanCancellationToken, ScanProgressEvent, ScanReport};
 pub enum ScanBackendKind {
     PortableRecursive,
     WindowsNative,
+    WindowsNtfsMftExperimental,
 }
 
 impl ScanBackendKind {
@@ -18,6 +19,7 @@ impl ScanBackendKind {
         match self {
             Self::PortableRecursive => "portable-recursive",
             Self::WindowsNative => "windows-native",
+            Self::WindowsNtfsMftExperimental => "windows-ntfs-mft-experimental",
         }
     }
 }
@@ -65,7 +67,23 @@ impl MeasuredScan {
     }
 
     pub(crate) fn with_fallback_reason(mut self, reason: impl Into<String>) -> Self {
-        self.fallback_reason = Some(reason.into());
+        let reason = reason.into();
+        self.fallback_reason = Some(match self.fallback_reason.take() {
+            Some(existing) => format!("{reason}; {existing}"),
+            None => reason,
+        });
+        self
+    }
+
+    pub(crate) fn with_caveat(
+        mut self,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        self.caveats.push(ScanEstimateCaveat {
+            code: code.into(),
+            message: message.into(),
+        });
         self
     }
 }

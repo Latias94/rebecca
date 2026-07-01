@@ -50,6 +50,15 @@ const SCENARIOS: &[ScenarioMetadata] = &[
         131_072,
         0,
     ),
+    ScenarioMetadata::scan_backend(
+        "many_small_windows_ntfs_mft_experimental_scan_1024_files",
+        "windows-ntfs-mft-experimental-selected",
+        "many-small",
+        1024,
+        33,
+        131_072,
+        0,
+    ),
     ScenarioMetadata::scan(
         "many_small_progress_scan_1024_files",
         "many-small",
@@ -194,6 +203,37 @@ fn perf_matrix(criterion: &mut Criterion) {
             black_box(measured);
         });
     });
+
+    group.bench_function(
+        "many_small_windows_ntfs_mft_experimental_scan_1024_files",
+        |bencher| {
+            let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
+            let expected = create_many_small_fixture(fixture.path());
+
+            bencher.iter(|| {
+                let measured = ScanEngine::new()
+                    .measure_scan_with_backend(
+                        black_box(fixture.path()),
+                        &ScanCancellationToken::new(),
+                        ScanBackendKind::WindowsNtfsMftExperimental,
+                        |_| {},
+                    )
+                    .expect("scan should succeed");
+                assert_report(measured.report, expected);
+                #[cfg(windows)]
+                assert_eq!(measured.backend, ScanBackendKind::WindowsNative);
+                #[cfg(not(windows))]
+                assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+                assert!(
+                    measured
+                        .caveats
+                        .iter()
+                        .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
+                );
+                black_box(measured);
+            });
+        },
+    );
 
     group.bench_function("many_small_progress_scan_1024_files", |bencher| {
         let fixture = tempfile::tempdir().expect("benchmark fixture should be created");

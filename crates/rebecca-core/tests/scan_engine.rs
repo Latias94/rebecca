@@ -124,6 +124,39 @@ fn windows_native_selection_falls_back_to_portable_when_unavailable() {
     }
 }
 
+#[test]
+fn windows_ntfs_mft_experimental_selection_falls_back_with_caveat() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+
+    let measured = ScanEngine::new()
+        .measure_scan_with_backend(
+            temp.path(),
+            &ScanCancellationToken::new(),
+            ScanBackendKind::WindowsNtfsMftExperimental,
+            |_| {},
+        )
+        .unwrap();
+
+    assert_eq!(measured.report.bytes_scanned, 4);
+    #[cfg(windows)]
+    assert_eq!(measured.backend, ScanBackendKind::WindowsNative);
+    #[cfg(not(windows))]
+    assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+    assert!(
+        measured
+            .fallback_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
+    );
+    assert!(
+        measured
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_native_backend_matches_portable_fixture_tree() {

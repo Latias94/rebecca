@@ -168,6 +168,40 @@ fn clean_dry_run_accepts_windows_native_scan_backend() {
 }
 
 #[test]
+fn clean_dry_run_accepts_windows_ntfs_mft_experimental_scan_backend() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    fs::create_dir_all(&temp_cache).unwrap();
+    fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--category",
+            "system",
+            "--scan-backend",
+            "windows-ntfs-mft-experimental",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["request"]["mode"], "dry-run");
+    assert!(value["summary"]["allowed_targets"].as_u64().unwrap() >= 1);
+}
+
+#[test]
 fn clean_defaults_to_preview_without_deleting() {
     let temp = tempfile::tempdir().unwrap();
     let temp_cache = temp.path().join("temp");
@@ -836,6 +870,7 @@ fn clean_help_lists_scan_cache_opt_out() {
     assert!(stdout.contains("--no-scan-cache"));
     assert!(stdout.contains("--scan-backend"));
     assert!(stdout.contains("windows-native"));
+    assert!(stdout.contains("windows-ntfs-mft-experimental"));
 }
 
 #[test]

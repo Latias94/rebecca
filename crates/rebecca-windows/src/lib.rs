@@ -6,6 +6,7 @@ use rebecca_core::executor::{CleanupBackend, ExecutionOutcome};
 use rebecca_core::plan::{CleanupTarget, CleanupTargetDeletionStyle};
 
 pub mod apps;
+pub mod ntfs_scan;
 pub mod process;
 pub mod steam;
 

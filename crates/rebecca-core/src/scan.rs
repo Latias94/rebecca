@@ -110,6 +110,9 @@ impl ScanEngine {
             ScanBackendKind::WindowsNative => {
                 self.measure_windows_native_with_portable_fallback(request, progress)
             }
+            ScanBackendKind::WindowsNtfsMftExperimental => {
+                self.measure_windows_ntfs_mft_with_fallback(request, progress)
+            }
         }
     }
 
@@ -128,6 +131,35 @@ impl ScanEngine {
             Err(err) if scan_error_can_fallback(&err) => PortableRecursiveScanBackend
                 .measure_path_with_progress(request, progress)
                 .map(|measured| measured.with_fallback_reason(format!("windows-native: {err}"))),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn measure_windows_ntfs_mft_with_fallback<F>(
+        &self,
+        request: ScanRequest<'_>,
+        progress: F,
+    ) -> Result<MeasuredScan>
+    where
+        F: for<'a> FnMut(ScanProgressEvent<'a>),
+    {
+        let mut progress = progress;
+
+        match measure_windows_ntfs_mft(request, |event| progress(event)) {
+            Ok(measured) => Ok(measured),
+            Err(err) if scan_error_can_fallback(&err) => {
+                self.measure_windows_native_with_portable_fallback(request, progress)
+                    .map(|measured| {
+                        measured
+                            .with_fallback_reason(format!(
+                                "windows-ntfs-mft-experimental: {err}"
+                            ))
+                            .with_caveat(
+                                "experimental-ntfs-mft-fallback",
+                                "experimental NTFS/MFT indexing was unavailable; Rebecca used a safe directory scanner instead",
+                            )
+                    })
+            }
             Err(err) => Err(err),
         }
     }
@@ -235,6 +267,15 @@ where
         "{} scan backend is only available on Windows",
         ScanBackendKind::WindowsNative.label()
     )))
+}
+
+fn measure_windows_ntfs_mft<F>(_request: ScanRequest<'_>, _progress: F) -> Result<MeasuredScan>
+where
+    F: for<'a> FnMut(ScanProgressEvent<'a>),
+{
+    Err(crate::error::RebeccaError::PlatformUnavailable(
+        "windows-ntfs-mft-experimental scan backend requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
+    ))
 }
 
 pub fn scan_parallelism_budget() -> usize {

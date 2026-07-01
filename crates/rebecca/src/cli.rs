@@ -49,6 +49,7 @@ pub enum ScanBackendArg {
     #[default]
     PortableRecursive,
     WindowsNative,
+    WindowsNtfsMftExperimental,
 }
 
 impl From<ScanBackendArg> for rebecca::core::scan::ScanBackendKind {
@@ -56,6 +57,7 @@ impl From<ScanBackendArg> for rebecca::core::scan::ScanBackendKind {
         match value {
             ScanBackendArg::PortableRecursive => Self::PortableRecursive,
             ScanBackendArg::WindowsNative => Self::WindowsNative,
+            ScanBackendArg::WindowsNtfsMftExperimental => Self::WindowsNtfsMftExperimental,
         }
     }
 }

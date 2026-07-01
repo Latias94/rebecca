@@ -20,6 +20,7 @@ The report records scenario name, operation, backend, fixture shape, physical fi
 
 - cold recursive scan over many small files
 - Windows native directory scan selection over many small files
+- experimental NTFS/MFT scan selection with safe fallback over many small files
 - recursive scan with file-level progress callbacks
 - one large flat directory
 - a deep directory tree
