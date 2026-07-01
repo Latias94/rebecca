@@ -41,6 +41,9 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
       - name: Show Rust toolchain
         run: rustup show
 
@@ -60,11 +63,17 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Run dependency policy checks
+        run: cargo deny check
+
       - name: Run clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo nextest run --workspace --locked
+
+      - name: Validate built-in catalogs
+        run: cargo run -p rebecca --locked -- catalog validate --format json
 
       - name: Build package file lists
         shell: pwsh

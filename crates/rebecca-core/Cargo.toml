@@ -29,7 +29,7 @@ windows.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
-rebecca-rules = { path = "../rebecca-rules" }
+rebecca-rules.workspace = true
 tempfile.workspace = true
 
 [[bench]]

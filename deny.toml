@@ -1,0 +1,47 @@
+[graph]
+targets = [
+    "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[output]
+feature-depth = 1
+
+[advisories]
+ignore = []
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+skip = []
+
+# trash 5.2.6 is current and MSRV-compatible, but still depends on windows 0.56
+# while Rebecca uses windows 0.62 directly. Keep advisory, license, and source
+# checks active; skip only duplicate-version noise for that upstream subtree.
+skip-tree = [
+    { crate = "trash@5.2.6", depth = 20 },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
