@@ -40,6 +40,12 @@ pub enum CatalogKindArg {
     ActionKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
+pub enum CatalogCommand {
+    /// Validate the built-in rule and safety catalogs.
+    Validate,
+}
+
 impl From<CatalogKindArg> for rebecca::core::catalog::CatalogItemKind {
     fn from(kind: CatalogKindArg) -> Self {
         match kind {
@@ -94,7 +100,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// List cleanup rules, project artifacts, warnings, and safety catalog entries.
+    /// List or validate cleanup rules, project artifacts, warnings, and safety catalog entries.
     Catalog(CatalogArgs),
     /// Show the built-in cleanup rules that would be considered.
     Scan(ScanArgs),
@@ -208,6 +214,8 @@ pub struct InspectLintArgs {
 
 #[derive(Debug, Args)]
 pub struct CatalogArgs {
+    #[command(subcommand)]
+    pub command: Option<CatalogCommand>,
     /// Include only one catalog item kind.
     #[arg(long, value_enum)]
     pub kind: Option<CatalogKindArg>,

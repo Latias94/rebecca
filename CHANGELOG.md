@@ -23,6 +23,7 @@ All notable changes to Rebecca will be documented in this file.
 - Chromium-family browser cache rules now include bounded shader, Dawn, extension-package, and legacy media cache directories while still excluding Network state, Safe Browsing journals, Preferences edits, history, cookies, sessions, and profile databases.
 - built-in browser rules now fail catalog validation when targets leave the approved regenerable Chromium/Gecko cache boundary.
 - built-in rule catalog validation now rejects filename/id drift, unsupported categories, non-canonical rule ids, untrimmed metadata, risky/dangerous built-in safety levels, and duplicate or non-canonical warning ids.
+- `rebecca catalog validate` now exposes built-in rule and safety catalog health checks for maintainers in human, JSON, and NDJSON output modes.
 
 ### Changed
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.

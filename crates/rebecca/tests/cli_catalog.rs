@@ -36,6 +36,21 @@ fn catalog_human_output_lists_rules_artifacts_warnings_and_safety() {
 }
 
 #[test]
+fn catalog_help_lists_validate_subcommand_without_hiding_filters() {
+    let output = common::command::rebecca()
+        .args(["catalog", "--help"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("validate"));
+    assert!(stdout.contains("--kind"));
+    assert!(stdout.contains("--warning"));
+}
+
+#[test]
 fn catalog_json_uses_v2_envelope_and_lists_warning_entries() {
     let output = common::command::rebecca()
         .args(["catalog", "--format", "json", "--kind", "warning"])
@@ -61,6 +76,63 @@ fn catalog_json_uses_v2_envelope_and_lists_warning_entries() {
                 .as_str()
                 .is_some_and(|description| description.contains("running application"))
     }));
+}
+
+#[test]
+fn catalog_validate_human_output_reports_builtin_catalog_health() {
+    let output = common::command::rebecca()
+        .args(["catalog", "validate"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca catalog validation: ok"));
+    assert!(stdout.contains("Cleanup rules:"));
+    assert!(stdout.contains("Targets:"));
+    assert!(stdout.contains("built-in metadata gates pass"));
+    assert!(stdout.contains("browser rules stay inside regenerable cache boundaries"));
+}
+
+#[test]
+fn catalog_validate_json_reports_machine_readable_health_summary() {
+    let output = common::command::rebecca()
+        .args(["catalog", "validate", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = catalog_envelope(&output.stdout);
+    assert_eq!(envelope["api_version"], "rebecca.cli.v2");
+    assert_eq!(envelope["command"], "catalog validate");
+    assert_eq!(envelope["payload_kind"], "catalog-validation");
+    assert_eq!(envelope["data"]["valid"], true);
+    assert!(envelope["data"]["rule_count"].as_u64().unwrap() > 0);
+    assert!(envelope["data"]["target_count"].as_u64().unwrap() > 0);
+    assert!(
+        envelope["data"]["categories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|category| category == "browser")
+    );
+    assert!(
+        envelope["data"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| check == "protected target shapes are blocked")
+    );
 }
 
 #[test]

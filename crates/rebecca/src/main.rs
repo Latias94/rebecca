@@ -22,8 +22,9 @@ mod scan;
 mod text;
 
 use cli::{
-    AppsCommand, CacheCommand, CatalogArgs, CleanArgs, Cli, Command, CompletionArgs, ConfigCommand,
-    DoctorCommand, HistoryArgs, InspectCommand, OutputMode, PurgeArgs, PurgeCommand, ScanArgs,
+    AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
+    CompletionArgs, ConfigCommand, DoctorCommand, HistoryArgs, InspectCommand, OutputMode,
+    PurgeArgs, PurgeCommand, ScanArgs,
 };
 use runtime::CliRuntime;
 
@@ -169,14 +170,28 @@ fn run_inspect(
 }
 
 fn run_catalog(args: CatalogArgs, global_mode: OutputMode) -> Result<()> {
+    let CatalogArgs {
+        command,
+        kind,
+        categories,
+        rules,
+        artifacts,
+        warnings,
+        safety_level,
+    } = args;
+
+    if let Some(CatalogCommand::Validate) = command {
+        return catalog::validate(global_mode);
+    }
+
     catalog::run(catalog::CatalogOptions {
         output_mode: global_mode,
-        kind: args.kind.map(Into::into),
-        categories: args.categories,
-        rules: args.rules,
-        artifacts: args.artifacts,
-        warnings: args.warnings,
-        safety_level: args.safety_level.map(Into::into),
+        kind: kind.map(Into::into),
+        categories,
+        rules,
+        artifacts,
+        warnings,
+        safety_level: safety_level.map(Into::into),
     })
 }
 
@@ -290,7 +305,13 @@ fn command_output_mode(cli: &Cli) -> OutputMode {
 
 fn command_api_contract(command: &Command) -> output::CliApiContract {
     match command {
-        Command::Catalog(_) => output::CliApiContract::v2("catalog", "catalog"),
+        Command::Catalog(args) => {
+            if matches!(args.command.as_ref(), Some(CatalogCommand::Validate)) {
+                output::CliApiContract::v2("catalog validate", "catalog-validation")
+            } else {
+                output::CliApiContract::v2("catalog", "catalog")
+            }
+        }
         Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),
         Command::Clean(_) => output::CliApiContract::v1("clean", "cleanup-plan"),
         Command::Inspect { command } => match command {

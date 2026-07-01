@@ -6,9 +6,20 @@ use rebecca::core::catalog::{
 };
 use rebecca::core::project_artifacts::all_project_artifact_policies;
 use rebecca::core::{RuleDefinition, SafetyLevel};
+use serde::Serialize;
+use std::collections::BTreeSet;
 
 use crate::cli::OutputMode;
 use crate::output::CliApiContract;
+
+const CATALOG_VALIDATION_CHECKS: &[&str] = &[
+    "built-in rule files compile",
+    "rule ids and target specs are unique",
+    "built-in metadata gates pass",
+    "protected target shapes are blocked",
+    "browser rules stay inside regenerable cache boundaries",
+    "safety catalog knowledge loads",
+];
 
 #[derive(Debug)]
 pub struct CatalogOptions {
@@ -19,6 +30,18 @@ pub struct CatalogOptions {
     pub artifacts: Vec<String>,
     pub warnings: Vec<String>,
     pub safety_level: Option<SafetyLevel>,
+}
+
+#[derive(Debug, Serialize)]
+struct CatalogValidationReport {
+    valid: bool,
+    rule_count: usize,
+    target_count: usize,
+    category_count: usize,
+    warning_count: usize,
+    safety_category_count: usize,
+    categories: Vec<String>,
+    checks: &'static [&'static str],
 }
 
 pub fn run(options: CatalogOptions) -> Result<()> {
@@ -39,6 +62,62 @@ pub fn run(options: CatalogOptions) -> Result<()> {
             Ok(())
         },
     )
+}
+
+pub fn validate(output_mode: OutputMode) -> Result<()> {
+    let rules = rebecca::rules::builtin_rules()?;
+    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let report = validation_report(&rules, &safety_knowledge);
+
+    crate::output::print_command_success_with_contract(
+        CliApiContract::v2("catalog validate", "catalog-validation"),
+        output_mode,
+        || &report,
+        || {
+            print_validation_report(&report);
+            Ok(())
+        },
+    )
+}
+
+fn validation_report(
+    rules: &[RuleDefinition],
+    safety_knowledge: &rebecca::core::safety_catalog::SafetyKnowledge,
+) -> CatalogValidationReport {
+    let categories = rules
+        .iter()
+        .map(|rule| rule.category.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let target_count = rules
+        .iter()
+        .map(|rule| rule.path_templates.len())
+        .sum::<usize>();
+
+    CatalogValidationReport {
+        valid: true,
+        rule_count: rules.len(),
+        target_count,
+        category_count: categories.len(),
+        warning_count: safety_knowledge.warning_kinds().len(),
+        safety_category_count: safety_knowledge.categories().len(),
+        categories,
+        checks: CATALOG_VALIDATION_CHECKS,
+    }
+}
+
+fn print_validation_report(report: &CatalogValidationReport) {
+    println!("Rebecca catalog validation: ok");
+    println!("Cleanup rules: {}", report.rule_count);
+    println!("Targets: {}", report.target_count);
+    println!("Categories: {}", report.categories.join(", "));
+    println!("Warning kinds: {}", report.warning_count);
+    println!("Safety categories: {}", report.safety_category_count);
+    println!("Checks:");
+    for check in report.checks {
+        println!("  - {check}");
+    }
 }
 
 pub(crate) fn cleanup_rule_catalog_items(rules: &[RuleDefinition]) -> Vec<CatalogItem> {
