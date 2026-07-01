@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/rebecca",
     "crates/rebecca-core",
+    "crates/rebecca-ntfs",
     "crates/rebecca-rules",
     "crates/rebecca-windows",
 ]
@@ -48,6 +49,7 @@ winreg = "0.56.0"
 # Workspace crates. Keeping versions explicit lets cargo publish rewrite path
 # dependencies to registry dependencies without duplicating requirements.
 rebecca-core = { path = "crates/rebecca-core", version = "0.2.0" }
+rebecca-ntfs = { path = "crates/rebecca-ntfs", version = "0.2.0" }
 rebecca-rules = { path = "crates/rebecca-rules", version = "0.2.0" }
 rebecca-windows = { path = "crates/rebecca-windows", version = "0.2.0" }
 

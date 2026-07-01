@@ -1275,6 +1275,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rebecca-ntfs"
+version = "0.2.0"
+dependencies = [
+ "criterion",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "rebecca-rules"
 version = "0.2.0"
 dependencies = [

@@ -1,0 +1,24 @@
+[package]
+name = "rebecca-ntfs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Read-only NTFS MFT parsing primitives for Rebecca."
+documentation = "https://docs.rs/rebecca-ntfs"
+keywords = ["windows", "ntfs", "mft", "filesystem"]
+categories = ["filesystem"]
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "mft_parser"
+harness = false
