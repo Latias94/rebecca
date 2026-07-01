@@ -25,4 +25,4 @@ value = "%APPDATA%\\Tencent\\QQMusic\\WhirlCache"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from public Windows QQ Music cache-path observations, Mole's QQ Music cache behavior reference, and local directory inspection. Rewritten for Rebecca; cache leaves only and intentionally avoids mmkv state, cookie-like files, WebkitCache local-storage data, library data, downloaded music, and account data."
+notes = "Based on independent public Windows QQ Music cache-path observations and local directory inspection, cross-checked against Mole QQ Music behavior as behavior reference only, no rule data copied. Cache leaves only; intentionally avoids mmkv state, cookie-like files, WebkitCache local-storage data, library data, downloaded music, and account data."

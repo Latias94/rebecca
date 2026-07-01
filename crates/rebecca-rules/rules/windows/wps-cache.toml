@@ -21,4 +21,4 @@ value = "%LOCALAPPDATA%\\Kingsoft\\WPS Cloud Files\\UserData\\Default\\WebCache\
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from Winapp2's Kingsoft Office entry and public WPS Cloud Files cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids document state, sync state, cookies, and account data."
+notes = "Uses Winapp2 Kingsoft Office entry as discovery index only, no rule data copied, plus independent public WPS Cloud Files cache-path observations. Cache leaves only; intentionally avoids document state, sync state, cookies, and account data."

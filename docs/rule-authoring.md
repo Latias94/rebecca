@@ -192,10 +192,11 @@ files. Keep each rule small, explicit, and easy to audit.
 - Built-in rules must include a concise non-empty `restore_hint`, because dry-run,
   history, and grouped human output surface it as part of the safety contract.
 - Document the source of each rule in `provenance.notes`.
-- When a rule family is derived from an external reference, keep the reference
-  in `provenance.notes` with the upstream project name, repository or file path,
-  license, and any relevant commit or release tag. Treat GPL sources such as
-  Mole and BleachBit as behavior references only, not rule-data sources.
+- When a rule family is cross-checked against an external reference, keep the
+  reference in `provenance.notes` with the upstream project name, repository or
+  file path, license, and any relevant commit or release tag. Treat GPL sources
+  such as Mole and BleachBit as behavior references only, not rule-data sources,
+  and state that no rule data was copied.
 - Winapp2 can inform Windows application cache candidates, especially for
   WeChat, Enterprise WeChat, and Kingsoft/WPS. Keep it as a reference input,
   rewrite the rule from scratch, and preserve the cache-vs-state boundary in

@@ -22,7 +22,7 @@ All notable changes to Rebecca will be documented in this file.
 - the built-in Windows catalog now includes Chromium, Waterfox, Zen Browser, Thunderbird, and Adobe Reader cache rules with tests that keep history, cookies, mail, preferences, and document data out of scope.
 - Chromium-family browser cache rules now include bounded shader, Dawn, extension-package, and legacy media cache directories while still excluding Network state, Safe Browsing journals, Preferences edits, history, cookies, sessions, and profile databases.
 - built-in browser rules now fail catalog validation when targets leave the approved regenerable Chromium/Gecko cache boundary.
-- built-in rule catalog validation now rejects filename/id drift, unsupported categories, non-canonical rule ids, untrimmed metadata, risky/dangerous built-in safety levels, and duplicate or non-canonical warning ids.
+- built-in rule catalog validation now rejects filename/id drift, unsupported categories, non-canonical rule ids, untrimmed metadata, risky/dangerous built-in safety levels, copied/derived external rule provenance, and duplicate or non-canonical warning ids.
 - `rebecca catalog validate` now exposes built-in rule and safety catalog health checks for maintainers in human, JSON, and NDJSON output modes.
 - Cleanup planning now deduplicates equivalent existing directories by filesystem identity and keeps directory scan cache records valid for their configured freshness window despite root metadata churn.
 - Dry-run cleanup previews now use the rebuildable scan cache by default, with `--no-scan-cache` available when a fully fresh estimate is preferred; `--yes` execution remains fresh-scan by default.

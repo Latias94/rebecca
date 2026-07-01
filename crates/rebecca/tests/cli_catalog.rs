@@ -96,6 +96,7 @@ fn catalog_validate_human_output_reports_builtin_catalog_health() {
     assert!(stdout.contains("Cleanup rules:"));
     assert!(stdout.contains("Targets:"));
     assert!(stdout.contains("built-in metadata gates pass"));
+    assert!(stdout.contains("restricted reference provenance is no-copy"));
     assert!(stdout.contains("browser rules stay inside regenerable cache boundaries"));
 }
 
@@ -126,10 +127,14 @@ fn catalog_validate_json_reports_machine_readable_health_summary() {
             .iter()
             .any(|category| category == "browser")
     );
+    let checks = envelope["data"]["checks"].as_array().unwrap();
     assert!(
-        envelope["data"]["checks"]
-            .as_array()
-            .unwrap()
+        checks
+            .iter()
+            .any(|check| check == "restricted reference provenance is no-copy")
+    );
+    assert!(
+        checks
             .iter()
             .any(|check| check == "protected target shapes are blocked")
     );

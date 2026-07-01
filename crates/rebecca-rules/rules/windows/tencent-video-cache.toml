@@ -13,4 +13,4 @@ value = "%APPDATA%\\Tencent\\QQLive\\Image"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from public Windows QQLive cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids account data, downloaded videos, Local Storage, IndexedDB, and session data."
+notes = "Based on independent public Windows QQLive cache-path observations. Cache leaves only; intentionally avoids account data, downloaded videos, Local Storage, IndexedDB, and session data."

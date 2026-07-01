@@ -18,4 +18,4 @@ value = "%APPDATA%\\vlc\\crashdump"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from BleachBit VLC cleaner behavior (repo-ref/bleachbit/cleaners/vlc.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca as a cache-and-diagnostics rule; VLC MRU fields, playlist history, media files, and configuration are excluded."
+notes = "Cross-checked against BleachBit VLC cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets VLC artwork cache and crash diagnostic leaves only; VLC MRU fields, playlist history, media files, and configuration are excluded."

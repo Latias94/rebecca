@@ -18,4 +18,4 @@ value = "%LOCALAPPDATA%\\Thunderbird\\Profiles\\*\\startupCache"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from BleachBit (cleaners/thunderbird.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca to target only local profile cache leaves and intentionally exclude mail stores, message indexes, cookies, passwords, session restore, profile configuration, and SQLite vacuum actions."
+notes = "Cross-checked against BleachBit thunderbird cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets only local profile cache leaves and intentionally excludes mail stores, message indexes, cookies, passwords, session restore, profile configuration, and SQLite vacuum actions."

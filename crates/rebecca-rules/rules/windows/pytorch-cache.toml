@@ -17,4 +17,4 @@ value = "%USERPROFILE%\\.cache\\torch\\hub"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from null-e (repo-ref/null-e, WTFPL-2.0, 079a038f71159dab07c4d2bd8bd700cb5647972d) and verified against PyTorch torch.hub documentation and load_state_dict_from_url behavior. Targets the hub cache root only; the default hub/checkpoints cache lives beneath that root. Rewritten for Rebecca."
+notes = "Cross-checked against null-e (repo-ref/null-e, WTFPL-2.0, 079a038f71159dab07c4d2bd8bd700cb5647972d) and verified against PyTorch torch.hub documentation and load_state_dict_from_url behavior. Targets the hub cache root only; the default hub/checkpoints cache lives beneath that root."

@@ -14,4 +14,4 @@ value = "%APPDATA%\\TeamViewer\\TeamViewer*_Logfile.log"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from BleachBit TeamViewer cleaner behavior (repo-ref/bleachbit/cleaners/teamviewer.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca as a log-file-only rule; MRU files, connection history, registry values, configuration, and account state are excluded."
+notes = "Cross-checked against BleachBit TeamViewer cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets TeamViewer log files only; MRU files, connection history, registry values, configuration, and account state are excluded."

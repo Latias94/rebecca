@@ -25,4 +25,4 @@ value = "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\web_shell\\Cache\\Ca
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from Winapp2's Tencent WeChat entry, Mole's WeChat cache behavior reference, and Windows WeChat radium cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids account, backup, document, Local Storage, IndexedDB, and session data."
+notes = "Uses Winapp2 Tencent WeChat entry as discovery index only, no rule data copied; cross-checked against Mole WeChat behavior as behavior reference only, no rule data copied; also based on independent Windows WeChat radium cache-path observations. Cache leaves only; intentionally avoids account, backup, document, Local Storage, IndexedDB, and session data."

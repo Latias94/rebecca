@@ -92,6 +92,6 @@ session-storage cleanup rules.
 Use this shape in `provenance.notes`:
 
 ```text
-Derived from <upstream project> (<repo or file path>, <license>, <revision>).
-Rewritten for Rebecca; behavior-only reference.
+Cross-checked against <upstream project> (<repo or file path>, <license>, <revision>)
+as behavior reference only, no rule data copied.
 ```

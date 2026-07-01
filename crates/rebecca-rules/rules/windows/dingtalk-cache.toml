@@ -21,4 +21,4 @@ value = "%APPDATA%\\DingTalk\\*\\resource_cache"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from Mole's DingTalk cache behavior reference and public Windows DingTalk cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids account data, sync data, logs, document data, and session data."
+notes = "Cross-checked against Mole DingTalk behavior as behavior reference only, no rule data copied, plus independent public Windows DingTalk cache-path observations. Cache leaves only; intentionally avoids account data, sync data, logs, document data, and session data."

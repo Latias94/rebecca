@@ -16,6 +16,7 @@ const CATALOG_VALIDATION_CHECKS: &[&str] = &[
     "built-in rule files compile",
     "rule ids and target specs are unique",
     "built-in metadata gates pass",
+    "restricted reference provenance is no-copy",
     "protected target shapes are blocked",
     "browser rules stay inside regenerable cache boundaries",
     "safety catalog knowledge loads",

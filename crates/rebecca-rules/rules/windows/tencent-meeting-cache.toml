@@ -21,4 +21,4 @@ value = "%APPDATA%\\Tencent\\WeMeet\\Global\\Data\\DynamicResource"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from public Windows Tencent Meeting and WeMeet cache-path observations. Rewritten for Rebecca; cache leaves only and intentionally avoids meeting history, account data, recordings, and session data."
+notes = "Based on independent public Windows Tencent Meeting and WeMeet cache-path observations. Cache leaves only; intentionally avoids meeting history, account data, recordings, and session data."

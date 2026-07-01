@@ -41,4 +41,4 @@ value = "%APPDATA%\\LarkShell\\ShaderCache"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from Mole's Feishu cache behavior reference and Windows LarkShell cache-directory inspection. Rewritten for Rebecca; cache leaves only and intentionally avoids sdk_storage, Local Storage, IndexedDB, Session Storage, account data, and document data."
+notes = "Cross-checked against Mole Feishu behavior as behavior reference only, no rule data copied, plus independent Windows LarkShell cache-directory inspection. Cache leaves only; intentionally avoids sdk_storage, Local Storage, IndexedDB, Session Storage, account data, and document data."

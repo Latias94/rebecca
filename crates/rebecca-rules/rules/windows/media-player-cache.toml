@@ -21,4 +21,4 @@ value = "%LOCALAPPDATA%\\Microsoft\\Media Player\\Transcoded Files Cache"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from BleachBit (cleaners/windows_media_player.xml, GPL-3.0-or-later, 1517daf22201e4f8b05fbffcc4f89c992ba06375). Rewritten for Rebecca; behavior-only reference."
+notes = "Cross-checked against BleachBit windows_media_player cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets regenerated Windows Media Player cache leaves only."

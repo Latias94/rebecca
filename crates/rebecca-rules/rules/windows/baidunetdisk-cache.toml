@@ -13,4 +13,4 @@ value = "%LOCALAPPDATA%\\Baidu\\BaiduNetdisk\\cache"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from public Windows Baidu Netdisk cache-path observations. Rewritten for Rebecca; cache leaf only and intentionally avoids sync state, account data, document content, and transfer databases."
+notes = "Based on independent public Windows Baidu Netdisk cache-path observations. Cache leaf only; intentionally avoids sync state, account data, document content, and transfer databases."

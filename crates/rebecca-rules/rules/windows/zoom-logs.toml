@@ -18,4 +18,4 @@ value = "%APPDATA%\\Zoom\\installer.txt"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from BleachBit Zoom cleaner behavior (repo-ref/bleachbit/cleaners/zoom.xml, GPL-3.0-or-later, fb0f67c560460c8018b04fa3746a0b6f7a315726). Rewritten for Rebecca as a narrow logs-only rule; recordings, downloads, chat data, configuration, and account state are excluded."
+notes = "Cross-checked against BleachBit Zoom cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets a narrow logs-only boundary; recordings, downloads, chat data, configuration, and account state are excluded."

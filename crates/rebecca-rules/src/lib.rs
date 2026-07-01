@@ -248,6 +248,7 @@ fn validate_builtin_rule_metadata(
     }
     validate_trimmed_rule_metadata(rule, "provenance license", &rule.provenance.license)?;
     validate_trimmed_rule_metadata(rule, "provenance notes", &rule.provenance.notes)?;
+    validate_builtin_rule_provenance_notes(rule)?;
 
     if !is_canonical_windows_rule_id(&rule.id) {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
@@ -285,6 +286,45 @@ fn validate_trimmed_rule_metadata(rule: &RuleDefinition, field: &str, value: &st
             "built-in rule {} {field} must not contain leading or trailing whitespace",
             rule.id
         )));
+    }
+
+    Ok(())
+}
+
+fn validate_builtin_rule_provenance_notes(rule: &RuleDefinition) -> Result<()> {
+    let lower_notes = rule.provenance.notes.to_ascii_lowercase();
+
+    for phrase in [
+        "copied from",
+        "derived from",
+        "imported from",
+        "ported from",
+    ] {
+        if lower_notes.contains(phrase) {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} provenance notes must not claim copied or derived rule data",
+                rule.id
+            )));
+        }
+    }
+
+    for source in ["bleachbit", "mole", "winapp2"] {
+        if lower_notes.contains(source)
+            && !(lower_notes.contains("behavior reference only")
+                || lower_notes.contains("discovery index only"))
+        {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} provenance notes must mark {source} as reference-only",
+                rule.id
+            )));
+        }
+
+        if lower_notes.contains(source) && !lower_notes.contains("no rule data copied") {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} provenance notes must state that no {source} rule data was copied",
+                rule.id
+            )));
+        }
     }
 
     Ok(())
@@ -354,7 +394,7 @@ fn validate_browser_cache_target_shape(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::{collections::HashSet, fs, path::Path};
 
     use rebecca_core::safety_catalog::default_safety_knowledge;
     use rebecca_core::{
@@ -470,6 +510,40 @@ mod tests {
     }
 
     #[test]
+    fn builtin_rule_files_match_rule_directory() {
+        let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("rules/windows");
+        let mut discovered = fs::read_dir(rules_dir)
+            .expect("built-in rule directory should be readable")
+            .map(|entry| {
+                entry
+                    .expect("rule directory entry should be readable")
+                    .path()
+            })
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "toml")
+            })
+            .map(|path| {
+                format!(
+                    "rules/windows/{}",
+                    path.file_name()
+                        .expect("rule file should have a file name")
+                        .to_string_lossy()
+                )
+            })
+            .collect::<Vec<_>>();
+        discovered.sort();
+
+        let mut embedded = super::BUILTIN_RULE_FILES
+            .iter()
+            .map(|(path, _)| path.to_string())
+            .collect::<Vec<_>>();
+        embedded.sort();
+
+        assert_eq!(embedded, discovered);
+    }
+
+    #[test]
     fn builtin_catalog_rejects_non_owned_provenance_sources() {
         let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
             id: "windows.test".to_string(),
@@ -560,6 +634,65 @@ mod tests {
             err.to_string()
                 .contains("must not contain leading or trailing whitespace")
         );
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_copied_or_derived_reference_provenance() {
+        for notes in [
+            "Derived from BleachBit cleaner data.",
+            "Copied from upstream cleaner data.",
+            "Imported from Winapp2.",
+            "Ported from Mole.",
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+                provenance: RuleProvenance {
+                    notes: notes.to_string(),
+                    ..owned_provenance()
+                },
+                ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+            }])
+            .expect_err("built-in rules must not claim copied reference rule data");
+
+            assert!(
+                err.to_string()
+                    .contains("must not claim copied or derived rule data"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_catalog_requires_reference_only_provenance_for_restricted_sources() {
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+            provenance: RuleProvenance {
+                notes: "Cross-checked against BleachBit cleaner behavior.".to_string(),
+                ..owned_provenance()
+            },
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        }])
+        .expect_err("restricted sources need explicit reference-only provenance");
+
+        assert!(err.to_string().contains("reference-only"), "{err}");
+
+        let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
+            provenance: RuleProvenance {
+                notes: "Cross-checked against BleachBit as behavior reference only.".to_string(),
+                ..owned_provenance()
+            },
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        }])
+        .expect_err("restricted sources need no-copy provenance");
+
+        assert!(err.to_string().contains("no bleachbit rule data"), "{err}");
+
+        super::validate_builtin_rule_catalog(&[RuleDefinition {
+            provenance: RuleProvenance {
+                notes: "Cross-checked against BleachBit as behavior reference only, no rule data copied.".to_string(),
+                ..owned_provenance()
+            },
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        }])
+        .expect("reference-only provenance should pass");
     }
 
     #[test]
@@ -999,11 +1132,15 @@ notes = "test"
             path_templates: vec![target],
             restore_hint: Some("Regenerated automatically.".to_string()),
             warnings: Vec::new(),
-            provenance: RuleProvenance {
-                source: RuleSource::Owned,
-                license: "project-owned".to_string(),
-                notes: "test".to_string(),
-            },
+            provenance: owned_provenance(),
+        }
+    }
+
+    fn owned_provenance() -> RuleProvenance {
+        RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
         }
     }
 }

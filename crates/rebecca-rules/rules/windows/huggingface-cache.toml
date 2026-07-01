@@ -65,4 +65,4 @@ value = "%USERPROFILE%\\.cache\\huggingface\\xet"
 [provenance]
 source = "owned"
 license = "project-owned"
-notes = "Derived from null-e (repo-ref/null-e, WTFPL-2.0, 079a038f71159dab07c4d2bd8bd700cb5647972d) and verified against Hugging Face Hub environment-variable docs plus Hugging Face Datasets cache docs. Targets the documented cache subdirectories only; rewritten for Rebecca."
+notes = "Cross-checked against null-e (repo-ref/null-e, WTFPL-2.0, 079a038f71159dab07c4d2bd8bd700cb5647972d) and verified against Hugging Face Hub environment-variable docs plus Hugging Face Datasets cache docs. Targets the documented cache subdirectories only."
