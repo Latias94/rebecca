@@ -4,12 +4,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::AppPaths;
 use crate::error::{RebeccaError, Result};
-use crate::scan::ScanReport;
+use crate::scan::{MeasuredScan, ScanBackendKind, ScanReport};
 
 use super::{
-    SCAN_CACHE_DIR, SCAN_CACHE_PRUNE_BATCH_LIMIT, ScanCacheFingerprint, ScanCacheLookup,
-    ScanCacheMiss, ScanCachePolicy, ScanCachePruneReport, ScanCacheRecord, ScanCacheStore,
+    SCAN_CACHE_DIR, SCAN_CACHE_PRUNE_BATCH_LIMIT, ScanCacheLookup, ScanCacheMiss,
+    ScanCachePathSnapshot, ScanCachePolicy, ScanCachePruneReport, ScanCacheRecord, ScanCacheStore,
+    ScanCacheWriteDurability,
 };
+
+#[cfg(test)]
+static STRICT_SYNC_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 impl ScanCacheStore {
     pub fn from_app_paths(paths: &AppPaths) -> Self {
@@ -114,8 +118,8 @@ impl ScanCacheStore {
                 continue;
             }
 
-            let fingerprint = match ScanCacheFingerprint::read_from_path(&record.root) {
-                Ok(fingerprint) => fingerprint,
+            let snapshot = match ScanCachePathSnapshot::read_from_path(&record.root) {
+                Ok(snapshot) => snapshot,
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                     prune_cache_file(&cache_file);
                     report.pruned = report.pruned.saturating_add(1);
@@ -127,7 +131,7 @@ impl ScanCacheStore {
                 }
             };
 
-            match record.miss_reason(&record.root, &fingerprint, policy, unix_now()) {
+            match record.miss_reason(&record.root, &snapshot, policy, unix_now()) {
                 Some(reason) if reason.should_prune_cache_file() => {
                     prune_cache_file(&cache_file);
                     report.pruned = report.pruned.saturating_add(1);
@@ -146,8 +150,8 @@ impl ScanCacheStore {
 
     pub fn load_with_policy(&self, root: &Path, policy: ScanCachePolicy) -> ScanCacheLookup {
         let cache_file = self.cache_file_for(root);
-        let fingerprint = match ScanCacheFingerprint::read_from_path(root) {
-            Ok(fingerprint) => fingerprint,
+        let snapshot = match ScanCachePathSnapshot::read_from_path(root) {
+            Ok(snapshot) => snapshot,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 prune_cache_file(&cache_file);
                 return ScanCacheLookup::pruned_miss(ScanCacheMiss::Missing);
@@ -172,7 +176,7 @@ impl ScanCacheStore {
             }
         };
 
-        match record.miss_reason(root, &fingerprint, policy, unix_now()) {
+        match record.miss_reason(root, &snapshot, policy, unix_now()) {
             Some(reason) => {
                 if reason.should_prune_cache_file() {
                     prune_cache_file(&cache_file);
@@ -185,8 +189,28 @@ impl ScanCacheStore {
     }
 
     pub fn store(&self, root: &Path, report: ScanReport) -> Result<ScanCacheRecord> {
-        let fingerprint = ScanCacheFingerprint::from_path(root)?;
-        let record = ScanCacheRecord::new(root.to_path_buf(), fingerprint, report);
+        self.store_measured_scan(
+            root,
+            MeasuredScan::exact(report, ScanBackendKind::PortableRecursive),
+        )
+    }
+
+    pub fn store_measured_scan(
+        &self,
+        root: &Path,
+        measured_scan: MeasuredScan,
+    ) -> Result<ScanCacheRecord> {
+        self.store_measured_scan_with_policy(root, measured_scan, ScanCachePolicy::default())
+    }
+
+    pub fn store_measured_scan_with_policy(
+        &self,
+        root: &Path,
+        measured_scan: MeasuredScan,
+        policy: ScanCachePolicy,
+    ) -> Result<ScanCacheRecord> {
+        let snapshot = ScanCachePathSnapshot::from_path(root)?;
+        let record = ScanCacheRecord::new(root.to_path_buf(), snapshot, measured_scan);
         let cache_file = self.cache_file_for(root);
         let parent = cache_file.parent().ok_or_else(|| {
             RebeccaError::ScanCacheUnavailable(format!(
@@ -201,19 +225,25 @@ impl ScanCacheStore {
                 err
             ))
         })?;
-        let raw = serde_json::to_vec_pretty(&record)?;
-        write_cache_file(&cache_file, &raw)?;
+        let raw = serde_json::to_vec(&record)?;
+        write_cache_file(&cache_file, &raw, policy.write_durability())?;
 
         Ok(record)
     }
 }
 
-fn write_cache_file(cache_file: &Path, raw: &[u8]) -> Result<()> {
+fn write_cache_file(
+    cache_file: &Path,
+    raw: &[u8],
+    durability: ScanCacheWriteDurability,
+) -> Result<()> {
     let temp_file = temp_cache_file(cache_file);
     let write_result = (|| -> std::io::Result<()> {
         let mut file = std::fs::File::create(&temp_file)?;
         file.write_all(raw)?;
-        file.sync_all()?;
+        if durability == ScanCacheWriteDurability::Strict {
+            sync_cache_file(&file)?;
+        }
         replace_file(&temp_file, cache_file)
     })();
 
@@ -227,6 +257,13 @@ fn write_cache_file(cache_file: &Path, raw: &[u8]) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn sync_cache_file(file: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(test)]
+    STRICT_SYNC_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    file.sync_all()
 }
 
 fn prune_cache_file(cache_file: &Path) {
@@ -293,12 +330,13 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{path_hash, unix_now};
-    use crate::scan::ScanReport;
+    use super::{STRICT_SYNC_CALLS, path_hash, unix_now};
+    use crate::scan::{ScanBackendKind, ScanEstimateConfidence, ScanReport};
     use crate::scan_cache::{
         DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheFileType,
-        ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore,
+        ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore, ScanCacheWriteDurability,
     };
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn scan_cache_round_trips_current_fingerprint() {
@@ -318,8 +356,104 @@ mod tests {
 
         assert_eq!(record.version, SCAN_CACHE_VERSION);
         assert_eq!(record.root, root);
+        assert_eq!(record.backend, ScanBackendKind::PortableRecursive);
+        assert_eq!(record.confidence, ScanEstimateConfidence::Exact);
         assert!(store.cache_file_for(&record.root).exists());
         assert_eq!(lookup, ScanCacheLookup::Hit(report));
+    }
+
+    #[test]
+    fn scan_cache_writes_compact_v2_records_with_identity_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+
+        let record = store.store(&root, report).unwrap();
+        let raw = std::fs::read_to_string(store.cache_file_for(&root)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(record.version, 2);
+        assert!(!raw.contains('\n'), "cache records should be compact JSON");
+        assert_eq!(parsed["version"], SCAN_CACHE_VERSION);
+        assert_eq!(parsed["backend"], "portable-recursive");
+        assert_eq!(parsed["confidence"], "exact");
+        assert_eq!(parsed["identity"].as_object().unwrap().len(), 2);
+        assert!(parsed["identity"].get("usn_checkpoint").is_none());
+    }
+
+    #[test]
+    fn scan_cache_legacy_v1_record_is_stale_and_pruned() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+        let mut record = store.store(&root, report).unwrap();
+        record.version = 1;
+        std::fs::write(
+            store.cache_file_for(&root),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+
+        let lookup = store.load(&root);
+
+        assert_eq!(lookup, ScanCacheLookup::pruned_miss(ScanCacheMiss::Stale));
+        assert!(!store.cache_file_for(&root).exists());
+    }
+
+    #[test]
+    fn scan_cache_default_write_durability_skips_strict_sync() {
+        STRICT_SYNC_CALLS.store(0, Ordering::SeqCst);
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+
+        store.store(&root, report).unwrap();
+
+        assert_eq!(STRICT_SYNC_CALLS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn scan_cache_strict_write_durability_syncs_file() {
+        STRICT_SYNC_CALLS.store(0, Ordering::SeqCst);
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target.txt");
+        std::fs::write(&root, b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        };
+        let policy =
+            ScanCachePolicy::default().with_write_durability(ScanCacheWriteDurability::Strict);
+
+        store
+            .store_measured_scan_with_policy(
+                &root,
+                crate::scan::MeasuredScan::exact(report, ScanBackendKind::PortableRecursive),
+                policy,
+            )
+            .unwrap();
+
+        assert_eq!(STRICT_SYNC_CALLS.load(Ordering::SeqCst), 1);
     }
 
     #[test]

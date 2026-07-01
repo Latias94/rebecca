@@ -29,6 +29,7 @@ All notable changes to Rebecca will be documented in this file.
 - Cleanup planning now deduplicates equivalent existing directories by filesystem identity and keeps directory scan cache records valid for their configured freshness window despite root metadata churn.
 - Dry-run cleanup previews now use the rebuildable scan cache by default, with `--no-scan-cache` available when a fully fresh estimate is preferred; `--yes` execution remains fresh-scan by default.
 - The core performance matrix now includes an ordinary-rule planning benchmark for many directory targets.
+- Scan-cache records now use a compact v2 format with scan backend, estimate confidence, optional filesystem identity fields, and future USN checkpoint placeholders.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.
@@ -47,6 +48,7 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect lint --top` now bounds rendered duplicate, large-file, empty-file, and empty-directory sections while summary counters still reflect the full inventory.
 - Scan traversal now reuses walker entry type information where possible while preserving root metadata checks and reparse-point protection.
 - `history --limit` now loads only the bounded tail of non-empty history records before building the history projection.
+- Scan-cache writes now use atomic replacement without strict file sync on the default hot path; strict sync remains available as an internal policy option.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.
@@ -54,6 +56,7 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect artifacts` is the canonical project artifact insight command; `purge inspect` remains as a compatibility alias for existing command users.
 - `cache purge` machine output no longer uses `mode: "delete"`; callers must handle `mode: "recoverable-delete"` and `mode: "permanent-delete"` plus the new `pending_reclaim_bytes`, `recoverably_deleted_entries`, and `permanently_deleted_entries` summary fields.
 - Project artifact reclaim-limit skips now use `reason_code: "reclaim-limit-satisfied"` and can leave skipped targets with `estimate_source: "not-measured"` because later candidates are no longer measured after the limit is satisfied.
+- Existing scan-cache v1 records are treated as stale and rebuilt under the v2 identity format.
 
 ## [0.2.0]
 

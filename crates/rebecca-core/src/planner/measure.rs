@@ -401,14 +401,16 @@ where
         }
     }
 
-    let report =
-        ScanEngine::new().measure_path_with_progress(path, context.cancellation(), |event| {
+    let measured_scan =
+        ScanEngine::new().measure_scan_with_progress(path, context.cancellation(), |event| {
             progress(PathMeasureProgressEvent::Scan(event));
         })?;
+    let report = measured_scan.report;
 
     if cacheable_target
         && let Some(store) = context.scan_cache()
-        && let Err(err) = store.store(path, report)
+        && let Err(err) =
+            store.store_measured_scan_with_policy(path, measured_scan, context.scan_cache_policy())
     {
         tracing::debug!(
             path = %path.display(),

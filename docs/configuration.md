@@ -133,10 +133,16 @@ preserving the existing path fields inside `data`.
 | `history-file` | `%LOCALAPPDATA%\Rebecca\state\history.jsonl` | `append-only-history` | `preserve` | Append-only cleanup audit trail. Rebecca appends and reads; purge must preserve it. |
 | `cache-dir` | `%LOCALAPPDATA%\Rebecca\cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may move direct contents to the Recycle Bin, and `--yes --permanent` may delete them permanently; both modes must keep the directory itself. |
 
-The scan cache is a derived cache under `<cache_dir>\scan`. It stores versioned
-records for scan reuse and is safe to delete. Rebecca prunes stale, expired, or
-corrupted cache files on lookup and rebuilds them when needed. It must not be
-treated as durable history.
+The scan cache is a derived cache under `<cache_dir>\scan`. It stores compact,
+versioned JSON records for scan reuse and is safe to delete. The current record
+version is `2`; older records are treated as stale, pruned, and rebuilt. Each
+record carries the scanned root path, root metadata fingerprint, scan report,
+write time, scan backend, estimate confidence, and optional filesystem identity
+fields such as volume serial, file id, and future USN checkpoint data. Rebecca
+uses atomic replacement for cache writes and keeps strict file sync as an
+internal policy option rather than the default hot-path behavior. Stale,
+expired, corrupted, or unsupported cache files are pruned on lookup and rebuilt
+when needed. The scan cache must not be treated as durable history.
 
 ## Cache Purge Boundary
 
@@ -289,8 +295,9 @@ history projection.
 The current cleanup safety boundaries and planned hardening steps are documented
 in [Rebecca Cleanup Safety Audit](security-audit.md).
 
-Scan-cache records may store target paths, metadata fingerprints, scan reports,
-and write times. They are rebuildable optimization data, not an audit log.
+Scan-cache records may store target paths, metadata fingerprints, filesystem
+identity fields, scan backend/confidence metadata, scan reports, and write
+times. They are rebuildable optimization data, not an audit log.
 
 ## CLI Contract
 

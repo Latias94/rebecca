@@ -462,9 +462,13 @@ fn measure_entry(
         }
     }
 
-    let scan_report = ScanEngine::new().measure_path_with_progress(path, cancellation, |_| {})?;
+    let measured_scan = ScanEngine::new().measure_scan_with_progress(path, cancellation, |_| {})?;
+    let scan_report = measured_scan.report;
     if let Some(scan_cache) = &request.scan_cache
-        && let Err(err) = scan_cache.store.store(path, scan_report)
+        && let Err(err) =
+            scan_cache
+                .store
+                .store_measured_scan_with_policy(path, measured_scan, scan_cache.policy)
     {
         tracing::debug!(
             path = %path.display(),
