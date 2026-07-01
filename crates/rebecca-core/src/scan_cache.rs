@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{RebeccaError, Result};
 use crate::scan::{MeasuredScan, ScanBackendKind, ScanEstimateConfidence, ScanReport};
 
-pub const SCAN_CACHE_VERSION: u32 = 2;
+pub const SCAN_CACHE_VERSION: u32 = 1;
 pub const DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS: u64 = 5 * 60;
 const SCAN_CACHE_PRUNE_BATCH_LIMIT: usize = 64;
 const SCAN_CACHE_DIR: &str = "scan";

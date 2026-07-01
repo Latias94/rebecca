@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_cache_writes_compact_v2_records_with_identity_metadata() {
+    fn scan_cache_writes_compact_v1_records_with_identity_metadata() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("target.txt");
         std::fs::write(&root, b"abc").unwrap();
@@ -403,38 +403,13 @@ mod tests {
         let raw = std::fs::read_to_string(store.cache_file_for(&root)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
-        assert_eq!(record.version, 2);
+        assert_eq!(record.version, SCAN_CACHE_VERSION);
         assert!(!raw.contains('\n'), "cache records should be compact JSON");
         assert_eq!(parsed["version"], SCAN_CACHE_VERSION);
         assert_eq!(parsed["backend"], "portable-recursive");
         assert_eq!(parsed["confidence"], "exact");
         assert_eq!(parsed["identity"].as_object().unwrap().len(), 2);
         assert!(parsed["identity"].get("usn_checkpoint").is_none());
-    }
-
-    #[test]
-    fn scan_cache_legacy_v1_record_is_stale_and_pruned() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("target.txt");
-        std::fs::write(&root, b"abc").unwrap();
-        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
-        let report = ScanReport {
-            bytes_scanned: 3,
-            files_scanned: 1,
-            directories_scanned: 0,
-        };
-        let mut record = store.store(&root, report).unwrap();
-        record.version = 1;
-        std::fs::write(
-            store.cache_file_for(&root),
-            serde_json::to_vec(&record).unwrap(),
-        )
-        .unwrap();
-
-        let lookup = store.load(&root);
-
-        assert_eq!(lookup, ScanCacheLookup::pruned_miss(ScanCacheMiss::Stale));
-        assert!(!store.cache_file_for(&root).exists());
     }
 
     #[test]

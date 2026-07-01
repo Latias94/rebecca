@@ -135,7 +135,7 @@ preserving the existing path fields inside `data`.
 
 The scan cache is a derived cache under `<cache_dir>\scan`. It stores compact,
 versioned JSON records for scan reuse and is safe to delete. The current record
-version is `2`; older records are treated as stale, pruned, and rebuilt. Each
+version is `1`; unsupported records are treated as stale, pruned, and rebuilt. Each
 record carries the scanned root path, root metadata fingerprint, scan report,
 write time, scan backend, estimate confidence, and optional filesystem identity
 fields such as volume serial, file id, and future USN checkpoint data. Rebecca

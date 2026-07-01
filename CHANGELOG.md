@@ -29,7 +29,7 @@ All notable changes to Rebecca will be documented in this file.
 - Cleanup planning now deduplicates equivalent existing directories by filesystem identity and keeps directory scan cache records valid for their configured freshness window despite root metadata churn.
 - Dry-run cleanup previews now use the rebuildable scan cache by default, with `--no-scan-cache` available when a fully fresh estimate is preferred; `--yes` execution remains fresh-scan by default.
 - The core performance matrix now includes an ordinary-rule planning benchmark for many directory targets.
-- Scan-cache records now use a compact v2 format with scan backend, estimate confidence, optional filesystem identity fields, and future USN checkpoint placeholders.
+- Scan-cache records now use a compact v1 format with scan backend, estimate confidence, optional filesystem identity fields, and future USN checkpoint placeholders.
 - Cleanup execution backends can now receive revalidated, non-overlapping safe batches while still returning per-target outcomes.
 - `clean --scan-backend windows-native` now opts into a Windows native directory enumeration backend for cleanup plan estimates, with portable fallback when the native path is unsupported.
 - The core performance matrix now includes a Windows native scan selection scenario for many-small-file fixtures.
@@ -54,7 +54,7 @@ All notable changes to Rebecca will be documented in this file.
 - Scan traversal now reuses walker entry type information where possible while preserving root metadata checks and reparse-point protection.
 - `history --limit` now loads only the bounded tail of non-empty history records before building the history projection.
 - Scan-cache writes now use atomic replacement without strict file sync on the default hot path; strict sync remains available as an internal policy option.
-- Scan-cache lookups now accept exact v2 records produced by either the portable recursive scanner or the Windows native directory scanner when root fingerprint and identity still match.
+- Scan-cache lookups now accept exact v1 records produced by either the portable recursive scanner or the Windows native directory scanner when root fingerprint and identity still match.
 - Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
 
 ### Breaking
@@ -63,7 +63,7 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect artifacts` is the canonical project artifact insight command; `purge inspect` remains as a compatibility alias for existing command users.
 - `cache purge` machine output no longer uses `mode: "delete"`; callers must handle `mode: "recoverable-delete"` and `mode: "permanent-delete"` plus the new `pending_reclaim_bytes`, `recoverably_deleted_entries`, and `permanently_deleted_entries` summary fields.
 - Project artifact reclaim-limit skips now use `reason_code: "reclaim-limit-satisfied"` and can leave skipped targets with `estimate_source: "not-measured"` because later candidates are no longer measured after the limit is satisfied.
-- Existing scan-cache v1 records are treated as stale and rebuilt under the v2 identity format.
+- The pre-release scan-cache format was reset to the single v1 identity format because no released consumers depend on the earlier experimental record numbering.
 
 ## [0.2.0]
 

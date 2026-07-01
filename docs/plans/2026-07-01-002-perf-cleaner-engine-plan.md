@@ -66,7 +66,7 @@ The right path is layered: make the portable pipeline excellent first, then add 
 - R9. Hot scan paths must update counters cheaply and emit human progress on a time or count throttle rather than per file.
 - R10. NDJSON must default to target-level or batch-level progress, with file-level progress available only through an explicit verbose/debug mode.
 - R11. Scan cache writes must use compact atomic writes by default, avoid per-target `sync_all` for rebuildable cache data, and support strict durability only as an opt-in policy.
-- R12. Scan cache records must evolve toward a v2 identity model with backend kind, volume identity, target file identity where available, freshness confidence, and future USN checkpoint fields.
+- R12. Scan cache records must use the current v1 identity model with backend kind, volume identity, target file identity where available, freshness confidence, and future USN checkpoint fields.
 
 **Deletion and Windows Specialization**
 
