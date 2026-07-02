@@ -26,19 +26,23 @@ impl MftRecordReader {
     }
 
     pub fn parse_records(&self, bytes: &[u8]) -> MftRecordBatch {
+        self.parse_records_from(0, bytes)
+    }
+
+    pub fn parse_records_from(&self, base_record_id: u64, bytes: &[u8]) -> MftRecordBatch {
         let mut records = Vec::new();
         let mut errors = Vec::new();
 
         if self.record_size == 0 || self.sector_size == 0 {
             errors.push(MftRecordError {
-                record_id: 0,
+                record_id: base_record_id,
                 error: NtfsParseError::InvalidUpdateSequence,
             });
             return MftRecordBatch { records, errors };
         }
 
         for (record_index, raw_record) in bytes.chunks_exact(self.record_size).enumerate() {
-            let record_id = record_index as u64;
+            let record_id = base_record_id.saturating_add(record_index as u64);
             match MftRecord::parse(record_id, raw_record, self.sector_size) {
                 Ok(record) => records.push(record),
                 Err(error) => errors.push(MftRecordError { record_id, error }),
@@ -48,7 +52,7 @@ impl MftRecordReader {
         let remainder = bytes.chunks_exact(self.record_size).remainder();
         if !remainder.is_empty() {
             errors.push(MftRecordError {
-                record_id: (bytes.len() / self.record_size) as u64,
+                record_id: base_record_id.saturating_add((bytes.len() / self.record_size) as u64),
                 error: NtfsParseError::Truncated {
                     expected: self.record_size,
                     actual: remainder.len(),

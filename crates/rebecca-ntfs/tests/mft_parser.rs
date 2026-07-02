@@ -341,6 +341,45 @@ fn reader_collects_records_and_truncated_remainder_errors() {
     ));
 }
 
+#[test]
+fn reader_parses_batches_from_nonzero_base_record_id() {
+    let mut bytes = mft_record(100, true, false, vec![file_name_attr(5, "a.bin", 0)]);
+    bytes.extend_from_slice(&mft_record(
+        101,
+        true,
+        false,
+        vec![file_name_attr(5, "b.bin", 0)],
+    ));
+
+    let batch = MftRecordReader::default().parse_records_from(100, &bytes);
+
+    assert!(batch.errors.is_empty());
+    assert_eq!(
+        batch
+            .records
+            .iter()
+            .map(|record| record.record_id)
+            .collect::<Vec<_>>(),
+        vec![100, 101]
+    );
+}
+
+#[test]
+fn reader_reports_remainder_error_at_base_record_offset() {
+    let mut bytes = mft_record(100, true, false, vec![file_name_attr(5, "a.bin", 0)]);
+    bytes.extend_from_slice(&[0_u8; 16]);
+
+    let batch = MftRecordReader::default().parse_records_from(100, &bytes);
+
+    assert_eq!(batch.records.len(), 1);
+    assert_eq!(batch.errors.len(), 1);
+    assert_eq!(batch.errors[0].record_id, 101);
+    assert!(matches!(
+        batch.errors[0].error,
+        NtfsParseError::Truncated { .. }
+    ));
+}
+
 fn mft_record(record_id: u64, in_use: bool, directory: bool, attrs: Vec<Vec<u8>>) -> Vec<u8> {
     let mut record = vec![0_u8; RECORD_SIZE];
     record[0..4].copy_from_slice(b"FILE");

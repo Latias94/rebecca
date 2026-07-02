@@ -317,6 +317,54 @@ struct ParsedMftRecords {
     caveats: Vec<ParseCaveat>,
 }
 
+trait MftRecordSource {
+    fn label(&self) -> &'static str;
+
+    fn read_records(
+        &self,
+        volume_data: &NTFS_VOLUME_DATA_BUFFER,
+        cancellation: &ScanCancellationToken,
+    ) -> Result<ParsedMftRecords>;
+}
+
+fn read_mft_records_from_sources(
+    sources: &[&dyn MftRecordSource],
+    volume_data: &NTFS_VOLUME_DATA_BUFFER,
+    cancellation: &ScanCancellationToken,
+) -> Result<ParsedMftRecords> {
+    let mut fallback_errors = Vec::new();
+
+    for source in sources {
+        check_not_cancelled(cancellation)?;
+        match source.read_records(volume_data, cancellation) {
+            Ok(mut records) => {
+                records.caveats.extend(
+                    fallback_errors
+                        .drain(..)
+                        .map(|reason| ParseCaveat::new("mft-record-source-fallback", reason)),
+                );
+                return Ok(records);
+            }
+            Err(err) if mft_record_source_error_can_fallback(&err) => {
+                fallback_errors.push(format!("{}: {err}", source.label()));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(RebeccaError::PlatformUnavailable(format!(
+        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} record sources are unavailable: {}",
+        fallback_errors.join("; ")
+    )))
+}
+
+fn mft_record_source_error_can_fallback(err: &RebeccaError) -> bool {
+    matches!(
+        err,
+        RebeccaError::PlatformUnavailable(_) | RebeccaError::ScanFailed(_)
+    )
+}
+
 struct LiveNtfsVolume {
     handle: HANDLE,
     device_path: String,
@@ -378,18 +426,45 @@ impl LiveNtfsVolume {
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
     ) -> Result<ParsedMftRecords> {
+        let fsctl_source = FsctlRecordMftSource { volume: self };
+        read_mft_records_from_sources(&[&fsctl_source], volume_data, cancellation)
+    }
+}
+
+impl Drop for LiveNtfsVolume {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
+}
+
+struct FsctlRecordMftSource<'a> {
+    volume: &'a LiveNtfsVolume,
+}
+
+impl MftRecordSource for FsctlRecordMftSource<'_> {
+    fn label(&self) -> &'static str {
+        "fsctl-record"
+    }
+
+    fn read_records(
+        &self,
+        volume_data: &NTFS_VOLUME_DATA_BUFFER,
+        cancellation: &ScanCancellationToken,
+    ) -> Result<ParsedMftRecords> {
         let record_size = usize::try_from(volume_data.BytesPerFileRecordSegment).unwrap_or(0);
         let sector_size = usize::try_from(volume_data.BytesPerSector).unwrap_or(0);
         if record_size == 0 || sector_size == 0 {
             return Err(RebeccaError::PlatformUnavailable(format!(
                 "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} received invalid NTFS record geometry from {}",
-                self.device_path
+                self.volume.device_path
             )));
         }
         if volume_data.MftValidDataLength <= 0 {
             return Err(RebeccaError::PlatformUnavailable(format!(
                 "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} received empty NTFS MFT metadata from {}",
-                self.device_path
+                self.volume.device_path
             )));
         }
 
@@ -404,7 +479,7 @@ impl LiveNtfsVolume {
                 check_not_cancelled(cancellation)?;
             }
 
-            match self.read_file_record(requested_record, record_size) {
+            match self.volume.read_file_record(requested_record, record_size) {
                 Ok(Some((record_id, raw_record))) => {
                     let parsed_record_id = low_file_reference_number(record_id);
                     match MftRecord::parse(parsed_record_id, &raw_record, sector_size) {
@@ -424,7 +499,7 @@ impl LiveNtfsVolume {
                 Err(err) => {
                     return Err(RebeccaError::PlatformUnavailable(format!(
                         "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not read MFT record {requested_record} from {}: {}",
-                        self.device_path,
+                        self.volume.device_path,
                         err.message()
                     )));
                 }
@@ -433,7 +508,9 @@ impl LiveNtfsVolume {
 
         Ok(ParsedMftRecords { records, caveats })
     }
+}
 
+impl LiveNtfsVolume {
     fn read_file_record(
         &self,
         record_number: u64,
@@ -478,14 +555,6 @@ impl LiveNtfsVolume {
             output_header.FileReferenceNumber as u64,
             output[record_offset..record_offset + record_length].to_vec(),
         )))
-    }
-}
-
-impl Drop for LiveNtfsVolume {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = CloseHandle(self.handle);
-        }
     }
 }
 
@@ -535,7 +604,13 @@ fn windows_error_matches(err: &WindowsError, code: WIN32_ERROR) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{VolumePaths, low_file_reference_number};
+    use rebecca_ntfs::ParseCaveat;
+
+    use super::{
+        MftRecordSource, NTFS_VOLUME_DATA_BUFFER, ParsedMftRecords, ScanCancellationToken,
+        VolumePaths, low_file_reference_number, read_mft_records_from_sources,
+    };
+    use crate::error::{RebeccaError, Result};
 
     #[test]
     fn volume_paths_support_drive_absolute_paths() {
@@ -555,5 +630,109 @@ mod tests {
     #[test]
     fn low_file_reference_masks_sequence_bits() {
         assert_eq!(low_file_reference_number(0x0001_0000_0000_002A), 42);
+    }
+
+    #[test]
+    fn record_source_strategy_returns_first_success() {
+        let source = FakeRecordSource {
+            label: "primary",
+            behavior: FakeRecordSourceBehavior::Success("primary-success"),
+        };
+
+        let records = read_mft_records_from_sources(
+            &[&source],
+            &NTFS_VOLUME_DATA_BUFFER::default(),
+            &ScanCancellationToken::new(),
+        )
+        .unwrap();
+
+        assert_eq!(records.caveats.len(), 1);
+        assert_eq!(records.caveats[0].code, "primary-success");
+    }
+
+    #[test]
+    fn record_source_strategy_tries_next_fallback_capable_source() {
+        let unavailable = FakeRecordSource {
+            label: "sequential",
+            behavior: FakeRecordSourceBehavior::PlatformUnavailable,
+        };
+        let fallback = FakeRecordSource {
+            label: "fsctl-record",
+            behavior: FakeRecordSourceBehavior::Success("fallback-success"),
+        };
+
+        let records = read_mft_records_from_sources(
+            &[&unavailable, &fallback],
+            &NTFS_VOLUME_DATA_BUFFER::default(),
+            &ScanCancellationToken::new(),
+        )
+        .unwrap();
+
+        assert!(
+            records
+                .caveats
+                .iter()
+                .any(|caveat| caveat.code == "fallback-success")
+        );
+        assert!(records.caveats.iter().any(|caveat| {
+            caveat.code == "mft-record-source-fallback" && caveat.message.contains("sequential")
+        }));
+    }
+
+    #[test]
+    fn record_source_strategy_preserves_cancelled_error() {
+        let cancelled = FakeRecordSource {
+            label: "sequential",
+            behavior: FakeRecordSourceBehavior::Cancelled,
+        };
+        let fallback = FakeRecordSource {
+            label: "fsctl-record",
+            behavior: FakeRecordSourceBehavior::Success("fallback-success"),
+        };
+
+        let err = read_mft_records_from_sources(
+            &[&cancelled, &fallback],
+            &NTFS_VOLUME_DATA_BUFFER::default(),
+            &ScanCancellationToken::new(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+    }
+
+    struct FakeRecordSource {
+        label: &'static str,
+        behavior: FakeRecordSourceBehavior,
+    }
+
+    enum FakeRecordSourceBehavior {
+        Success(&'static str),
+        PlatformUnavailable,
+        Cancelled,
+    }
+
+    impl MftRecordSource for FakeRecordSource {
+        fn label(&self) -> &'static str {
+            self.label
+        }
+
+        fn read_records(
+            &self,
+            _volume_data: &NTFS_VOLUME_DATA_BUFFER,
+            _cancellation: &ScanCancellationToken,
+        ) -> Result<ParsedMftRecords> {
+            match self.behavior {
+                FakeRecordSourceBehavior::Success(code) => Ok(ParsedMftRecords {
+                    records: Vec::new(),
+                    caveats: vec![ParseCaveat::new(code, self.label)],
+                }),
+                FakeRecordSourceBehavior::PlatformUnavailable => Err(
+                    RebeccaError::PlatformUnavailable("not available".to_string()),
+                ),
+                FakeRecordSourceBehavior::Cancelled => {
+                    Err(RebeccaError::OperationCancelled("cancelled".to_string()))
+                }
+            }
+        }
     }
 }
