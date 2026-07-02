@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+
 use rebecca_ntfs::{
-    AttributeType, MftIndex, MftRecordReader, NtfsFileReference, NtfsParseError, NtfsParsedRecord,
+    AttributeType, MftIndex, MftRecordReader, NtfsDataRun, NtfsFileReference, NtfsParseError,
+    NtfsParsedRecord, NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy,
 };
 
 const RECORD_SIZE: usize = 1024;
@@ -472,6 +475,67 @@ fn nonresident_attribute_list_is_preserved_as_attribute_stream_and_caveated() {
             .iter()
             .any(|c| c.code == "nonresident-attribute-list")
     );
+}
+
+#[test]
+fn runlist_stream_reader_reads_fragmented_runs_by_logical_offset() {
+    let mut source = FakeStreamSource::default()
+        .with_bytes(40, b"abcd")
+        .with_bytes(80, b"EFGH");
+    let runs = vec![data_run(0, 1, Some(10)), data_run(1, 1, Some(20))];
+
+    let bytes = NtfsStreamReader::new(4, SparseRunPolicy::Reject)
+        .read_range(&mut source, &runs, 0, 8)
+        .unwrap();
+
+    assert_eq!(bytes, b"abcdEFGH");
+}
+
+#[test]
+fn runlist_stream_reader_handles_sparse_policy_and_gaps() {
+    let mut source = FakeStreamSource::default().with_bytes(40, b"abcd");
+    let runs = vec![data_run(0, 1, Some(10)), data_run(1, 1, None)];
+
+    let bytes = NtfsStreamReader::new(4, SparseRunPolicy::ZeroFill)
+        .read_range(&mut source, &runs, 0, 8)
+        .unwrap();
+    assert_eq!(bytes, b"abcd\0\0\0\0");
+
+    let err = NtfsStreamReader::new(4, SparseRunPolicy::Reject)
+        .read_range(&mut source, &runs, 0, 8)
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        NtfsStreamReadError::SparseRun { starting_vcn: 1 }
+    ));
+
+    let err = NtfsStreamReader::new(4, SparseRunPolicy::Reject)
+        .read_range(&mut source, &[data_run(1, 1, Some(20))], 0, 4)
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        NtfsStreamReadError::VcnGap {
+            expected_vcn: 0,
+            actual_vcn: 1
+        }
+    ));
+}
+
+#[test]
+fn runlist_stream_reader_rejects_short_source_reads() {
+    let mut source = FakeStreamSource::default().with_bytes(40, b"ab");
+
+    let err = NtfsStreamReader::new(4, SparseRunPolicy::Reject)
+        .read_range(&mut source, &[data_run(0, 1, Some(10))], 0, 4)
+        .unwrap_err();
+
+    assert!(matches!(
+        err,
+        NtfsStreamReadError::ShortRead {
+            expected: 4,
+            actual: 2
+        }
+    ));
 }
 
 #[test]
@@ -1031,6 +1095,47 @@ fn index_allocation_attr() -> Vec<u8> {
 
 fn nonresident_attribute_list_attr() -> Vec<u8> {
     nonresident_named_attr(ATTR_ATTRIBUTE_LIST, "", 64, 0, &[0x11, 0x01, 0x20, 0x00])
+}
+
+fn data_run(starting_vcn: u64, cluster_count: u64, lcn: Option<u64>) -> NtfsDataRun {
+    NtfsDataRun {
+        starting_vcn,
+        cluster_count,
+        lcn,
+    }
+}
+
+#[derive(Default)]
+struct FakeStreamSource {
+    bytes: BTreeMap<u64, u8>,
+}
+
+impl FakeStreamSource {
+    fn with_bytes(mut self, offset: u64, bytes: &[u8]) -> Self {
+        for (index, byte) in bytes.iter().copied().enumerate() {
+            self.bytes.insert(offset + index as u64, byte);
+        }
+        self
+    }
+}
+
+impl NtfsStreamSource for FakeStreamSource {
+    type Error = &'static str;
+
+    fn read_bytes_at(
+        &mut self,
+        volume_offset: u64,
+        len: usize,
+    ) -> std::result::Result<Vec<u8>, Self::Error> {
+        let mut bytes = Vec::new();
+        for index in 0..len {
+            let Some(byte) = self.bytes.get(&(volume_offset + index as u64)) else {
+                break;
+            };
+            bytes.push(*byte);
+        }
+        Ok(bytes)
+    }
 }
 
 fn nonresident_named_attr(

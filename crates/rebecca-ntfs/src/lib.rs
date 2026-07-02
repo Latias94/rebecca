@@ -13,6 +13,7 @@ pub mod reader;
 pub mod record;
 pub mod record_set;
 pub mod runlist;
+pub mod stream;
 
 mod parse;
 
@@ -25,6 +26,7 @@ pub use index::{MftIndex, MftIndexEntry, MftPathCandidate, SubtreeSummary};
 pub use reader::{MftRecordBatch, MftRecordError, MftRecordReader};
 pub use record::{FileNameNamespace, ParseCaveat};
 pub use record_set::NtfsRecordSet;
+pub use stream::{NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy};
 
 pub type Result<T> = std::result::Result<T, NtfsParseError>;
 
