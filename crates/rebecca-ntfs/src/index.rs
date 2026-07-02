@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::adapter::{NtfsFileReference, NtfsParsedRecord};
 use crate::record::ParseCaveat;
+use crate::record_set::NtfsRecordSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MftIndex {
@@ -14,9 +15,16 @@ pub struct MftIndex {
 
 impl MftIndex {
     pub fn from_parsed_records(records: impl IntoIterator<Item = NtfsParsedRecord>) -> Self {
+        let record_set = NtfsRecordSet::resolve_attribute_lists(records.into_iter().collect());
+        Self::from_resolved_records(record_set.records, record_set.caveats)
+    }
+
+    fn from_resolved_records(
+        records: impl IntoIterator<Item = NtfsParsedRecord>,
+        mut caveats: Vec<ParseCaveat>,
+    ) -> Self {
         let mut entries = BTreeMap::new();
         let mut children: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
-        let mut caveats = Vec::new();
 
         for record in records {
             if !record.in_use {

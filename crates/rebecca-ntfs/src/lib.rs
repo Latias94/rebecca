@@ -4,23 +4,26 @@
 //! It does not open volumes, require elevation, or provide deletion authority.
 
 pub mod adapter;
+pub mod attribute_list;
 pub mod attrs;
 pub mod fixup;
 pub mod index;
 pub mod reader;
 pub mod record;
+pub mod record_set;
 pub mod runlist;
 
 mod parse;
 
 pub use adapter::{
-    NtfsDataRun, NtfsDataStream, NtfsDirectoryEntry, NtfsFileName, NtfsFileReference,
-    NtfsParsedAttribute, NtfsParsedRecord,
+    NtfsAttributeListEntry, NtfsDataRun, NtfsDataStream, NtfsDirectoryEntry, NtfsFileName,
+    NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
 };
 pub use attrs::{AttributeHeader, AttributeType};
 pub use index::{MftIndex, MftIndexEntry, SubtreeSummary};
 pub use reader::{MftRecordBatch, MftRecordError, MftRecordReader};
 pub use record::{FileNameNamespace, ParseCaveat};
+pub use record_set::NtfsRecordSet;
 
 pub type Result<T> = std::result::Result<T, NtfsParseError>;
 
@@ -49,4 +52,7 @@ pub enum NtfsParseError {
 
     #[error("data run list is invalid")]
     InvalidRunlist,
+
+    #[error("attribute list is invalid")]
+    InvalidAttributeList,
 }

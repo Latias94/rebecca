@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::adapter::{
     NtfsDataStream, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
 };
+use crate::attribute_list::parse_attribute_list;
 use crate::attrs::{AttributeHeader, AttributeType};
 use crate::fixup::apply_update_sequence;
 use crate::parse::{
@@ -78,6 +79,7 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
     }
 
     let sequence_number = read_u16(&record, 16)?;
+    let base_reference = parse_optional_file_reference(read_u64(&record, 32)?);
     let first_attribute_offset = usize::from(read_u16(&record, 20)?);
     let record_flags = read_u16(&record, 22)?;
     let used_size = read_u32(&record, 24)? as usize;
@@ -89,10 +91,12 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
 
     let mut parsed = NtfsParsedRecord {
         reference: NtfsFileReference::known(record_id, sequence_number),
+        base_reference,
         in_use: (record_flags & RECORD_FLAG_IN_USE) != 0,
         is_directory: (record_flags & RECORD_FLAG_DIRECTORY) != 0,
         is_reparse_point: false,
         attributes: Vec::new(),
+        attribute_list_entries: Vec::new(),
         names: Vec::new(),
         data_streams: Vec::new(),
         directory_entries: Vec::new(),
@@ -154,10 +158,7 @@ fn parse_attribute(
                 parsed.is_directory |= (flags & FILE_ATTRIBUTE_DIRECTORY) != 0;
             }
         }
-        AttributeType::AttributeList => parsed.caveats.push(ParseCaveat::new(
-            "attribute-list-present",
-            "record uses an attribute list; external attributes are not expanded by the parser",
-        )),
+        AttributeType::AttributeList => parse_attribute_list_attribute(record, header, parsed)?,
         AttributeType::FileName => {
             if header.non_resident {
                 parsed.caveats.push(ParseCaveat::new(
@@ -198,6 +199,41 @@ fn parse_attribute(
 
 fn attribute_name(record: &[u8], header: &AttributeHeader) -> Result<Option<String>> {
     header.name_string(record)
+}
+
+fn parse_attribute_list_attribute(
+    record: &[u8],
+    header: &AttributeHeader,
+    parsed: &mut NtfsParsedRecord,
+) -> Result<()> {
+    parsed.caveats.push(ParseCaveat::new(
+        "attribute-list-present",
+        "record uses an attribute list; extension attributes require record-set resolution",
+    ));
+
+    if header.non_resident {
+        parsed.caveats.push(ParseCaveat::new(
+            "nonresident-attribute-list",
+            "nonresident attribute lists require runlist-backed record-set resolution",
+        ));
+        return Ok(());
+    }
+
+    let Some(value) = header.resident_value(record) else {
+        return Err(NtfsParseError::InvalidAttributeList);
+    };
+    let entries = parse_attribute_list(value)?;
+    if entries
+        .iter()
+        .any(|entry| entry.attribute_type == AttributeType::AttributeList)
+    {
+        parsed.caveats.push(ParseCaveat::new(
+            "recursive-attribute-list-unsupported",
+            "attribute list points at another attribute list; recursive expansion is refused",
+        ));
+    }
+    parsed.attribute_list_entries.extend(entries);
+    Ok(())
 }
 
 fn parse_data_stream(
@@ -268,6 +304,16 @@ fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
         real_size: read_u64(value, 48)?,
         file_attributes: read_u32(value, 56)?,
     })
+}
+
+fn parse_optional_file_reference(raw_reference: u64) -> Option<NtfsFileReference> {
+    if raw_reference == 0 {
+        return None;
+    }
+    Some(NtfsFileReference::known(
+        low_file_reference_id(raw_reference),
+        file_reference_sequence_number(raw_reference),
+    ))
 }
 
 fn push_data_stream(record: &mut NtfsParsedRecord, mut incoming: NtfsDataStream) {

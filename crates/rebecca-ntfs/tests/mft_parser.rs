@@ -295,7 +295,7 @@ fn reparse_records_are_identifiable_and_skipped_by_index_aggregation() {
 }
 
 #[test]
-fn attribute_list_records_report_caveat() {
+fn resident_attribute_list_entries_are_structured_and_caveated() {
     let record = NtfsParsedRecord::parse_mft_record(
         13,
         &mft_record(
@@ -312,11 +312,104 @@ fn attribute_list_records_report_caveat() {
     )
     .unwrap();
 
+    assert_eq!(record.attribute_list_entries.len(), 1);
+    let entry = &record.attribute_list_entries[0];
+    assert_eq!(entry.attribute_type, rebecca_ntfs::AttributeType::Data);
+    assert_eq!(entry.lowest_vcn, 4);
+    assert_eq!(entry.file_reference, NtfsFileReference::known(99, 3));
+    assert_eq!(entry.attribute_id, 9);
     assert!(
         record
             .caveats
             .iter()
             .any(|c| c.code == "attribute-list-present")
+    );
+}
+
+#[test]
+fn recursive_attribute_list_entries_are_refused() {
+    let record = NtfsParsedRecord::parse_mft_record(
+        13,
+        &mft_record(
+            13,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "recursive.bin", 0),
+                attribute_list_attr_with_entry(
+                    ATTR_ATTRIBUTE_LIST,
+                    None,
+                    0,
+                    file_reference(13, 13),
+                    2,
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    assert!(
+        record
+            .caveats
+            .iter()
+            .any(|c| { c.code == "recursive-attribute-list-unsupported" })
+    );
+}
+
+#[test]
+fn attribute_list_extension_data_is_resolved_for_index_aggregation() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            20,
+            mft_record(
+                20,
+                true,
+                false,
+                vec![
+                    file_name_attr(5, "split.bin", 0),
+                    attribute_list_attr_with_entry(ATTR_DATA, None, 0, file_reference(21, 21), 0),
+                ],
+            ),
+        ),
+        (
+            21,
+            mft_record_with_base(
+                21,
+                file_reference(20, 20),
+                true,
+                false,
+                vec![nonresident_data_attr(123)],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 123);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "attribute-list-present")
+    );
+    assert!(
+        !summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "attribute-list-extension-records-unexpanded")
     );
 }
 
@@ -464,6 +557,16 @@ fn reader_reports_remainder_error_at_base_record_offset() {
 }
 
 fn mft_record(record_id: u64, in_use: bool, directory: bool, attrs: Vec<Vec<u8>>) -> Vec<u8> {
+    mft_record_with_base(record_id, 0, in_use, directory, attrs)
+}
+
+fn mft_record_with_base(
+    record_id: u64,
+    base_reference: u64,
+    in_use: bool,
+    directory: bool,
+    attrs: Vec<Vec<u8>>,
+) -> Vec<u8> {
     let mut record = vec![0_u8; RECORD_SIZE];
     record[0..4].copy_from_slice(b"FILE");
     put_u16(&mut record, 4, USA_OFFSET as u16);
@@ -473,6 +576,7 @@ fn mft_record(record_id: u64, in_use: bool, directory: bool, attrs: Vec<Vec<u8>>
     let flags = u16::from(in_use) | if directory { 0x0002 } else { 0 };
     put_u16(&mut record, 22, flags);
     put_u32(&mut record, 28, RECORD_SIZE as u32);
+    put_u64(&mut record, 32, base_reference);
     put_u32(&mut record, 44, record_id as u32);
 
     let mut offset = FIRST_ATTR_OFFSET;
@@ -540,7 +644,53 @@ fn named_resident_data_attr(name: &str, bytes: &[u8]) -> Vec<u8> {
 }
 
 fn attribute_list_attr() -> Vec<u8> {
-    resident_attr(ATTR_ATTRIBUTE_LIST, &[0_u8; 32])
+    attribute_list_attr_with_entry(ATTR_DATA, None, 4, file_reference(99, 3), 9)
+}
+
+fn attribute_list_attr_with_entry(
+    attribute_type: u32,
+    name: Option<&str>,
+    lowest_vcn: u64,
+    file_reference: u64,
+    attribute_id: u16,
+) -> Vec<u8> {
+    resident_attr(
+        ATTR_ATTRIBUTE_LIST,
+        &attribute_list_entry(
+            attribute_type,
+            name,
+            lowest_vcn,
+            file_reference,
+            attribute_id,
+        ),
+    )
+}
+
+fn attribute_list_entry(
+    attribute_type: u32,
+    name: Option<&str>,
+    lowest_vcn: u64,
+    file_reference: u64,
+    attribute_id: u16,
+) -> Vec<u8> {
+    let name_utf16 = name
+        .map(|name| name.encode_utf16().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let name_len = name_utf16.len() * 2;
+    let name_offset = 26;
+    let entry_len = align8(name_offset + name_len);
+    let mut entry = vec![0_u8; entry_len];
+    put_u32(&mut entry, 0, attribute_type);
+    put_u16(&mut entry, 4, entry_len as u16);
+    entry[6] = name_utf16.len() as u8;
+    entry[7] = name_offset as u8;
+    put_u64(&mut entry, 8, lowest_vcn);
+    put_u64(&mut entry, 16, file_reference);
+    put_u16(&mut entry, 24, attribute_id);
+    for (index, character) in name_utf16.iter().enumerate() {
+        put_u16(&mut entry, name_offset + (index * 2), *character);
+    }
+    entry
 }
 
 fn reparse_point_attr() -> Vec<u8> {

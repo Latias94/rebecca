@@ -28,10 +28,12 @@ impl NtfsFileReference {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NtfsParsedRecord {
     pub reference: NtfsFileReference,
+    pub base_reference: Option<NtfsFileReference>,
     pub in_use: bool,
     pub is_directory: bool,
     pub is_reparse_point: bool,
     pub attributes: Vec<NtfsParsedAttribute>,
+    pub attribute_list_entries: Vec<NtfsAttributeListEntry>,
     pub names: Vec<NtfsFileName>,
     pub data_streams: Vec<NtfsDataStream>,
     pub directory_entries: Vec<NtfsDirectoryEntry>,
@@ -85,6 +87,15 @@ pub struct NtfsParsedAttribute {
     pub non_resident: bool,
     pub lowest_vcn: Option<u64>,
     pub highest_vcn: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtfsAttributeListEntry {
+    pub attribute_type: AttributeType,
+    pub name: Option<String>,
+    pub lowest_vcn: u64,
+    pub file_reference: NtfsFileReference,
+    pub attribute_id: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
