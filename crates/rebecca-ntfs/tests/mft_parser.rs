@@ -416,13 +416,16 @@ fn i30_index_allocation_record_parses_valid_indx_entries() {
         ],
     );
 
-    let entries =
+    let record =
         rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&raw, SECTOR_SIZE, 0).unwrap();
+    let entries = record.directory_entries().collect::<Vec<_>>();
 
+    assert_eq!(record.vcn, 0);
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].child, NtfsFileReference::known(6, 6));
     assert_eq!(entries[0].parent, NtfsFileReference::known(5, 5));
     assert_eq!(entries[0].name, "large.bin");
+    assert_eq!(record.entries[0].child_vcn, None);
 }
 
 #[test]
@@ -470,10 +473,60 @@ fn i30_index_allocation_record_rejects_short_entries_and_skips_last_subnode() {
     );
 
     let last_subnode = index_allocation_record(8, vec![index_allocation_last_entry(true)]);
-    let entries =
+    let record =
         rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&last_subnode, SECTOR_SIZE, 8)
             .unwrap();
-    assert!(entries.is_empty());
+    assert_eq!(record.directory_entries().count(), 0);
+    assert_eq!(record.entries.len(), 1);
+    assert!(record.entries[0].is_last);
+    assert_eq!(record.entries[0].child_vcn, Some(16));
+}
+
+#[test]
+fn i30_index_entries_preserve_child_vcns() {
+    let raw = index_allocation_record(
+        0,
+        vec![
+            index_allocation_entry_with_child_vcn(
+                file_reference(6, 6),
+                file_reference(5, 5),
+                "branch.bin",
+                0,
+                Some(8),
+            ),
+            index_allocation_last_entry(true),
+        ],
+    );
+    let record =
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&raw, SECTOR_SIZE, 0).unwrap();
+
+    assert_eq!(record.entries[0].child_vcn, Some(8));
+    assert_eq!(
+        record.entries[0].directory_entry.as_ref().unwrap().name,
+        "branch.bin"
+    );
+    assert!(record.entries[1].is_last);
+    assert_eq!(record.entries[1].child_vcn, Some(16));
+
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 8),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let root_entry = &directory.directory_indexes[0].root_entries[0];
+    assert!(root_entry.is_last);
+    assert_eq!(root_entry.child_vcn, Some(8));
+    assert!(directory.directory_entries.is_empty());
 }
 
 #[test]
@@ -1668,8 +1721,8 @@ fn index_root_attr(
 
     put_u32(&mut value, 0, ATTR_FILE_NAME);
     put_u32(&mut value, 16, entries_offset as u32);
-    put_u32(&mut value, 20, entries_size as u32);
-    put_u32(&mut value, 24, entries_size as u32);
+    put_u32(&mut value, 20, (entries_offset + entries_size) as u32);
+    put_u32(&mut value, 24, (entries_offset + entries_size) as u32);
 
     put_u64(&mut value, entries_start, child_reference);
     put_u16(&mut value, entries_start + 8, entry_len as u16);
@@ -1684,20 +1737,42 @@ fn index_root_attr(
 }
 
 fn empty_index_root_attr(index_record_size: u32) -> Vec<u8> {
+    empty_index_root_attr_with_child_vcn_option(index_record_size, None)
+}
+
+fn empty_index_root_attr_with_child_vcn(index_record_size: u32, child_vcn: u64) -> Vec<u8> {
+    empty_index_root_attr_with_child_vcn_option(index_record_size, Some(child_vcn))
+}
+
+fn empty_index_root_attr_with_child_vcn_option(
+    index_record_size: u32,
+    child_vcn: Option<u64>,
+) -> Vec<u8> {
     let entries_offset = 16;
-    let end_entry_len = 16;
+    let end_entry_len = if child_vcn.is_some() { 24 } else { 16 };
     let entries_size = end_entry_len;
     let mut value = vec![0_u8; 16 + entries_offset + entries_size];
 
     put_u32(&mut value, 0, ATTR_FILE_NAME);
     put_u32(&mut value, 8, index_record_size);
     put_u32(&mut value, 16, entries_offset as u32);
-    put_u32(&mut value, 20, entries_size as u32);
-    put_u32(&mut value, 24, entries_size as u32);
+    put_u32(&mut value, 20, (entries_offset + entries_size) as u32);
+    put_u32(&mut value, 24, (entries_offset + entries_size) as u32);
 
     let end_offset = 16 + entries_offset;
     put_u16(&mut value, end_offset + 8, end_entry_len as u16);
-    put_u16(&mut value, end_offset + 12, 0x0002);
+    put_u16(
+        &mut value,
+        end_offset + 12,
+        if child_vcn.is_some() {
+            0x0001 | 0x0002
+        } else {
+            0x0002
+        },
+    );
+    if let Some(child_vcn) = child_vcn {
+        put_u64(&mut value, end_offset + end_entry_len - 8, child_vcn);
+    }
 
     resident_named_attr(ATTR_INDEX_ROOT, "$I30", &value)
 }
@@ -1736,15 +1811,33 @@ fn index_allocation_entry(
     name: &str,
     file_attributes: u32,
 ) -> Vec<u8> {
+    index_allocation_entry_with_child_vcn(
+        child_reference,
+        parent_reference,
+        name,
+        file_attributes,
+        None,
+    )
+}
+
+fn index_allocation_entry_with_child_vcn(
+    child_reference: u64,
+    parent_reference: u64,
+    name: &str,
+    file_attributes: u32,
+    child_vcn: Option<u64>,
+) -> Vec<u8> {
     let file_name = file_name_value(parent_reference, name, file_attributes, 1);
-    let entry_len = align8(16 + file_name.len() + 8);
+    let entry_len = align8(16 + file_name.len() + child_vcn.map_or(0, |_| 8));
     let mut entry = vec![0_u8; entry_len];
     put_u64(&mut entry, 0, child_reference);
     put_u16(&mut entry, 8, entry_len as u16);
     put_u16(&mut entry, 10, file_name.len() as u16);
-    put_u16(&mut entry, 12, 0x0001);
+    if let Some(child_vcn) = child_vcn {
+        put_u16(&mut entry, 12, 0x0001);
+        put_u64(&mut entry, entry_len - 8, child_vcn);
+    }
     entry[16..16 + file_name.len()].copy_from_slice(&file_name);
-    put_u64(&mut entry, entry_len - 8, 8);
     entry
 }
 

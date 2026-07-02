@@ -301,7 +301,8 @@ fn expand_index_allocation_stream<S>(
                 geometry.bytes_per_sector,
                 expected_vcn,
             ) {
-                Ok(parsed_entries) => {
+                Ok(parsed_record) => {
+                    let parsed_entries = parsed_record.directory_entries().collect();
                     append_unique_directory_entries(&mut entries, &mut seen_entries, parsed_entries)
                 }
                 Err(err) => {

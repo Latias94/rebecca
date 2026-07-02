@@ -1627,6 +1627,7 @@ mod tests {
                 attribute_id: 0,
                 indexed_attribute: AttributeType::FileName,
                 index_record_size: RECORD_SIZE as u32,
+                root_entries: Vec::new(),
             }],
             directory_entries: Vec::new(),
             caveats: Vec::new(),

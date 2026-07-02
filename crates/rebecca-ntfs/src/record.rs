@@ -198,13 +198,19 @@ fn parse_attribute(
                     return Err(NtfsParseError::InvalidDirectoryIndex);
                 };
                 let index_root = parse_i30_index_root(value)?;
+                let root_entries = index_root.entries;
+                let directory_entries = root_entries
+                    .iter()
+                    .filter_map(|entry| entry.directory_entry.clone())
+                    .collect::<Vec<_>>();
                 parsed.directory_indexes.push(NtfsDirectoryIndex {
                     name: "$I30".to_string(),
                     attribute_id: header.attribute_id,
                     indexed_attribute: index_root.indexed_attribute,
                     index_record_size: index_root.index_record_size,
+                    root_entries,
                 });
-                parsed.directory_entries.extend(index_root.entries);
+                parsed.directory_entries.extend(directory_entries);
             }
         }
         AttributeType::IndexAllocation => {

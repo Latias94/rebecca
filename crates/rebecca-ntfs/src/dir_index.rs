@@ -1,4 +1,4 @@
-use crate::adapter::{NtfsDirectoryEntry, NtfsFileReference};
+use crate::adapter::{NtfsDirectoryEntry, NtfsFileReference, NtfsIndexEntry};
 use crate::attrs::AttributeType;
 use crate::fixup::apply_update_sequence;
 use crate::parse::{
@@ -18,7 +18,29 @@ const INDEX_ENTRY_FLAG_LAST: u16 = 0x0002;
 pub struct NtfsIndexRoot {
     pub indexed_attribute: AttributeType,
     pub index_record_size: u32,
-    pub entries: Vec<NtfsDirectoryEntry>,
+    pub entries: Vec<NtfsIndexEntry>,
+}
+
+impl NtfsIndexRoot {
+    pub fn directory_entries(&self) -> impl Iterator<Item = NtfsDirectoryEntry> + '_ {
+        self.entries
+            .iter()
+            .filter_map(|entry| entry.directory_entry.clone())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NtfsIndexAllocationRecord {
+    pub vcn: u64,
+    pub entries: Vec<NtfsIndexEntry>,
+}
+
+impl NtfsIndexAllocationRecord {
+    pub fn directory_entries(&self) -> impl Iterator<Item = NtfsDirectoryEntry> + '_ {
+        self.entries
+            .iter()
+            .filter_map(|entry| entry.directory_entry.clone())
+    }
 }
 
 pub fn parse_i30_index_root(value: &[u8]) -> Result<NtfsIndexRoot> {
@@ -59,7 +81,7 @@ pub fn parse_i30_index_allocation_record(
     raw_record: &[u8],
     sector_size: usize,
     expected_vcn: u64,
-) -> Result<Vec<NtfsDirectoryEntry>> {
+) -> Result<NtfsIndexAllocationRecord> {
     if raw_record.len() < INDEX_ALLOCATION_HEADER_LEN + INDEX_HEADER_LEN {
         return Err(NtfsParseError::InvalidDirectoryIndex);
     }
@@ -92,14 +114,17 @@ pub fn parse_i30_index_allocation_record(
         return Err(NtfsParseError::InvalidDirectoryIndex);
     }
 
-    parse_i30_entries(&record, entries_start, entries_end)
+    Ok(NtfsIndexAllocationRecord {
+        vcn: expected_vcn,
+        entries: parse_i30_entries(&record, entries_start, entries_end)?,
+    })
 }
 
 fn parse_i30_entries(
     value: &[u8],
     entries_start: usize,
     entries_end: usize,
-) -> Result<Vec<NtfsDirectoryEntry>> {
+) -> Result<Vec<NtfsIndexEntry>> {
     let mut entries = Vec::new();
     let mut offset = entries_start;
     while offset < entries_end {
@@ -122,6 +147,11 @@ fn parse_i30_entries(
             return Err(NtfsParseError::InvalidDirectoryIndex);
         }
         if (flags & INDEX_ENTRY_FLAG_LAST) != 0 {
+            entries.push(NtfsIndexEntry {
+                directory_entry: None,
+                child_vcn: parse_child_vcn(value, offset, entry_len, flags)?,
+                is_last: true,
+            });
             break;
         }
 
@@ -139,14 +169,46 @@ fn parse_i30_entries(
         if file_name_end > offset + value_limit {
             return Err(NtfsParseError::InvalidDirectoryIndex);
         }
-        entries.push(parse_index_file_name(
-            raw_child_reference,
-            &value[file_name_start..file_name_end],
-        )?);
+        entries.push(NtfsIndexEntry {
+            directory_entry: Some(parse_index_file_name(
+                raw_child_reference,
+                &value[file_name_start..file_name_end],
+            )?),
+            child_vcn: parse_child_vcn(value, offset, entry_len, flags)?,
+            is_last: false,
+        });
         offset += entry_len;
     }
 
     Ok(entries)
+}
+
+fn parse_child_vcn(
+    value: &[u8],
+    entry_offset: usize,
+    entry_len: usize,
+    flags: u16,
+) -> Result<Option<u64>> {
+    if (flags & INDEX_ENTRY_FLAG_NODE) == 0 {
+        return Ok(None);
+    }
+    if entry_len < INDEX_ENTRY_HEADER_LEN + 8 {
+        return Err(NtfsParseError::InvalidDirectoryIndex);
+    }
+    let child_vcn_offset = entry_offset
+        .checked_add(
+            entry_len
+                .checked_sub(8)
+                .ok_or(NtfsParseError::InvalidDirectoryIndex)?,
+        )
+        .ok_or(NtfsParseError::InvalidDirectoryIndex)?;
+    let child_vcn_end = child_vcn_offset
+        .checked_add(8)
+        .ok_or(NtfsParseError::InvalidDirectoryIndex)?;
+    if child_vcn_end > value.len() {
+        return Err(NtfsParseError::InvalidDirectoryIndex);
+    }
+    Ok(Some(read_u64(value, child_vcn_offset)?))
 }
 
 fn parse_index_file_name(raw_child_reference: u64, value: &[u8]) -> Result<NtfsDirectoryEntry> {

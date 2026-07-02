@@ -130,6 +130,14 @@ pub struct NtfsDirectoryIndex {
     pub attribute_id: u16,
     pub indexed_attribute: AttributeType,
     pub index_record_size: u32,
+    pub root_entries: Vec<NtfsIndexEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtfsIndexEntry {
+    pub directory_entry: Option<NtfsDirectoryEntry>,
+    pub child_vcn: Option<u64>,
+    pub is_last: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -19,7 +19,8 @@ mod parse;
 
 pub use adapter::{
     NtfsAttributeListEntry, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryEntry,
-    NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
+    NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsIndexEntry, NtfsParsedAttribute,
+    NtfsParsedRecord,
 };
 pub use attrs::{AttributeHeader, AttributeType};
 pub use index::{MftIndex, MftIndexEntry, MftPathCandidate, SubtreeSummary};
