@@ -33,16 +33,18 @@ impl MftIndex {
             .iter()
             .map(|record| (record.reference.record_id, record.reference))
             .collect::<BTreeMap<_, _>>();
-        let directory_entries_by_parent = records
-            .iter()
-            .filter(|record| !record.directory_entries.is_empty())
-            .map(|record| (record.reference.record_id, record.directory_entries.clone()))
-            .collect::<BTreeMap<_, _>>();
+        let mut directory_entries_by_parent = BTreeMap::new();
         let mut entries = BTreeMap::new();
         let mut children: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
+        let mut child_memberships: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
         let mut child_edge_caveats: BTreeMap<u64, Vec<ParseCaveat>> = BTreeMap::new();
 
-        for record in records {
+        for mut record in records {
+            let directory_entries = std::mem::take(&mut record.directory_entries);
+            if !directory_entries.is_empty() {
+                directory_entries_by_parent.insert(record.reference.record_id, directory_entries);
+            }
+
             if !record.in_use {
                 caveats.extend(record.caveats);
                 continue;
@@ -97,13 +99,19 @@ impl MftIndex {
                         ));
                     continue;
                 }
-                push_child(&mut children, parent_record_id, child_record_id);
+                push_child(
+                    &mut children,
+                    &mut child_memberships,
+                    parent_record_id,
+                    child_record_id,
+                );
             }
             entries.insert(child_record_id, entry);
         }
         cross_check_directory_entries(
             &mut entries,
             &mut children,
+            &mut child_memberships,
             &directory_entries_by_parent,
             &mut child_edge_caveats,
         );
@@ -276,16 +284,25 @@ fn reference_sequence_mismatches(
     )
 }
 
-fn push_child(children: &mut BTreeMap<u64, Vec<u64>>, parent_id: u64, child_id: u64) {
-    let child_ids = children.entry(parent_id).or_default();
-    if !child_ids.contains(&child_id) {
-        child_ids.push(child_id);
+fn push_child(
+    children: &mut BTreeMap<u64, Vec<u64>>,
+    child_memberships: &mut BTreeMap<u64, BTreeSet<u64>>,
+    parent_id: u64,
+    child_id: u64,
+) {
+    if child_memberships
+        .entry(parent_id)
+        .or_default()
+        .insert(child_id)
+    {
+        children.entry(parent_id).or_default().push(child_id);
     }
 }
 
 fn cross_check_directory_entries(
     entries: &mut BTreeMap<u64, MftIndexEntry>,
     children: &mut BTreeMap<u64, Vec<u64>>,
+    child_memberships: &mut BTreeMap<u64, BTreeSet<u64>>,
     directory_entries_by_parent: &BTreeMap<u64, Vec<crate::NtfsDirectoryEntry>>,
     child_edge_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
 ) {
@@ -347,7 +364,11 @@ fn cross_check_directory_entries(
                 continue;
             }
 
-            let parent_edge_exists = children
+            if let Some(child_entry) = entries.get_mut(&directory_entry.child.record_id) {
+                push_directory_path_candidate(child_entry, directory_entry);
+            }
+
+            let parent_edge_exists = child_memberships
                 .get(parent_record_id)
                 .is_some_and(|ids| ids.contains(&directory_entry.child.record_id));
             if !parent_edge_exists {
@@ -362,7 +383,12 @@ fn cross_check_directory_entries(
                 if let Some(child_entry) = entries.get_mut(&directory_entry.child.record_id) {
                     child_entry.caveats.push(caveat);
                 }
-                push_child(children, *parent_record_id, directory_entry.child.record_id);
+                push_child(
+                    children,
+                    child_memberships,
+                    *parent_record_id,
+                    directory_entry.child.record_id,
+                );
             }
         }
     }
@@ -381,4 +407,22 @@ fn push_directory_caveat(
         .entry(parent_record_id)
         .or_default()
         .push(caveat);
+}
+
+fn push_directory_path_candidate(
+    child_entry: &mut MftIndexEntry,
+    directory_entry: &crate::NtfsDirectoryEntry,
+) {
+    if matches!(directory_entry.namespace, FileNameNamespace::Dos) {
+        return;
+    }
+
+    let candidate = MftPathCandidate {
+        parent_reference: directory_entry.parent,
+        namespace: directory_entry.namespace,
+        name: directory_entry.name.clone(),
+    };
+    if !child_entry.path_candidates.contains(&candidate) {
+        child_entry.path_candidates.push(candidate);
+    }
 }

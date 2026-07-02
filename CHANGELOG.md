@@ -38,6 +38,7 @@ All notable changes to Rebecca will be documented in this file.
 - `windows-ntfs-mft-experimental` now tries a read-only sequential `$MFT::$DATA` source before the per-record `FSCTL_GET_NTFS_FILE_RECORD` source, reads bounded aligned chunks, and keeps per-record FSCTL plus directory scanners as structured fallback paths.
 - `rebecca-ntfs` now models NTFS records as owned parser DTOs with file-reference sequence numbers, attributes, streams, data runs, attribute-list entries, resident `$I30` directory index entries, logical/allocated/initialized size fields, parser caveats, and a generated parse-plus-index benchmark path.
 - `rebecca-ntfs` now expands runlist-backed nonresident `$INDEX_ALLOCATION:$I30` streams, validates INDX fixups and VCN identity before trusting entries, and merges direct attribute-list `$INDEX_ALLOCATION` extension streams without recursive attribute-list expansion.
+- `rebecca-ntfs` now reads fragmented `$INDEX_ALLOCATION:$I30` streams through a sequential chunk reader and covers multi-record fragmented directory indexes with deterministic fixtures.
 - Experimental NTFS/MFT estimates now aggregate through a sequence-aware `MftIndex` that preserves hardlink path candidates, resolves direct `$ATTRIBUTE_LIST` extension-record `$DATA` and `$INDEX_ALLOCATION` streams, cross-checks resident and nonresident `$I30` directory entries, and counts each physical record once per subtree.
 - The live experimental NTFS/MFT backend now feeds raw volume reads into the parser crate's stream-source boundary so large-directory index allocation can supplement parent edges while cancellation, source provenance, and portable fallback behavior remain owned by `rebecca-core`.
 - The NTFS parser benchmark now covers parse-plus-index, stream-backed `$INDEX_ALLOCATION:$I30` expansion, and fragmented runlist reads with deterministic generated fixtures.
@@ -68,6 +69,7 @@ All notable changes to Rebecca will be documented in this file.
 - Scan-cache lookups now accept exact v1 records produced by portable, Windows native, or experimental NTFS/MFT scanners when root fingerprint and identity still match, and preserve optional backend-source provenance for cache hits.
 - The performance matrix report schema now carries `backend_source_expectation`; live NTFS source timing is opt-in with `REBECCA_PERF_MATRIX_LIVE_NTFS=1` so default benchmark runs stay deterministic.
 - Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
+- Experimental NTFS/MFT index construction now avoids quadratic directory-entry checks for large `$I30` indexes, makes fallback edges path-searchable, and builds live volume indexes outside the shared cache mutex.
 - Experimental NTFS/MFT cleanup estimates now keep v1 user-facing byte totals on logical unnamed `$DATA` streams while retaining allocated and initialized stream metadata internally for future disk-usage surfaces.
 
 ### Breaking

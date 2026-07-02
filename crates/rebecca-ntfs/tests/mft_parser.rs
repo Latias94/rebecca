@@ -700,6 +700,132 @@ fn record_set_expands_attribute_list_i30_index_allocation_extension() {
 }
 
 #[test]
+fn record_set_expands_fragmented_multi_record_i30_index_allocation() {
+    let cluster_size = RECORD_SIZE as u64;
+    let mut source = FakeStreamSource::default()
+        .with_bytes(
+            0x80 * cluster_size,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "first.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(false),
+                ],
+            ),
+        )
+        .with_bytes(
+            0x90 * cluster_size,
+            &index_allocation_record(
+                1,
+                vec![
+                    index_allocation_entry(
+                        file_reference(7, 7),
+                        file_reference(5, 5),
+                        "second.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(false),
+                ],
+            ),
+        );
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr(RECORD_SIZE as u32),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    (RECORD_SIZE * 2) as u64,
+                    0,
+                    &[0x21, 0x01, 0x80, 0x00, 0x11, 0x01, 0x10, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let first_child = NtfsParsedRecord::parse_mft_record(
+        6,
+        &mft_record(
+            6,
+            true,
+            false,
+            vec![
+                file_name_attr(99, "first.bin", 0),
+                resident_data_attr(b"abc"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let second_child = NtfsParsedRecord::parse_mft_record(
+        7,
+        &mft_record(
+            7,
+            true,
+            false,
+            vec![
+                file_name_attr(99, "second.bin", 0),
+                resident_data_attr(b"wxyz"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory, first_child, second_child],
+        NtfsStreamGeometry::new(cluster_size, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let directory = record_set
+        .records
+        .iter()
+        .find(|record| record.reference.record_id == 5)
+        .unwrap();
+    assert_eq!(directory.directory_entries.len(), 2);
+    assert!(
+        !directory
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "invalid-index-allocation"),
+        "{:?}",
+        directory.caveats
+    );
+
+    let index = MftIndex::from_record_set(record_set);
+    let summary = index.aggregate_subtree(5);
+    assert_eq!(summary.bytes, 7);
+    assert_eq!(
+        index
+            .find_path(5, ["first.bin"])
+            .unwrap()
+            .reference
+            .record_id,
+        6
+    );
+    assert_eq!(
+        index
+            .find_path(5, ["second.bin"])
+            .unwrap()
+            .reference
+            .record_id,
+        7
+    );
+}
+
+#[test]
 fn nonresident_i30_index_allocation_supplies_mft_index_fallback_edge() {
     let mut source = FakeStreamSource::default().with_bytes(
         0x80_000,
@@ -756,6 +882,22 @@ fn nonresident_i30_index_allocation_supplies_mft_index_fallback_edge() {
     let summary = index.aggregate_subtree(5);
 
     assert_eq!(summary.bytes, 3);
+    assert_eq!(
+        index
+            .find_child(5, "large.bin")
+            .unwrap()
+            .reference
+            .record_id,
+        6
+    );
+    assert_eq!(
+        index
+            .find_path(5, ["large.bin"])
+            .unwrap()
+            .reference
+            .record_id,
+        6
+    );
     assert!(
         summary
             .caveats
@@ -923,6 +1065,24 @@ fn runlist_stream_reader_reads_fragmented_runs_by_logical_offset() {
         .unwrap();
 
     assert_eq!(bytes, b"abcdEFGH");
+}
+
+#[test]
+fn runlist_stream_reader_reads_sequential_chunks_across_fragmented_runs() {
+    let mut source = FakeStreamSource::default()
+        .with_bytes(40, b"abcd")
+        .with_bytes(80, b"EFGH");
+    let runs = vec![data_run(0, 1, Some(10)), data_run(1, 1, Some(20))];
+    let mut chunks = Vec::new();
+
+    NtfsStreamReader::new(4, SparseRunPolicy::Reject)
+        .read_chunks(&mut source, &runs, 8, 4, |offset, bytes| {
+            chunks.push((offset, bytes));
+            true
+        })
+        .unwrap();
+
+    assert_eq!(chunks, vec![(0, b"abcd".to_vec()), (4, b"EFGH".to_vec())]);
 }
 
 #[test]

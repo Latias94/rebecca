@@ -277,64 +277,92 @@ fn expand_index_allocation_stream<S>(
         return;
     };
 
-    let mut logical_offset = 0_u64;
-    while logical_offset < stream.logical_size {
-        let remaining = stream.logical_size - logical_offset;
-        if remaining < index_record_size_u64 {
-            record.caveats.push(invalid_index_allocation_caveat(
-                record.reference.record_id,
-                "index allocation stream has a partial trailing INDX record",
-            ));
-            return;
-        }
+    if !stream.logical_size.is_multiple_of(index_record_size_u64) {
+        record.caveats.push(invalid_index_allocation_caveat(
+            record.reference.record_id,
+            "index allocation stream has a partial trailing INDX record",
+        ));
+        return;
+    }
 
-        let raw_record =
-            match reader.read_range(source, &stream.data_runs, logical_offset, index_record_size) {
-                Ok(raw_record) => raw_record,
-                Err(err) => {
-                    record.caveats.push(invalid_index_allocation_caveat(
-                        record.reference.record_id,
-                        format!("stream read failed: {err}"),
-                    ));
-                    return;
+    let record_id = record.reference.record_id;
+    let mut entries = std::mem::take(&mut record.directory_entries);
+    let mut seen_entries = directory_entry_set(&entries);
+    let mut parse_error = None;
+    let read_result = reader.read_chunks(
+        source,
+        &stream.data_runs,
+        stream.logical_size,
+        index_record_size,
+        |logical_offset, raw_record| {
+            let expected_vcn = logical_offset / geometry.bytes_per_cluster;
+            match parse_i30_index_allocation_record(
+                &raw_record,
+                geometry.bytes_per_sector,
+                expected_vcn,
+            ) {
+                Ok(parsed_entries) => {
+                    append_unique_directory_entries(&mut entries, &mut seen_entries, parsed_entries)
                 }
-            };
-        let expected_vcn = logical_offset / geometry.bytes_per_cluster;
-        match parse_i30_index_allocation_record(
-            &raw_record,
-            geometry.bytes_per_sector,
-            expected_vcn,
-        ) {
-            Ok(entries) => append_unique_directory_entries(&mut record.directory_entries, entries),
-            Err(err) => {
-                record.caveats.push(invalid_index_allocation_caveat(
-                    record.reference.record_id,
-                    format!("INDX record at logical offset {logical_offset} is invalid: {err}"),
-                ));
-                return;
+                Err(err) => {
+                    parse_error = Some(format!(
+                        "INDX record at logical offset {logical_offset} is invalid: {err}"
+                    ));
+                    return false;
+                }
             }
-        }
+            true
+        },
+    );
+    record.directory_entries = entries;
 
-        logical_offset = match logical_offset.checked_add(index_record_size_u64) {
-            Some(next) => next,
-            None => {
-                record.caveats.push(invalid_index_allocation_caveat(
-                    record.reference.record_id,
-                    "logical offset overflowed while reading index allocation",
-                ));
-                return;
-            }
-        };
+    if let Some(reason) = parse_error {
+        record
+            .caveats
+            .push(invalid_index_allocation_caveat(record_id, reason));
+        return;
+    }
+    if let Err(err) = read_result {
+        record.caveats.push(invalid_index_allocation_caveat(
+            record_id,
+            format!("stream read failed: {err}"),
+        ));
     }
 }
 
 fn append_unique_directory_entries(
     existing: &mut Vec<NtfsDirectoryEntry>,
+    seen: &mut BTreeSet<NtfsDirectoryEntryKey>,
     incoming: Vec<NtfsDirectoryEntry>,
 ) {
     for entry in incoming {
-        if !existing.contains(&entry) {
+        if seen.insert(NtfsDirectoryEntryKey::from(&entry)) {
             existing.push(entry);
+        }
+    }
+}
+
+fn directory_entry_set(entries: &[NtfsDirectoryEntry]) -> BTreeSet<NtfsDirectoryEntryKey> {
+    entries.iter().map(NtfsDirectoryEntryKey::from).collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct NtfsDirectoryEntryKey {
+    child: NtfsFileReference,
+    parent: NtfsFileReference,
+    namespace: crate::record::FileNameNamespace,
+    name: String,
+    file_attributes: u32,
+}
+
+impl From<&NtfsDirectoryEntry> for NtfsDirectoryEntryKey {
+    fn from(entry: &NtfsDirectoryEntry) -> Self {
+        Self {
+            child: entry.child,
+            parent: entry.parent,
+            namespace: entry.namespace,
+            name: entry.name.clone(),
+            file_attributes: entry.file_attributes,
         }
     }
 }

@@ -63,18 +63,30 @@ impl WindowsNtfsMftIndexCache {
         cancellation: &ScanCancellationToken,
     ) -> Result<Arc<CachedNtfsVolumeIndex>> {
         let cache_key = capabilities.cache_key();
-        let mut volumes = self.volumes.lock().map_err(|_| {
-            RebeccaError::PlatformUnavailable(format!(
-                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} volume index cache is unavailable"
-            ))
-        })?;
-        if let Some(index) = volumes.get(&cache_key) {
-            return Ok(Arc::clone(index));
+        {
+            let volumes = self.lock_volumes()?;
+            if let Some(index) = volumes.get(&cache_key) {
+                return Ok(Arc::clone(index));
+            }
         }
 
         let index = Arc::new(CachedNtfsVolumeIndex::build(capabilities, cancellation)?);
-        volumes.insert(cache_key, Arc::clone(&index));
-        Ok(index)
+        let mut volumes = self.lock_volumes()?;
+        Ok(Arc::clone(
+            volumes
+                .entry(cache_key)
+                .or_insert_with(|| Arc::clone(&index)),
+        ))
+    }
+
+    fn lock_volumes(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, BTreeMap<String, Arc<CachedNtfsVolumeIndex>>>> {
+        self.volumes.lock().map_err(|_| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} volume index cache is unavailable"
+            ))
+        })
     }
 }
 
