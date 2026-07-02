@@ -579,7 +579,7 @@ fn record_set_expands_nonresident_i30_index_allocation() {
             true,
             vec![
                 file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
-                empty_index_root_attr(RECORD_SIZE as u32),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
                 nonresident_named_attr(
                     ATTR_INDEX_ALLOCATION,
                     "$I30",
@@ -633,7 +633,7 @@ fn record_set_caveats_invalid_i30_index_allocation_without_edges() {
             true,
             vec![
                 file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
-                empty_index_root_attr(RECORD_SIZE as u32),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
                 nonresident_named_attr(
                     ATTR_INDEX_ALLOCATION,
                     "$I30",
@@ -683,7 +683,7 @@ fn record_set_expands_attribute_list_i30_index_allocation_extension() {
             true,
             vec![
                 file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
-                empty_index_root_attr(RECORD_SIZE as u32),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
                 attribute_list_attr_with_entry(
                     ATTR_INDEX_ALLOCATION,
                     Some("$I30"),
@@ -761,11 +761,12 @@ fn record_set_expands_fragmented_multi_record_i30_index_allocation() {
             &index_allocation_record(
                 0,
                 vec![
-                    index_allocation_entry(
+                    index_allocation_entry_with_child_vcn(
                         file_reference(6, 6),
                         file_reference(5, 5),
                         "first.bin",
                         0,
+                        Some(1),
                     ),
                     index_allocation_last_entry(false),
                 ],
@@ -794,7 +795,7 @@ fn record_set_expands_fragmented_multi_record_i30_index_allocation() {
             true,
             vec![
                 file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
-                empty_index_root_attr(RECORD_SIZE as u32),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
                 nonresident_named_attr(
                     ATTR_INDEX_ALLOCATION,
                     "$I30",
@@ -879,6 +880,201 @@ fn record_set_expands_fragmented_multi_record_i30_index_allocation() {
 }
 
 #[test]
+fn record_set_ignores_unreachable_i30_index_allocation_records() {
+    let cluster_size = RECORD_SIZE as u64;
+    let mut source = FakeStreamSource::default()
+        .with_bytes(
+            0x80 * cluster_size,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "reachable.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(false),
+                ],
+            ),
+        )
+        .with_bytes(
+            0x90 * cluster_size,
+            &index_allocation_record(
+                1,
+                vec![
+                    index_allocation_entry(
+                        file_reference(7, 7),
+                        file_reference(5, 5),
+                        "unreachable.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(false),
+                ],
+            ),
+        );
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    (RECORD_SIZE * 2) as u64,
+                    0,
+                    &[0x21, 0x01, 0x80, 0x00, 0x11, 0x01, 0x10, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory],
+        NtfsStreamGeometry::new(cluster_size, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let directory = record_set
+        .records
+        .iter()
+        .find(|record| record.reference.record_id == 5)
+        .unwrap();
+    assert_eq!(directory.directory_entries.len(), 1);
+    assert_eq!(directory.directory_entries[0].name, "reachable.bin");
+    assert!(
+        !directory
+            .directory_entries
+            .iter()
+            .any(|entry| entry.name == "unreachable.bin")
+    );
+}
+
+#[test]
+fn record_set_caveats_repeated_i30_child_vcn_without_looping() {
+    let cluster_size = RECORD_SIZE as u64;
+    let mut source = FakeStreamSource::default().with_bytes(
+        0x80 * cluster_size,
+        &index_allocation_record(0, vec![index_allocation_last_entry_with_child_vcn(0)]),
+    );
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    RECORD_SIZE as u64,
+                    0,
+                    &[0x21, 0x01, 0x80, 0x00, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory],
+        NtfsStreamGeometry::new(cluster_size, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let directory = record_set.records.first().unwrap();
+    assert!(directory.directory_entries.is_empty());
+    assert!(directory.caveats.iter().any(|caveat| {
+        caveat.code == "invalid-index-allocation" && caveat.message.contains("already visited")
+    }));
+}
+
+#[test]
+fn record_set_caveats_i30_child_vcn_out_of_range() {
+    let mut source = FakeStreamSource::default();
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 1),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    RECORD_SIZE as u64,
+                    0,
+                    &[0x21, 0x01, 0x80, 0x00, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory],
+        NtfsStreamGeometry::new(RECORD_SIZE as u64, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let directory = record_set.records.first().unwrap();
+    assert!(directory.directory_entries.is_empty());
+    assert!(directory.caveats.iter().any(|caveat| {
+        caveat.code == "invalid-index-allocation" && caveat.message.contains("beyond stream size")
+    }));
+}
+
+#[test]
+fn record_set_caveats_i30_child_vcn_geometry_requiring_multi_record_clusters() {
+    let mut source = FakeStreamSource::default();
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 1),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    (RECORD_SIZE * 2) as u64,
+                    0,
+                    &[0x21, 0x02, 0x80, 0x00, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let directory = record_set.records.first().unwrap();
+    assert!(directory.directory_entries.is_empty());
+    assert!(directory.caveats.iter().any(|caveat| {
+        caveat.code == "invalid-index-allocation" && caveat.message.contains("unsupported geometry")
+    }));
+}
+
+#[test]
 fn nonresident_i30_index_allocation_supplies_mft_index_fallback_edge() {
     let mut source = FakeStreamSource::default().with_bytes(
         0x80_000,
@@ -898,7 +1094,7 @@ fn nonresident_i30_index_allocation_supplies_mft_index_fallback_edge() {
             true,
             vec![
                 file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
-                empty_index_root_attr(RECORD_SIZE as u32),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
                 nonresident_named_attr(
                     ATTR_INDEX_ALLOCATION,
                     "$I30",
@@ -981,7 +1177,7 @@ fn nonresident_i30_index_allocation_does_not_duplicate_existing_parent_edge() {
             true,
             vec![
                 file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
-                empty_index_root_attr(RECORD_SIZE as u32),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
                 nonresident_named_attr(
                     ATTR_INDEX_ALLOCATION,
                     "$I30",
@@ -1039,7 +1235,7 @@ fn invalid_nonresident_i30_index_allocation_caveat_surfaces_in_subtree() {
             true,
             vec![
                 file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
-                empty_index_root_attr(RECORD_SIZE as u32),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
                 nonresident_named_attr(
                     ATTR_INDEX_ALLOCATION,
                     "$I30",
@@ -1736,10 +1932,6 @@ fn index_root_attr(
     resident_named_attr(ATTR_INDEX_ROOT, "$I30", &value)
 }
 
-fn empty_index_root_attr(index_record_size: u32) -> Vec<u8> {
-    empty_index_root_attr_with_child_vcn_option(index_record_size, None)
-}
-
 fn empty_index_root_attr_with_child_vcn(index_record_size: u32, child_vcn: u64) -> Vec<u8> {
     empty_index_root_attr_with_child_vcn_option(index_record_size, Some(child_vcn))
 }
@@ -1842,21 +2034,22 @@ fn index_allocation_entry_with_child_vcn(
 }
 
 fn index_allocation_last_entry(with_subnode: bool) -> Vec<u8> {
-    let entry_len = if with_subnode { 24 } else { 16 };
+    if with_subnode {
+        return index_allocation_last_entry_with_child_vcn(16);
+    }
+
+    let mut entry = vec![0_u8; 16];
+    put_u16(&mut entry, 8, 16);
+    put_u16(&mut entry, 12, 0x0002);
+    entry
+}
+
+fn index_allocation_last_entry_with_child_vcn(child_vcn: u64) -> Vec<u8> {
+    let entry_len = 24;
     let mut entry = vec![0_u8; entry_len];
     put_u16(&mut entry, 8, entry_len as u16);
-    put_u16(
-        &mut entry,
-        12,
-        if with_subnode {
-            0x0001 | 0x0002
-        } else {
-            0x0002
-        },
-    );
-    if with_subnode {
-        put_u64(&mut entry, entry_len - 8, 16);
-    }
+    put_u16(&mut entry, 12, 0x0001 | 0x0002);
+    put_u64(&mut entry, entry_len - 8, child_vcn);
     entry
 }
 

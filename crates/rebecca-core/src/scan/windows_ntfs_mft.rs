@@ -1175,7 +1175,8 @@ mod tests {
 
     use rebecca_ntfs::{
         AttributeType, FileNameNamespace, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryIndex,
-        NtfsFileName, NtfsFileReference, NtfsParsedRecord, NtfsStreamSource, ParseCaveat,
+        NtfsFileName, NtfsFileReference, NtfsIndexEntry, NtfsParsedRecord, NtfsStreamSource,
+        ParseCaveat,
     };
 
     use super::{
@@ -1627,7 +1628,11 @@ mod tests {
                 attribute_id: 0,
                 indexed_attribute: AttributeType::FileName,
                 index_record_size: RECORD_SIZE as u32,
-                root_entries: Vec::new(),
+                root_entries: vec![NtfsIndexEntry {
+                    directory_entry: None,
+                    child_vcn: Some(0),
+                    is_last: true,
+                }],
             }],
             directory_entries: Vec::new(),
             caveats: Vec::new(),
@@ -1725,14 +1730,12 @@ mod tests {
         file_attributes: u32,
     ) -> Vec<u8> {
         let file_name = file_name_value(parent_reference, name, file_attributes);
-        let entry_len = align8(16 + file_name.len() + 8);
+        let entry_len = align8(16 + file_name.len());
         let mut entry = vec![0_u8; entry_len];
         put_u64(&mut entry, 0, child_reference);
         put_u16(&mut entry, 8, entry_len as u16);
         put_u16(&mut entry, 10, file_name.len() as u16);
-        put_u16(&mut entry, 12, 0x0001);
         entry[16..16 + file_name.len()].copy_from_slice(&file_name);
-        put_u64(&mut entry, entry_len - 8, 8);
         entry
     }
 

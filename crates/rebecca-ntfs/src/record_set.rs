@@ -3,13 +3,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::{
-    NtfsAttributeStream, NtfsDirectoryEntry, NtfsFileReference, NtfsParsedRecord,
+    NtfsAttributeStream, NtfsDirectoryEntry, NtfsFileReference, NtfsIndexEntry, NtfsParsedRecord,
     merge_attribute_stream,
 };
 use crate::attrs::AttributeType;
-use crate::dir_index::parse_i30_index_allocation_record;
+use crate::dir_index::{NtfsIndexAllocationRecord, parse_i30_index_allocation_record};
 use crate::record::ParseCaveat;
-use crate::stream::{NtfsStreamGeometry, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy};
+use crate::stream::{
+    NtfsStreamGeometry, NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy,
+};
 
 const INDEX_ALLOCATION_FLAG_COMPRESSED: u16 = 0x0001;
 const INDEX_ALLOCATION_FLAG_ENCRYPTED: u16 = 0x4000;
@@ -200,6 +202,7 @@ fn expand_record_index_allocations<S>(
         ));
         return;
     };
+    let root_entries = directory_index.root_entries.clone();
     let Ok(index_record_size) = usize::try_from(directory_index.index_record_size) else {
         record.caveats.push(invalid_index_allocation_caveat(
             record.reference.record_id,
@@ -230,6 +233,7 @@ fn expand_record_index_allocations<S>(
             geometry,
             index_record_size,
             &stream,
+            &root_entries,
             source,
         );
     }
@@ -241,6 +245,7 @@ fn expand_index_allocation_stream<S>(
     geometry: NtfsStreamGeometry,
     index_record_size: usize,
     stream: &NtfsAttributeStream,
+    root_entries: &[NtfsIndexEntry],
     source: &mut S,
 ) where
     S: NtfsStreamSource,
@@ -288,58 +293,189 @@ fn expand_index_allocation_stream<S>(
     let record_id = record.reference.record_id;
     let mut entries = std::mem::take(&mut record.directory_entries);
     let mut seen_entries = directory_entry_set(&entries);
-    let mut parse_error = None;
-    let read_result = reader.read_chunks(
-        source,
-        &stream.data_runs,
-        stream.logical_size,
+    let mut traversal = IndexAllocationTraversal {
+        record_id,
+        reader,
+        geometry,
         index_record_size,
-        |logical_offset, raw_record| {
-            let expected_vcn = logical_offset / geometry.bytes_per_cluster;
-            match parse_i30_index_allocation_record(
-                &raw_record,
-                geometry.bytes_per_sector,
-                expected_vcn,
-            ) {
-                Ok(parsed_record) => {
-                    let parsed_entries = parsed_record.directory_entries().collect();
-                    append_unique_directory_entries(&mut entries, &mut seen_entries, parsed_entries)
-                }
-                Err(err) => {
-                    parse_error = Some(format!(
-                        "INDX record at logical offset {logical_offset} is invalid: {err}"
-                    ));
-                    return false;
-                }
-            }
-            true
-        },
-    );
+        stream,
+        source,
+        entries: &mut entries,
+        seen_entries: &mut seen_entries,
+        visited_vcns: BTreeSet::new(),
+        caveats: Vec::new(),
+    };
+    traversal.traverse_entries(root_entries);
+    let caveats = traversal.caveats;
     record.directory_entries = entries;
+    record.caveats.extend(caveats);
+}
 
-    if let Some(reason) = parse_error {
-        record
-            .caveats
-            .push(invalid_index_allocation_caveat(record_id, reason));
-        return;
+struct IndexAllocationTraversal<'a, S>
+where
+    S: NtfsStreamSource,
+{
+    record_id: u64,
+    reader: &'a NtfsStreamReader,
+    geometry: NtfsStreamGeometry,
+    index_record_size: usize,
+    stream: &'a NtfsAttributeStream,
+    source: &'a mut S,
+    entries: &'a mut Vec<NtfsDirectoryEntry>,
+    seen_entries: &'a mut BTreeSet<NtfsDirectoryEntryKey>,
+    visited_vcns: BTreeSet<u64>,
+    caveats: Vec<ParseCaveat>,
+}
+
+impl<S> IndexAllocationTraversal<'_, S>
+where
+    S: NtfsStreamSource,
+{
+    fn traverse_entries(&mut self, node_entries: &[NtfsIndexEntry]) {
+        for entry in node_entries {
+            if let Some(child_vcn) = entry.child_vcn {
+                self.traverse_child(child_vcn);
+            }
+            if let Some(directory_entry) = &entry.directory_entry {
+                append_unique_directory_entry(
+                    self.entries,
+                    self.seen_entries,
+                    directory_entry.clone(),
+                );
+            }
+        }
     }
-    if let Err(err) = read_result {
-        record.caveats.push(invalid_index_allocation_caveat(
-            record_id,
-            format!("stream read failed: {err}"),
-        ));
+
+    fn traverse_child(&mut self, child_vcn: u64) {
+        if !self.visited_vcns.insert(child_vcn) {
+            self.caveats.push(invalid_index_allocation_caveat(
+                self.record_id,
+                format!("child VCN {child_vcn} was already visited while traversing $I30"),
+            ));
+            return;
+        }
+
+        match read_index_allocation_record(
+            self.reader,
+            self.source,
+            self.stream,
+            self.geometry,
+            self.index_record_size,
+            child_vcn,
+        ) {
+            Ok(record) => self.traverse_entries(&record.entries),
+            Err(err) => self.caveats.push(invalid_index_allocation_caveat(
+                self.record_id,
+                format!("child VCN {child_vcn} could not be read: {err}"),
+            )),
+        }
     }
 }
 
-fn append_unique_directory_entries(
+fn read_index_allocation_record<S>(
+    reader: &NtfsStreamReader,
+    source: &mut S,
+    stream: &NtfsAttributeStream,
+    geometry: NtfsStreamGeometry,
+    index_record_size: usize,
+    child_vcn: u64,
+) -> Result<NtfsIndexAllocationRecord, IndexAllocationReadError>
+where
+    S: NtfsStreamSource,
+{
+    let logical_offset = index_allocation_record_offset(child_vcn, geometry, index_record_size)?;
+    let index_record_size_u64 =
+        u64::try_from(index_record_size).map_err(|_| IndexAllocationReadError::OffsetOverflow)?;
+    let logical_end = logical_offset
+        .checked_add(index_record_size_u64)
+        .ok_or(IndexAllocationReadError::OffsetOverflow)?;
+    if logical_end > stream.logical_size {
+        return Err(IndexAllocationReadError::VcnOutOfRange {
+            child_vcn,
+            logical_offset,
+            logical_size: stream.logical_size,
+        });
+    }
+    let raw_record = reader
+        .read_range(source, &stream.data_runs, logical_offset, index_record_size)
+        .map_err(IndexAllocationReadError::Stream)?;
+
+    parse_i30_index_allocation_record(&raw_record, geometry.bytes_per_sector, child_vcn)
+        .map_err(|err| IndexAllocationReadError::InvalidRecord(err.to_string()))
+}
+
+fn index_allocation_record_offset(
+    child_vcn: u64,
+    geometry: NtfsStreamGeometry,
+    index_record_size: usize,
+) -> Result<u64, IndexAllocationReadError> {
+    if geometry.bytes_per_cluster == 0 {
+        return Err(IndexAllocationReadError::InvalidGeometry(
+            "cluster size is zero",
+        ));
+    }
+    if index_record_size == 0 {
+        return Err(IndexAllocationReadError::InvalidGeometry(
+            "index record size is zero",
+        ));
+    }
+
+    let index_record_size_u64 =
+        u64::try_from(index_record_size).map_err(|_| IndexAllocationReadError::OffsetOverflow)?;
+    if index_record_size_u64 < geometry.bytes_per_cluster && child_vcn != 0 {
+        return Err(IndexAllocationReadError::UnsupportedGeometry(
+            "nonzero child VCN with index record size smaller than cluster size",
+        ));
+    }
+
+    child_vcn
+        .checked_mul(geometry.bytes_per_cluster)
+        .ok_or(IndexAllocationReadError::OffsetOverflow)
+}
+
+#[derive(Debug)]
+enum IndexAllocationReadError {
+    InvalidGeometry(&'static str),
+    UnsupportedGeometry(&'static str),
+    OffsetOverflow,
+    VcnOutOfRange {
+        child_vcn: u64,
+        logical_offset: u64,
+        logical_size: u64,
+    },
+    Stream(NtfsStreamReadError),
+    InvalidRecord(String),
+}
+
+impl std::fmt::Display for IndexAllocationReadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidGeometry(reason) => write!(formatter, "invalid geometry: {reason}"),
+            Self::UnsupportedGeometry(reason) => {
+                write!(formatter, "unsupported geometry: {reason}")
+            }
+            Self::OffsetOverflow => write!(formatter, "index allocation offset overflowed"),
+            Self::VcnOutOfRange {
+                child_vcn,
+                logical_offset,
+                logical_size,
+            } => write!(
+                formatter,
+                "child VCN {child_vcn} maps to logical offset {logical_offset}, beyond stream size {logical_size}"
+            ),
+            Self::Stream(err) => write!(formatter, "stream read failed: {err}"),
+            Self::InvalidRecord(err) => write!(formatter, "INDX record is invalid: {err}"),
+        }
+    }
+}
+
+fn append_unique_directory_entry(
     existing: &mut Vec<NtfsDirectoryEntry>,
     seen: &mut BTreeSet<NtfsDirectoryEntryKey>,
-    incoming: Vec<NtfsDirectoryEntry>,
+    incoming: NtfsDirectoryEntry,
 ) {
-    for entry in incoming {
-        if seen.insert(NtfsDirectoryEntryKey::from(&entry)) {
-            existing.push(entry);
-        }
+    if seen.insert(NtfsDirectoryEntryKey::from(&incoming)) {
+        existing.push(incoming);
     }
 }
 
