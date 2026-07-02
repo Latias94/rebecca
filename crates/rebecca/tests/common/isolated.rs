@@ -25,6 +25,7 @@ pub fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
         .env("REBECCA_CONFIG_DIR", temp.path().join("rebecca-config"))
         .env("REBECCA_STATE_DIR", temp.path().join("rebecca-state"))
         .env("REBECCA_CACHE_DIR", temp.path().join("rebecca-cache"))
+        .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .env(
             "REBECCA_HISTORY_FILE",
             temp.path().join("rebecca-state").join("history.jsonl"),

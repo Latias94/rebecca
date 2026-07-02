@@ -29,6 +29,8 @@ use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
 use crate::safety::{PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path};
 
 static SCAN_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
+#[cfg(all(debug_assertions, windows))]
+const TEST_DISABLE_LIVE_NTFS_MFT_ENV: &str = "REBECCA_TEST_DISABLE_LIVE_NTFS_MFT";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanReport {
@@ -296,6 +298,15 @@ fn measure_windows_ntfs_mft<F>(
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
+    #[cfg(debug_assertions)]
+    if std::env::var_os(TEST_DISABLE_LIVE_NTFS_MFT_ENV)
+        .is_some_and(|value| value != std::ffi::OsStr::new("0"))
+    {
+        return Err(crate::error::RebeccaError::PlatformUnavailable(format!(
+            "windows-ntfs-mft-experimental live volume indexing was disabled by {TEST_DISABLE_LIVE_NTFS_MFT_ENV}"
+        )));
+    }
+
     windows_ntfs_mft::WindowsNtfsMftScanBackend::new(&engine.context.ntfs_mft_cache)
         .measure_path_with_progress(request, progress)
 }
