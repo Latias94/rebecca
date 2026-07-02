@@ -15,7 +15,7 @@
 ## Features
 
 - Safe cleanup planning: `scan` and `clean` share the same plan builder, so dry-run output and real execution stay aligned.
-- Cleanup intelligence: `catalog` and `inspect` expose rules, warnings, safety categories, space reports, project artifact reports, and lint-style opportunities without deleting files.
+- Cleanup intelligence: `catalog` and `inspect` expose rules, warnings, safety categories, space reports, ranked disk maps, project artifact reports, and lint-style opportunities without deleting files.
 - Windows app leftovers: `apps scan` and `apps clean` discover installed apps and target leftover cache data without uninstalling anything.
 - Project artifact purge: `purge` targets heavy build output such as `node_modules`, `target`, `build`, `dist`, and `CACHEDIR.TAG` directories after verifying project context.
 - Machine-readable output: JSON and NDJSON modes are available for wrappers, scripts, and automation.
@@ -53,6 +53,7 @@ rebecca = "0.1"
 cargo run -p rebecca -- scan
 cargo run -p rebecca -- catalog
 cargo run -p rebecca -- inspect space --root .
+cargo run -p rebecca -- inspect map --root . --top 20 --max-depth 3
 cargo run -p rebecca -- inspect artifacts --root .
 cargo run -p rebecca -- inspect lint --root .
 cargo run -p rebecca -- clean --dry-run
@@ -78,10 +79,10 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - `clean` previews by default; `clean --dry-run` makes that preview explicit, and `clean --yes` uses the same plan builder before moving allowed targets.
 - `apps scan` and `apps clean` share the same planner. `apps clean` previews by default and requires `--yes` before moving leftover cache data to the Recycle Bin.
 - `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the Recycle Bin.
-- `catalog`, `inspect space`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
+- `catalog`, `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
 - Default execution uses the Windows Recycle Bin.
 - Windows execution can batch already revalidated, non-overlapping targets into fewer Recycle Bin operations, but status, reason codes, pending bytes, and history remain per target.
-- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; `windows-ntfs-mft-experimental` attempts a read-only live NTFS/MFT index on supported local NTFS volumes, tries a sequential `$MFT` source before the per-record FSCTL source, expands valid stream-backed `$INDEX_ALLOCATION:$I30` directory indexes through Rebecca's sequence-aware parser/index model, and falls back to a safe directory scanner with provenance when unsupported, unprivileged, too slow to index within the live build budget, or too ambiguous to trust. Set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` to tune the default 20 second experimental MFT build budget, or `0` to disable that guard for dogfood; set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture stage timings while profiling the experimental backend. `inspect space` accepts the same backend selector for read-only estimates. The default remains the portable cleanup walker.
+- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; `windows-ntfs-mft-experimental` attempts read-only live NTFS/MFT metadata on supported local NTFS volumes, tries a sequential `$MFT` source before the per-record FSCTL source where a full index is explicitly requested, expands valid stream-backed `$INDEX_ALLOCATION:$I30` directory indexes through Rebecca's sequence-aware parser/index model, and falls back to a safe directory scanner with provenance when unsupported, unprivileged, too slow to index within the live build budget, or too ambiguous to trust. Set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` to tune the default 20 second experimental MFT build budget, or `0` to disable that guard for dogfood; set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture stage timings while profiling the experimental backend. `inspect space` and `inspect map` accept the same backend selector for read-only estimates or inventory. The default remains the portable cleanup walker.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
@@ -103,7 +104,7 @@ Reference material under `repo-ref/` is for behavior research only; Rebecca owns
 
 - `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the Recycle Bin, and `cache purge --yes --permanent` opts into irreversible deletion.
 - Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API.
-- Use `inspect space`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
+- Use `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
 - Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the Recycle Bin.
 - Use `--format json` or `--format ndjson` when Rebecca is being driven by another tool.
 - `history` is the fastest way to review what was planned and what actually happened.
@@ -122,6 +123,7 @@ cargo run -p rebecca -- catalog --format json --kind project-artifact --artifact
 
 cargo run -p rebecca -- inspect space --root .
 cargo run -p rebecca -- inspect space --root . --format json --top 20
+cargo run -p rebecca -- inspect map --root . --format json --top 20 --max-depth 3
 cargo run -p rebecca -- inspect artifacts --root . --format json
 cargo run -p rebecca -- inspect artifacts --root . --artifact target --reclaim-limit-bytes 1073741824
 cargo run -p rebecca -- inspect lint --root . --reference "$PWD\archive" --format json
@@ -177,7 +179,7 @@ Use `--format ndjson` for long-running cleanup workflows that need progress even
 
 Machine-readable success responses use the unified `rebecca.cli.v1` envelope. Every envelope includes `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero.
 
-Cleanup, purge, and `inspect space` targets expose estimate provenance. `estimate_source` remains stable, while `estimate_backend`, optional `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` explain backend selection, cache reuse, actual NTFS source selection, parser caveats, and fallback without changing deletion safety. Experimental NTFS/MFT byte totals stay on logical unnamed data streams; valid resident and nonresident `$I30` directory-index metadata can improve subtree edge completeness, and lower-level allocated and initialized stream metadata is retained internally for future disk-usage reporting.
+Cleanup, purge, `inspect space`, and `inspect map` targets expose estimate provenance. `estimate_source` remains stable, while `estimate_backend`, optional `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` explain backend selection, cache reuse, actual NTFS source selection, parser caveats, and fallback without changing deletion safety. `inspect map` reports `logical_bytes` and nullable `allocated_bytes` for ranked disk inventory entries. Experimental NTFS/MFT byte totals stay on logical unnamed data streams; valid resident and nonresident `$I30` directory-index metadata can improve subtree edge completeness, and lower-level allocated and initialized stream metadata is retained internally for future disk-usage reporting.
 
 The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
 
@@ -217,6 +219,8 @@ To avoid immediately cleaning active build output, `purge` skips artifact direct
 Use `rebecca inspect artifacts` when you want a read-only project artifact report rather than a cleanup plan. It uses the same selectors, roots, excludes, depth, age window, scan-cache estimation, warning gates, reclaim limit, and diagnostics as `purge`, but it has no `--yes`, never prompts, and never writes cleanup history. Its machine payload is `inspect-artifacts`, grouped by scan root, project root, and artifact kind with a largest-targets list for dashboards or wrappers. `rebecca purge inspect` is retained as a legacy compatibility alias for this report.
 
 `rebecca inspect lint` provides report-only duplicate, large-file, empty-file, and empty-directory findings. It computes conservative reclaim estimates, treats `--reference` roots and protected paths as keep candidates, and intentionally does not perform duplicate remediation or write cleanup history.
+
+`rebecca inspect map` provides a read-only ranked disk map for a requested root. It is designed for "what is using space here?" questions, returns bounded top entries with `--top` and optional `--max-depth`, and never creates cleanup plans or authorizes deletion. It defaults to portable recursive inventory; use `--scan-backend windows-ntfs-mft-experimental` only when you explicitly want the current full-volume NTFS/MFT inventory path and its fallback diagnostics.
 
 Long-lived purge defaults belong in `config.toml`:
 

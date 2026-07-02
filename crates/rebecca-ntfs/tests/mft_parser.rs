@@ -38,6 +38,7 @@ fn valid_fixture_record_parses_name_parent_and_stream_size() {
     assert!(record.in_use);
     assert!(!record.is_directory);
     assert_eq!(record.cleanup_logical_size(), 1234);
+    assert_eq!(record.cleanup_allocated_size(), Some(1234));
     let name = record.primary_file_name().unwrap();
     assert_eq!(name.parent.record_id, 5);
     assert_eq!(name.parent.sequence_number, Some(5));
@@ -215,6 +216,7 @@ fn parent_child_index_aggregation_sums_subtree_bytes() {
     let summary = index.aggregate_subtree(5);
 
     assert_eq!(summary.bytes, 15);
+    assert_eq!(summary.allocated_bytes, Some(15));
     assert_eq!(summary.files, 2);
     assert_eq!(summary.directories, 2);
     assert!(summary.caveats.is_empty());

@@ -17,6 +17,7 @@
         "history-list",
         "inspect-artifacts",
         "inspect-lint",
+        "inspect-map",
         "inspect-space",
         "permissions-diagnostic",
         "project-artifact-catalog",
@@ -753,6 +754,228 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/spaceInsightDiagnostic"
+          }
+        }
+      }
+    },
+    "diskMapMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_bytes",
+        "allocated_bytes",
+        "files",
+        "directories"
+      ],
+      "properties": {
+        "logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "diskMapRootStatus": {
+      "type": "string",
+      "enum": [
+        "scanned",
+        "skipped"
+      ]
+    },
+    "diskMapEntryKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "directory",
+        "other"
+      ]
+    },
+    "diskMapDiagnosticKind": {
+      "type": "string",
+      "enum": [
+        "root-missing",
+        "root-metadata-read-skipped",
+        "reparse-point-skipped",
+        "directory-read-skipped",
+        "directory-entry-read-skipped",
+        "metadata-read-skipped",
+        "fallback",
+        "scan-failed"
+      ]
+    },
+    "diskMapRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "metrics",
+        "estimate_source"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/diskMapRootStatus"
+        },
+        "metrics": {
+          "$ref": "#/$defs/diskMapMetrics"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "diskMapEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "kind",
+        "depth",
+        "logical_bytes",
+        "allocated_bytes",
+        "files",
+        "directories",
+        "estimate_source"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/diskMapEntryKind"
+        },
+        "depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
+        }
+      }
+    },
+    "diskMapDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/diskMapDiagnosticKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "inspectMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "totals",
+        "top_entries",
+        "diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapRoot"
+          }
+        },
+        "totals": {
+          "$ref": "#/$defs/diskMapMetrics"
+        },
+        "top_entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapDiagnostic"
           }
         }
       }

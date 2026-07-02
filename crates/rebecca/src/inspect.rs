@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
+use rebecca::core::disk_map::{DiskMapRequest, inspect_map as inspect_map_core};
 use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
 };
@@ -32,6 +33,15 @@ pub struct InspectSpaceOptions {
     pub scan_backend: ScanBackendArg,
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+}
+
+#[derive(Debug)]
+pub struct InspectMapOptions {
+    pub output_mode: OutputMode,
+    pub scan_backend: ScanBackendArg,
+    pub roots: Vec<PathBuf>,
+    pub top_limit: usize,
+    pub max_depth: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -79,6 +89,22 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
         options.output_mode,
         || &report,
         || render::inspect::print_space_report(&report),
+    )
+}
+
+pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime) -> Result<()> {
+    let roots = resolve_space_roots(options.roots)?;
+    let request = DiskMapRequest::new(roots)
+        .with_top_limit(options.top_limit)
+        .with_max_depth(options.max_depth)
+        .with_scan_backend(options.scan_backend.into());
+
+    let report = inspect_map_core(&request, runtime.cancellation())?;
+    print_command_success_with_contract(
+        CliApiContract::v1("inspect map", "inspect-map"),
+        options.output_mode,
+        || &report,
+        || render::inspect::print_map_report(&report),
     )
 }
 

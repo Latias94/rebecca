@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::mem::{offset_of, size_of};
@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 
 use rayon::{ThreadPool, prelude::*};
 use rebecca_ntfs::{
-    MftIndex, MftRecordBatch, MftRecordReader, NtfsDirectoryEntry, NtfsFileReference,
-    NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry, NtfsStreamSource, ParseCaveat,
-    SubtreeSummary, resolve_record_with_stream_source,
+    MftIndex, MftIndexEntry, MftRecordBatch, MftRecordReader, NtfsDirectoryEntry,
+    NtfsFileReference, NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry, NtfsStreamSource,
+    ParseCaveat, SubtreeSummary, resolve_record_with_stream_source,
 };
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
@@ -36,11 +36,17 @@ use windows::Win32::System::Ioctl::{
 };
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
+use crate::disk_map::{
+    DiskMapBackendRoot, DiskMapEntry, DiskMapEntryKind, DiskMapMetrics, DiskMapTopEntries,
+};
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
+use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
 
-use super::backend::{MeasuredScan, ScanBackend, ScanBackendKind, ScanRequest};
+use super::backend::{
+    MeasuredScan, ScanBackend, ScanBackendKind, ScanEstimateConfidence, ScanRequest,
+};
 use super::progress::{ScanProgressEvent, check_not_cancelled};
 use super::{ScanCancellationToken, ScanReport};
 
@@ -546,6 +552,215 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
             measured,
             shared_caveats.into_iter().chain(summary.caveats),
         ))
+    }
+}
+
+pub(super) fn inspect_disk_map(
+    cache: &WindowsNtfsMftIndexCache,
+    path: &Path,
+    top_limit: usize,
+    max_depth: Option<usize>,
+    cancellation: &ScanCancellationToken,
+) -> Result<DiskMapBackendRoot> {
+    check_not_cancelled(cancellation)?;
+    let metadata = root_metadata(path)?;
+    if is_reparse_like(&metadata) {
+        return Err(RebeccaError::SafetyBlocked(
+            "symlink or reparse point traversal is disabled".to_string(),
+        ));
+    }
+
+    let capabilities = NtfsVolumeCapabilities::resolve(path)?;
+    let target_identity = FileIdentity::from_path(path)?;
+    if target_identity.volume_serial != capabilities.volume_serial {
+        return Err(RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} target volume identity changed while resolving {}",
+            path.display()
+        )));
+    }
+
+    let target_record_id = target_identity.file_reference.record_id;
+    let index = cache.load_or_build(&capabilities, cancellation)?;
+    let target_entry = index
+        .mft_index
+        .get(target_record_id)
+        .cloned()
+        .ok_or_else(|| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not map {} to MFT record {}",
+                path.display(),
+                target_record_id
+            ))
+        })?;
+
+    let summary = index.mft_index.aggregate_subtree(target_record_id);
+    let mut top_entries = DiskMapTopEntries::new(top_limit);
+    let mut visited = BTreeSet::new();
+    let max_depth = max_depth.unwrap_or(usize::MAX);
+    let backend_source = mft_backend_source_label(index.source_label);
+    let entry_provenance = EstimateProvenance::from_backend_confidence_and_source(
+        ScanBackendKind::WindowsNtfsMftExperimental,
+        ScanEstimateConfidence::Exact,
+        Some(backend_source.clone()),
+    );
+    let metrics = if target_entry.is_directory {
+        let mut metrics = DiskMapMetrics::default();
+        for child in index
+            .mft_index
+            .child_entries(target_record_id)
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            check_not_cancelled(cancellation)?;
+            let child_path = mft_child_path(path, &child, target_record_id);
+            let child_metrics = collect_mft_disk_map_entry(
+                &index.mft_index,
+                path,
+                child_path,
+                child,
+                1,
+                max_depth,
+                &entry_provenance,
+                &mut visited,
+                &mut top_entries,
+                cancellation,
+            )?;
+            metrics.add(child_metrics);
+        }
+        metrics
+    } else {
+        collect_mft_disk_map_entry(
+            &index.mft_index,
+            path,
+            path.to_path_buf(),
+            target_entry,
+            0,
+            max_depth,
+            &entry_provenance,
+            &mut visited,
+            &mut top_entries,
+            cancellation,
+        )?
+    };
+
+    let measured = MeasuredScan::exact(
+        ScanReport {
+            bytes_scanned: metrics.logical_bytes,
+            files_scanned: metrics.files,
+            directories_scanned: metrics.directories,
+        },
+        ScanBackendKind::WindowsNtfsMftExperimental,
+    )
+    .with_backend_source(backend_source);
+    let measured = with_bounded_mft_caveats(
+        measured,
+        index.caveats.clone().into_iter().chain(summary.caveats),
+    );
+
+    Ok(DiskMapBackendRoot {
+        metrics,
+        top_entries: top_entries.into_sorted_entries(),
+        diagnostics: Vec::new(),
+        estimate_provenance: EstimateProvenance::from_measured_scan(&measured),
+    })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "recursive traversal carries bounded report state"
+)]
+fn collect_mft_disk_map_entry(
+    index: &MftIndex,
+    root: &Path,
+    path: PathBuf,
+    entry: MftIndexEntry,
+    depth: usize,
+    max_depth: usize,
+    estimate_provenance: &EstimateProvenance,
+    visited: &mut BTreeSet<u64>,
+    top_entries: &mut DiskMapTopEntries,
+    cancellation: &ScanCancellationToken,
+) -> Result<DiskMapMetrics> {
+    check_not_cancelled(cancellation)?;
+    if !visited.insert(entry.reference.record_id) {
+        return Ok(DiskMapMetrics::default());
+    }
+    if entry.is_reparse_point {
+        return Ok(DiskMapMetrics::default());
+    }
+
+    let mut metrics = if entry.is_directory {
+        DiskMapMetrics {
+            logical_bytes: 0,
+            allocated_bytes: None,
+            files: 0,
+            directories: 1,
+        }
+    } else {
+        DiskMapMetrics {
+            logical_bytes: entry.logical_size,
+            allocated_bytes: entry.allocated_size,
+            files: 1,
+            directories: 0,
+        }
+    };
+
+    if entry.is_directory {
+        for child in index
+            .child_entries(entry.reference.record_id)
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            let child_path = mft_child_path(&path, &child, entry.reference.record_id);
+            let child_metrics = collect_mft_disk_map_entry(
+                index,
+                root,
+                child_path,
+                child,
+                depth.saturating_add(1),
+                max_depth,
+                estimate_provenance,
+                visited,
+                top_entries,
+                cancellation,
+            )?;
+            metrics.add(child_metrics);
+        }
+    }
+
+    if depth <= max_depth {
+        top_entries.push(DiskMapEntry {
+            path,
+            root: root.to_path_buf(),
+            kind: mft_disk_map_entry_kind(&entry),
+            depth,
+            logical_bytes: metrics.logical_bytes,
+            allocated_bytes: metrics.allocated_bytes,
+            files: metrics.files,
+            directories: metrics.directories,
+            estimate_source: EstimateSource::FreshScan,
+            estimate_provenance: estimate_provenance.clone(),
+        });
+    }
+
+    Ok(metrics)
+}
+
+fn mft_child_path(parent_path: &Path, entry: &MftIndexEntry, parent_record_id: u64) -> PathBuf {
+    let name = entry
+        .path_candidates
+        .iter()
+        .find(|candidate| candidate.parent_reference.record_id == parent_record_id)
+        .map(|candidate| candidate.name.as_str())
+        .unwrap_or(&entry.name);
+    parent_path.join(name)
+}
+
+fn mft_disk_map_entry_kind(entry: &MftIndexEntry) -> DiskMapEntryKind {
+    if entry.is_directory {
+        DiskMapEntryKind::Directory
+    } else {
+        DiskMapEntryKind::File
     }
 }
 
@@ -1202,8 +1417,14 @@ where
                 }
                 self.push_directory_children(&record, node.depth, &mut stack, &mut summary);
             } else {
+                let files_before = summary.files;
                 summary.files = summary.files.saturating_add(1);
                 summary.bytes = summary.bytes.saturating_add(record.cleanup_logical_size());
+                summary.allocated_bytes = add_file_allocated_bytes(
+                    summary.allocated_bytes,
+                    files_before,
+                    record.cleanup_allocated_size(),
+                );
             }
         }
 
@@ -1309,6 +1530,18 @@ fn reference_sequence_mismatches(expected: NtfsFileReference, actual: NtfsFileRe
         (expected.sequence_number, actual.sequence_number),
         (Some(expected), Some(actual)) if expected != 0 && actual != 0 && expected != actual
     )
+}
+
+fn add_file_allocated_bytes(
+    current: Option<u64>,
+    files_before: u64,
+    file_allocated: Option<u64>,
+) -> Option<u64> {
+    match (current, file_allocated) {
+        (None, Some(right)) if files_before == 0 => Some(right),
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

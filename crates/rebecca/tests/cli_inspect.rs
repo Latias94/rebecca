@@ -36,6 +36,7 @@ fn inspect_help_lists_space_and_artifacts_subcommands() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("space"));
+    assert!(stdout.contains("map"));
     assert!(stdout.contains("artifacts"));
     assert!(stdout.contains("lint"));
 }
@@ -142,6 +143,145 @@ fn inspect_space_json_accepts_scan_backend_and_reports_provenance() {
             "entry should include the live NTFS/MFT source when no fallback occurs: {entry:#}"
         );
     }
+}
+
+#[test]
+fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("zeta").join("data.bin"), b"abc");
+    write_fixture_file(root.join("alpha").join("data.bin"), b"abc");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "windows-ntfs-mft-experimental",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "2",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "inspect map");
+    assert_eq!(envelope["payload_kind"], "inspect-map");
+
+    let value = &envelope["data"];
+    assert_eq!(value["totals"]["logical_bytes"], 7);
+    assert_eq!(value["totals"]["allocated_bytes"], serde_json::Value::Null);
+    assert_eq!(value["totals"]["files"], 3);
+    assert_eq!(value["top_entries"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        PathBuf::from(value["top_entries"][0]["path"].as_str().unwrap()),
+        root.join("alpha")
+    );
+    assert_eq!(value["top_entries"][0]["depth"], 1);
+    assert_eq!(value["top_entries"][0]["estimate_source"], "fresh-scan");
+    assert_eq!(
+        value["top_entries"][0]["estimate_backend"],
+        "portable-recursive"
+    );
+    assert_eq!(value["top_entries"][0]["estimate_confidence"], "exact");
+    assert!(
+        value["top_entries"][0]["estimate_fallback_reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
+    );
+    assert_eq!(value["diagnostics"][0]["kind"], "fallback");
+}
+
+#[test]
+fn inspect_map_json_top_zero_preserves_totals_without_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("large.bin"), b"abc");
+    write_fixture_file(root.join("small.bin"), b"x");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["payload_kind"], "inspect-map");
+    assert_eq!(envelope["data"]["totals"]["logical_bytes"], 4);
+    assert!(
+        envelope["data"]["top_entries"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn inspect_map_ndjson_uses_v1_completed_event() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "ndjson",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 1);
+    let completed = events.first().unwrap();
+    assert_eq!(completed["api_version"], "rebecca.cli.v1");
+    assert_eq!(completed["event_kind"], "completed");
+    assert_eq!(completed["command"], "inspect map");
+    assert_eq!(completed["payload_kind"], "inspect-map");
+    assert_eq!(completed["data"]["totals"]["logical_bytes"], 3);
 }
 
 #[test]

@@ -174,6 +174,8 @@ pub enum Command {
 pub enum InspectCommand {
     /// Inspect top-level disk usage below one or more roots.
     Space(InspectSpaceArgs),
+    /// Inspect ranked disk usage below one or more roots.
+    Map(InspectMapArgs),
     /// Inspect rebuildable project artifact space.
     Artifacts(InspectArtifactsArgs),
     /// Report duplicate, large, empty-file, and empty-directory cleanup opportunities.
@@ -197,6 +199,22 @@ pub struct InspectSpaceArgs {
     /// Maximum number of largest entries to include.
     #[arg(long = "top", value_name = "N", default_value_t = 10)]
     pub top_limit: usize,
+}
+
+#[derive(Debug, Args)]
+pub struct InspectMapArgs {
+    /// Select the scan backend used for disk-map inventory.
+    #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
+    pub scan_backend: ScanBackendArg,
+    /// Directory or file to inspect. Can be repeated. Defaults to the current directory.
+    #[arg(long = "root", value_name = "PATH")]
+    pub roots: Vec<PathBuf>,
+    /// Maximum number of largest entries to include. Use 0 for totals only.
+    #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_TOP_LIMIT)]
+    pub top_limit: usize,
+    /// Maximum rendered depth below each root. Direct children are depth 1.
+    #[arg(long = "max-depth", value_name = "N")]
+    pub max_depth: Option<usize>,
 }
 
 #[derive(Debug, Args)]

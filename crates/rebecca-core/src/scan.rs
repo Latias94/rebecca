@@ -22,6 +22,7 @@ pub use progress::{ScanCancellationToken, ScanProgressEvent};
 #[cfg(windows)]
 pub use windows_native::WindowsNativeDirectoryScanBackend;
 
+use crate::disk_map::DiskMapBackendRoot;
 use crate::error::Result;
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
@@ -80,6 +81,16 @@ impl ScanEngine {
 
     pub fn measure_scan(&self, path: &Path) -> Result<MeasuredScan> {
         self.measure_scan_with_progress(path, &ScanCancellationToken::new(), |_| {})
+    }
+
+    pub(crate) fn inspect_windows_ntfs_mft_disk_map(
+        &self,
+        path: &Path,
+        top_limit: usize,
+        max_depth: Option<usize>,
+        cancellation: &ScanCancellationToken,
+    ) -> Result<DiskMapBackendRoot> {
+        inspect_windows_ntfs_mft_disk_map(self, path, top_limit, max_depth, cancellation)
     }
 
     pub fn measure_path_with_progress<F>(
@@ -311,6 +322,32 @@ where
         .measure_path_with_progress(request, progress)
 }
 
+#[cfg(windows)]
+fn inspect_windows_ntfs_mft_disk_map(
+    engine: &ScanEngine,
+    path: &Path,
+    top_limit: usize,
+    max_depth: Option<usize>,
+    cancellation: &ScanCancellationToken,
+) -> Result<DiskMapBackendRoot> {
+    #[cfg(debug_assertions)]
+    if std::env::var_os(TEST_DISABLE_LIVE_NTFS_MFT_ENV)
+        .is_some_and(|value| value != std::ffi::OsStr::new("0"))
+    {
+        return Err(crate::error::RebeccaError::PlatformUnavailable(format!(
+            "windows-ntfs-mft-experimental live volume indexing was disabled by {TEST_DISABLE_LIVE_NTFS_MFT_ENV}"
+        )));
+    }
+
+    windows_ntfs_mft::inspect_disk_map(
+        &engine.context.ntfs_mft_cache,
+        path,
+        top_limit,
+        max_depth,
+        cancellation,
+    )
+}
+
 #[cfg(not(windows))]
 fn measure_windows_ntfs_mft<F>(
     _engine: &ScanEngine,
@@ -322,6 +359,19 @@ where
 {
     Err(crate::error::RebeccaError::PlatformUnavailable(
         "windows-ntfs-mft-experimental scan backend requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
+    ))
+}
+
+#[cfg(not(windows))]
+fn inspect_windows_ntfs_mft_disk_map(
+    _engine: &ScanEngine,
+    _path: &Path,
+    _top_limit: usize,
+    _max_depth: Option<usize>,
+    _cancellation: &ScanCancellationToken,
+) -> Result<DiskMapBackendRoot> {
+    Err(crate::error::RebeccaError::PlatformUnavailable(
+        "windows-ntfs-mft-experimental disk-map inventory requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
     ))
 }
 

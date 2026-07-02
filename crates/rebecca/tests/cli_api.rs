@@ -546,6 +546,7 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"catalog-validation"));
     assert!(payload_kinds.contains(&"inspect-artifacts"));
     assert!(payload_kinds.contains(&"inspect-lint"));
+    assert!(payload_kinds.contains(&"inspect-map"));
     assert!(payload_kinds.contains(&"inspect-space"));
 
     let catalog_item = &payloads["$defs"]["catalogItem"];
@@ -553,6 +554,7 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert_eq!(payloads["$defs"]["inspectSpace"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectArtifacts"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectLint"]["type"], "object");
+    assert_eq!(payloads["$defs"]["inspectMap"]["type"], "object");
 
     let event = read_doc_json("event.schema.json");
     assert_eq!(
@@ -636,6 +638,13 @@ fn cli_api_inspect_examples_validate_against_payload_schema() {
     assert_eq!(artifacts["payload_kind"], "inspect-artifacts");
     validator_for_payload_def("inspectArtifacts")
         .validate(&artifacts["data"])
+        .unwrap();
+
+    let map = read_doc_json("examples/success-inspect-map.json");
+    assert_success_schema(&map);
+    assert_eq!(map["payload_kind"], "inspect-map");
+    validator_for_payload_def("inspectMap")
+        .validate(&map["data"])
         .unwrap();
 
     let lint = read_doc_json("examples/success-inspect-lint.json");

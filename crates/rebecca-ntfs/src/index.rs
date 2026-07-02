@@ -75,6 +75,7 @@ impl MftIndex {
                 name: file_name.name.clone(),
                 path_candidates,
                 logical_size: record.cleanup_logical_size(),
+                allocated_size: record.cleanup_allocated_size(),
                 is_directory: record.is_directory,
                 is_reparse_point: record.is_reparse_point,
                 caveats: entry_caveats,
@@ -157,6 +158,14 @@ impl MftIndex {
         self.entries.values()
     }
 
+    pub fn child_entries(&self, parent_record_id: u64) -> impl Iterator<Item = &MftIndexEntry> {
+        self.children
+            .get(&parent_record_id)
+            .into_iter()
+            .flat_map(|record_ids| record_ids.iter())
+            .filter_map(|record_id| self.entries.get(record_id))
+    }
+
     pub fn aggregate_subtree(&self, root_record_id: u64) -> SubtreeSummary {
         let mut summary = SubtreeSummary::default();
         let mut stack = vec![root_record_id];
@@ -205,8 +214,14 @@ impl MftIndex {
                     stack.extend(child_ids.iter().copied());
                 }
             } else {
+                let files_before = summary.files;
                 summary.files = summary.files.saturating_add(1);
                 summary.bytes = summary.bytes.saturating_add(entry.logical_size);
+                summary.allocated_bytes = add_file_allocated_bytes(
+                    summary.allocated_bytes,
+                    files_before,
+                    entry.allocated_size,
+                );
             }
         }
 
@@ -221,6 +236,7 @@ pub struct MftIndexEntry {
     pub name: String,
     pub path_candidates: Vec<MftPathCandidate>,
     pub logical_size: u64,
+    pub allocated_size: Option<u64>,
     pub is_directory: bool,
     pub is_reparse_point: bool,
     pub caveats: Vec<ParseCaveat>,
@@ -236,9 +252,22 @@ pub struct MftPathCandidate {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubtreeSummary {
     pub bytes: u64,
+    pub allocated_bytes: Option<u64>,
     pub files: u64,
     pub directories: u64,
     pub caveats: Vec<ParseCaveat>,
+}
+
+fn add_file_allocated_bytes(
+    current: Option<u64>,
+    files_before: u64,
+    file_allocated: Option<u64>,
+) -> Option<u64> {
+    match (current, file_allocated) {
+        (None, Some(right)) if files_before == 0 => Some(right),
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+        _ => None,
+    }
 }
 
 fn path_candidates(record: &NtfsParsedRecord) -> Vec<MftPathCandidate> {

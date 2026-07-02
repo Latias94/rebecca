@@ -72,6 +72,18 @@ impl NtfsParsedRecord {
             .unwrap_or(0)
     }
 
+    pub fn cleanup_allocated_size(&self) -> Option<u64> {
+        if self.is_directory {
+            return None;
+        }
+
+        self.attribute_streams
+            .iter()
+            .filter(|stream| stream.attribute_type == AttributeType::Data && stream.name.is_none())
+            .filter_map(|stream| stream.allocated_size)
+            .max()
+    }
+
     pub fn non_dos_file_name_count(&self) -> usize {
         self.names
             .iter()

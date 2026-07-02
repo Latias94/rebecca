@@ -60,6 +60,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `catalog`
 - `catalog-validation`
 - `inspect-space`
+- `inspect-map`
 - `inspect-artifacts`
 - `inspect-lint`
 - `cache-purge-report`
@@ -120,10 +121,13 @@ cleanup rules, project artifact policies, warning gates, safety categories, and
 supported action kinds. `catalog-validation` is emitted by
 `rebecca catalog validate`.
 
-`inspect-space`, `inspect-artifacts`, and `inspect-lint` are read-only cleanup
-intelligence reports. They inventory disk usage, project artifact reclaim
-opportunities, or duplicate/large/empty file findings without prompting,
-executing cleanup, writing history, or mutating files.
+`inspect-space`, `inspect-map`, `inspect-artifacts`, and `inspect-lint` are
+read-only cleanup intelligence reports. They inventory top-level space, ranked
+disk-map usage, project artifact reclaim opportunities, or duplicate/large/empty
+file findings without prompting, executing cleanup, writing history, or mutating
+files. `inspect-map` uses `logical_bytes` plus nullable `allocated_bytes`
+instead of `estimated_bytes` because it is a disk inventory surface rather than
+a cleanup estimate surface.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -157,6 +161,7 @@ rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
 rebecca catalog --format json --kind warning
 rebecca inspect space --format json --root .
+rebecca inspect map --format json --root . --top 20 --max-depth 3
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0
 rebecca inspect lint --format json --root .

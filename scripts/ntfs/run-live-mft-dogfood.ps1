@@ -1,6 +1,6 @@
 param(
     [string[]]$Root = @(),
-    [ValidateSet("inspect-space", "clean-dry-run", "both")]
+    [ValidateSet("inspect-space", "inspect-map", "clean-dry-run", "both")]
     [string]$Mode = "inspect-space",
     [ValidateSet("portable-recursive", "windows-native", "windows-ntfs-mft-experimental")]
     [string[]]$Backend = @("portable-recursive", "windows-native", "windows-ntfs-mft-experimental"),
@@ -167,6 +167,9 @@ function Get-JsonMetric {
     $data = Get-ObjectProperty -Object $Json -Name "data"
     $estimatedBytes = Get-NestedProperty -Object $data -Path @("totals", "estimated_bytes")
     if ($null -eq $estimatedBytes) {
+        $estimatedBytes = Get-NestedProperty -Object $data -Path @("totals", "logical_bytes")
+    }
+    if ($null -eq $estimatedBytes) {
         $estimatedBytes = Get-NestedProperty -Object $data -Path @("summary", "estimated_bytes")
     }
     if ($null -eq $estimatedBytes) {
@@ -277,6 +280,16 @@ function Get-RebeccaCommand {
         return @(
             "cargo", "run", "-q", "-p", "rebecca", "--",
             "inspect", "space",
+            "--format", "json",
+            "--root", $RootPath,
+            "--top", ([string]$TopLimit),
+            "--scan-backend", $RequestedBackend
+        )
+    }
+    if ($ModeName -eq "inspect-map") {
+        return @(
+            "cargo", "run", "-q", "-p", "rebecca", "--",
+            "inspect", "map",
             "--format", "json",
             "--root", $RootPath,
             "--top", ([string]$TopLimit),
@@ -454,6 +467,37 @@ function Test-Self {
     }
     if ($probe.metric.estimated_bytes -ne 123) {
         throw "SelfTest failed: metric extraction returned $($probe.metric.estimated_bytes)."
+    }
+
+    $fakeMap = @'
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "inspect map",
+  "payload_kind": "inspect-map",
+  "generated_at_unix_seconds": 1,
+  "data": {
+    "totals": {
+      "logical_bytes": 456,
+      "allocated_bytes": null,
+      "files": 3,
+      "directories": 2
+    },
+    "top_entries": [
+      {
+        "estimate_backend": "windows-ntfs-mft-experimental",
+        "estimate_backend_source": "windows-ntfs-mft-experimental-sequential"
+      }
+    ]
+  }
+}
+'@
+    $mapProbe = Convert-JsonProbe -Raw $fakeMap
+    if (-not $mapProbe.parsed) {
+        throw "SelfTest failed: fake inspect-map JSON did not parse: $($mapProbe.parse_error)"
+    }
+    if ($mapProbe.metric.estimated_bytes -ne 456) {
+        throw "SelfTest failed: inspect-map logical metric extraction returned $($mapProbe.metric.estimated_bytes)."
     }
 
     $report = [pscustomobject]@{

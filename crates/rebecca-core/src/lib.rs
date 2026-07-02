@@ -4,6 +4,7 @@ pub mod cache;
 pub mod catalog;
 pub mod config;
 pub mod discovery;
+pub mod disk_map;
 pub mod environment;
 pub mod error;
 pub mod executor;

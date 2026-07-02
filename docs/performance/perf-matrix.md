@@ -42,6 +42,7 @@ Use the NTFS dogfood script for live `windows-ntfs-mft-experimental` evidence, t
 
 ```powershell
 pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-space -Top 3 -TimeoutSeconds 45
+pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-map -Top 3 -TimeoutSeconds 60
 ```
 
 The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, portable baseline deltas, and timeout status. A timeout from the experimental backend is a valid local finding because live metadata traversal can depend on target size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
@@ -54,6 +55,18 @@ caveat on successful experimental runs.
 Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when you intentionally want a
 targeted-traversal failure to try the older full-volume MFT index path before
 directory-scanner fallback.
+
+`inspect map` defaults to portable recursive inventory. Selecting
+`--scan-backend windows-ntfs-mft-experimental` makes full-volume NTFS/MFT
+inventory explicit for disk-map dogfood. On the 2026-07-02 elevated E: run,
+`target/ntfs-dogfood/20260702-181216-50924/` showed portable, Windows native
+fallback, and experimental fallback all agreeing on `docs/plans` at 608858
+logical bytes and 38 files; experimental full-index construction exceeded the
+20 second internal budget while reading sequential MFT bytes. A follow-up run
+with `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS=0` reached the script-level 180
+second timeout under `target/ntfs-dogfood/20260702-181342-73156/`, so full-index
+disk-map performance remains a live-backend optimization target rather than a
+release threshold.
 
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 

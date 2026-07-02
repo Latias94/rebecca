@@ -7,6 +7,7 @@ All notable changes to Rebecca will be documented in this file.
 ### Added
 - `rebecca catalog` now provides a unified read-only catalog for cleanup rules, project artifact policies, warning gates, safety categories, and action kinds using the unified `rebecca.cli.v1` machine envelope.
 - `rebecca inspect space` now provides read-only disk space insight with root totals, largest entries, diagnostics, JSON output, and NDJSON completion events.
+- `rebecca inspect map` now provides a read-only ranked disk map with logical bytes, optional allocated bytes, depth-bounded top entries, diagnostics, JSON output, and NDJSON completion events.
 - `rebecca inspect artifacts` is now the canonical read-only project artifact insight command with JSON/NDJSON `inspect-artifacts` output, grouped totals, top targets, warning-gate awareness, reclaim-limit support, diagnostics, and no cleanup prompts or history writes.
 - `rebecca inspect lint` now reports duplicate groups, large files, empty files, and empty directories without deleting files, remediating duplicates, or writing cleanup history.
 - cleanup rule manifests now use Cleaner Manifest v1 with explicit warning declarations and future option/action shape support.
@@ -79,6 +80,7 @@ All notable changes to Rebecca will be documented in this file.
 - Experimental NTFS/MFT full-volume index construction is now an explicit diagnostic fallback controlled by `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1`; the default experimental path is targeted traversal with backend source `windows-ntfs-mft-experimental-targeted-fsctl`.
 - Experimental NTFS/MFT cleanup estimates now keep v1 user-facing byte totals on logical unnamed `$DATA` streams while retaining allocated and initialized stream metadata internally for future disk-usage surfaces.
 - Experimental NTFS/MFT `$I30` expansion now reads allocation records by requested child VCN and reports unsupported multi-buffer-per-cluster geometry as a bounded caveat instead of using flat sequential offsets as authority.
+- `inspect map` defaults to portable recursive inventory while `--scan-backend windows-ntfs-mft-experimental` explicitly opts into the current full-volume NTFS/MFT inventory path and fallback diagnostics.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rebecca::core::disk_map::DiskMapReport;
 use rebecca::core::inspect::SpaceInsightReport;
 use rebecca::core::lint::LintReport;
 
@@ -37,6 +38,64 @@ pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
     if !report.diagnostics.is_empty() {
         println!();
         println!("Inspection diagnostics:");
+        for diagnostic in &report.diagnostics {
+            println!(
+                "  - {} {} - {}",
+                diagnostic.kind.label(),
+                diagnostic.path.display(),
+                diagnostic.detail
+            );
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
+    println!("Disk map");
+    println!("Roots: {}", report.roots.len());
+    println!(
+        "Logical bytes: {} ({})",
+        report.totals.logical_bytes,
+        format_bytes(report.totals.logical_bytes)
+    );
+    if let Some(allocated_bytes) = report.totals.allocated_bytes {
+        println!(
+            "Allocated bytes: {} ({})",
+            allocated_bytes,
+            format_bytes(allocated_bytes)
+        );
+    }
+    println!("Files: {}", report.totals.files);
+    println!("Directories: {}", report.totals.directories);
+    println!("Diagnostics: {}", report.diagnostics.len());
+
+    if !report.top_entries.is_empty() {
+        println!();
+        println!("Top map entries:");
+        for entry in &report.top_entries {
+            let allocated = entry
+                .allocated_bytes
+                .map(|bytes| format!(", allocated {} ({})", bytes, format_bytes(bytes)))
+                .unwrap_or_default();
+            println!(
+                "  - {} [{} depth={}] {} bytes ({}){}{} - {} files, {} dirs",
+                entry.path.display(),
+                entry.kind.label(),
+                entry.depth,
+                entry.logical_bytes,
+                format_bytes(entry.logical_bytes),
+                allocated,
+                estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance),
+                entry.files,
+                entry.directories
+            );
+        }
+    }
+
+    if !report.diagnostics.is_empty() {
+        println!();
+        println!("Disk map diagnostics:");
         for diagnostic in &report.diagnostics {
             println!(
                 "  - {} {} - {}",

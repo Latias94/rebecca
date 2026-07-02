@@ -88,6 +88,7 @@ and writes a JSON report plus raw command output for each backend run.
 
 ```powershell
 pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Root . -Mode inspect-space -Top 10 -TimeoutSeconds 180
+pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Root docs\plans -Mode inspect-map -Top 10 -TimeoutSeconds 180
 pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Mode clean-dry-run -Backend portable-recursive -TimeoutSeconds 180
 ```
 
@@ -109,6 +110,7 @@ Run this dogfood checklist on a representative Windows workstation:
 ```powershell
 cargo run -p rebecca -- catalog validate
 cargo run -p rebecca -- inspect space --root . --top 10 --format json
+cargo run -p rebecca -- inspect map --root . --top 10 --max-depth 3 --format json
 cargo run -p rebecca -- inspect artifacts --root . --format json
 cargo run -p rebecca -- inspect lint --root . --top 10 --format json
 cargo run -p rebecca -- clean --dry-run --scan-cache --category system
@@ -116,6 +118,7 @@ cargo run -p rebecca -- clean --dry-run --scan-cache --category system
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system --format json
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system --format json
 cargo run -p rebecca -- inspect space --scan-backend windows-ntfs-mft-experimental --root . --top 10 --format json
+cargo run -p rebecca -- inspect map --scan-backend windows-ntfs-mft-experimental --root docs\plans --top 10 --format json
 ```
 
 Prefer the script for repeatable backend comparison; use the raw commands above
@@ -138,7 +141,10 @@ for the backend dogfood runs. The experimental NTFS/MFT run should either show
 `estimate_backend_source: "windows-ntfs-mft-experimental-targeted-fsctl"` on a
 supported elevated local NTFS volume. Explicit full-index fallback diagnostics
 may instead show `"windows-ntfs-mft-experimental-sequential"` or
-`"windows-ntfs-mft-experimental-fsctl-record"`. Unsupported hosts should report a clear fallback reason, no backend source, and
+`"windows-ntfs-mft-experimental-fsctl-record"`; `inspect map --scan-backend
+windows-ntfs-mft-experimental` may also report a budget or command timeout on
+large live volumes, which should be captured as backend performance evidence
+rather than treated as a dogfood script failure. Unsupported hosts should report a clear fallback reason, no backend source, and
 `experimental-ntfs-mft-fallback` caveat. Successful NTFS/MFT dogfood should also
 review any parser caveats for sequence mismatches, hardlink path candidates,
 attribute-list handling, directory-index fallback, unsupported nonresident index

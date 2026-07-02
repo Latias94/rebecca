@@ -151,6 +151,16 @@ fn run_inspect(
             },
             runtime,
         ),
+        InspectCommand::Map(args) => inspect::map_with_runtime(
+            inspect::InspectMapOptions {
+                output_mode: global_mode,
+                scan_backend: args.scan_backend,
+                roots: args.roots,
+                top_limit: args.top_limit,
+                max_depth: args.max_depth,
+            },
+            runtime,
+        ),
         InspectCommand::Artifacts(args) => inspect::artifacts_with_runtime(
             inspect::InspectArtifactsOptions {
                 output_mode: global_mode,
@@ -353,6 +363,7 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
             InspectCommand::Space(_) => {
                 output::CliApiContract::v1("inspect space", "inspect-space")
             }
+            InspectCommand::Map(_) => output::CliApiContract::v1("inspect map", "inspect-map"),
             InspectCommand::Artifacts(_) => {
                 output::CliApiContract::v1("inspect artifacts", "inspect-artifacts")
             }
