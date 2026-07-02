@@ -48,6 +48,9 @@ The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI 
 The experimental backend has its own 20 second live index build budget before
 falling back to a directory scanner; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`
 higher for deep profiling or `0` to disable that guard for one process.
+Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` for live dogfood when you need stage
+timings in timeout fallback reasons or an opt-in `mft-index-build-timing`
+caveat on successful experimental runs.
 
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 

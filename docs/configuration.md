@@ -172,6 +172,11 @@ single process. Within one command, Rebecca builds at most one live index per
 volume at a time and remembers unavailable volume outcomes so multiple targets
 do not repeat the same expensive failed MFT attempt.
 
+Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` when profiling the experimental backend.
+Timeout fallback reasons then include the active build stage and completed
+timings, and successful experimental estimates include an opt-in
+`mft-index-build-timing` caveat with stage timings.
+
 Experimental NTFS/MFT estimates are explainability data only. They never
 authorize deletion, and execution still revalidates filesystem paths through
 the normal safety model. The parser keeps Rebecca-owned records, file-reference

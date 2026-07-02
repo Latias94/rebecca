@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -52,7 +53,9 @@ const MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES: usize = 8;
 const MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE: usize = 8;
 const MFT_CAVEAT_SUMMARY_CODE: &str = "mft-caveat-summary";
 const LIVE_NTFS_MFT_INDEX_TIMEOUT_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS";
+const LIVE_NTFS_MFT_INDEX_TIMINGS_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMINGS";
 const DEFAULT_LIVE_NTFS_MFT_INDEX_TIMEOUT: Duration = Duration::from_secs(20);
+const MFT_BUILD_TIMING_CAVEAT_CODE: &str = "mft-index-build-timing";
 
 #[derive(Debug, Clone, Copy)]
 struct NtfsMftBuildBudget {
@@ -61,40 +64,165 @@ struct NtfsMftBuildBudget {
 }
 
 impl NtfsMftBuildBudget {
-    fn from_environment() -> Self {
-        Self::new(live_ntfs_mft_index_timeout())
-    }
-
     fn new(timeout: Option<Duration>) -> Self {
         Self {
             started_at: Instant::now(),
             timeout,
         }
     }
+}
 
-    fn check(&self) -> Result<()> {
-        let Some(timeout) = self.timeout else {
-            return Ok(());
+#[derive(Debug, Default)]
+struct NtfsMftBuildMonitorState {
+    active_stage: Option<(NtfsMftBuildStage, Instant)>,
+    timings: BTreeMap<NtfsMftBuildStage, Duration>,
+}
+
+#[derive(Debug)]
+struct NtfsMftBuildMonitor {
+    budget: NtfsMftBuildBudget,
+    state: RefCell<NtfsMftBuildMonitorState>,
+    emit_timing_caveat: bool,
+}
+
+impl NtfsMftBuildMonitor {
+    fn from_environment() -> Self {
+        Self::new(
+            live_ntfs_mft_index_timeout(),
+            live_ntfs_mft_index_timings_enabled(),
+        )
+    }
+
+    fn new(timeout: Option<Duration>, emit_timing_caveat: bool) -> Self {
+        Self {
+            budget: NtfsMftBuildBudget::new(timeout),
+            state: RefCell::new(NtfsMftBuildMonitorState::default()),
+            emit_timing_caveat,
+        }
+    }
+
+    fn measure<R>(
+        &self,
+        stage: NtfsMftBuildStage,
+        operation: impl FnOnce() -> Result<R>,
+    ) -> Result<R> {
+        let started_at = Instant::now();
+        let previous_stage = {
+            let mut state = self.state.borrow_mut();
+            state.active_stage.replace((stage, started_at))
         };
-        if self.started_at.elapsed() < timeout {
+        let result = operation();
+        let elapsed = started_at.elapsed();
+        {
+            let mut state = self.state.borrow_mut();
+            let total = state.timings.entry(stage).or_default();
+            *total = total.saturating_add(elapsed);
+            state.active_stage = previous_stage;
+        }
+        result
+    }
+
+    fn check(&self, cancellation: &ScanCancellationToken) -> Result<()> {
+        check_not_cancelled(cancellation)?;
+        if !self.is_timed_out() {
             return Ok(());
         }
+        let Some(timeout) = self.budget.timeout else {
+            return Ok(());
+        };
+
+        let state = self.state.borrow();
+        let stage = state
+            .active_stage
+            .map(|(stage, started_at)| {
+                format!(
+                    " while {}; stage_elapsed={}ms",
+                    stage.label(),
+                    started_at.elapsed().as_millis()
+                )
+            })
+            .unwrap_or_default();
+        let timings = format_timing_summary(&state.timings)
+            .map(|summary| format!("; completed_timings={summary}"))
+            .unwrap_or_default();
 
         Err(RebeccaError::PlatformUnavailable(format!(
-            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} live volume index build timed out after {}s; tune {LIVE_NTFS_MFT_INDEX_TIMEOUT_ENV} to increase the budget or set it to 0 to disable this guard",
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} live volume index build timed out after {}s{stage}{timings}; tune {LIVE_NTFS_MFT_INDEX_TIMEOUT_ENV} to increase the budget or set it to 0 to disable this guard",
             timeout.as_secs()
         )))
     }
 
+    fn is_timed_out(&self) -> bool {
+        self.budget
+            .timeout
+            .is_some_and(|timeout| self.budget.started_at.elapsed() >= timeout)
+    }
+
+    fn timing_caveat(&self) -> Option<ParseCaveat> {
+        if !self.emit_timing_caveat {
+            return None;
+        }
+        self.timing_summary().map(|summary| {
+            ParseCaveat::new(
+                MFT_BUILD_TIMING_CAVEAT_CODE,
+                format!("live NTFS/MFT index build timings: {summary}"),
+            )
+        })
+    }
+
+    fn timing_summary(&self) -> Option<String> {
+        let state = self.state.borrow();
+        format_timing_summary(&state.timings)
+    }
+
     #[cfg(test)]
     fn expired_for_test(timeout: Duration) -> Self {
+        let mut monitor = Self::new(Some(timeout), false);
         let now = Instant::now();
         let elapsed = timeout + Duration::from_secs(1);
-        Self {
-            started_at: now.checked_sub(elapsed).unwrap_or(now),
-            timeout: Some(timeout),
+        monitor.budget.started_at = now.checked_sub(elapsed).unwrap_or(now);
+        monitor
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum NtfsMftBuildStage {
+    OpenVolume,
+    ReadVolumeData,
+    SequentialOpenMftData,
+    SequentialReadRetrievalPointers,
+    SequentialReadParseRecords,
+    FsctlReadParseRecords,
+    ResolveIndexAllocations,
+    BuildMftIndex,
+}
+
+impl NtfsMftBuildStage {
+    fn label(self) -> &'static str {
+        match self {
+            Self::OpenVolume => "open-volume",
+            Self::ReadVolumeData => "read-volume-data",
+            Self::SequentialOpenMftData => "sequential-open-mft-data",
+            Self::SequentialReadRetrievalPointers => "sequential-read-retrieval-pointers",
+            Self::SequentialReadParseRecords => "sequential-read-parse-records",
+            Self::FsctlReadParseRecords => "fsctl-read-parse-records",
+            Self::ResolveIndexAllocations => "resolve-index-allocations",
+            Self::BuildMftIndex => "build-mft-index",
         }
     }
+}
+
+fn format_timing_summary(timings: &BTreeMap<NtfsMftBuildStage, Duration>) -> Option<String> {
+    if timings.is_empty() {
+        return None;
+    }
+    Some(
+        timings
+            .iter()
+            .map(|(stage, duration)| format!("{}={}ms", stage.label(), duration.as_millis()))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
 }
 
 fn live_ntfs_mft_index_timeout() -> Option<Duration> {
@@ -115,12 +243,19 @@ fn live_ntfs_mft_index_timeout() -> Option<Duration> {
     }
 }
 
+fn live_ntfs_mft_index_timings_enabled() -> bool {
+    std::env::var_os(LIVE_NTFS_MFT_INDEX_TIMINGS_ENV).is_some_and(|raw| {
+        let raw = raw.to_string_lossy();
+        let trimmed = raw.trim();
+        !trimmed.is_empty() && trimmed != "0"
+    })
+}
+
 fn check_mft_build_progress(
     cancellation: &ScanCancellationToken,
-    budget: &NtfsMftBuildBudget,
+    monitor: &NtfsMftBuildMonitor,
 ) -> Result<()> {
-    check_not_cancelled(cancellation)?;
-    budget.check()
+    monitor.check(cancellation)
 }
 
 #[derive(Debug, Default)]
@@ -232,25 +367,32 @@ impl CachedNtfsVolumeIndex {
         capabilities: &NtfsVolumeCapabilities,
         cancellation: &ScanCancellationToken,
     ) -> Result<Self> {
-        let budget = NtfsMftBuildBudget::from_environment();
-        check_mft_build_progress(cancellation, &budget)?;
-        let volume = LiveNtfsVolume::open(capabilities)?;
-        let volume_data = volume.ntfs_volume_data()?;
+        let monitor = NtfsMftBuildMonitor::from_environment();
+        check_mft_build_progress(cancellation, &monitor)?;
+        let volume = monitor.measure(NtfsMftBuildStage::OpenVolume, || {
+            LiveNtfsVolume::open(capabilities)
+        })?;
+        let volume_data = monitor.measure(NtfsMftBuildStage::ReadVolumeData, || {
+            volume.ntfs_volume_data()
+        })?;
         let geometry = NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)?;
-        let records = volume.read_mft_records(&volume_data, cancellation, &budget)?;
+        let records = volume.read_mft_records(&volume_data, cancellation, &monitor)?;
         let source_label = records.source_label;
         let mut stream_source = LiveNtfsIndexStreamSource {
             volume: &volume,
             cancellation,
-            budget: &budget,
+            monitor: &monitor,
         };
-        let (mft_index, caveats) = build_mft_index_from_records(
+        let (mft_index, mut caveats) = build_mft_index_from_records(
             records,
             geometry,
             &mut stream_source,
             cancellation,
-            &budget,
+            &monitor,
         )?;
+        if let Some(caveat) = monitor.timing_caveat() {
+            caveats.push(caveat);
+        }
         Ok(Self {
             mft_index,
             source_label,
@@ -504,7 +646,7 @@ trait MftRecordSource {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-        budget: &NtfsMftBuildBudget,
+        monitor: &NtfsMftBuildMonitor,
     ) -> Result<ParsedNtfsRecords>;
 }
 
@@ -512,13 +654,13 @@ fn read_mft_records_from_sources(
     sources: &[&dyn MftRecordSource],
     volume_data: &NTFS_VOLUME_DATA_BUFFER,
     cancellation: &ScanCancellationToken,
-    budget: &NtfsMftBuildBudget,
+    monitor: &NtfsMftBuildMonitor,
 ) -> Result<ParsedNtfsRecords> {
     let mut fallback_errors = Vec::new();
 
     for source in sources {
-        check_mft_build_progress(cancellation, budget)?;
-        match source.read_records(volume_data, cancellation, budget) {
+        check_mft_build_progress(cancellation, monitor)?;
+        match source.read_records(volume_data, cancellation, monitor) {
             Ok(mut records) => {
                 records.source_label = source.label();
                 records.caveats.extend(
@@ -528,6 +670,7 @@ fn read_mft_records_from_sources(
                 );
                 return Ok(records);
             }
+            Err(err) if monitor.is_timed_out() => return Err(err),
             Err(err) if mft_record_source_error_can_fallback(&err) => {
                 fallback_errors.push(format!("{}: {err}", source.label()));
             }
@@ -682,20 +825,24 @@ fn build_mft_index_from_records<S>(
     geometry: NtfsRecordGeometry,
     source: &mut S,
     cancellation: &ScanCancellationToken,
-    budget: &NtfsMftBuildBudget,
+    monitor: &NtfsMftBuildMonitor,
 ) -> Result<(MftIndex, Vec<ParseCaveat>)>
 where
     S: NtfsStreamSource,
 {
-    check_mft_build_progress(cancellation, budget)?;
-    let record_set = NtfsRecordSet::resolve_with_stream_source(
-        records.records,
-        geometry.stream_geometry(),
-        source,
-    );
-    check_mft_build_progress(cancellation, budget)?;
-    let index = MftIndex::from_record_set(record_set);
-    check_mft_build_progress(cancellation, budget)?;
+    check_mft_build_progress(cancellation, monitor)?;
+    let record_set = monitor.measure(NtfsMftBuildStage::ResolveIndexAllocations, || {
+        Ok(NtfsRecordSet::resolve_with_stream_source(
+            records.records,
+            geometry.stream_geometry(),
+            source,
+        ))
+    })?;
+    check_mft_build_progress(cancellation, monitor)?;
+    let index = monitor.measure(NtfsMftBuildStage::BuildMftIndex, || {
+        Ok(MftIndex::from_record_set(record_set))
+    })?;
+    check_mft_build_progress(cancellation, monitor)?;
     Ok((index, records.caveats))
 }
 
@@ -873,7 +1020,7 @@ impl LiveNtfsVolume {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-        budget: &NtfsMftBuildBudget,
+        monitor: &NtfsMftBuildMonitor,
     ) -> Result<ParsedNtfsRecords> {
         let sequential_source = SequentialMftDataSource { volume: self };
         let fsctl_source = FsctlRecordMftSource { volume: self };
@@ -881,7 +1028,7 @@ impl LiveNtfsVolume {
             &[&sequential_source, &fsctl_source],
             volume_data,
             cancellation,
-            budget,
+            monitor,
         )
     }
 
@@ -918,7 +1065,7 @@ impl LiveNtfsVolume {
         &self,
         mft_data: &LiveNtfsMetadataFile,
         cancellation: &ScanCancellationToken,
-        budget: &NtfsMftBuildBudget,
+        monitor: &NtfsMftBuildMonitor,
     ) -> Result<Vec<MftExtent>> {
         let mut input = STARTING_VCN_INPUT_BUFFER { StartingVcn: 0 };
         let mut output = vec![
@@ -928,7 +1075,7 @@ impl LiveNtfsVolume {
         ];
 
         loop {
-            check_mft_build_progress(cancellation, budget)?;
+            check_mft_build_progress(cancellation, monitor)?;
             let mut bytes_returned = 0_u32;
             let result = unsafe {
                 DeviceIoControl(
@@ -1028,7 +1175,7 @@ impl Drop for LiveNtfsMetadataFile {
 struct LiveNtfsIndexStreamSource<'a> {
     volume: &'a LiveNtfsVolume,
     cancellation: &'a ScanCancellationToken,
-    budget: &'a NtfsMftBuildBudget,
+    monitor: &'a NtfsMftBuildMonitor,
 }
 
 impl NtfsStreamSource for LiveNtfsIndexStreamSource<'_> {
@@ -1039,7 +1186,7 @@ impl NtfsStreamSource for LiveNtfsIndexStreamSource<'_> {
         volume_offset: u64,
         len: usize,
     ) -> std::result::Result<Vec<u8>, Self::Error> {
-        check_mft_build_progress(self.cancellation, self.budget)?;
+        check_mft_build_progress(self.cancellation, self.monitor)?;
         self.volume.read_volume_bytes(volume_offset, len)
     }
 }
@@ -1057,29 +1204,35 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-        budget: &NtfsMftBuildBudget,
+        monitor: &NtfsMftBuildMonitor,
     ) -> Result<ParsedNtfsRecords> {
         let geometry = NtfsRecordGeometry::from_volume_data(&self.volume.device_path, volume_data)?;
-        let mft_data = self.volume.open_mft_data_stream()?;
-        let extents = self.volume.mft_extents(&mft_data, cancellation, budget)?;
+        let mft_data = monitor.measure(NtfsMftBuildStage::SequentialOpenMftData, || {
+            self.volume.open_mft_data_stream()
+        })?;
+        let extents = monitor
+            .measure(NtfsMftBuildStage::SequentialReadRetrievalPointers, || {
+                self.volume.mft_extents(&mft_data, cancellation, monitor)
+            })?;
         let reader = MftRecordReader::new(geometry.record_size, geometry.sector_size);
         let mut records = Vec::new();
         let mut caveats = Vec::new();
         let mut parse_errors = MftParseErrorCaveats::default();
 
-        {
+        monitor.measure(NtfsMftBuildStage::SequentialReadParseRecords, || {
             let mut context = SequentialMftReadContext {
                 geometry,
                 reader: &reader,
                 cancellation,
-                budget,
+                monitor,
                 records: &mut records,
                 parse_errors: &mut parse_errors,
             };
             for extent in extents {
                 self.read_extent_records(extent, &mut context)?;
             }
-        }
+            Ok(())
+        })?;
         parse_errors.append_to(&mut caveats);
 
         Ok(ParsedNtfsRecords {
@@ -1094,7 +1247,7 @@ struct SequentialMftReadContext<'a> {
     geometry: NtfsRecordGeometry,
     reader: &'a MftRecordReader,
     cancellation: &'a ScanCancellationToken,
-    budget: &'a NtfsMftBuildBudget,
+    monitor: &'a NtfsMftBuildMonitor,
     records: &'a mut Vec<NtfsParsedRecord>,
     parse_errors: &'a mut MftParseErrorCaveats,
 }
@@ -1139,7 +1292,7 @@ impl SequentialMftDataSource<'_> {
             })?;
 
         while bytes_remaining > 0 && next_record_id < geometry.max_record_count {
-            check_mft_build_progress(context.cancellation, context.budget)?;
+            check_mft_build_progress(context.cancellation, context.monitor)?;
             let records_remaining = geometry.max_record_count.saturating_sub(next_record_id);
             let read_len =
                 next_mft_chunk_len(bytes_remaining, records_remaining, geometry.record_size);
@@ -1186,7 +1339,7 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-        budget: &NtfsMftBuildBudget,
+        monitor: &NtfsMftBuildMonitor,
     ) -> Result<ParsedNtfsRecords> {
         let geometry = NtfsRecordGeometry::from_volume_data(&self.volume.device_path, volume_data)?;
 
@@ -1195,41 +1348,44 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
         let mut parse_errors = MftParseErrorCaveats::default();
         let mut requested_record = 0_u64;
 
-        while requested_record < geometry.max_record_count {
-            if requested_record.is_multiple_of(256) {
-                check_mft_build_progress(cancellation, budget)?;
-            }
+        monitor.measure(NtfsMftBuildStage::FsctlReadParseRecords, || {
+            while requested_record < geometry.max_record_count {
+                if requested_record.is_multiple_of(256) {
+                    check_mft_build_progress(cancellation, monitor)?;
+                }
 
-            match self
-                .volume
-                .read_file_record(requested_record, geometry.record_size)
-            {
-                Ok(Some((record_id, raw_record))) => {
-                    let parsed_record_id = low_file_reference_number(record_id);
-                    match NtfsParsedRecord::parse(
-                        parsed_record_id,
-                        &raw_record,
-                        geometry.sector_size,
-                    ) {
-                        Ok(record) => records.push(record),
-                        Err(err) => parse_errors.record(parsed_record_id, err),
+                match self
+                    .volume
+                    .read_file_record(requested_record, geometry.record_size)
+                {
+                    Ok(Some((record_id, raw_record))) => {
+                        let parsed_record_id = low_file_reference_number(record_id);
+                        match NtfsParsedRecord::parse(
+                            parsed_record_id,
+                            &raw_record,
+                            geometry.sector_size,
+                        ) {
+                            Ok(record) => records.push(record),
+                            Err(err) => parse_errors.record(parsed_record_id, err),
+                        }
+                        requested_record = parsed_record_id.max(requested_record).saturating_add(1);
                     }
-                    requested_record = parsed_record_id.max(requested_record).saturating_add(1);
-                }
-                Ok(None) => break,
-                Err(err) if windows_error_matches(&err, ERROR_HANDLE_EOF) => break,
-                Err(err) if windows_error_matches(&err, ERROR_INVALID_PARAMETER) => {
-                    requested_record = requested_record.saturating_add(1);
-                }
-                Err(err) => {
-                    return Err(RebeccaError::PlatformUnavailable(format!(
-                        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not read MFT record {requested_record} from {}: {}",
-                        self.volume.device_path,
-                        err.message()
-                    )));
+                    Ok(None) => break,
+                    Err(err) if windows_error_matches(&err, ERROR_HANDLE_EOF) => break,
+                    Err(err) if windows_error_matches(&err, ERROR_INVALID_PARAMETER) => {
+                        requested_record = requested_record.saturating_add(1);
+                    }
+                    Err(err) => {
+                        return Err(RebeccaError::PlatformUnavailable(format!(
+                            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not read MFT record {requested_record} from {}: {}",
+                            self.volume.device_path,
+                            err.message()
+                        )));
+                    }
                 }
             }
-        }
+            Ok(())
+        })?;
         parse_errors.append_to(&mut caveats);
 
         Ok(ParsedNtfsRecords {
@@ -1345,10 +1501,11 @@ mod tests {
 
     use super::{
         MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE, MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES,
-        MFT_CAVEAT_SUMMARY_CODE, MftExtent, MftParseErrorCaveats, MftRecordSource,
-        NTFS_VOLUME_DATA_BUFFER, NtfsMftBuildBudget, NtfsRecordGeometry, ParsedNtfsRecords,
-        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
-        ScanCancellationToken, VolumePaths, build_mft_index_from_records, check_mft_build_progress,
+        MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE, MftExtent, MftParseErrorCaveats,
+        MftRecordSource, NTFS_VOLUME_DATA_BUFFER, NtfsMftBuildMonitor, NtfsMftBuildStage,
+        NtfsRecordGeometry, ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER,
+        RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken,
+        VolumePaths, build_mft_index_from_records, check_mft_build_progress,
         low_file_reference_number, next_mft_chunk_len, parse_retrieval_pointer_extents,
         read_mft_records_from_sources, with_bounded_mft_caveats,
     };
@@ -1442,7 +1599,7 @@ mod tests {
 
     #[test]
     fn mft_index_builder_expands_live_index_allocation_streams() {
-        let budget = test_build_budget();
+        let monitor = test_build_monitor();
         let mut source = FakeIndexStreamSource::default().with_bytes(
             0x80_000,
             &index_allocation_record(
@@ -1472,7 +1629,7 @@ mod tests {
             test_record_geometry(),
             &mut source,
             &ScanCancellationToken::new(),
-            &budget,
+            &monitor,
         )
         .unwrap();
         let summary = index.aggregate_subtree(5);
@@ -1488,7 +1645,7 @@ mod tests {
 
     #[test]
     fn mft_index_builder_turns_stream_read_failure_into_bounded_caveat() {
-        let budget = test_build_budget();
+        let monitor = test_build_monitor();
         let mut source = FakeIndexStreamSource::default();
         let records = ParsedNtfsRecords {
             source_label: "sequential",
@@ -1501,7 +1658,7 @@ mod tests {
             test_record_geometry(),
             &mut source,
             &ScanCancellationToken::new(),
-            &budget,
+            &monitor,
         )
         .unwrap();
         let summary = index.aggregate_subtree(5);
@@ -1515,7 +1672,7 @@ mod tests {
 
     #[test]
     fn mft_index_builder_preserves_cancellation_during_stream_expansion() {
-        let budget = test_build_budget();
+        let monitor = test_build_monitor();
         let cancellation = ScanCancellationToken::new();
         let mut source = CancellingIndexStreamSource {
             cancellation: cancellation.clone(),
@@ -1531,7 +1688,7 @@ mod tests {
             test_record_geometry(),
             &mut source,
             &cancellation,
-            &budget,
+            &monitor,
         )
         .unwrap_err();
 
@@ -1540,9 +1697,9 @@ mod tests {
 
     #[test]
     fn mft_build_budget_timeout_is_fallback_capable_platform_error() {
-        let budget = NtfsMftBuildBudget::expired_for_test(Duration::from_secs(1));
+        let monitor = NtfsMftBuildMonitor::expired_for_test(Duration::from_secs(1));
 
-        let err = check_mft_build_progress(&ScanCancellationToken::new(), &budget).unwrap_err();
+        let err = check_mft_build_progress(&ScanCancellationToken::new(), &monitor).unwrap_err();
 
         assert!(matches!(err, RebeccaError::PlatformUnavailable(_)));
         let message = err.to_string();
@@ -1551,8 +1708,39 @@ mod tests {
     }
 
     #[test]
+    fn mft_build_timeout_reports_active_stage_and_completed_timings() {
+        let monitor = NtfsMftBuildMonitor::expired_for_test(Duration::from_secs(1));
+        monitor
+            .measure(NtfsMftBuildStage::OpenVolume, || Ok(()))
+            .unwrap();
+
+        let err = monitor
+            .measure(NtfsMftBuildStage::SequentialReadParseRecords, || {
+                check_mft_build_progress(&ScanCancellationToken::new(), &monitor)
+            })
+            .unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("while sequential-read-parse-records"));
+        assert!(message.contains("completed_timings=open-volume="));
+    }
+
+    #[test]
+    fn mft_build_timing_caveat_is_opt_in() {
+        let monitor = NtfsMftBuildMonitor::new(None, true);
+
+        monitor
+            .measure(NtfsMftBuildStage::BuildMftIndex, || Ok(()))
+            .unwrap();
+        let caveat = monitor.timing_caveat().unwrap();
+
+        assert_eq!(caveat.code, MFT_BUILD_TIMING_CAVEAT_CODE);
+        assert!(caveat.message.contains("build-mft-index="));
+    }
+
+    #[test]
     fn record_source_strategy_returns_first_success() {
-        let budget = test_build_budget();
+        let monitor = test_build_monitor();
         let source = FakeRecordSource {
             label: "primary",
             behavior: FakeRecordSourceBehavior::Success("primary-success"),
@@ -1562,7 +1750,7 @@ mod tests {
             &[&source],
             &NTFS_VOLUME_DATA_BUFFER::default(),
             &ScanCancellationToken::new(),
-            &budget,
+            &monitor,
         )
         .unwrap();
 
@@ -1573,7 +1761,7 @@ mod tests {
 
     #[test]
     fn record_source_strategy_tries_next_fallback_capable_source() {
-        let budget = test_build_budget();
+        let monitor = test_build_monitor();
         let unavailable = FakeRecordSource {
             label: "sequential",
             behavior: FakeRecordSourceBehavior::PlatformUnavailable,
@@ -1587,7 +1775,7 @@ mod tests {
             &[&unavailable, &fallback],
             &NTFS_VOLUME_DATA_BUFFER::default(),
             &ScanCancellationToken::new(),
-            &budget,
+            &monitor,
         )
         .unwrap();
 
@@ -1605,7 +1793,7 @@ mod tests {
 
     #[test]
     fn record_source_strategy_preserves_cancelled_error() {
-        let budget = test_build_budget();
+        let monitor = test_build_monitor();
         let cancelled = FakeRecordSource {
             label: "sequential",
             behavior: FakeRecordSourceBehavior::Cancelled,
@@ -1619,7 +1807,7 @@ mod tests {
             &[&cancelled, &fallback],
             &NTFS_VOLUME_DATA_BUFFER::default(),
             &ScanCancellationToken::new(),
-            &budget,
+            &monitor,
         )
         .unwrap_err();
 
@@ -1628,7 +1816,7 @@ mod tests {
 
     #[test]
     fn record_source_strategy_stops_when_build_budget_expires() {
-        let budget = NtfsMftBuildBudget::expired_for_test(Duration::from_secs(1));
+        let monitor = NtfsMftBuildMonitor::expired_for_test(Duration::from_secs(1));
         let source = FakeRecordSource {
             label: "primary",
             behavior: FakeRecordSourceBehavior::Success("should-not-run"),
@@ -1638,7 +1826,7 @@ mod tests {
             &[&source],
             &NTFS_VOLUME_DATA_BUFFER::default(),
             &ScanCancellationToken::new(),
-            &budget,
+            &monitor,
         )
         .unwrap_err();
 
@@ -1729,7 +1917,7 @@ mod tests {
             &self,
             _volume_data: &NTFS_VOLUME_DATA_BUFFER,
             _cancellation: &ScanCancellationToken,
-            _budget: &NtfsMftBuildBudget,
+            _monitor: &NtfsMftBuildMonitor,
         ) -> Result<ParsedNtfsRecords> {
             match self.behavior {
                 FakeRecordSourceBehavior::Success(code) => Ok(ParsedNtfsRecords {
@@ -1806,8 +1994,8 @@ mod tests {
         }
     }
 
-    fn test_build_budget() -> NtfsMftBuildBudget {
-        NtfsMftBuildBudget::new(None)
+    fn test_build_monitor() -> NtfsMftBuildMonitor {
+        NtfsMftBuildMonitor::new(None, false)
     }
 
     fn parsed_directory_with_index_allocation(record_id: u64, name: &str) -> NtfsParsedRecord {

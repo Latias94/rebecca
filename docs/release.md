@@ -98,7 +98,9 @@ under `target\`, note the root and timeout, and treat it as a live backend
 performance or fallback gap rather than a script failure. The backend also has
 an internal 20 second live MFT index build budget by default; set
 `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` higher for deep diagnosis, or `0` to
-disable the guard for a single dogfood process.
+disable the guard for a single dogfood process. Set
+`REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture active-stage timeout context and
+successful `mft-index-build-timing` caveats during release dogfood.
 
 Run this dogfood checklist on a representative Windows workstation:
 
