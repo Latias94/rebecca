@@ -406,6 +406,76 @@ fn resident_i30_index_root_can_supply_verified_fallback_edge() {
 }
 
 #[test]
+fn i30_index_allocation_record_parses_valid_indx_entries() {
+    let raw = index_allocation_record(
+        0,
+        vec![
+            index_allocation_entry(file_reference(6, 6), file_reference(5, 5), "large.bin", 0),
+            index_allocation_last_entry(false),
+        ],
+    );
+
+    let entries =
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&raw, SECTOR_SIZE, 0).unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].child, NtfsFileReference::known(6, 6));
+    assert_eq!(entries[0].parent, NtfsFileReference::known(5, 5));
+    assert_eq!(entries[0].name, "large.bin");
+}
+
+#[test]
+fn i30_index_allocation_record_rejects_bad_fixup_signature_bounds_and_vcn() {
+    let mut bad_fixup = index_allocation_record(
+        0,
+        vec![
+            index_allocation_entry(file_reference(6, 6), file_reference(5, 5), "large.bin", 0),
+            index_allocation_last_entry(false),
+        ],
+    );
+    bad_fixup[SECTOR_SIZE - 2] = 0;
+    assert!(
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&bad_fixup, SECTOR_SIZE, 0)
+            .is_err()
+    );
+
+    let mut bad_signature = index_allocation_record(0, vec![index_allocation_last_entry(false)]);
+    bad_signature[0..4].copy_from_slice(b"BAD!");
+    assert!(
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&bad_signature, SECTOR_SIZE, 0)
+            .is_err()
+    );
+
+    let mut bad_bounds = index_allocation_record(0, vec![index_allocation_last_entry(false)]);
+    put_u32(&mut bad_bounds, 32, 8);
+    assert!(
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&bad_bounds, SECTOR_SIZE, 0)
+            .is_err()
+    );
+
+    let wrong_vcn = index_allocation_record(4, vec![index_allocation_last_entry(false)]);
+    assert!(
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&wrong_vcn, SECTOR_SIZE, 0)
+            .is_err()
+    );
+}
+
+#[test]
+fn i30_index_allocation_record_rejects_short_entries_and_skips_last_subnode() {
+    let short_entry = index_allocation_record_with_raw_entries(0, vec![0_u8; 12]);
+    assert!(
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&short_entry, SECTOR_SIZE, 0)
+            .is_err()
+    );
+
+    let last_subnode = index_allocation_record(8, vec![index_allocation_last_entry(true)]);
+    let entries =
+        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&last_subnode, SECTOR_SIZE, 8)
+            .unwrap();
+    assert!(entries.is_empty());
+}
+
+#[test]
 fn nonresident_i30_index_allocation_is_preserved_as_attribute_stream() {
     let record = NtfsParsedRecord::parse_mft_record(
         15,
@@ -1089,6 +1159,71 @@ fn index_root_attr(
     resident_named_attr(ATTR_INDEX_ROOT, "$I30", &value)
 }
 
+fn index_allocation_record(vcn: u64, entries: Vec<Vec<u8>>) -> Vec<u8> {
+    let mut raw_entries = Vec::new();
+    for entry in entries {
+        raw_entries.extend_from_slice(&entry);
+    }
+    index_allocation_record_with_raw_entries(vcn, raw_entries)
+}
+
+fn index_allocation_record_with_raw_entries(vcn: u64, entries: Vec<u8>) -> Vec<u8> {
+    let mut record = vec![0_u8; RECORD_SIZE];
+    let usa_offset = 0x28;
+    let index_header_offset = 0x18;
+    let entries_offset = 0x20;
+    let entries_start = index_header_offset + entries_offset;
+    let index_size = entries_offset + entries.len();
+
+    record[0..4].copy_from_slice(b"INDX");
+    put_u16(&mut record, 4, usa_offset as u16);
+    put_u16(&mut record, 6, 3);
+    put_u64(&mut record, 16, vcn);
+    put_u32(&mut record, index_header_offset, entries_offset as u32);
+    put_u32(&mut record, index_header_offset + 4, index_size as u32);
+    put_u32(&mut record, index_header_offset + 8, index_size as u32);
+    record[entries_start..entries_start + entries.len()].copy_from_slice(&entries);
+    apply_test_fixup_at(&mut record, usa_offset);
+    record
+}
+
+fn index_allocation_entry(
+    child_reference: u64,
+    parent_reference: u64,
+    name: &str,
+    file_attributes: u32,
+) -> Vec<u8> {
+    let file_name = file_name_value(parent_reference, name, file_attributes, 1);
+    let entry_len = align8(16 + file_name.len() + 8);
+    let mut entry = vec![0_u8; entry_len];
+    put_u64(&mut entry, 0, child_reference);
+    put_u16(&mut entry, 8, entry_len as u16);
+    put_u16(&mut entry, 10, file_name.len() as u16);
+    put_u16(&mut entry, 12, 0x0001);
+    entry[16..16 + file_name.len()].copy_from_slice(&file_name);
+    put_u64(&mut entry, entry_len - 8, 8);
+    entry
+}
+
+fn index_allocation_last_entry(with_subnode: bool) -> Vec<u8> {
+    let entry_len = if with_subnode { 24 } else { 16 };
+    let mut entry = vec![0_u8; entry_len];
+    put_u16(&mut entry, 8, entry_len as u16);
+    put_u16(
+        &mut entry,
+        12,
+        if with_subnode {
+            0x0001 | 0x0002
+        } else {
+            0x0002
+        },
+    );
+    if with_subnode {
+        put_u64(&mut entry, entry_len - 8, 16);
+    }
+    entry
+}
+
 fn index_allocation_attr() -> Vec<u8> {
     nonresident_named_attr(ATTR_INDEX_ALLOCATION, "$I30", 0, 0, &[0x00])
 }
@@ -1280,12 +1415,16 @@ fn nonresident_data_attr_with_runlist(
 }
 
 fn apply_test_fixup(record: &mut [u8]) {
+    apply_test_fixup_at(record, USA_OFFSET);
+}
+
+fn apply_test_fixup_at(record: &mut [u8], usa_offset: usize) {
     let usn = 0xAAAA_u16;
     let first_tail = u16::from_le_bytes([record[SECTOR_SIZE - 2], record[SECTOR_SIZE - 1]]);
     let second_tail = u16::from_le_bytes([record[RECORD_SIZE - 2], record[RECORD_SIZE - 1]]);
-    put_u16(record, USA_OFFSET, usn);
-    put_u16(record, USA_OFFSET + 2, first_tail);
-    put_u16(record, USA_OFFSET + 4, second_tail);
+    put_u16(record, usa_offset, usn);
+    put_u16(record, usa_offset + 2, first_tail);
+    put_u16(record, usa_offset + 4, second_tail);
     put_u16(record, SECTOR_SIZE - 2, usn);
     put_u16(record, RECORD_SIZE - 2, usn);
 }
