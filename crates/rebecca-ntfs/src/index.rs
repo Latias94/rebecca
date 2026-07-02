@@ -29,6 +29,11 @@ impl MftIndex {
             .iter()
             .map(|record| (record.reference.record_id, record.reference))
             .collect::<BTreeMap<_, _>>();
+        let directory_entries_by_parent = records
+            .iter()
+            .filter(|record| !record.directory_entries.is_empty())
+            .map(|record| (record.reference.record_id, record.directory_entries.clone()))
+            .collect::<BTreeMap<_, _>>();
         let mut entries = BTreeMap::new();
         let mut children: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
         let mut skipped_child_caveats: BTreeMap<u64, Vec<ParseCaveat>> = BTreeMap::new();
@@ -88,13 +93,16 @@ impl MftIndex {
                         ));
                     continue;
                 }
-                children
-                    .entry(parent_record_id)
-                    .or_default()
-                    .push(child_record_id);
+                push_child(&mut children, parent_record_id, child_record_id);
             }
             entries.insert(child_record_id, entry);
         }
+        cross_check_directory_entries(
+            &entries,
+            &mut children,
+            &directory_entries_by_parent,
+            &mut skipped_child_caveats,
+        );
 
         Self {
             entries,
@@ -249,11 +257,128 @@ fn parent_sequence_mismatches(
     references: &BTreeMap<u64, NtfsFileReference>,
     parent_reference: NtfsFileReference,
 ) -> bool {
-    let Some(actual_parent) = references.get(&parent_reference.record_id) else {
+    reference_sequence_mismatches(references, parent_reference)
+}
+
+fn reference_sequence_mismatches(
+    references: &BTreeMap<u64, NtfsFileReference>,
+    reference: NtfsFileReference,
+) -> bool {
+    let Some(actual) = references.get(&reference.record_id) else {
         return false;
     };
     matches!(
-        (parent_reference.sequence_number, actual_parent.sequence_number),
-        (Some(expected), Some(actual)) if expected != 0 && actual != 0 && expected != actual
+        (reference.sequence_number, actual.sequence_number),
+        (Some(expected), Some(actual)) if sequence_number_mismatches(expected, actual)
     )
+}
+
+fn push_child(children: &mut BTreeMap<u64, Vec<u64>>, parent_id: u64, child_id: u64) {
+    let child_ids = children.entry(parent_id).or_default();
+    if !child_ids.contains(&child_id) {
+        child_ids.push(child_id);
+    }
+}
+
+fn cross_check_directory_entries(
+    entries: &BTreeMap<u64, MftIndexEntry>,
+    children: &mut BTreeMap<u64, Vec<u64>>,
+    directory_entries_by_parent: &BTreeMap<u64, Vec<crate::NtfsDirectoryEntry>>,
+    skipped_child_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
+) {
+    for (parent_record_id, directory_entries) in directory_entries_by_parent {
+        for directory_entry in directory_entries {
+            if directory_entry.parent.record_id != *parent_record_id {
+                push_directory_caveat(
+                    skipped_child_caveats,
+                    *parent_record_id,
+                    ParseCaveat::new(
+                        "directory-index-parent-mismatch",
+                        format!(
+                            "$I30 entry '{}' declares parent {}, but was stored on directory {}",
+                            directory_entry.name,
+                            directory_entry.parent.record_id,
+                            parent_record_id
+                        ),
+                    ),
+                );
+                continue;
+            }
+
+            let Some(child_entry) = entries.get(&directory_entry.child.record_id) else {
+                push_directory_caveat(
+                    skipped_child_caveats,
+                    *parent_record_id,
+                    ParseCaveat::new(
+                        "directory-index-child-missing-record",
+                        format!(
+                            "$I30 entry '{}' references missing record {}",
+                            directory_entry.name, directory_entry.child.record_id
+                        ),
+                    ),
+                );
+                continue;
+            };
+
+            if matches!(
+                (
+                    directory_entry.child.sequence_number,
+                    child_entry.reference.sequence_number
+                ),
+                (Some(expected), Some(actual)) if sequence_number_mismatches(expected, actual)
+            ) {
+                push_directory_caveat(
+                    skipped_child_caveats,
+                    *parent_record_id,
+                    ParseCaveat::new(
+                        "directory-index-child-sequence-mismatch",
+                        format!(
+                            "$I30 entry '{}' references record {} sequence {:?}, but current sequence is {:?}",
+                            directory_entry.name,
+                            directory_entry.child.record_id,
+                            directory_entry.child.sequence_number,
+                            child_entry.reference.sequence_number
+                        ),
+                    ),
+                );
+                continue;
+            }
+
+            let parent_edge_exists = children
+                .get(parent_record_id)
+                .is_some_and(|ids| ids.contains(&directory_entry.child.record_id));
+            if !parent_edge_exists {
+                push_directory_caveat(
+                    skipped_child_caveats,
+                    *parent_record_id,
+                    ParseCaveat::new(
+                        "directory-index-parent-map-fallback",
+                        format!(
+                            "$I30 entry '{}' was used because it is not present in $FILE_NAME parent edges for directory {}",
+                            directory_entry.name, parent_record_id
+                        ),
+                    ),
+                );
+                children
+                    .entry(*parent_record_id)
+                    .or_default()
+                    .push(directory_entry.child.record_id);
+            }
+        }
+    }
+}
+
+fn sequence_number_mismatches(expected: u16, actual: u16) -> bool {
+    expected != 0 && actual != 0 && expected != actual
+}
+
+fn push_directory_caveat(
+    skipped_child_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
+    parent_record_id: u64,
+    caveat: ParseCaveat,
+) {
+    skipped_child_caveats
+        .entry(parent_record_id)
+        .or_default()
+        .push(caveat);
 }

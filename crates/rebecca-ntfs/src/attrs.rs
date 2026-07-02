@@ -12,6 +12,8 @@ pub enum AttributeType {
     AttributeList,
     FileName,
     Data,
+    IndexRoot,
+    IndexAllocation,
     ReparsePoint,
     Other(u32),
 }
@@ -23,6 +25,8 @@ impl AttributeType {
             0x20 => Self::AttributeList,
             0x30 => Self::FileName,
             0x80 => Self::Data,
+            0x90 => Self::IndexRoot,
+            0xA0 => Self::IndexAllocation,
             0xC0 => Self::ReparsePoint,
             other => Self::Other(other),
         }

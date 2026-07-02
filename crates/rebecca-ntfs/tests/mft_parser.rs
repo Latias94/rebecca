@@ -10,6 +10,7 @@ const ATTR_STANDARD_INFORMATION: u32 = 0x10;
 const ATTR_ATTRIBUTE_LIST: u32 = 0x20;
 const ATTR_FILE_NAME: u32 = 0x30;
 const ATTR_DATA: u32 = 0x80;
+const ATTR_INDEX_ROOT: u32 = 0x90;
 const ATTR_REPARSE_POINT: u32 = 0xC0;
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
@@ -331,6 +332,60 @@ fn hardlink_path_candidates_resolve_without_double_counting() {
             .caveats
             .iter()
             .any(|c| c.code == "hardlink-path-candidates")
+    );
+}
+
+#[test]
+fn resident_i30_index_root_can_supply_verified_fallback_edge() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![
+                    file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY),
+                    index_root_attr(file_reference(6, 6), file_reference(5, 5), "indexed.bin", 0),
+                ],
+            ),
+        ),
+        (
+            6,
+            mft_record(
+                6,
+                true,
+                false,
+                vec![
+                    file_name_attr_with_parent_reference(
+                        file_reference(99, 99),
+                        "indexed.bin",
+                        0,
+                        1,
+                    ),
+                    nonresident_data_attr(12),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap())
+    .collect::<Vec<_>>();
+
+    assert_eq!(records[0].directory_entries.len(), 1);
+    assert_eq!(records[0].directory_entries[0].name, "indexed.bin");
+
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 12);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "directory-index-parent-map-fallback"),
+        "{:?}",
+        summary.caveats
     );
 }
 
@@ -812,6 +867,18 @@ fn file_name_attr_with_parent_reference(
     file_attributes: u32,
     namespace: u8,
 ) -> Vec<u8> {
+    resident_attr(
+        ATTR_FILE_NAME,
+        &file_name_value(parent_reference, name, file_attributes, namespace),
+    )
+}
+
+fn file_name_value(
+    parent_reference: u64,
+    name: &str,
+    file_attributes: u32,
+    namespace: u8,
+) -> Vec<u8> {
     let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
     let mut value = vec![0_u8; 66 + (name_utf16.len() * 2)];
     put_u64(&mut value, 0, parent_reference);
@@ -823,7 +890,7 @@ fn file_name_attr_with_parent_reference(
     for (index, character) in name_utf16.iter().enumerate() {
         put_u16(&mut value, 66 + (index * 2), *character);
     }
-    resident_attr(ATTR_FILE_NAME, &value)
+    value
 }
 
 fn file_reference(record_id: u64, sequence_number: u16) -> u64 {
@@ -840,6 +907,37 @@ fn named_resident_data_attr(name: &str, bytes: &[u8]) -> Vec<u8> {
 
 fn attribute_list_attr() -> Vec<u8> {
     attribute_list_attr_with_entry(ATTR_DATA, None, 4, file_reference(99, 3), 9)
+}
+
+fn index_root_attr(
+    child_reference: u64,
+    parent_reference: u64,
+    name: &str,
+    file_attributes: u32,
+) -> Vec<u8> {
+    let file_name = file_name_value(parent_reference, name, file_attributes, 1);
+    let entry_len = align8(16 + file_name.len());
+    let end_entry_len = 16;
+    let entries_offset = 16;
+    let entries_start = 16 + entries_offset;
+    let entries_size = entry_len + end_entry_len;
+    let mut value = vec![0_u8; entries_start + entries_size];
+
+    put_u32(&mut value, 0, ATTR_FILE_NAME);
+    put_u32(&mut value, 16, entries_offset as u32);
+    put_u32(&mut value, 20, entries_size as u32);
+    put_u32(&mut value, 24, entries_size as u32);
+
+    put_u64(&mut value, entries_start, child_reference);
+    put_u16(&mut value, entries_start + 8, entry_len as u16);
+    put_u16(&mut value, entries_start + 10, file_name.len() as u16);
+    value[entries_start + 16..entries_start + 16 + file_name.len()].copy_from_slice(&file_name);
+
+    let end_offset = entries_start + entry_len;
+    put_u16(&mut value, end_offset + 8, end_entry_len as u16);
+    put_u16(&mut value, end_offset + 12, 0x0002);
+
+    resident_named_attr(ATTR_INDEX_ROOT, "$I30", &value)
 }
 
 fn attribute_list_attr_with_entry(

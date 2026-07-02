@@ -6,6 +6,7 @@
 pub mod adapter;
 pub mod attribute_list;
 pub mod attrs;
+pub mod dir_index;
 pub mod fixup;
 pub mod index;
 pub mod reader;
@@ -55,4 +56,7 @@ pub enum NtfsParseError {
 
     #[error("attribute list is invalid")]
     InvalidAttributeList,
+
+    #[error("directory index is invalid")]
+    InvalidDirectoryIndex,
 }

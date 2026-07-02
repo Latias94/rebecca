@@ -5,6 +5,7 @@ use crate::adapter::{
 };
 use crate::attribute_list::parse_attribute_list;
 use crate::attrs::{AttributeHeader, AttributeType};
+use crate::dir_index::parse_i30_index_root;
 use crate::fixup::apply_update_sequence;
 use crate::parse::{
     file_reference_sequence_number, low_file_reference_id, read_u16, read_u32, read_u64,
@@ -39,7 +40,7 @@ pub enum FileNameNamespace {
 }
 
 impl FileNameNamespace {
-    const fn from_raw(value: u8) -> Self {
+    pub(crate) const fn from_raw(value: u8) -> Self {
         match value {
             0 => Self::Posix,
             1 => Self::Win32,
@@ -185,6 +186,24 @@ fn parse_attribute(
                 parsed.caveats.push(ParseCaveat::new(
                     "named-data-stream",
                     "named data streams are not counted in cleanup size estimates",
+                ));
+            }
+        }
+        AttributeType::IndexRoot => {
+            if attribute_name.as_deref() == Some("$I30") {
+                let Some(value) = header.resident_value(record) else {
+                    return Err(NtfsParseError::InvalidDirectoryIndex);
+                };
+                parsed
+                    .directory_entries
+                    .extend(parse_i30_index_root(value)?);
+            }
+        }
+        AttributeType::IndexAllocation => {
+            if attribute_name.as_deref() == Some("$I30") {
+                parsed.caveats.push(ParseCaveat::new(
+                    "index-allocation-present",
+                    "nonresident directory index allocation requires runlist-backed INDX parsing",
                 ));
             }
         }
