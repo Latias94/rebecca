@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
-use rebecca_ntfs::{MftRecord, MftRecordReader, MftTree, ParseCaveat};
+use rebecca_ntfs::{MftIndex, MftRecordReader, NtfsParsedRecord, ParseCaveat};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
     HANDLE, WIN32_ERROR,
@@ -77,7 +77,7 @@ impl WindowsNtfsMftIndexCache {
 
 #[derive(Debug)]
 struct CachedNtfsVolumeIndex {
-    tree: MftTree,
+    mft_index: MftIndex,
     source_label: &'static str,
     caveats: Vec<ParseCaveat>,
 }
@@ -91,7 +91,7 @@ impl CachedNtfsVolumeIndex {
         let volume_data = volume.ntfs_volume_data()?;
         let records = volume.read_mft_records(&volume_data, cancellation)?;
         Ok(Self {
-            tree: MftTree::from_records(records.records),
+            mft_index: MftIndex::from_parsed_records(records.records),
             source_label: records.source_label,
             caveats: records.caveats,
         })
@@ -142,7 +142,7 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
         let index = self
             .cache
             .load_or_build(&capabilities, request.cancellation)?;
-        let Some(_) = index.tree.get(target_identity.file_reference_number) else {
+        let Some(_) = index.mft_index.get(target_identity.file_reference_number) else {
             return Err(RebeccaError::PlatformUnavailable(format!(
                 "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not map {} to MFT record {}",
                 request.path.display(),
@@ -151,7 +151,7 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
         };
 
         let summary = index
-            .tree
+            .mft_index
             .aggregate_subtree(target_identity.file_reference_number);
         let report = ScanReport {
             bytes_scanned: summary.bytes,
@@ -330,9 +330,9 @@ impl FileIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ParsedMftRecords {
+struct ParsedNtfsRecords {
     source_label: &'static str,
-    records: Vec<MftRecord>,
+    records: Vec<NtfsParsedRecord>,
     caveats: Vec<ParseCaveat>,
 }
 
@@ -343,14 +343,14 @@ trait MftRecordSource {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-    ) -> Result<ParsedMftRecords>;
+    ) -> Result<ParsedNtfsRecords>;
 }
 
 fn read_mft_records_from_sources(
     sources: &[&dyn MftRecordSource],
     volume_data: &NTFS_VOLUME_DATA_BUFFER,
     cancellation: &ScanCancellationToken,
-) -> Result<ParsedMftRecords> {
+) -> Result<ParsedNtfsRecords> {
     let mut fallback_errors = Vec::new();
 
     for source in sources {
@@ -684,7 +684,7 @@ impl LiveNtfsVolume {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-    ) -> Result<ParsedMftRecords> {
+    ) -> Result<ParsedNtfsRecords> {
         let sequential_source = SequentialMftDataSource { volume: self };
         let fsctl_source = FsctlRecordMftSource { volume: self };
         read_mft_records_from_sources(
@@ -841,7 +841,7 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-    ) -> Result<ParsedMftRecords> {
+    ) -> Result<ParsedNtfsRecords> {
         let geometry = NtfsRecordGeometry::from_volume_data(&self.volume.device_path, volume_data)?;
         let mft_data = self.volume.open_mft_data_stream()?;
         let extents = self.volume.mft_extents(&mft_data)?;
@@ -862,7 +862,7 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
         }
         parse_errors.append_to(&mut caveats);
 
-        Ok(ParsedMftRecords {
+        Ok(ParsedNtfsRecords {
             source_label: self.label(),
             records,
             caveats,
@@ -877,7 +877,7 @@ impl SequentialMftDataSource<'_> {
         geometry: NtfsRecordGeometry,
         reader: &MftRecordReader,
         cancellation: &ScanCancellationToken,
-        records: &mut Vec<MftRecord>,
+        records: &mut Vec<NtfsParsedRecord>,
         parse_errors: &mut MftParseErrorCaveats,
     ) -> Result<()> {
         let extent_stream_offset = extent
@@ -960,7 +960,7 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
-    ) -> Result<ParsedMftRecords> {
+    ) -> Result<ParsedNtfsRecords> {
         let geometry = NtfsRecordGeometry::from_volume_data(&self.volume.device_path, volume_data)?;
 
         let mut records = Vec::new();
@@ -979,7 +979,11 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
             {
                 Ok(Some((record_id, raw_record))) => {
                     let parsed_record_id = low_file_reference_number(record_id);
-                    match MftRecord::parse(parsed_record_id, &raw_record, geometry.sector_size) {
+                    match NtfsParsedRecord::parse(
+                        parsed_record_id,
+                        &raw_record,
+                        geometry.sector_size,
+                    ) {
                         Ok(record) => records.push(record),
                         Err(err) => parse_errors.record(parsed_record_id, err),
                     }
@@ -1001,7 +1005,7 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
         }
         parse_errors.append_to(&mut caveats);
 
-        Ok(ParsedMftRecords {
+        Ok(ParsedNtfsRecords {
             source_label: self.label(),
             records,
             caveats,
@@ -1108,7 +1112,7 @@ mod tests {
     use super::{
         MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE, MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES,
         MFT_CAVEAT_SUMMARY_CODE, MftExtent, MftParseErrorCaveats, MftRecordSource,
-        NTFS_VOLUME_DATA_BUFFER, NtfsRecordGeometry, ParsedMftRecords, RETRIEVAL_POINTERS_BUFFER,
+        NTFS_VOLUME_DATA_BUFFER, NtfsRecordGeometry, ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER,
         RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken,
         VolumePaths, low_file_reference_number, next_mft_chunk_len,
         parse_retrieval_pointer_extents, read_mft_records_from_sources, with_bounded_mft_caveats,
@@ -1354,9 +1358,9 @@ mod tests {
             &self,
             _volume_data: &NTFS_VOLUME_DATA_BUFFER,
             _cancellation: &ScanCancellationToken,
-        ) -> Result<ParsedMftRecords> {
+        ) -> Result<ParsedNtfsRecords> {
             match self.behavior {
-                FakeRecordSourceBehavior::Success(code) => Ok(ParsedMftRecords {
+                FakeRecordSourceBehavior::Success(code) => Ok(ParsedNtfsRecords {
                     source_label: self.label,
                     records: Vec::new(),
                     caveats: vec![ParseCaveat::new(code, self.label)],

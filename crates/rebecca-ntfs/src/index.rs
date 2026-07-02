@@ -2,17 +2,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::record::{MftRecord, ParseCaveat};
+use crate::adapter::{NtfsFileReference, NtfsParsedRecord};
+use crate::record::ParseCaveat;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MftTree {
-    entries: BTreeMap<u64, MftTreeEntry>,
+pub struct MftIndex {
+    entries: BTreeMap<u64, MftIndexEntry>,
     children: BTreeMap<u64, Vec<u64>>,
     pub caveats: Vec<ParseCaveat>,
 }
 
-impl MftTree {
-    pub fn from_records(records: impl IntoIterator<Item = MftRecord>) -> Self {
+impl MftIndex {
+    pub fn from_parsed_records(records: impl IntoIterator<Item = NtfsParsedRecord>) -> Self {
         let mut entries = BTreeMap::new();
         let mut children: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
         let mut caveats = Vec::new();
@@ -29,37 +30,35 @@ impl MftTree {
             };
 
             let mut entry_caveats = record.caveats.clone();
-            if non_dos_file_name_count(&record) > 1 {
+            if record.non_dos_file_name_count() > 1 {
                 entry_caveats.push(ParseCaveat::new(
                     "multiple-file-names",
                     format!(
                         "record {} has multiple non-DOS file names; hardlink accounting may be ambiguous",
-                        record.record_id
+                        record.reference.record_id
                     ),
                 ));
             }
 
             caveats.extend(entry_caveats.clone());
-            let entry = MftTreeEntry {
-                record_id: record.record_id,
-                parent_record_id: file_name.parent_record_id,
+            let child_record_id = record.reference.record_id;
+            let parent_record_id = file_name.parent.record_id;
+            let entry = MftIndexEntry {
+                reference: record.reference,
+                parent_reference: file_name.parent,
                 name: file_name.name.clone(),
-                logical_size: if record.is_directory {
-                    0
-                } else {
-                    record.data_size
-                },
+                logical_size: record.cleanup_logical_size(),
                 is_directory: record.is_directory,
                 is_reparse_point: record.is_reparse_point,
                 caveats: entry_caveats,
             };
-            if entry.parent_record_id != entry.record_id {
+            if parent_record_id != child_record_id {
                 children
-                    .entry(entry.parent_record_id)
+                    .entry(parent_record_id)
                     .or_default()
-                    .push(entry.record_id);
+                    .push(child_record_id);
             }
-            entries.insert(entry.record_id, entry);
+            entries.insert(child_record_id, entry);
         }
 
         Self {
@@ -69,11 +68,11 @@ impl MftTree {
         }
     }
 
-    pub fn get(&self, record_id: u64) -> Option<&MftTreeEntry> {
+    pub fn get(&self, record_id: u64) -> Option<&MftIndexEntry> {
         self.entries.get(&record_id)
     }
 
-    pub fn find_child(&self, parent_record_id: u64, name: &str) -> Option<&MftTreeEntry> {
+    pub fn find_child(&self, parent_record_id: u64, name: &str) -> Option<&MftIndexEntry> {
         self.children
             .get(&parent_record_id)?
             .iter()
@@ -85,15 +84,15 @@ impl MftTree {
         &self,
         root_record_id: u64,
         components: impl IntoIterator<Item = &'a str>,
-    ) -> Option<&MftTreeEntry> {
+    ) -> Option<&MftIndexEntry> {
         let mut current = self.entries.get(&root_record_id)?;
         for component in components {
-            current = self.find_child(current.record_id, component)?;
+            current = self.find_child(current.reference.record_id, component)?;
         }
         Some(current)
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = &MftTreeEntry> {
+    pub fn entries(&self) -> impl Iterator<Item = &MftIndexEntry> {
         self.entries.values()
     }
 
@@ -105,7 +104,7 @@ impl MftTree {
         while let Some(record_id) = stack.pop() {
             if !visited.insert(record_id) {
                 summary.caveats.push(ParseCaveat::new(
-                    "tree-cycle-skipped",
+                    "mft-index-cycle-skipped",
                     format!("record {record_id} appeared more than once in a subtree"),
                 ));
                 continue;
@@ -114,7 +113,7 @@ impl MftTree {
             let Some(entry) = self.entries.get(&record_id) else {
                 summary.caveats.push(ParseCaveat::new(
                     "missing-record",
-                    format!("record {record_id} is not present in the tree"),
+                    format!("record {record_id} is not present in the MFT index"),
                 ));
                 continue;
             };
@@ -143,18 +142,10 @@ impl MftTree {
     }
 }
 
-fn non_dos_file_name_count(record: &MftRecord) -> usize {
-    record
-        .file_names
-        .iter()
-        .filter(|name| !matches!(name.namespace, crate::record::FileNameNamespace::Dos))
-        .count()
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MftTreeEntry {
-    pub record_id: u64,
-    pub parent_record_id: u64,
+pub struct MftIndexEntry {
+    pub reference: NtfsFileReference,
+    pub parent_reference: NtfsFileReference,
     pub name: String,
     pub logical_size: u64,
     pub is_directory: bool,

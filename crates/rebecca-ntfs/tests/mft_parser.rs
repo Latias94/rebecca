@@ -1,5 +1,6 @@
-use rebecca_ntfs::record::MftRecord;
-use rebecca_ntfs::{MftRecordReader, MftTree, NtfsParseError};
+use rebecca_ntfs::{
+    MftIndex, MftRecordReader, NtfsFileReference, NtfsParseError, NtfsParsedRecord,
+};
 
 const RECORD_SIZE: usize = 1024;
 const SECTOR_SIZE: usize = 512;
@@ -14,7 +15,7 @@ const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 
 #[test]
-fn valid_fixture_record_parses_name_parent_and_data_size() {
+fn valid_fixture_record_parses_name_parent_and_stream_size() {
     let raw = mft_record(
         42,
         true,
@@ -26,14 +27,39 @@ fn valid_fixture_record_parses_name_parent_and_data_size() {
         ],
     );
 
-    let record = MftRecord::parse(42, &raw, SECTOR_SIZE).unwrap();
+    let record = NtfsParsedRecord::parse_mft_record(42, &raw, SECTOR_SIZE).unwrap();
 
     assert!(record.in_use);
     assert!(!record.is_directory);
-    assert_eq!(record.data_size, 1234);
+    assert_eq!(record.cleanup_logical_size(), 1234);
     let name = record.primary_file_name().unwrap();
-    assert_eq!(name.parent_record_id, 5);
+    assert_eq!(name.parent.record_id, 5);
+    assert_eq!(name.parent.sequence_number, Some(0));
     assert_eq!(name.name, "cache.bin");
+}
+
+#[test]
+fn parsed_record_preserves_owned_references_and_stream_shape() {
+    let raw = mft_record(
+        42,
+        true,
+        false,
+        vec![
+            file_name_attr_with_parent_reference(file_reference(5, 7), "cache.bin", 0, 1),
+            nonresident_data_attr(1234),
+        ],
+    );
+
+    let parsed = NtfsParsedRecord::parse_mft_record(42, &raw, SECTOR_SIZE).unwrap();
+
+    assert_eq!(parsed.reference, NtfsFileReference::known(42, 42));
+    let name = parsed.primary_file_name().unwrap();
+    assert_eq!(name.parent, NtfsFileReference::known(5, 7));
+    assert_eq!(name.name, "cache.bin");
+    assert_eq!(parsed.cleanup_logical_size(), 1234);
+    assert_eq!(parsed.data_streams.len(), 1);
+    assert_eq!(parsed.data_streams[0].name, None);
+    assert_eq!(parsed.data_streams[0].logical_size, 1234);
 }
 
 #[test]
@@ -50,13 +76,13 @@ fn invalid_fixups_fail_safely() {
     raw[SECTOR_SIZE - 2] = 0;
     raw[SECTOR_SIZE - 1] = 0;
 
-    let err = MftRecord::parse(9, &raw, SECTOR_SIZE).unwrap_err();
+    let err = NtfsParsedRecord::parse_mft_record(9, &raw, SECTOR_SIZE).unwrap_err();
 
     assert_eq!(err, NtfsParseError::InvalidUpdateSequence);
 }
 
 #[test]
-fn parent_child_tree_aggregation_sums_subtree_bytes() {
+fn parent_child_index_aggregation_sums_subtree_bytes() {
     let records = [
         (
             5,
@@ -96,10 +122,10 @@ fn parent_child_tree_aggregation_sums_subtree_bytes() {
         ),
     ]
     .into_iter()
-    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap());
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
 
-    let tree = MftTree::from_records(records);
-    let summary = tree.aggregate_subtree(5);
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
 
     assert_eq!(summary.bytes, 15);
     assert_eq!(summary.files, 2);
@@ -108,7 +134,7 @@ fn parent_child_tree_aggregation_sums_subtree_bytes() {
 }
 
 #[test]
-fn tree_resolves_child_paths_case_insensitively() {
+fn index_resolves_child_paths_case_insensitively() {
     let records = [
         (
             5,
@@ -139,23 +165,23 @@ fn tree_resolves_child_paths_case_insensitively() {
         ),
     ]
     .into_iter()
-    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap());
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
 
-    let tree = MftTree::from_records(records);
-    let entry = tree.find_path(5, ["cache", "data.bin"]).unwrap();
+    let index = MftIndex::from_parsed_records(records);
+    let entry = index.find_path(5, ["cache", "data.bin"]).unwrap();
 
-    assert_eq!(entry.record_id, 7);
+    assert_eq!(entry.reference.record_id, 7);
 }
 
 #[test]
 fn deleted_and_pathless_records_are_reported_as_caveats() {
-    let deleted = MftRecord::parse(
+    let deleted = NtfsParsedRecord::parse_mft_record(
         11,
         &mft_record(11, false, false, vec![file_name_attr(5, "deleted.bin", 0)]),
         SECTOR_SIZE,
     )
     .unwrap();
-    let pathless = MftRecord::parse(
+    let pathless = NtfsParsedRecord::parse_mft_record(
         12,
         &mft_record(12, true, false, vec![nonresident_data_attr(99)]),
         SECTOR_SIZE,
@@ -167,7 +193,7 @@ fn deleted_and_pathless_records_are_reported_as_caveats() {
 }
 
 #[test]
-fn reparse_records_are_identifiable_and_skipped_by_tree_aggregation() {
+fn reparse_records_are_identifiable_and_skipped_by_index_aggregation() {
     let records = [
         (
             5,
@@ -193,12 +219,12 @@ fn reparse_records_are_identifiable_and_skipped_by_tree_aggregation() {
         ),
     ]
     .into_iter()
-    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap())
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap())
     .collect::<Vec<_>>();
 
     assert!(records[1].is_reparse_point);
-    let tree = MftTree::from_records(records);
-    let summary = tree.aggregate_subtree(5);
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
 
     assert_eq!(summary.bytes, 0);
     assert_eq!(summary.files, 0);
@@ -213,7 +239,7 @@ fn reparse_records_are_identifiable_and_skipped_by_tree_aggregation() {
 
 #[test]
 fn attribute_list_records_report_caveat() {
-    let record = MftRecord::parse(
+    let record = NtfsParsedRecord::parse_mft_record(
         13,
         &mft_record(
             13,
@@ -264,10 +290,10 @@ fn subtree_aggregation_surfaces_record_caveats() {
         ),
     ]
     .into_iter()
-    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap());
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
 
-    let tree = MftTree::from_records(records);
-    let summary = tree.aggregate_subtree(5);
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
 
     assert_eq!(summary.bytes, 7);
     assert!(
@@ -305,10 +331,10 @@ fn subtree_aggregation_caveats_multiple_non_dos_file_names() {
         ),
     ]
     .into_iter()
-    .map(|(id, raw)| MftRecord::parse(id, &raw, SECTOR_SIZE).unwrap());
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
 
-    let tree = MftTree::from_records(records);
-    let summary = tree.aggregate_subtree(5);
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
 
     assert_eq!(summary.bytes, 11);
     assert!(
@@ -321,7 +347,7 @@ fn subtree_aggregation_caveats_multiple_non_dos_file_names() {
 
 #[test]
 fn truncated_data_returns_error_without_panic() {
-    let err = MftRecord::parse(1, b"FILE", SECTOR_SIZE).unwrap_err();
+    let err = NtfsParsedRecord::parse_mft_record(1, b"FILE", SECTOR_SIZE).unwrap_err();
 
     assert!(matches!(err, NtfsParseError::Truncated { .. }));
 }
@@ -358,7 +384,7 @@ fn reader_parses_batches_from_nonzero_base_record_id() {
         batch
             .records
             .iter()
-            .map(|record| record.record_id)
+            .map(|record| record.reference.record_id)
             .collect::<Vec<_>>(),
         vec![100, 101]
     );
@@ -421,9 +447,18 @@ fn file_name_attr_with_namespace(
     file_attributes: u32,
     namespace: u8,
 ) -> Vec<u8> {
+    file_name_attr_with_parent_reference(parent_id, name, file_attributes, namespace)
+}
+
+fn file_name_attr_with_parent_reference(
+    parent_reference: u64,
+    name: &str,
+    file_attributes: u32,
+    namespace: u8,
+) -> Vec<u8> {
     let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
     let mut value = vec![0_u8; 66 + (name_utf16.len() * 2)];
-    put_u64(&mut value, 0, parent_id);
+    put_u64(&mut value, 0, parent_reference);
     put_u64(&mut value, 40, 0);
     put_u64(&mut value, 48, 0);
     put_u32(&mut value, 56, file_attributes);
@@ -433,6 +468,10 @@ fn file_name_attr_with_namespace(
         put_u16(&mut value, 66 + (index * 2), *character);
     }
     resident_attr(ATTR_FILE_NAME, &value)
+}
+
+fn file_reference(record_id: u64, sequence_number: u16) -> u64 {
+    ((sequence_number as u64) << 48) | (record_id & 0x0000_FFFF_FFFF_FFFF)
 }
 
 fn resident_data_attr(bytes: &[u8]) -> Vec<u8> {

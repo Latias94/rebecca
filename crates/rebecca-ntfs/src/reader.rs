@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::NtfsParseError;
-use crate::record::MftRecord;
+use crate::adapter::NtfsParsedRecord;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MftRecordReader {
@@ -43,7 +43,7 @@ impl MftRecordReader {
 
         for (record_index, raw_record) in bytes.chunks_exact(self.record_size).enumerate() {
             let record_id = base_record_id.saturating_add(record_index as u64);
-            match MftRecord::parse(record_id, raw_record, self.sector_size) {
+            match NtfsParsedRecord::parse(record_id, raw_record, self.sector_size) {
                 Ok(record) => records.push(record),
                 Err(error) => errors.push(MftRecordError { record_id, error }),
             }
@@ -72,7 +72,7 @@ impl Default for MftRecordReader {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MftRecordBatch {
-    pub records: Vec<MftRecord>,
+    pub records: Vec<NtfsParsedRecord>,
     pub errors: Vec<MftRecordError>,
 }
 

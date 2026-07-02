@@ -3,18 +3,22 @@
 //! This crate intentionally parses exported record bytes and in-memory fixtures.
 //! It does not open volumes, require elevation, or provide deletion authority.
 
+pub mod adapter;
 pub mod attrs;
 pub mod fixup;
+pub mod index;
 pub mod reader;
 pub mod record;
-pub mod tree;
 
 mod parse;
 
+pub use adapter::{
+    NtfsDataStream, NtfsDirectoryEntry, NtfsFileName, NtfsFileReference, NtfsParsedRecord,
+};
 pub use attrs::{AttributeHeader, AttributeType};
+pub use index::{MftIndex, MftIndexEntry, SubtreeSummary};
 pub use reader::{MftRecordBatch, MftRecordError, MftRecordReader};
-pub use record::{FileName, FileNameNamespace, MftRecord, ParseCaveat};
-pub use tree::{MftTree, MftTreeEntry, SubtreeSummary};
+pub use record::{FileNameNamespace, ParseCaveat};
 
 pub type Result<T> = std::result::Result<T, NtfsParseError>;
 

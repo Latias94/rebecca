@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+use crate::adapter::{NtfsDataStream, NtfsFileName, NtfsFileReference, NtfsParsedRecord};
 use crate::attrs::{AttributeHeader, AttributeType};
 use crate::fixup::apply_update_sequence;
-use crate::parse::{low_file_reference_id, read_u16, read_u32, read_u64};
+use crate::parse::{
+    file_reference_sequence_number, low_file_reference_id, read_u16, read_u32, read_u64,
+};
 use crate::{NtfsParseError, Result};
 
 const RECORD_HEADER_MIN_LEN: usize = 48;
@@ -12,49 +15,14 @@ const RECORD_FLAG_DIRECTORY: u16 = 0x0002;
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MftRecord {
-    pub record_id: u64,
-    pub sequence_number: u16,
-    pub in_use: bool,
-    pub is_directory: bool,
-    pub is_reparse_point: bool,
-    pub file_names: Vec<FileName>,
-    pub data_size: u64,
-    pub caveats: Vec<ParseCaveat>,
-}
-
-impl MftRecord {
+impl NtfsParsedRecord {
     pub fn parse(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result<Self> {
         parse_record(record_id, raw_record, sector_size)
     }
 
-    pub fn primary_file_name(&self) -> Option<&FileName> {
-        self.file_names
-            .iter()
-            .find(|name| matches!(name.namespace, FileNameNamespace::Win32))
-            .or_else(|| {
-                self.file_names
-                    .iter()
-                    .find(|name| matches!(name.namespace, FileNameNamespace::Win32AndDos))
-            })
-            .or_else(|| {
-                self.file_names
-                    .iter()
-                    .find(|name| !matches!(name.namespace, FileNameNamespace::Dos))
-            })
-            .or_else(|| self.file_names.first())
+    pub fn parse_mft_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result<Self> {
+        Self::parse(record_id, raw_record, sector_size)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileName {
-    pub parent_record_id: u64,
-    pub namespace: FileNameNamespace,
-    pub name: String,
-    pub allocated_size: u64,
-    pub real_size: u64,
-    pub file_attributes: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,7 +61,7 @@ impl ParseCaveat {
     }
 }
 
-fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result<MftRecord> {
+fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result<NtfsParsedRecord> {
     if raw_record.len() < RECORD_HEADER_MIN_LEN {
         return Err(NtfsParseError::Truncated {
             expected: RECORD_HEADER_MIN_LEN,
@@ -116,14 +84,14 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
         record.len()
     };
 
-    let mut parsed = MftRecord {
-        record_id,
-        sequence_number,
+    let mut parsed = NtfsParsedRecord {
+        reference: NtfsFileReference::known(record_id, sequence_number),
         in_use: (record_flags & RECORD_FLAG_IN_USE) != 0,
         is_directory: (record_flags & RECORD_FLAG_DIRECTORY) != 0,
         is_reparse_point: false,
-        file_names: Vec::new(),
-        data_size: 0,
+        names: Vec::new(),
+        data_streams: Vec::new(),
+        directory_entries: Vec::new(),
         caveats: Vec::new(),
     };
 
@@ -147,7 +115,7 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
             "record is not marked in use",
         ));
     }
-    if parsed.in_use && parsed.file_names.is_empty() {
+    if parsed.in_use && parsed.names.is_empty() {
         parsed.caveats.push(ParseCaveat::new(
             "pathless-record",
             "record has no resident file-name attribute",
@@ -157,7 +125,11 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
     Ok(parsed)
 }
 
-fn parse_attribute(record: &[u8], header: &AttributeHeader, parsed: &mut MftRecord) -> Result<()> {
+fn parse_attribute(
+    record: &[u8],
+    header: &AttributeHeader,
+    parsed: &mut NtfsParsedRecord,
+) -> Result<()> {
     match header.attribute_type {
         AttributeType::StandardInformation => {
             if let Some(value) = header.resident_value(record)
@@ -187,7 +159,7 @@ fn parse_attribute(record: &[u8], header: &AttributeHeader, parsed: &mut MftReco
             parsed.is_reparse_point |=
                 (file_name.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
             parsed.is_directory |= (file_name.file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            parsed.file_names.push(file_name);
+            parsed.names.push(file_name);
         }
         AttributeType::Data => {
             if header.is_named() {
@@ -207,7 +179,7 @@ fn parse_attribute(record: &[u8], header: &AttributeHeader, parsed: &mut MftReco
                         .map(|range| range.len() as u64)
                 })
                 .unwrap_or(0);
-            parsed.data_size = parsed.data_size.max(size);
+            push_unnamed_data_stream(parsed, size);
         }
         AttributeType::ReparsePoint => {
             parsed.is_reparse_point = true;
@@ -218,7 +190,7 @@ fn parse_attribute(record: &[u8], header: &AttributeHeader, parsed: &mut MftReco
     Ok(())
 }
 
-fn parse_file_name(value: &[u8]) -> Result<FileName> {
+fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
     if value.len() < FILE_NAME_MIN_LEN {
         return Err(NtfsParseError::InvalidFileName);
     }
@@ -239,13 +211,34 @@ fn parse_file_name(value: &[u8]) -> Result<FileName> {
         utf16.push(u16::from_le_bytes([chunk[0], chunk[1]]));
     }
 
-    let name = String::from_utf16_lossy(&utf16);
-    Ok(FileName {
-        parent_record_id: low_file_reference_id(read_u64(value, 0)?),
+    let parent_reference = read_u64(value, 0)?;
+    Ok(NtfsFileName {
+        parent: NtfsFileReference::known(
+            low_file_reference_id(parent_reference),
+            file_reference_sequence_number(parent_reference),
+        ),
         namespace: FileNameNamespace::from_raw(value[65]),
-        name,
+        name: String::from_utf16_lossy(&utf16),
         allocated_size: read_u64(value, 40)?,
         real_size: read_u64(value, 48)?,
         file_attributes: read_u32(value, 56)?,
     })
+}
+
+fn push_unnamed_data_stream(record: &mut NtfsParsedRecord, logical_size: u64) {
+    if let Some(stream) = record
+        .data_streams
+        .iter_mut()
+        .find(|stream| stream.name.is_none())
+    {
+        stream.logical_size = stream.logical_size.max(logical_size);
+        return;
+    }
+
+    record.data_streams.push(NtfsDataStream {
+        name: None,
+        logical_size,
+        allocated_size: None,
+        initialized_size: None,
+    });
 }

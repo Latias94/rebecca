@@ -38,3 +38,7 @@ pub(crate) fn slice(data: &[u8], offset: usize, len: usize) -> Result<&[u8]> {
 pub(crate) fn low_file_reference_id(reference: u64) -> u64 {
     reference & 0x0000_FFFF_FFFF_FFFF
 }
+
+pub(crate) fn file_reference_sequence_number(reference: u64) -> u16 {
+    (reference >> 48) as u16
+}
