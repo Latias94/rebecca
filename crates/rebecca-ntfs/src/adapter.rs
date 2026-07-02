@@ -35,7 +35,7 @@ pub struct NtfsParsedRecord {
     pub attributes: Vec<NtfsParsedAttribute>,
     pub attribute_list_entries: Vec<NtfsAttributeListEntry>,
     pub names: Vec<NtfsFileName>,
-    pub data_streams: Vec<NtfsDataStream>,
+    pub attribute_streams: Vec<NtfsAttributeStream>,
     pub directory_entries: Vec<NtfsDirectoryEntry>,
     pub caveats: Vec<ParseCaveat>,
 }
@@ -63,9 +63,9 @@ impl NtfsParsedRecord {
             return 0;
         }
 
-        self.data_streams
+        self.attribute_streams
             .iter()
-            .filter(|stream| stream.name.is_none())
+            .filter(|stream| stream.attribute_type == AttributeType::Data && stream.name.is_none())
             .map(|stream| stream.logical_size)
             .max()
             .unwrap_or(0)
@@ -109,9 +109,12 @@ pub struct NtfsFileName {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NtfsDataStream {
+pub struct NtfsAttributeStream {
+    pub attribute_type: AttributeType,
     pub attribute_id: u16,
     pub name: Option<String>,
+    pub non_resident: bool,
+    pub flags: u16,
     pub lowest_vcn: Option<u64>,
     pub highest_vcn: Option<u64>,
     pub logical_size: u64,
@@ -127,12 +130,18 @@ pub struct NtfsDataRun {
     pub lcn: Option<u64>,
 }
 
-pub(crate) fn merge_data_stream(streams: &mut Vec<NtfsDataStream>, mut incoming: NtfsDataStream) {
+pub(crate) fn merge_attribute_stream(
+    streams: &mut Vec<NtfsAttributeStream>,
+    mut incoming: NtfsAttributeStream,
+) {
     if let Some(existing) = streams.iter_mut().find(|stream| {
-        stream.attribute_id == incoming.attribute_id
+        stream.attribute_type == incoming.attribute_type
+            && stream.attribute_id == incoming.attribute_id
             && stream.name == incoming.name
             && stream.lowest_vcn == incoming.lowest_vcn
     }) {
+        existing.non_resident |= incoming.non_resident;
+        existing.flags |= incoming.flags;
         existing.logical_size = existing.logical_size.max(incoming.logical_size);
         existing.allocated_size = existing.allocated_size.max(incoming.allocated_size);
         existing.initialized_size = existing.initialized_size.max(incoming.initialized_size);

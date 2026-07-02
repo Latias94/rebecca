@@ -1,5 +1,5 @@
 use rebecca_ntfs::{
-    MftIndex, MftRecordReader, NtfsFileReference, NtfsParseError, NtfsParsedRecord,
+    AttributeType, MftIndex, MftRecordReader, NtfsFileReference, NtfsParseError, NtfsParsedRecord,
 };
 
 const RECORD_SIZE: usize = 1024;
@@ -59,8 +59,9 @@ fn parsed_record_preserves_owned_references_and_stream_shape() {
     assert_eq!(name.parent, NtfsFileReference::known(5, 7));
     assert_eq!(name.name, "cache.bin");
     assert_eq!(parsed.cleanup_logical_size(), 1234);
-    assert_eq!(parsed.data_streams.len(), 1);
-    let stream = &parsed.data_streams[0];
+    assert_eq!(parsed.attribute_streams.len(), 1);
+    let stream = &parsed.attribute_streams[0];
+    assert_eq!(stream.attribute_type, AttributeType::Data);
     assert_eq!(stream.attribute_id, 0);
     assert_eq!(stream.name, None);
     assert_eq!(stream.lowest_vcn, Some(0));
@@ -82,7 +83,7 @@ fn parsed_record_preserves_owned_references_and_stream_shape() {
 }
 
 #[test]
-fn resident_and_named_data_streams_keep_cleanup_size_conservative() {
+fn resident_and_named_attribute_streams_keep_cleanup_size_conservative() {
     let record = NtfsParsedRecord::parse(
         43,
         &mft_record(
@@ -100,11 +101,11 @@ fn resident_and_named_data_streams_keep_cleanup_size_conservative() {
     .unwrap();
 
     assert_eq!(record.cleanup_logical_size(), 3);
-    assert_eq!(record.data_streams.len(), 2);
+    assert_eq!(record.attribute_streams.len(), 2);
     let unnamed = record
-        .data_streams
+        .attribute_streams
         .iter()
-        .find(|stream| stream.name.is_none())
+        .find(|stream| stream.attribute_type == AttributeType::Data && stream.name.is_none())
         .unwrap();
     assert_eq!(unnamed.logical_size, 3);
     assert_eq!(unnamed.allocated_size, Some(3));
@@ -112,9 +113,11 @@ fn resident_and_named_data_streams_keep_cleanup_size_conservative() {
     assert!(unnamed.data_runs.is_empty());
 
     let named = record
-        .data_streams
+        .attribute_streams
         .iter()
-        .find(|stream| stream.name.as_deref() == Some("secret"))
+        .find(|stream| {
+            stream.attribute_type == AttributeType::Data && stream.name.as_deref() == Some("secret")
+        })
         .unwrap();
     assert_eq!(named.logical_size, 6);
     assert!(named.data_runs.is_empty());
@@ -400,7 +403,7 @@ fn resident_i30_index_root_can_supply_verified_fallback_edge() {
 }
 
 #[test]
-fn nonresident_i30_index_allocation_is_caveated() {
+fn nonresident_i30_index_allocation_is_preserved_as_attribute_stream() {
     let record = NtfsParsedRecord::parse_mft_record(
         15,
         &mft_record(
@@ -417,11 +420,57 @@ fn nonresident_i30_index_allocation_is_caveated() {
     .unwrap();
 
     assert!(record.directory_entries.is_empty());
+    let stream = record
+        .attribute_streams
+        .iter()
+        .find(|stream| {
+            stream.attribute_type == AttributeType::IndexAllocation
+                && stream.name.as_deref() == Some("$I30")
+        })
+        .unwrap();
+    assert_eq!(stream.logical_size, 0);
+    assert!(stream.data_runs.is_empty());
+    assert!(
+        !record
+            .caveats
+            .iter()
+            .any(|c| c.code == "index-allocation-present"),
+        "{:?}",
+        record.caveats
+    );
+}
+
+#[test]
+fn nonresident_attribute_list_is_preserved_as_attribute_stream_and_caveated() {
+    let record = NtfsParsedRecord::parse_mft_record(
+        16,
+        &mft_record(
+            16,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "listed-nonresident.bin", 0),
+                nonresident_attribute_list_attr(),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let stream = record
+        .attribute_streams
+        .iter()
+        .find(|stream| stream.attribute_type == AttributeType::AttributeList)
+        .unwrap();
+    assert_eq!(stream.lowest_vcn, Some(0));
+    assert_eq!(stream.highest_vcn, Some(0));
+    assert_eq!(stream.logical_size, 64);
+    assert_eq!(stream.data_runs.len(), 1);
     assert!(
         record
             .caveats
             .iter()
-            .any(|c| c.code == "index-allocation-present")
+            .any(|c| c.code == "nonresident-attribute-list")
     );
 }
 
@@ -978,6 +1027,10 @@ fn index_root_attr(
 
 fn index_allocation_attr() -> Vec<u8> {
     nonresident_named_attr(ATTR_INDEX_ALLOCATION, "$I30", 0, 0, &[0x00])
+}
+
+fn nonresident_attribute_list_attr() -> Vec<u8> {
+    nonresident_named_attr(ATTR_ATTRIBUTE_LIST, "", 64, 0, &[0x11, 0x01, 0x20, 0x00])
 }
 
 fn nonresident_named_attr(

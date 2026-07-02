@@ -17,7 +17,7 @@ pub mod runlist;
 mod parse;
 
 pub use adapter::{
-    NtfsAttributeListEntry, NtfsDataRun, NtfsDataStream, NtfsDirectoryEntry, NtfsFileName,
+    NtfsAttributeListEntry, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryEntry, NtfsFileName,
     NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
 };
 pub use attrs::{AttributeHeader, AttributeType};

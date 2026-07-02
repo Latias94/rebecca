@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::{
-    NtfsDataStream, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
-    merge_data_stream,
+    NtfsAttributeStream, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
+    merge_attribute_stream,
 };
 use crate::attribute_list::parse_attribute_list;
 use crate::attrs::{AttributeHeader, AttributeType};
@@ -101,7 +101,7 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
         attributes: Vec::new(),
         attribute_list_entries: Vec::new(),
         names: Vec::new(),
-        data_streams: Vec::new(),
+        attribute_streams: Vec::new(),
         directory_entries: Vec::new(),
         caveats: Vec::new(),
     };
@@ -180,9 +180,9 @@ fn parse_attribute(
             parsed.names.push(file_name);
         }
         AttributeType::Data => {
-            let stream = parse_data_stream(record, header, attribute_name.clone())?;
+            let stream = parse_attribute_stream(record, header, attribute_name.clone())?;
             let is_named = stream.name.is_some();
-            merge_data_stream(&mut parsed.data_streams, stream);
+            merge_attribute_stream(&mut parsed.attribute_streams, stream);
 
             if is_named {
                 parsed.caveats.push(ParseCaveat::new(
@@ -203,10 +203,8 @@ fn parse_attribute(
         }
         AttributeType::IndexAllocation => {
             if attribute_name.as_deref() == Some("$I30") {
-                parsed.caveats.push(ParseCaveat::new(
-                    "index-allocation-present",
-                    "nonresident directory index allocation requires runlist-backed INDX parsing",
-                ));
+                let stream = parse_attribute_stream(record, header, attribute_name.clone())?;
+                merge_attribute_stream(&mut parsed.attribute_streams, stream);
             }
         }
         AttributeType::ReparsePoint => {
@@ -233,6 +231,8 @@ fn parse_attribute_list_attribute(
     ));
 
     if header.non_resident {
+        let stream = parse_attribute_stream(record, header, None)?;
+        merge_attribute_stream(&mut parsed.attribute_streams, stream);
         parsed.caveats.push(ParseCaveat::new(
             "nonresident-attribute-list",
             "nonresident attribute lists require runlist-backed record-set resolution",
@@ -257,19 +257,22 @@ fn parse_attribute_list_attribute(
     Ok(())
 }
 
-fn parse_data_stream(
+fn parse_attribute_stream(
     record: &[u8],
     header: &AttributeHeader,
     name: Option<String>,
-) -> Result<NtfsDataStream> {
+) -> Result<NtfsAttributeStream> {
     if header.non_resident {
         let lowest_vcn = header.lowest_vcn.unwrap_or(0);
         let runlist = header
             .non_resident_runlist(record)
             .ok_or(NtfsParseError::InvalidRunlist)?;
-        return Ok(NtfsDataStream {
+        return Ok(NtfsAttributeStream {
+            attribute_type: header.attribute_type,
             attribute_id: header.attribute_id,
             name,
+            non_resident: true,
+            flags: header.flags,
             lowest_vcn: header.lowest_vcn,
             highest_vcn: header.highest_vcn,
             logical_size: header.non_resident_logical_size.unwrap_or(0),
@@ -285,9 +288,12 @@ fn parse_data_stream(
         .and_then(|range| record.get(range.clone()))
         .map(|value| value.len() as u64)
         .unwrap_or(0);
-    Ok(NtfsDataStream {
+    Ok(NtfsAttributeStream {
+        attribute_type: header.attribute_type,
         attribute_id: header.attribute_id,
         name,
+        non_resident: false,
+        flags: header.flags,
         lowest_vcn: None,
         highest_vcn: None,
         logical_size,

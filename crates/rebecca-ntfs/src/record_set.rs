@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapter::{NtfsFileReference, NtfsParsedRecord, merge_data_stream};
+use crate::adapter::{NtfsFileReference, NtfsParsedRecord, merge_attribute_stream};
 use crate::attrs::AttributeType;
 use crate::record::ParseCaveat;
 
@@ -79,12 +79,13 @@ impl NtfsRecordSet {
                 match entry.attribute_type {
                     AttributeType::Data => {
                         let mut matched = false;
-                        for stream in extension.data_streams.iter().filter(|stream| {
-                            stream.attribute_id == entry.attribute_id
+                        for stream in extension.attribute_streams.iter().filter(|stream| {
+                            stream.attribute_type == AttributeType::Data
+                                && stream.attribute_id == entry.attribute_id
                                 && stream.name == entry.name
                                 && stream.lowest_vcn == Some(entry.lowest_vcn)
                         }) {
-                            merge_data_stream(&mut record.data_streams, stream.clone());
+                            merge_attribute_stream(&mut record.attribute_streams, stream.clone());
                             matched = true;
                         }
                         if !matched {
