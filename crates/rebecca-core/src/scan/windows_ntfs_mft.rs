@@ -580,6 +580,19 @@ pub(super) fn inspect_disk_map(
     }
 
     let target_record_id = target_identity.file_reference.record_id;
+    if !is_volume_root_path(path, &capabilities.root_path)
+        && !live_ntfs_mft_full_index_fallback_enabled()
+    {
+        return build_targeted_mft_disk_map(
+            &capabilities,
+            target_identity.file_reference,
+            path,
+            top_limit,
+            max_depth,
+            cancellation,
+        );
+    }
+
     let index = cache.load_or_build(&capabilities, cancellation)?;
     let target_entry = index
         .mft_index
@@ -766,6 +779,7 @@ fn mft_disk_map_entry_kind(entry: &MftIndexEntry) -> DiskMapEntryKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NtfsVolumeCapabilities {
+    root_path: PathBuf,
     device_path: String,
     mft_data_path: String,
     volume_serial: u64,
@@ -793,6 +807,7 @@ impl NtfsVolumeCapabilities {
         }
 
         Ok(Self {
+            root_path: volume_paths.root_path,
             device_path: volume_paths.device_path,
             mft_data_path: volume_paths.mft_data_path,
             volume_serial: u64::from(info.volume_serial),
@@ -845,6 +860,22 @@ impl VolumePaths {
             mft_data_path: format!("\\\\?\\{drive}:\\$MFT::$DATA"),
         })
     }
+}
+
+fn is_volume_root_path(path: &Path, expected_root: &Path) -> bool {
+    if path == expected_root {
+        return true;
+    }
+
+    let mut components = path.components();
+    let is_drive_prefix = matches!(
+        components.next(),
+        Some(Component::Prefix(prefix))
+            if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+    );
+    is_drive_prefix
+        && matches!(components.next(), Some(Component::RootDir))
+        && components.next().is_none()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1204,6 +1235,81 @@ fn build_targeted_mft_summary(
     Ok((summary, caveats))
 }
 
+fn build_targeted_mft_disk_map(
+    capabilities: &NtfsVolumeCapabilities,
+    target_reference: NtfsFileReference,
+    root_path: &Path,
+    top_limit: usize,
+    max_depth: Option<usize>,
+    cancellation: &ScanCancellationToken,
+) -> Result<DiskMapBackendRoot> {
+    let monitor = NtfsMftBuildMonitor::from_environment();
+    check_mft_build_progress(cancellation, &monitor)?;
+    let volume = monitor.measure_checked(NtfsMftBuildStage::OpenVolume, cancellation, || {
+        LiveNtfsVolume::open(capabilities)
+    })?;
+    let volume_data =
+        monitor.measure_checked(NtfsMftBuildStage::ReadVolumeData, cancellation, || {
+            volume.ntfs_volume_data()
+        })?;
+    let geometry = NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)?;
+    let mut resolver = LiveNtfsTargetRecordResolver::new(&volume, geometry, cancellation, &monitor);
+    let mut stream_source = LiveNtfsIndexStreamSource {
+        volume: &volume,
+        cancellation,
+        monitor: &monitor,
+    };
+    let entry_provenance = EstimateProvenance::from_backend_confidence_and_source(
+        ScanBackendKind::WindowsNtfsMftExperimental,
+        ScanEstimateConfidence::Exact,
+        Some(mft_backend_source_label(TARGETED_MFT_SOURCE_LABEL)),
+    );
+    let mut traversal = TargetedMftTraversal {
+        resolver: &mut resolver,
+        stream_source: &mut stream_source,
+        geometry,
+        cancellation,
+        monitor: &monitor,
+        limits: TargetedMftTraversalLimits::default(),
+    };
+    let targeted_map = monitor.measure_checked(
+        NtfsMftBuildStage::TargetedTraverseSubtree,
+        cancellation,
+        || {
+            traversal.collect_disk_map(
+                target_reference,
+                root_path,
+                top_limit,
+                max_depth.unwrap_or(usize::MAX),
+                &entry_provenance,
+            )
+        },
+    )?;
+    let mut caveats = targeted_map.caveats.clone();
+    resolver.append_parse_caveats(&mut caveats);
+    if let Some(caveat) = monitor.timing_caveat() {
+        caveats.push(caveat);
+    }
+
+    let measured = MeasuredScan::exact(
+        ScanReport {
+            bytes_scanned: targeted_map.metrics.logical_bytes,
+            files_scanned: targeted_map.metrics.files,
+            directories_scanned: targeted_map.metrics.directories,
+        },
+        ScanBackendKind::WindowsNtfsMftExperimental,
+    )
+    .with_backend_source(mft_backend_source_label(TARGETED_MFT_SOURCE_LABEL));
+    let measured = with_bounded_mft_caveats(measured, caveats);
+
+    Ok(DiskMapBackendRoot {
+        metrics: targeted_map.metrics,
+        top_entries: targeted_map.top_entries,
+        diagnostics: Vec::new(),
+        estimate_provenance: EstimateProvenance::from_measured_scan(&measured),
+    })
+}
+
 struct LiveNtfsTargetRecordResolver<'a> {
     volume: &'a LiveNtfsVolume,
     geometry: NtfsRecordGeometry,
@@ -1431,11 +1537,252 @@ where
         Ok(summary)
     }
 
+    fn collect_disk_map(
+        &mut self,
+        root: NtfsFileReference,
+        root_path: &Path,
+        top_limit: usize,
+        max_visible_depth: usize,
+        entry_provenance: &EstimateProvenance,
+    ) -> Result<TargetedDiskMap> {
+        let mut state = TargetedDiskMapState::new(top_limit);
+        let root_node = TargetedDiskMapNode {
+            reference: root,
+            path: root_path.to_path_buf(),
+            depth: 0,
+            directory_entry: None,
+        };
+        let metrics = self.collect_disk_map_record(
+            root_node,
+            root_path,
+            false,
+            max_visible_depth,
+            entry_provenance,
+            &mut state,
+        )?;
+
+        Ok(TargetedDiskMap {
+            metrics,
+            top_entries: state.top_entries.into_sorted_entries(),
+            caveats: state.caveats,
+        })
+    }
+
+    fn collect_disk_map_record(
+        &mut self,
+        node: TargetedDiskMapNode,
+        root_path: &Path,
+        include_root_directory: bool,
+        max_visible_depth: usize,
+        entry_provenance: &EstimateProvenance,
+        state: &mut TargetedDiskMapState,
+    ) -> Result<DiskMapMetrics> {
+        check_mft_build_progress(self.cancellation, self.monitor)?;
+        state.record_attempt(self.limits.max_records)?;
+
+        let Some(record) = self.resolver.resolve_record(node.reference)? else {
+            if node.directory_entry.is_none() {
+                return Err(targeted_mft_unavailable(format!(
+                    "target root record {} could not be resolved",
+                    node.reference.record_id
+                )));
+            }
+            state.caveats.push(ParseCaveat::new(
+                "missing-record",
+                format!(
+                    "record {} is not present in the targeted MFT traversal",
+                    node.reference.record_id
+                ),
+            ));
+            return Ok(DiskMapMetrics::default());
+        };
+        if reference_sequence_mismatches(node.reference, record.reference) {
+            state.caveats.push(ParseCaveat::new(
+                "directory-index-child-sequence-mismatch",
+                format!(
+                    "targeted traversal expected record {} sequence {:?}, but current sequence is {:?}",
+                    node.reference.record_id,
+                    node.reference.sequence_number,
+                    record.reference.sequence_number
+                ),
+            ));
+            return Ok(DiskMapMetrics::default());
+        }
+        if !state.visited.insert(record.reference.record_id) {
+            state.caveats.push(ParseCaveat::new(
+                "mft-targeted-record-already-counted",
+                format!(
+                    "record {} appeared more than once in targeted disk-map traversal",
+                    record.reference.record_id
+                ),
+            ));
+            return Ok(DiskMapMetrics::default());
+        }
+
+        let record = self.resolve_record(record)?;
+        state.caveats.extend(record.caveats.clone());
+        if let Some(directory_entry) = &node.directory_entry {
+            self.push_directory_entry_parent_caveat_to(
+                &record,
+                directory_entry,
+                &mut state.caveats,
+            );
+        }
+        if record.non_dos_file_name_count() > 1 {
+            state.caveats.push(ParseCaveat::new(
+                "hardlink-path-candidates",
+                format!(
+                    "record {} has multiple non-DOS file names; targeted disk-map traversal counted the record once",
+                    record.reference.record_id
+                ),
+            ));
+        }
+        if !record.in_use {
+            return Ok(DiskMapMetrics::default());
+        }
+        if record.is_reparse_point {
+            state.caveats.push(ParseCaveat::new(
+                "reparse-point-skipped",
+                format!("record {} is a reparse point", record.reference.record_id),
+            ));
+            return Ok(DiskMapMetrics::default());
+        }
+
+        let metrics = if record.is_directory {
+            if node.depth >= self.limits.max_depth && !record.directory_entries.is_empty() {
+                return Err(targeted_mft_unavailable(format!(
+                    "targeted traversal reached depth {} below directory record {}",
+                    node.depth, record.reference.record_id
+                )));
+            }
+            let mut metrics = DiskMapMetrics {
+                logical_bytes: 0,
+                allocated_bytes: None,
+                files: 0,
+                directories: if include_root_directory || node.directory_entry.is_some() {
+                    1
+                } else {
+                    0
+                },
+            };
+            self.collect_disk_map_children(
+                &record,
+                &node.path,
+                node.depth,
+                root_path,
+                max_visible_depth,
+                entry_provenance,
+                state,
+                &mut metrics,
+            )?;
+            metrics
+        } else {
+            DiskMapMetrics {
+                logical_bytes: record.cleanup_logical_size(),
+                allocated_bytes: record.cleanup_allocated_size(),
+                files: 1,
+                directories: 0,
+            }
+        };
+
+        let should_push_entry =
+            !record.is_directory || include_root_directory || node.directory_entry.is_some();
+        if should_push_entry && node.depth <= max_visible_depth {
+            state.top_entries.push(DiskMapEntry {
+                path: node.path,
+                root: root_path.to_path_buf(),
+                kind: if record.is_directory {
+                    DiskMapEntryKind::Directory
+                } else {
+                    DiskMapEntryKind::File
+                },
+                depth: node.depth,
+                logical_bytes: metrics.logical_bytes,
+                allocated_bytes: metrics.allocated_bytes,
+                files: metrics.files,
+                directories: metrics.directories,
+                estimate_source: EstimateSource::FreshScan,
+                estimate_provenance: entry_provenance.clone(),
+            });
+        }
+
+        Ok(metrics)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "targeted disk-map traversal carries bounded report state"
+    )]
+    fn collect_disk_map_children(
+        &mut self,
+        record: &NtfsParsedRecord,
+        parent_path: &Path,
+        parent_depth: usize,
+        root_path: &Path,
+        max_visible_depth: usize,
+        entry_provenance: &EstimateProvenance,
+        state: &mut TargetedDiskMapState,
+        metrics: &mut DiskMapMetrics,
+    ) -> Result<()> {
+        for entry in &record.directory_entries {
+            if entry.parent.record_id != record.reference.record_id {
+                state.caveats.push(ParseCaveat::new(
+                    "directory-index-parent-mismatch",
+                    format!(
+                        "$I30 entry '{}' declares parent {}, but was stored on directory {}",
+                        entry.name, entry.parent.record_id, record.reference.record_id
+                    ),
+                ));
+                continue;
+            }
+            if reference_sequence_mismatches(entry.parent, record.reference) {
+                state.caveats.push(ParseCaveat::new(
+                    "parent-sequence-mismatch",
+                    format!(
+                        "$I30 entry '{}' references parent {} sequence {:?}, but current sequence is {:?}",
+                        entry.name,
+                        entry.parent.record_id,
+                        entry.parent.sequence_number,
+                        record.reference.sequence_number
+                    ),
+                ));
+                continue;
+            }
+
+            let child = TargetedDiskMapNode {
+                reference: entry.child,
+                path: parent_path.join(&entry.name),
+                depth: parent_depth.saturating_add(1),
+                directory_entry: Some(entry.clone()),
+            };
+            let child_metrics = self.collect_disk_map_record(
+                child,
+                root_path,
+                true,
+                max_visible_depth,
+                entry_provenance,
+                state,
+            )?;
+            metrics.add(child_metrics);
+        }
+
+        Ok(())
+    }
+
     fn push_directory_entry_parent_caveat(
         &self,
         record: &NtfsParsedRecord,
         directory_entry: &NtfsDirectoryEntry,
         summary: &mut SubtreeSummary,
+    ) {
+        self.push_directory_entry_parent_caveat_to(record, directory_entry, &mut summary.caveats);
+    }
+
+    fn push_directory_entry_parent_caveat_to(
+        &self,
+        record: &NtfsParsedRecord,
+        directory_entry: &NtfsDirectoryEntry,
+        caveats: &mut Vec<ParseCaveat>,
     ) {
         let parent_edge_exists = record.names.iter().any(|name| {
             !matches!(name.namespace, rebecca_ntfs::FileNameNamespace::Dos)
@@ -1443,7 +1790,7 @@ where
                 && name.name.eq_ignore_ascii_case(&directory_entry.name)
         });
         if !parent_edge_exists {
-            summary.caveats.push(ParseCaveat::new(
+            caveats.push(ParseCaveat::new(
                 "directory-index-parent-map-fallback",
                 format!(
                     "$I30 entry '{}' was used because it is not present in $FILE_NAME parent edges for directory {}",
@@ -1512,6 +1859,50 @@ where
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TargetedTraversalNode {
     reference: NtfsFileReference,
+    depth: usize,
+    directory_entry: Option<NtfsDirectoryEntry>,
+}
+
+#[derive(Debug)]
+struct TargetedDiskMap {
+    metrics: DiskMapMetrics,
+    top_entries: Vec<DiskMapEntry>,
+    caveats: Vec<ParseCaveat>,
+}
+
+#[derive(Debug)]
+struct TargetedDiskMapState {
+    visited: BTreeSet<u64>,
+    traversal_attempts: usize,
+    top_entries: DiskMapTopEntries,
+    caveats: Vec<ParseCaveat>,
+}
+
+impl TargetedDiskMapState {
+    fn new(top_limit: usize) -> Self {
+        Self {
+            visited: BTreeSet::new(),
+            traversal_attempts: 0,
+            top_entries: DiskMapTopEntries::new(top_limit),
+            caveats: Vec::new(),
+        }
+    }
+
+    fn record_attempt(&mut self, max_records: usize) -> Result<()> {
+        if self.traversal_attempts >= max_records {
+            return Err(targeted_mft_unavailable(format!(
+                "targeted traversal exceeded the {max_records} record candidate budget"
+            )));
+        }
+        self.traversal_attempts = self.traversal_attempts.saturating_add(1);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TargetedDiskMapNode {
+    reference: NtfsFileReference,
+    path: PathBuf,
     depth: usize,
     directory_entry: Option<NtfsDirectoryEntry>,
 }
@@ -2306,7 +2697,9 @@ mod tests {
         low_file_reference_number, next_mft_chunk_len, parse_retrieval_pointer_extents,
         parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
+    use crate::disk_map::DiskMapEntryKind;
     use crate::error::{RebeccaError, Result};
+    use crate::plan::EstimateProvenance;
     use crate::scan::ScanReport;
     use crate::scan::backend::{MeasuredScan, ScanBackendKind};
 
@@ -2724,6 +3117,174 @@ mod tests {
         assert!(summary.caveats.iter().any(|caveat| {
             caveat.code == "directory-index-parent-map-fallback"
                 && caveat.message.contains("large.bin")
+        }));
+    }
+
+    #[test]
+    fn targeted_disk_map_collects_ranked_entries_without_full_index() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 5, "large.bin", 10))
+            .with_record(parsed_file(7, 5, "small.bin", 3));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(7, 7),
+                        file_reference(5, 5),
+                        "small.bin",
+                        0,
+                    ),
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let map = traversal
+            .collect_disk_map(
+                NtfsFileReference::known(5, 5),
+                std::path::Path::new("C:\\root"),
+                2,
+                usize::MAX,
+                &EstimateProvenance::default(),
+            )
+            .unwrap();
+
+        assert_eq!(map.metrics.logical_bytes, 13);
+        assert_eq!(map.metrics.allocated_bytes, Some(13));
+        assert_eq!(map.metrics.files, 2);
+        assert_eq!(map.metrics.directories, 0);
+        assert_eq!(map.top_entries.len(), 2);
+        assert_eq!(
+            map.top_entries[0].path,
+            std::path::PathBuf::from("C:\\root\\large.bin")
+        );
+        assert_eq!(map.top_entries[0].kind, DiskMapEntryKind::File);
+        assert_eq!(map.top_entries[0].depth, 1);
+        assert_eq!(
+            map.top_entries[1].path,
+            std::path::PathBuf::from("C:\\root\\small.bin")
+        );
+        assert!(map.caveats.is_empty());
+    }
+
+    #[test]
+    fn targeted_disk_map_max_depth_limits_entries_not_totals() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 5, "large.bin", 10));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let map = traversal
+            .collect_disk_map(
+                NtfsFileReference::known(5, 5),
+                std::path::Path::new("C:\\root"),
+                10,
+                0,
+                &EstimateProvenance::default(),
+            )
+            .unwrap();
+
+        assert_eq!(map.metrics.logical_bytes, 10);
+        assert_eq!(map.metrics.files, 1);
+        assert!(map.top_entries.is_empty());
+    }
+
+    #[test]
+    fn targeted_disk_map_counts_duplicate_records_once() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 5, "large.bin", 10));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "alias.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let map = traversal
+            .collect_disk_map(
+                NtfsFileReference::known(5, 5),
+                std::path::Path::new("C:\\root"),
+                10,
+                usize::MAX,
+                &EstimateProvenance::default(),
+            )
+            .unwrap();
+
+        assert_eq!(map.metrics.logical_bytes, 10);
+        assert_eq!(map.metrics.files, 1);
+        assert_eq!(map.top_entries.len(), 1);
+        assert!(map.caveats.iter().any(|caveat| {
+            caveat.code == "mft-targeted-record-already-counted"
+                && caveat.message.contains("record 6")
         }));
     }
 

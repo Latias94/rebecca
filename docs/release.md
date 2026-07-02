@@ -139,12 +139,13 @@ Record JSON `estimate_source`, `estimate_backend`, `estimate_backend_source`,
 for the backend dogfood runs. The experimental NTFS/MFT run should either show
 `estimate_backend: "windows-ntfs-mft-experimental"` with
 `estimate_backend_source: "windows-ntfs-mft-experimental-targeted-fsctl"` on a
-supported elevated local NTFS volume. Explicit full-index fallback diagnostics
-may instead show `"windows-ntfs-mft-experimental-sequential"` or
-`"windows-ntfs-mft-experimental-fsctl-record"`; `inspect map --scan-backend
-windows-ntfs-mft-experimental` may also report a budget or command timeout on
-large live volumes, which should be captured as backend performance evidence
-rather than treated as a dogfood script failure. Unsupported hosts should report a clear fallback reason, no backend source, and
+supported elevated local NTFS volume, including scoped `inspect map` roots.
+Explicit full-index fallback diagnostics and drive-root disk maps may instead
+show `"windows-ntfs-mft-experimental-sequential"` or
+`"windows-ntfs-mft-experimental-fsctl-record"`; those runs may also report a
+budget or command timeout on large live volumes, which should be captured as
+backend performance evidence rather than treated as a dogfood script failure.
+Unsupported hosts should report a clear fallback reason, no backend source, and
 `experimental-ntfs-mft-fallback` caveat. Successful NTFS/MFT dogfood should also
 review any parser caveats for sequence mismatches, hardlink path candidates,
 attribute-list handling, directory-index fallback, unsupported nonresident index

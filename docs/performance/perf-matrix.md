@@ -57,16 +57,23 @@ targeted-traversal failure to try the older full-volume MFT index path before
 directory-scanner fallback.
 
 `inspect map` defaults to portable recursive inventory. Selecting
-`--scan-backend windows-ntfs-mft-experimental` makes full-volume NTFS/MFT
-inventory explicit for disk-map dogfood. On the 2026-07-02 elevated E: run,
-`target/ntfs-dogfood/20260702-181216-50924/` showed portable, Windows native
-fallback, and experimental fallback all agreeing on `docs/plans` at 608858
-logical bytes and 38 files; experimental full-index construction exceeded the
-20 second internal budget while reading sequential MFT bytes. A follow-up run
-with `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS=0` reached the script-level 180
-second timeout under `target/ntfs-dogfood/20260702-181342-73156/`, so full-index
-disk-map performance remains a live-backend optimization target rather than a
-release threshold.
+`--scan-backend windows-ntfs-mft-experimental` is adaptive: scoped roots should
+normally report `windows-ntfs-mft-experimental-targeted-fsctl`, while drive-root
+maps or explicit full-index diagnostics may report sequential or FSCTL-record
+full-index sources. On the earlier 2026-07-02 elevated E: run,
+`target/ntfs-dogfood/20260702-181216-50924/` showed why this split matters:
+the old scoped map path tried full-volume construction and exceeded the 20
+second internal budget while reading sequential MFT bytes. A follow-up run with
+`REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS=0` reached the script-level 180 second
+timeout under `target/ntfs-dogfood/20260702-181342-73156/`; full-index disk-map
+performance remains a drive-root/diagnostic optimization target rather than a
+release threshold for scoped maps.
+
+After the adaptive disk-map refactor, elevated local dogfood under
+`target/ntfs-dogfood/20260702-185357-58228/` completed
+`inspect-map-windows-ntfs-mft-experimental-E-Rust-rebecca-docs-plans` through
+`windows-ntfs-mft-experimental-targeted-fsctl` with no fallback, 624422 logical
+bytes, 39 files, and a 910 ms script-measured duration.
 
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 

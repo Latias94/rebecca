@@ -80,7 +80,7 @@ All notable changes to Rebecca will be documented in this file.
 - Experimental NTFS/MFT full-volume index construction is now an explicit diagnostic fallback controlled by `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1`; the default experimental path is targeted traversal with backend source `windows-ntfs-mft-experimental-targeted-fsctl`.
 - Experimental NTFS/MFT cleanup estimates now keep v1 user-facing byte totals on logical unnamed `$DATA` streams while retaining allocated and initialized stream metadata internally for future disk-usage surfaces.
 - Experimental NTFS/MFT `$I30` expansion now reads allocation records by requested child VCN and reports unsupported multi-buffer-per-cluster geometry as a bounded caveat instead of using flat sequential offsets as authority.
-- `inspect map` defaults to portable recursive inventory while `--scan-backend windows-ntfs-mft-experimental` explicitly opts into the current full-volume NTFS/MFT inventory path and fallback diagnostics.
+- `inspect map` defaults to portable recursive inventory, while `--scan-backend windows-ntfs-mft-experimental` now uses targeted NTFS/MFT traversal for scoped roots and reserves full-volume MFT inventory for drive roots or explicit full-index diagnostics.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.

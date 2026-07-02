@@ -220,7 +220,7 @@ Use `rebecca inspect artifacts` when you want a read-only project artifact repor
 
 `rebecca inspect lint` provides report-only duplicate, large-file, empty-file, and empty-directory findings. It computes conservative reclaim estimates, treats `--reference` roots and protected paths as keep candidates, and intentionally does not perform duplicate remediation or write cleanup history.
 
-`rebecca inspect map` provides a read-only ranked disk map for a requested root. It is designed for "what is using space here?" questions, returns bounded top entries with `--top` and optional `--max-depth`, and never creates cleanup plans or authorizes deletion. It defaults to portable recursive inventory; use `--scan-backend windows-ntfs-mft-experimental` only when you explicitly want the current full-volume NTFS/MFT inventory path and its fallback diagnostics.
+`rebecca inspect map` provides a read-only ranked disk map for a requested root. It is designed for "what is using space here?" questions, returns bounded top entries with `--top` and optional `--max-depth`, and never creates cleanup plans or authorizes deletion. It defaults to portable recursive inventory; use `--scan-backend windows-ntfs-mft-experimental` when you want read-only NTFS/MFT provenance. Scoped roots use targeted traversal, while drive roots or explicit full-index diagnostics may use full-volume MFT inventory.
 
 Long-lived purge defaults belong in `config.toml`:
 

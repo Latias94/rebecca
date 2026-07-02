@@ -486,7 +486,7 @@ function Test-Self {
     "top_entries": [
       {
         "estimate_backend": "windows-ntfs-mft-experimental",
-        "estimate_backend_source": "windows-ntfs-mft-experimental-sequential"
+        "estimate_backend_source": "windows-ntfs-mft-experimental-targeted-fsctl"
       }
     ]
   }
@@ -498,6 +498,9 @@ function Test-Self {
     }
     if ($mapProbe.metric.estimated_bytes -ne 456) {
         throw "SelfTest failed: inspect-map logical metric extraction returned $($mapProbe.metric.estimated_bytes)."
+    }
+    if ($mapProbe.backend_sources -notcontains "windows-ntfs-mft-experimental-targeted-fsctl") {
+        throw "SelfTest failed: inspect-map backend source extraction did not find targeted-fsctl."
     }
 
     $report = [pscustomobject]@{

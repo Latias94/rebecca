@@ -165,11 +165,12 @@ opt into platform scanners per command with `--scan-backend`:
   too slow within the live metadata budget, or too ambiguous to trust.
 
 `inspect map` defaults to the portable recursive inventory path because it is a
-read-only disk-map surface and full-volume live MFT indexing can be expensive on
-large drives. Selecting `--scan-backend windows-ntfs-mft-experimental` makes the
-current full-volume NTFS/MFT inventory path explicit for disk-map dogfood and
-diagnostics. It must fall back with provenance or report a clear timeout instead
-of returning partial full-index data as exact.
+read-only disk-map surface and live NTFS metadata access is experimental.
+Selecting `--scan-backend windows-ntfs-mft-experimental` makes the command
+adaptive: scoped roots use targeted per-record NTFS/MFT traversal, while drive
+roots or explicit full-index diagnostics may use full-volume MFT inventory. Any
+budget, privilege, metadata, or traversal failure must fall back with provenance
+or report a clear timeout instead of returning partial NTFS data as exact.
 
 `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` controls the experimental live
 NTFS/MFT metadata budget. The default is `20` seconds. Set a larger value for
@@ -177,9 +178,10 @@ diagnostic dogfood on very large target subtrees, or set `0` to disable the
 guard for a single process.
 
 Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when diagnosing whole-volume
-index behavior. With this explicit fallback enabled, targeted traversal failures
-may fall back to the older full-volume MFT index builder before Rebecca returns
-to a directory scanner.
+index behavior. With this explicit fallback enabled, ordinary estimates may fall
+back to the older full-volume MFT index builder after targeted traversal
+failures, and scoped `inspect map` runs can intentionally exercise the
+full-volume path before Rebecca returns to a directory scanner.
 
 Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` when profiling the experimental backend.
 Timeout fallback reasons then include the active build stage and completed
@@ -196,10 +198,10 @@ scanner through `estimate_backend`, exactness through `estimate_confidence`,
 fallback detail through `estimate_fallback_reason`, actual experimental source
 through optional `estimate_backend_source`, and parser or ambiguity notes through
 `estimate_caveats`. The normal successful live source is
-`windows-ntfs-mft-experimental-targeted-fsctl` for targeted estimates;
-sequential and per-record full-index source labels are reserved for explicit
-full-index fallback, `inspect map --scan-backend windows-ntfs-mft-experimental`,
-or diagnostic paths.
+`windows-ntfs-mft-experimental-targeted-fsctl` for targeted estimates and
+scoped disk maps. Sequential and per-record full-index source labels are
+reserved for drive-root disk maps, explicit full-index fallback, or diagnostic
+paths.
 
 The v1 cleanup estimate remains logical bytes from the unnamed `$DATA` stream.
 `inspect map` reports `logical_bytes` and nullable `allocated_bytes`; portable
