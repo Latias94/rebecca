@@ -8,20 +8,23 @@ use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
-use rebecca_ntfs::{MftRecord, MftTree, ParseCaveat};
+use rebecca_ntfs::{MftRecord, MftRecordReader, MftTree, ParseCaveat};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, HANDLE,
-    WIN32_ERROR,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
+    HANDLE, WIN32_ERROR,
 };
 use windows::Win32::Storage::FileSystem::{
-    BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAGS_AND_ATTRIBUTES,
+    BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_BEGIN, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_FLAG_SEQUENTIAL_SCAN, FILE_FLAGS_AND_ATTRIBUTES,
     FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_MODE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    GetDriveTypeW, GetFileInformationByHandle, GetVolumeInformationW, OPEN_EXISTING,
+    GetDriveTypeW, GetFileInformationByHandle, GetVolumeInformationW, OPEN_EXISTING, ReadFile,
+    SYNCHRONIZE, SetFilePointerEx,
 };
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::System::Ioctl::{
-    FSCTL_GET_NTFS_FILE_RECORD, FSCTL_GET_NTFS_VOLUME_DATA, NTFS_FILE_RECORD_INPUT_BUFFER,
-    NTFS_FILE_RECORD_OUTPUT_BUFFER, NTFS_VOLUME_DATA_BUFFER,
+    FSCTL_GET_NTFS_FILE_RECORD, FSCTL_GET_NTFS_VOLUME_DATA, FSCTL_GET_RETRIEVAL_POINTERS,
+    NTFS_FILE_RECORD_INPUT_BUFFER, NTFS_FILE_RECORD_OUTPUT_BUFFER, NTFS_VOLUME_DATA_BUFFER,
+    RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, STARTING_VCN_INPUT_BUFFER,
 };
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
@@ -36,6 +39,10 @@ const EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL: &str = "windows-ntfs-mft-experimental
 const NTFS_FILE_SYSTEM_NAME: &str = "NTFS";
 const DRIVE_FIXED: u32 = 3;
 const FILE_REFERENCE_LOW_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
+const SEQUENTIAL_MFT_SOURCE_LABEL: &str = "sequential-mft-data";
+const FSCTL_RECORD_SOURCE_LABEL: &str = "fsctl-record";
+const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 4 * 1024 * 1024;
+const MAX_RETRIEVAL_POINTER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Default)]
 pub(super) struct WindowsNtfsMftIndexCache {
@@ -157,6 +164,7 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NtfsVolumeCapabilities {
     device_path: String,
+    mft_data_path: String,
     volume_serial: u64,
 }
 
@@ -183,6 +191,7 @@ impl NtfsVolumeCapabilities {
 
         Ok(Self {
             device_path: volume_paths.device_path,
+            mft_data_path: volume_paths.mft_data_path,
             volume_serial: u64::from(info.volume_serial),
         })
     }
@@ -196,6 +205,7 @@ impl NtfsVolumeCapabilities {
 struct VolumePaths {
     root_path: PathBuf,
     device_path: String,
+    mft_data_path: String,
 }
 
 impl VolumePaths {
@@ -229,6 +239,7 @@ impl VolumePaths {
         Ok(Self {
             root_path: PathBuf::from(format!("{drive}:\\")),
             device_path: format!("\\\\.\\{drive}:"),
+            mft_data_path: format!("\\\\?\\{drive}:\\$MFT::$DATA"),
         })
     }
 }
@@ -365,9 +376,169 @@ fn mft_record_source_error_can_fallback(err: &RebeccaError) -> bool {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NtfsRecordGeometry {
+    record_size: usize,
+    sector_size: usize,
+    bytes_per_cluster: u64,
+    max_record_count: u64,
+}
+
+impl NtfsRecordGeometry {
+    fn from_volume_data(device_path: &str, volume_data: &NTFS_VOLUME_DATA_BUFFER) -> Result<Self> {
+        let record_size = usize::try_from(volume_data.BytesPerFileRecordSegment).unwrap_or(0);
+        let sector_size = usize::try_from(volume_data.BytesPerSector).unwrap_or(0);
+        let bytes_per_cluster = u64::try_from(volume_data.BytesPerCluster).unwrap_or(0);
+        let mft_valid_data_length = u64::try_from(volume_data.MftValidDataLength).unwrap_or(0);
+
+        if record_size == 0 || sector_size == 0 || bytes_per_cluster == 0 {
+            return Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} received invalid NTFS record geometry from {device_path}"
+            )));
+        }
+        if !record_size.is_multiple_of(sector_size) {
+            return Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} received unaligned NTFS record geometry from {device_path}"
+            )));
+        }
+        if mft_valid_data_length == 0 {
+            return Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} received empty NTFS MFT metadata from {device_path}"
+            )));
+        }
+
+        let max_record_count = mft_valid_data_length.saturating_div(record_size as u64);
+        if max_record_count == 0 {
+            return Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} NTFS MFT metadata is smaller than one file record on {device_path}"
+            )));
+        }
+
+        Ok(Self {
+            record_size,
+            sector_size,
+            bytes_per_cluster,
+            max_record_count,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MftExtent {
+    starting_vcn: u64,
+    lcn: u64,
+    cluster_count: u64,
+}
+
+fn parse_retrieval_pointer_extents(buffer: &[u8]) -> Result<Vec<MftExtent>> {
+    let header_size = offset_of!(RETRIEVAL_POINTERS_BUFFER, Extents);
+    if buffer.len() < header_size {
+        return Err(RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} retrieval pointer buffer is truncated"
+        )));
+    }
+
+    let extent_count = unsafe {
+        ptr::read_unaligned(
+            buffer
+                .as_ptr()
+                .add(offset_of!(RETRIEVAL_POINTERS_BUFFER, ExtentCount))
+                .cast::<u32>(),
+        )
+    };
+    let extent_count = usize::try_from(extent_count).unwrap_or(usize::MAX);
+    if extent_count == 0 {
+        return Err(RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} $MFT retrieval pointer list is empty"
+        )));
+    }
+
+    let extents_size = extent_count
+        .checked_mul(size_of::<RETRIEVAL_POINTERS_BUFFER_0>())
+        .ok_or_else(|| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} retrieval pointer extent count overflowed"
+            ))
+        })?;
+    let required_len = header_size.checked_add(extents_size).ok_or_else(|| {
+        RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} retrieval pointer buffer length overflowed"
+        ))
+    })?;
+    if buffer.len() < required_len {
+        return Err(RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} retrieval pointer buffer ended before all extents"
+        )));
+    }
+
+    let mut starting_vcn = unsafe {
+        ptr::read_unaligned(
+            buffer
+                .as_ptr()
+                .add(offset_of!(RETRIEVAL_POINTERS_BUFFER, StartingVcn))
+                .cast::<i64>(),
+        )
+    };
+    if starting_vcn < 0 {
+        return Err(RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} $MFT retrieval pointer list has a negative starting VCN"
+        )));
+    }
+
+    let mut extents = Vec::with_capacity(extent_count);
+    for index in 0..extent_count {
+        let offset = header_size + (index * size_of::<RETRIEVAL_POINTERS_BUFFER_0>());
+        let raw = unsafe {
+            ptr::read_unaligned(
+                buffer
+                    .as_ptr()
+                    .add(offset)
+                    .cast::<RETRIEVAL_POINTERS_BUFFER_0>(),
+            )
+        };
+        if raw.NextVcn <= starting_vcn {
+            return Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} $MFT retrieval pointer extent {index} is not ordered"
+            )));
+        }
+        if raw.Lcn < 0 {
+            return Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} $MFT retrieval pointer extent {index} is sparse"
+            )));
+        }
+
+        extents.push(MftExtent {
+            starting_vcn: starting_vcn as u64,
+            lcn: raw.Lcn as u64,
+            cluster_count: (raw.NextVcn - starting_vcn) as u64,
+        });
+        starting_vcn = raw.NextVcn;
+    }
+
+    Ok(extents)
+}
+
+fn next_mft_chunk_len(
+    bytes_remaining_in_extent: u64,
+    records_remaining: u64,
+    record_size: usize,
+) -> usize {
+    if record_size == 0 || records_remaining == 0 {
+        return 0;
+    }
+
+    let chunk_limit = SEQUENTIAL_MFT_CHUNK_BYTES.max(record_size) as u64;
+    let record_bytes_remaining = records_remaining.saturating_mul(record_size as u64);
+    let bytes_to_read = bytes_remaining_in_extent
+        .min(record_bytes_remaining)
+        .min(chunk_limit);
+    usize::try_from(bytes_to_read - (bytes_to_read % record_size as u64)).unwrap_or(0)
+}
+
 struct LiveNtfsVolume {
     handle: HANDLE,
     device_path: String,
+    mft_data_path: String,
 }
 
 impl LiveNtfsVolume {
@@ -392,6 +563,7 @@ impl LiveNtfsVolume {
         Ok(Self {
             handle,
             device_path: capabilities.device_path.clone(),
+            mft_data_path: capabilities.mft_data_path.clone(),
         })
     }
 
@@ -426,8 +598,126 @@ impl LiveNtfsVolume {
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
     ) -> Result<ParsedMftRecords> {
+        let sequential_source = SequentialMftDataSource { volume: self };
         let fsctl_source = FsctlRecordMftSource { volume: self };
-        read_mft_records_from_sources(&[&fsctl_source], volume_data, cancellation)
+        read_mft_records_from_sources(
+            &[&sequential_source, &fsctl_source],
+            volume_data,
+            cancellation,
+        )
+    }
+
+    fn open_mft_data_stream(&self) -> Result<LiveNtfsMetadataFile> {
+        let path = wide_null(OsStr::new(&self.mft_data_path));
+        let share_mode =
+            FILE_SHARE_MODE(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0);
+        let flags =
+            FILE_FLAGS_AND_ATTRIBUTES(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_SEQUENTIAL_SCAN.0);
+        let desired_access = FILE_READ_ATTRIBUTES.0 | SYNCHRONIZE.0;
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR(path.as_ptr()),
+                desired_access,
+                share_mode,
+                None,
+                OPEN_EXISTING,
+                flags,
+                None,
+            )
+        }
+        .map_err(|err| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} could not open {} read-only: {}",
+                self.mft_data_path,
+                err.message()
+            ))
+        })?;
+
+        Ok(LiveNtfsMetadataFile { handle })
+    }
+
+    fn mft_extents(&self, mft_data: &LiveNtfsMetadataFile) -> Result<Vec<MftExtent>> {
+        let mut input = STARTING_VCN_INPUT_BUFFER { StartingVcn: 0 };
+        let mut output = vec![
+            0_u8;
+            offset_of!(RETRIEVAL_POINTERS_BUFFER, Extents)
+                + (32 * size_of::<RETRIEVAL_POINTERS_BUFFER_0>())
+        ];
+
+        loop {
+            let mut bytes_returned = 0_u32;
+            let result = unsafe {
+                DeviceIoControl(
+                    mft_data.handle,
+                    FSCTL_GET_RETRIEVAL_POINTERS,
+                    Some((&mut input as *mut STARTING_VCN_INPUT_BUFFER).cast()),
+                    size_of::<STARTING_VCN_INPUT_BUFFER>() as u32,
+                    Some(output.as_mut_ptr().cast()),
+                    output.len() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            match result {
+                Ok(()) => {
+                    let returned = usize::try_from(bytes_returned).unwrap_or(0);
+                    return parse_retrieval_pointer_extents(&output[..returned]);
+                }
+                Err(err)
+                    if windows_error_matches(&err, ERROR_MORE_DATA)
+                        && output.len() < MAX_RETRIEVAL_POINTER_BUFFER_BYTES =>
+                {
+                    let next_len = output
+                        .len()
+                        .saturating_mul(2)
+                        .min(MAX_RETRIEVAL_POINTER_BUFFER_BYTES);
+                    output.resize(next_len, 0);
+                }
+                Err(err) => {
+                    return Err(RebeccaError::PlatformUnavailable(format!(
+                        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} could not read $MFT retrieval pointers from {}: {}",
+                        self.mft_data_path,
+                        err.message()
+                    )));
+                }
+            }
+        }
+    }
+
+    fn read_volume_bytes(&self, offset: u64, len: usize) -> Result<Vec<u8>> {
+        let offset = i64::try_from(offset).map_err(|_| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} volume offset overflowed"
+            ))
+        })?;
+        let mut buffer = vec![0_u8; len];
+        let mut bytes_read = 0_u32;
+        unsafe {
+            SetFilePointerEx(self.handle, offset, None, FILE_BEGIN).map_err(|err| {
+                RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} could not seek {} to byte {offset}: {}",
+                    self.device_path,
+                    err.message()
+                ))
+            })?;
+            ReadFile(
+                self.handle,
+                Some(&mut buffer),
+                Some(&mut bytes_read),
+                None,
+            )
+            .map_err(|err| {
+                RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} could not read {} at byte {offset}: {}",
+                    self.device_path,
+                    err.message()
+                ))
+            })?;
+        }
+
+        buffer.truncate(usize::try_from(bytes_read).unwrap_or(0));
+        Ok(buffer)
     }
 }
 
@@ -439,13 +729,25 @@ impl Drop for LiveNtfsVolume {
     }
 }
 
-struct FsctlRecordMftSource<'a> {
+struct LiveNtfsMetadataFile {
+    handle: HANDLE,
+}
+
+impl Drop for LiveNtfsMetadataFile {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
+}
+
+struct SequentialMftDataSource<'a> {
     volume: &'a LiveNtfsVolume,
 }
 
-impl MftRecordSource for FsctlRecordMftSource<'_> {
+impl MftRecordSource for SequentialMftDataSource<'_> {
     fn label(&self) -> &'static str {
-        "fsctl-record"
+        SEQUENTIAL_MFT_SOURCE_LABEL
     }
 
     fn read_records(
@@ -453,36 +755,143 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
         cancellation: &ScanCancellationToken,
     ) -> Result<ParsedMftRecords> {
-        let record_size = usize::try_from(volume_data.BytesPerFileRecordSegment).unwrap_or(0);
-        let sector_size = usize::try_from(volume_data.BytesPerSector).unwrap_or(0);
-        if record_size == 0 || sector_size == 0 {
-            return Err(RebeccaError::PlatformUnavailable(format!(
-                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} received invalid NTFS record geometry from {}",
-                self.volume.device_path
-            )));
+        let geometry = NtfsRecordGeometry::from_volume_data(&self.volume.device_path, volume_data)?;
+        let mft_data = self.volume.open_mft_data_stream()?;
+        let extents = self.volume.mft_extents(&mft_data)?;
+        let reader = MftRecordReader::new(geometry.record_size, geometry.sector_size);
+        let mut records = Vec::new();
+        let mut caveats = Vec::new();
+
+        for extent in extents {
+            self.read_extent_records(
+                extent,
+                geometry,
+                &reader,
+                cancellation,
+                &mut records,
+                &mut caveats,
+            )?;
         }
-        if volume_data.MftValidDataLength <= 0 {
+
+        Ok(ParsedMftRecords { records, caveats })
+    }
+}
+
+impl SequentialMftDataSource<'_> {
+    fn read_extent_records(
+        &self,
+        extent: MftExtent,
+        geometry: NtfsRecordGeometry,
+        reader: &MftRecordReader,
+        cancellation: &ScanCancellationToken,
+        records: &mut Vec<MftRecord>,
+        caveats: &mut Vec<ParseCaveat>,
+    ) -> Result<()> {
+        let extent_stream_offset = extent
+            .starting_vcn
+            .checked_mul(geometry.bytes_per_cluster)
+            .ok_or_else(|| {
+                RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} $MFT extent stream offset overflowed"
+                ))
+            })?;
+        if !extent_stream_offset.is_multiple_of(geometry.record_size as u64) {
             return Err(RebeccaError::PlatformUnavailable(format!(
-                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} received empty NTFS MFT metadata from {}",
-                self.volume.device_path
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} $MFT extent is not file-record aligned"
             )));
         }
 
-        let max_records = (volume_data.MftValidDataLength as u64)
-            .saturating_div(volume_data.BytesPerFileRecordSegment as u64);
+        let mut next_record_id = extent_stream_offset / geometry.record_size as u64;
+        let mut volume_offset = extent
+            .lcn
+            .checked_mul(geometry.bytes_per_cluster)
+            .ok_or_else(|| {
+                RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} volume offset overflowed"
+                ))
+            })?;
+        let mut bytes_remaining = extent
+            .cluster_count
+            .checked_mul(geometry.bytes_per_cluster)
+            .ok_or_else(|| {
+                RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} extent length overflowed"
+                ))
+            })?;
+
+        while bytes_remaining > 0 && next_record_id < geometry.max_record_count {
+            check_not_cancelled(cancellation)?;
+            let records_remaining = geometry.max_record_count.saturating_sub(next_record_id);
+            let read_len =
+                next_mft_chunk_len(bytes_remaining, records_remaining, geometry.record_size);
+            if read_len == 0 {
+                break;
+            }
+
+            let bytes = self.volume.read_volume_bytes(volume_offset, read_len)?;
+            if bytes.len() != read_len {
+                return Err(RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} read only {} of {read_len} requested bytes from {}",
+                    bytes.len(),
+                    self.volume.device_path
+                )));
+            }
+
+            let batch = reader.parse_records_from(next_record_id, &bytes);
+            records.extend(batch.records);
+            caveats.extend(batch.errors.into_iter().map(|err| {
+                ParseCaveat::new(
+                    "mft-record-parse-error",
+                    format!(
+                        "record {} could not be parsed: {}",
+                        err.record_id, err.error
+                    ),
+                )
+            }));
+
+            let read_len = read_len as u64;
+            let records_read = read_len / geometry.record_size as u64;
+            next_record_id = next_record_id.saturating_add(records_read);
+            volume_offset = volume_offset.saturating_add(read_len);
+            bytes_remaining = bytes_remaining.saturating_sub(read_len);
+        }
+
+        Ok(())
+    }
+}
+
+struct FsctlRecordMftSource<'a> {
+    volume: &'a LiveNtfsVolume,
+}
+
+impl MftRecordSource for FsctlRecordMftSource<'_> {
+    fn label(&self) -> &'static str {
+        FSCTL_RECORD_SOURCE_LABEL
+    }
+
+    fn read_records(
+        &self,
+        volume_data: &NTFS_VOLUME_DATA_BUFFER,
+        cancellation: &ScanCancellationToken,
+    ) -> Result<ParsedMftRecords> {
+        let geometry = NtfsRecordGeometry::from_volume_data(&self.volume.device_path, volume_data)?;
+
         let mut records = Vec::new();
         let mut caveats = Vec::new();
         let mut requested_record = 0_u64;
 
-        while requested_record < max_records {
+        while requested_record < geometry.max_record_count {
             if requested_record.is_multiple_of(256) {
                 check_not_cancelled(cancellation)?;
             }
 
-            match self.volume.read_file_record(requested_record, record_size) {
+            match self
+                .volume
+                .read_file_record(requested_record, geometry.record_size)
+            {
                 Ok(Some((record_id, raw_record))) => {
                     let parsed_record_id = low_file_reference_number(record_id);
-                    match MftRecord::parse(parsed_record_id, &raw_record, sector_size) {
+                    match MftRecord::parse(parsed_record_id, &raw_record, geometry.sector_size) {
                         Ok(record) => records.push(record),
                         Err(err) => caveats.push(ParseCaveat::new(
                             "mft-record-parse-error",
@@ -607,8 +1016,10 @@ mod tests {
     use rebecca_ntfs::ParseCaveat;
 
     use super::{
-        MftRecordSource, NTFS_VOLUME_DATA_BUFFER, ParsedMftRecords, ScanCancellationToken,
-        VolumePaths, low_file_reference_number, read_mft_records_from_sources,
+        MftExtent, MftRecordSource, NTFS_VOLUME_DATA_BUFFER, NtfsRecordGeometry, ParsedMftRecords,
+        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
+        ScanCancellationToken, VolumePaths, low_file_reference_number, next_mft_chunk_len,
+        parse_retrieval_pointer_extents, read_mft_records_from_sources,
     };
     use crate::error::{RebeccaError, Result};
 
@@ -618,6 +1029,7 @@ mod tests {
 
         assert_eq!(paths.root_path, std::path::PathBuf::from("C:\\"));
         assert_eq!(paths.device_path, "\\\\.\\C:");
+        assert_eq!(paths.mft_data_path, "\\\\?\\C:\\$MFT::$DATA");
     }
 
     #[test]
@@ -630,6 +1042,69 @@ mod tests {
     #[test]
     fn low_file_reference_masks_sequence_bits() {
         assert_eq!(low_file_reference_number(0x0001_0000_0000_002A), 42);
+    }
+
+    #[test]
+    fn ntfs_record_geometry_accepts_valid_volume_data() {
+        let volume_data = ntfs_volume_data(1024, 512, 4096, 8192);
+
+        let geometry = NtfsRecordGeometry::from_volume_data("\\\\.\\C:", &volume_data).unwrap();
+
+        assert_eq!(geometry.record_size, 1024);
+        assert_eq!(geometry.sector_size, 512);
+        assert_eq!(geometry.bytes_per_cluster, 4096);
+        assert_eq!(geometry.max_record_count, 8);
+    }
+
+    #[test]
+    fn ntfs_record_geometry_rejects_unaligned_records() {
+        let volume_data = ntfs_volume_data(1000, 512, 4096, 8192);
+
+        let err = NtfsRecordGeometry::from_volume_data("\\\\.\\C:", &volume_data).unwrap_err();
+
+        assert!(err.to_string().contains("unaligned"));
+    }
+
+    #[test]
+    fn retrieval_pointer_parser_maps_ordered_extents() {
+        let buffer = retrieval_pointer_buffer(0, &[(4, 10), (9, 20)]);
+
+        let extents = parse_retrieval_pointer_extents(&buffer).unwrap();
+
+        assert_eq!(
+            extents,
+            vec![
+                MftExtent {
+                    starting_vcn: 0,
+                    lcn: 10,
+                    cluster_count: 4,
+                },
+                MftExtent {
+                    starting_vcn: 4,
+                    lcn: 20,
+                    cluster_count: 5,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn retrieval_pointer_parser_rejects_sparse_extents() {
+        let buffer = retrieval_pointer_buffer(0, &[(4, -1)]);
+
+        let err = parse_retrieval_pointer_extents(&buffer).unwrap_err();
+
+        assert!(err.to_string().contains("sparse"));
+    }
+
+    #[test]
+    fn mft_chunk_len_is_bounded_and_record_aligned() {
+        assert_eq!(next_mft_chunk_len(4097, 10, 1024), 4096);
+        assert_eq!(
+            next_mft_chunk_len(SEQUENTIAL_MFT_CHUNK_BYTES as u64 * 2, 100_000, 1024),
+            SEQUENTIAL_MFT_CHUNK_BYTES
+        );
+        assert_eq!(next_mft_chunk_len(512, 10, 1024), 0);
     }
 
     #[test]
@@ -734,5 +1209,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn ntfs_volume_data(
+        record_size: u32,
+        sector_size: u32,
+        bytes_per_cluster: u32,
+        mft_valid_data_length: i64,
+    ) -> NTFS_VOLUME_DATA_BUFFER {
+        NTFS_VOLUME_DATA_BUFFER {
+            BytesPerFileRecordSegment: record_size,
+            BytesPerSector: sector_size,
+            BytesPerCluster: bytes_per_cluster,
+            MftValidDataLength: mft_valid_data_length,
+            ..Default::default()
+        }
+    }
+
+    fn retrieval_pointer_buffer(starting_vcn: i64, extents: &[(i64, i64)]) -> Vec<u8> {
+        let header_size = std::mem::offset_of!(RETRIEVAL_POINTERS_BUFFER, Extents);
+        let extent_size = std::mem::size_of::<RETRIEVAL_POINTERS_BUFFER_0>();
+        let mut buffer = vec![0_u8; header_size + (extent_size * extents.len())];
+        unsafe {
+            std::ptr::write_unaligned(
+                buffer.as_mut_ptr().cast::<RETRIEVAL_POINTERS_BUFFER>(),
+                RETRIEVAL_POINTERS_BUFFER {
+                    ExtentCount: extents.len() as u32,
+                    StartingVcn: starting_vcn,
+                    Extents: [RETRIEVAL_POINTERS_BUFFER_0::default()],
+                },
+            );
+            for (index, (next_vcn, lcn)) in extents.iter().copied().enumerate() {
+                std::ptr::write_unaligned(
+                    buffer
+                        .as_mut_ptr()
+                        .add(header_size + (index * extent_size))
+                        .cast::<RETRIEVAL_POINTERS_BUFFER_0>(),
+                    RETRIEVAL_POINTERS_BUFFER_0 {
+                        NextVcn: next_vcn,
+                        Lcn: lcn,
+                    },
+                );
+            }
+        }
+        buffer
     }
 }
