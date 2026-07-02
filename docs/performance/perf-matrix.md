@@ -6,6 +6,7 @@ Run the compile check first:
 
 ```powershell
 cargo check -p rebecca-core --benches
+cargo check -p rebecca-ntfs --benches
 ```
 
 Run the matrix and collect a JSON report:
@@ -48,3 +49,11 @@ Remove-Item Env:\REBECCA_PERF_MATRIX_LIVE_NTFS
 ```
 
 When the live scenario succeeds through the experimental backend, its source must be either `windows-ntfs-mft-experimental-sequential` or `windows-ntfs-mft-experimental-fsctl-record`. When the host is unsupported or unelevated, the same scenario must report a directory-scanner fallback with no backend source. Parser caveat volume is part of performance evidence: a faster live run that silently drops attribute-list, sequence, hardlink, runlist, or directory-index uncertainty is not a valid improvement.
+
+For parser-core work, run the NTFS microbench self-check before trusting Criterion numbers:
+
+```powershell
+cargo bench -p rebecca-ntfs --bench mft_parser -- --test
+```
+
+The NTFS parser bench includes generated MFT records, subtree indexing, stream-backed `$INDEX_ALLOCATION:$I30` expansion, and fragmented runlist reads. It is fixture-backed and does not require elevated live volume access.
