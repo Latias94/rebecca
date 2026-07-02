@@ -97,7 +97,7 @@ fn inspect_space_json_reports_top_entries_and_diagnostics() {
 }
 
 #[test]
-fn inspect_space_json_accepts_scan_backend_and_reports_fallback_provenance() {
+fn inspect_space_json_accepts_scan_backend_and_reports_provenance() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("target").join("app.bin"), b"abcd");
@@ -127,15 +127,21 @@ fn inspect_space_json_accepts_scan_backend_and_reports_fallback_provenance() {
     assert_eq!(entry["estimate_source"], "fresh-scan");
     assert!(entry["estimate_backend"].is_string());
     assert_eq!(entry["estimate_confidence"], "exact");
-    assert!(
-        entry["estimate_fallback_reason"]
-            .as_str()
-            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
-    );
-    assert_eq!(
-        entry["estimate_caveats"][0]["code"],
-        "experimental-ntfs-mft-fallback"
-    );
+    if let Some(reason) = entry["estimate_fallback_reason"].as_str() {
+        assert!(reason.contains("windows-ntfs-mft-experimental"));
+        assert_eq!(
+            entry["estimate_caveats"][0]["code"],
+            "experimental-ntfs-mft-fallback"
+        );
+    } else {
+        assert_eq!(entry["estimate_backend"], "windows-ntfs-mft-experimental");
+        assert!(
+            entry["estimate_backend_source"]
+                .as_str()
+                .is_some_and(|source| source.starts_with("windows-ntfs-mft-experimental-")),
+            "entry should include the live NTFS/MFT source when no fallback occurs: {entry:#}"
+        );
+    }
 }
 
 #[test]

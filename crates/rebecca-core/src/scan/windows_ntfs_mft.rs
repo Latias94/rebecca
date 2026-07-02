@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::mem::{offset_of, size_of};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::OpenOptionsExt;
@@ -43,6 +44,9 @@ const SEQUENTIAL_MFT_SOURCE_LABEL: &str = "sequential";
 const FSCTL_RECORD_SOURCE_LABEL: &str = "fsctl-record";
 const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RETRIEVAL_POINTER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
+const MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES: usize = 8;
+const MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE: usize = 8;
+const MFT_CAVEAT_SUMMARY_CODE: &str = "mft-caveat-summary";
 
 #[derive(Debug, Default)]
 pub(super) struct WindowsNtfsMftIndexCache {
@@ -154,13 +158,13 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
             files_scanned: summary.files,
             directories_scanned: summary.directories,
         };
-        let mut measured = MeasuredScan::exact(report, self.kind())
+        let measured = MeasuredScan::exact(report, self.kind())
             .with_backend_source(mft_backend_source_label(index.source_label));
-        for caveat in index.caveats.iter().cloned().chain(summary.caveats) {
-            measured = measured.with_caveat(caveat.code, caveat.message);
-        }
 
-        Ok(measured)
+        Ok(with_bounded_mft_caveats(
+            measured,
+            index.caveats.iter().cloned().chain(summary.caveats),
+        ))
     }
 }
 
@@ -383,6 +387,80 @@ fn mft_record_source_error_can_fallback(err: &RebeccaError) -> bool {
 
 fn mft_backend_source_label(source_label: &str) -> String {
     format!("{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL}-{source_label}")
+}
+
+#[derive(Debug, Default)]
+struct MftParseErrorCaveats {
+    total: usize,
+    samples: Vec<ParseCaveat>,
+}
+
+impl MftParseErrorCaveats {
+    fn record(&mut self, record_id: u64, error: impl fmt::Display) {
+        self.total = self.total.saturating_add(1);
+        if self.samples.len() < MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES {
+            self.samples.push(ParseCaveat::new(
+                "mft-record-parse-error",
+                format!("record {record_id} could not be parsed: {error}"),
+            ));
+        }
+    }
+
+    fn append_to(self, caveats: &mut Vec<ParseCaveat>) {
+        if self.total == 0 {
+            return;
+        }
+
+        let sample_count = self.samples.len();
+        caveats.extend(self.samples);
+        let omitted = self.total.saturating_sub(sample_count);
+        if omitted > 0 {
+            caveats.push(ParseCaveat::new(
+                "mft-record-parse-error-summary",
+                format!(
+                    "{omitted} additional MFT records could not be parsed; parse-error samples were capped at {sample_count}"
+                ),
+            ));
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct BoundedMftCaveatBucket {
+    total: usize,
+    samples: Vec<String>,
+}
+
+fn with_bounded_mft_caveats<I>(mut measured: MeasuredScan, caveats: I) -> MeasuredScan
+where
+    I: IntoIterator<Item = ParseCaveat>,
+{
+    let mut buckets: BTreeMap<String, BoundedMftCaveatBucket> = BTreeMap::new();
+    for caveat in caveats {
+        let bucket = buckets.entry(caveat.code).or_default();
+        bucket.total = bucket.total.saturating_add(1);
+        if bucket.samples.len() < MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE {
+            bucket.samples.push(caveat.message);
+        }
+    }
+
+    for (code, bucket) in buckets {
+        let sample_count = bucket.samples.len();
+        let omitted = bucket.total.saturating_sub(sample_count);
+        for message in bucket.samples {
+            measured = measured.with_caveat(code.clone(), message);
+        }
+        if omitted > 0 {
+            measured = measured.with_caveat(
+                MFT_CAVEAT_SUMMARY_CODE,
+                format!(
+                    "{omitted} additional '{code}' caveats were omitted from this estimate; samples are capped at {MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE} per caveat code"
+                ),
+            );
+        }
+    }
+
+    measured
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -770,6 +848,7 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
         let reader = MftRecordReader::new(geometry.record_size, geometry.sector_size);
         let mut records = Vec::new();
         let mut caveats = Vec::new();
+        let mut parse_errors = MftParseErrorCaveats::default();
 
         for extent in extents {
             self.read_extent_records(
@@ -778,9 +857,10 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
                 &reader,
                 cancellation,
                 &mut records,
-                &mut caveats,
+                &mut parse_errors,
             )?;
         }
+        parse_errors.append_to(&mut caveats);
 
         Ok(ParsedMftRecords {
             source_label: self.label(),
@@ -798,7 +878,7 @@ impl SequentialMftDataSource<'_> {
         reader: &MftRecordReader,
         cancellation: &ScanCancellationToken,
         records: &mut Vec<MftRecord>,
-        caveats: &mut Vec<ParseCaveat>,
+        parse_errors: &mut MftParseErrorCaveats,
     ) -> Result<()> {
         let extent_stream_offset = extent
             .starting_vcn
@@ -852,15 +932,9 @@ impl SequentialMftDataSource<'_> {
 
             let batch = reader.parse_records_from(next_record_id, &bytes);
             records.extend(batch.records);
-            caveats.extend(batch.errors.into_iter().map(|err| {
-                ParseCaveat::new(
-                    "mft-record-parse-error",
-                    format!(
-                        "record {} could not be parsed: {}",
-                        err.record_id, err.error
-                    ),
-                )
-            }));
+            for err in batch.errors {
+                parse_errors.record(err.record_id, err.error);
+            }
 
             let read_len = read_len as u64;
             let records_read = read_len / geometry.record_size as u64;
@@ -891,6 +965,7 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
 
         let mut records = Vec::new();
         let mut caveats = Vec::new();
+        let mut parse_errors = MftParseErrorCaveats::default();
         let mut requested_record = 0_u64;
 
         while requested_record < geometry.max_record_count {
@@ -906,10 +981,7 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
                     let parsed_record_id = low_file_reference_number(record_id);
                     match MftRecord::parse(parsed_record_id, &raw_record, geometry.sector_size) {
                         Ok(record) => records.push(record),
-                        Err(err) => caveats.push(ParseCaveat::new(
-                            "mft-record-parse-error",
-                            format!("record {parsed_record_id} could not be parsed: {err}"),
-                        )),
+                        Err(err) => parse_errors.record(parsed_record_id, err),
                     }
                     requested_record = parsed_record_id.max(requested_record).saturating_add(1);
                 }
@@ -927,6 +999,7 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
                 }
             }
         }
+        parse_errors.append_to(&mut caveats);
 
         Ok(ParsedMftRecords {
             source_label: self.label(),
@@ -1033,12 +1106,16 @@ mod tests {
     use rebecca_ntfs::ParseCaveat;
 
     use super::{
-        MftExtent, MftRecordSource, NTFS_VOLUME_DATA_BUFFER, NtfsRecordGeometry, ParsedMftRecords,
-        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
-        ScanCancellationToken, VolumePaths, low_file_reference_number, next_mft_chunk_len,
-        parse_retrieval_pointer_extents, read_mft_records_from_sources,
+        MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE, MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES,
+        MFT_CAVEAT_SUMMARY_CODE, MftExtent, MftParseErrorCaveats, MftRecordSource,
+        NTFS_VOLUME_DATA_BUFFER, NtfsRecordGeometry, ParsedMftRecords, RETRIEVAL_POINTERS_BUFFER,
+        RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken,
+        VolumePaths, low_file_reference_number, next_mft_chunk_len,
+        parse_retrieval_pointer_extents, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
     use crate::error::{RebeccaError, Result};
+    use crate::scan::ScanReport;
+    use crate::scan::backend::{MeasuredScan, ScanBackendKind};
 
     #[test]
     fn volume_paths_support_drive_absolute_paths() {
@@ -1192,6 +1269,69 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+    }
+
+    #[test]
+    fn parse_error_caveats_are_sampled_with_summary() {
+        let mut parse_errors = MftParseErrorCaveats::default();
+        for record_id in 0..MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES + 3 {
+            parse_errors.record(record_id as u64, "invalid signature");
+        }
+
+        let mut caveats = Vec::new();
+        parse_errors.append_to(&mut caveats);
+
+        assert_eq!(caveats.len(), MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES + 1);
+        assert_eq!(caveats[0].code, "mft-record-parse-error");
+        assert!(caveats[0].message.contains("record 0"));
+        let summary = caveats.last().unwrap();
+        assert_eq!(summary.code, "mft-record-parse-error-summary");
+        assert!(summary.message.contains("3 additional"));
+    }
+
+    #[test]
+    fn estimate_caveats_are_bounded_per_code() {
+        let measured = MeasuredScan::exact(
+            ScanReport {
+                bytes_scanned: 0,
+                files_scanned: 0,
+                directories_scanned: 0,
+            },
+            ScanBackendKind::WindowsNtfsMftExperimental,
+        );
+        let mut caveats: Vec<_> = (0..MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE + 2)
+            .map(|index| {
+                ParseCaveat::new(
+                    "multiple-file-names",
+                    format!("record {index} has multiple names"),
+                )
+            })
+            .collect();
+        caveats.push(ParseCaveat::new(
+            "attribute-list-present",
+            "record uses an attribute list",
+        ));
+
+        let measured = with_bounded_mft_caveats(measured, caveats);
+
+        assert_eq!(
+            measured
+                .caveats
+                .iter()
+                .filter(|caveat| caveat.code == "multiple-file-names")
+                .count(),
+            MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE
+        );
+        assert!(measured.caveats.iter().any(|caveat| {
+            caveat.code == MFT_CAVEAT_SUMMARY_CODE
+                && caveat
+                    .message
+                    .contains("2 additional 'multiple-file-names'")
+        }));
+        assert!(measured.caveats.iter().any(|caveat| {
+            caveat.code == "attribute-list-present"
+                && caveat.message == "record uses an attribute list"
+        }));
     }
 
     struct FakeRecordSource {

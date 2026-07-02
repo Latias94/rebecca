@@ -72,6 +72,9 @@ All notable changes to Rebecca will be documented in this file.
 - Project artifact reclaim-limit skips now use `reason_code: "reclaim-limit-satisfied"` and can leave skipped targets with `estimate_source: "not-measured"` because later candidates are no longer measured after the limit is satisfied.
 - The pre-release scan-cache format was reset to the single v1 identity format because no released consumers depend on the earlier experimental record numbering.
 
+### Fixed
+- Experimental NTFS/MFT estimate caveats now summarize repeated full-volume parse errors and cap repeated per-target caveat samples so JSON output remains bounded on real volumes.
+
 ## [0.2.0]
 
 ### Added

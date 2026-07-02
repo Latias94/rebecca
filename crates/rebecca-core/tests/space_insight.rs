@@ -109,7 +109,7 @@ fn space_insight_preserves_scan_cache_estimate_source() {
 }
 
 #[test]
-fn space_insight_reports_experimental_backend_fallback_provenance() {
+fn space_insight_reports_experimental_backend_provenance() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_file(root.join("target").join("app.bin"), b"abcd");
@@ -128,18 +128,25 @@ fn space_insight_reports_experimental_backend_fallback_provenance() {
             .estimate_backend
             .is_some()
     );
-    assert!(
-        report.top_entries[0]
-            .estimate_provenance
-            .estimate_fallback_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
-    );
-    assert!(
-        report.top_entries[0]
-            .estimate_provenance
-            .estimate_caveats
-            .iter()
-            .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
-    );
+    let provenance = &report.top_entries[0].estimate_provenance;
+    if let Some(reason) = provenance.estimate_fallback_reason.as_deref() {
+        assert!(reason.contains("windows-ntfs-mft-experimental"));
+        assert!(
+            provenance
+                .estimate_caveats
+                .iter()
+                .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
+        );
+    } else {
+        assert_eq!(
+            provenance.estimate_backend,
+            Some(ScanBackendKind::WindowsNtfsMftExperimental)
+        );
+        assert!(
+            provenance
+                .estimate_backend_source
+                .as_deref()
+                .is_some_and(|source| source.starts_with("windows-ntfs-mft-experimental-"))
+        );
+    }
 }
