@@ -37,7 +37,10 @@ All notable changes to Rebecca will be documented in this file.
 - `clean --scan-backend windows-ntfs-mft-experimental` now attempts a read-only live NTFS/MFT index on supported local NTFS volumes, reuses a per-command volume index for repeated targets, reports estimate caveats, and falls back to a safe directory scanner when unsupported or unprivileged.
 - `windows-ntfs-mft-experimental` now tries a read-only sequential `$MFT::$DATA` source before the per-record `FSCTL_GET_NTFS_FILE_RECORD` source, reads bounded aligned chunks, and keeps per-record FSCTL plus directory scanners as structured fallback paths.
 - `rebecca-ntfs` now models NTFS records as owned parser DTOs with file-reference sequence numbers, attributes, streams, data runs, attribute-list entries, resident `$I30` directory index entries, logical/allocated/initialized size fields, parser caveats, and a generated parse-plus-index benchmark path.
-- Experimental NTFS/MFT estimates now aggregate through a sequence-aware `MftIndex` that preserves hardlink path candidates, resolves direct `$ATTRIBUTE_LIST` extension-record `$DATA` streams, cross-checks resident `$I30` directory entries, and counts each physical record once per subtree.
+- `rebecca-ntfs` now expands runlist-backed nonresident `$INDEX_ALLOCATION:$I30` streams, validates INDX fixups and VCN identity before trusting entries, and merges direct attribute-list `$INDEX_ALLOCATION` extension streams without recursive attribute-list expansion.
+- Experimental NTFS/MFT estimates now aggregate through a sequence-aware `MftIndex` that preserves hardlink path candidates, resolves direct `$ATTRIBUTE_LIST` extension-record `$DATA` and `$INDEX_ALLOCATION` streams, cross-checks resident and nonresident `$I30` directory entries, and counts each physical record once per subtree.
+- The live experimental NTFS/MFT backend now feeds raw volume reads into the parser crate's stream-source boundary so large-directory index allocation can supplement parent edges while cancellation, source provenance, and portable fallback behavior remain owned by `rebecca-core`.
+- The NTFS parser benchmark now covers parse-plus-index, stream-backed `$INDEX_ALLOCATION:$I30` expansion, and fragmented runlist reads with deterministic generated fixtures.
 - Cleanup, purge, and `inspect space` estimate provenance now include optional `estimate_backend_source` values such as `windows-ntfs-mft-experimental-sequential` and `windows-ntfs-mft-experimental-fsctl-record` so wrappers can distinguish the actual experimental source from the public backend selector.
 - Scan-cache records now have a USN Journal validation model for checkpoint, journal id, range availability, and target-subtree change invalidation; missing USN support falls back to the normal cache policy.
 - Cleanup rule targets now expose explicit search semantics in the manifest parser and catalog output, and glob discovery can reuse a per-plan directory enumeration index for compatible rules.
@@ -78,6 +81,7 @@ All notable changes to Rebecca will be documented in this file.
 ### Fixed
 - Experimental NTFS/MFT estimate caveats now summarize repeated full-volume parse errors and cap repeated per-target caveat samples so JSON output remains bounded on real volumes.
 - Experimental NTFS/MFT directory-index fallback caveats now stay attached to the affected parent child edge, so `$I30` parent-map supplements remain visible in subtree estimate caveats without duplicating child-entry caveats.
+- Valid nonresident `$INDEX_ALLOCATION:$I30` directory indexes are no longer reduced to a caveat-only outcome; invalid, unreadable, sparse, compressed, or encrypted index allocation streams now produce bounded caveats without adding trusted child edges.
 
 ## [0.2.0]
 

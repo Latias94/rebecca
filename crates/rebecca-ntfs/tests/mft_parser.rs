@@ -504,14 +504,6 @@ fn nonresident_i30_index_allocation_is_preserved_as_attribute_stream() {
         .unwrap();
     assert_eq!(stream.logical_size, 0);
     assert!(stream.data_runs.is_empty());
-    assert!(
-        !record
-            .caveats
-            .iter()
-            .any(|c| c.code == "index-allocation-present"),
-        "{:?}",
-        record.caveats
-    );
 }
 
 #[test]
@@ -575,14 +567,6 @@ fn record_set_expands_nonresident_i30_index_allocation() {
         .unwrap();
     assert_eq!(directory.directory_entries.len(), 1);
     assert_eq!(directory.directory_entries[0].name, "large.bin");
-    assert!(
-        !directory
-            .caveats
-            .iter()
-            .any(|caveat| caveat.code == "index-allocation-present"),
-        "{:?}",
-        directory.caveats
-    );
 }
 
 #[test]

@@ -99,10 +99,11 @@ sequential `$MFT` source from the per-record FSCTL fallback source. When live
 metadata is unavailable or ambiguous, Rebecca reports fallback provenance
 instead of treating raw metadata as cleanup authority. Parser caveats may
 include sequence mismatches, hardlink path candidates, direct attribute-list
-extension handling, resident `$I30` directory-index fallback, unsupported
-nonresident directory indexes, or bounded parse-error summaries. These caveats
-are explainability fields; they do not authorize deletion or change v1 byte
-semantics.
+extension handling, resident or nonresident `$I30` directory-index fallback,
+unreadable or unsupported index-allocation streams, or bounded parse-error
+summaries. Valid nonresident `$INDEX_ALLOCATION:$I30` metadata can supplement
+subtree edges, but these fields are still explainability data; they do not
+authorize deletion or change v1 byte semantics.
 
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
 `warnings`. A target with `reason_code: "warning-gate-required"` was excluded
