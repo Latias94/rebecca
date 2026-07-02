@@ -11,6 +11,7 @@ const ATTR_ATTRIBUTE_LIST: u32 = 0x20;
 const ATTR_FILE_NAME: u32 = 0x30;
 const ATTR_DATA: u32 = 0x80;
 const ATTR_INDEX_ROOT: u32 = 0x90;
+const ATTR_INDEX_ALLOCATION: u32 = 0xA0;
 const ATTR_REPARSE_POINT: u32 = 0xC0;
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
@@ -386,6 +387,32 @@ fn resident_i30_index_root_can_supply_verified_fallback_edge() {
             .any(|c| c.code == "directory-index-parent-map-fallback"),
         "{:?}",
         summary.caveats
+    );
+}
+
+#[test]
+fn nonresident_i30_index_allocation_is_caveated() {
+    let record = NtfsParsedRecord::parse_mft_record(
+        15,
+        &mft_record(
+            15,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                index_allocation_attr(),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    assert!(record.directory_entries.is_empty());
+    assert!(
+        record
+            .caveats
+            .iter()
+            .any(|c| c.code == "index-allocation-present")
     );
 }
 
@@ -938,6 +965,41 @@ fn index_root_attr(
     put_u16(&mut value, end_offset + 12, 0x0002);
 
     resident_named_attr(ATTR_INDEX_ROOT, "$I30", &value)
+}
+
+fn index_allocation_attr() -> Vec<u8> {
+    nonresident_named_attr(ATTR_INDEX_ALLOCATION, "$I30", 0, 0, &[0x00])
+}
+
+fn nonresident_named_attr(
+    attribute_type: u32,
+    name: &str,
+    data_size: u64,
+    lowest_vcn: u64,
+    runlist: &[u8],
+) -> Vec<u8> {
+    let header_len = 64;
+    let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
+    let name_len = name_utf16.len() * 2;
+    let runlist_offset = align8(header_len + name_len);
+    let total_len = align8(runlist_offset + runlist.len());
+    let mut attr = vec![0_u8; total_len];
+    put_u32(&mut attr, 0, attribute_type);
+    put_u32(&mut attr, 4, total_len as u32);
+    attr[8] = 1;
+    attr[9] = name_utf16.len() as u8;
+    put_u16(&mut attr, 10, header_len as u16);
+    put_u64(&mut attr, 16, lowest_vcn);
+    put_u64(&mut attr, 24, 0);
+    put_u16(&mut attr, 32, runlist_offset as u16);
+    put_u64(&mut attr, 40, data_size);
+    put_u64(&mut attr, 48, data_size);
+    put_u64(&mut attr, 56, data_size);
+    for (index, character) in name_utf16.iter().enumerate() {
+        put_u16(&mut attr, header_len + (index * 2), *character);
+    }
+    attr[runlist_offset..runlist_offset + runlist.len()].copy_from_slice(runlist);
+    attr
 }
 
 fn attribute_list_attr_with_entry(

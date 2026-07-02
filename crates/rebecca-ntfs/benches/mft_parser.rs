@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use rebecca_ntfs::MftRecordReader;
+use rebecca_ntfs::{MftIndex, MftRecordReader};
 
 const RECORD_SIZE: usize = 1024;
 const SECTOR_SIZE: usize = 512;
@@ -9,9 +9,11 @@ const USA_OFFSET: usize = 0x30;
 const FIRST_ATTR_OFFSET: usize = 0x38;
 const ATTR_FILE_NAME: u32 = 0x30;
 const ATTR_DATA: u32 = 0x80;
+const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 
 fn mft_parser(criterion: &mut Criterion) {
     let fixture = build_fixture(1024);
+    let tree_fixture = build_tree_fixture(1024);
     let reader = MftRecordReader::default();
 
     criterion.bench_function("parse_generated_1024_mft_records", |bencher| {
@@ -20,6 +22,19 @@ fn mft_parser(criterion: &mut Criterion) {
             assert_eq!(batch.records.len(), 1024);
             assert!(batch.errors.is_empty());
             black_box(batch);
+        });
+    });
+
+    criterion.bench_function("parse_and_index_generated_1024_mft_files", |bencher| {
+        bencher.iter(|| {
+            let batch = reader.parse_records_from(5, black_box(&tree_fixture));
+            assert_eq!(batch.records.len(), 1025);
+            assert!(batch.errors.is_empty());
+            let index = MftIndex::from_parsed_records(batch.records);
+            let summary = index.aggregate_subtree(5);
+            assert_eq!(summary.files, 1024);
+            assert_eq!(summary.bytes, 1024 * 128);
+            black_box(summary);
         });
     });
 }
@@ -38,14 +53,42 @@ fn build_fixture(records: usize) -> Vec<u8> {
     bytes
 }
 
+fn build_tree_fixture(file_records: usize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity((file_records + 1) * RECORD_SIZE);
+    bytes.extend_from_slice(&mft_record_with_flags(
+        5,
+        0x0003,
+        vec![file_name_attr_with_file_attributes(
+            5,
+            "root",
+            FILE_ATTRIBUTE_DIRECTORY,
+        )],
+    ));
+    for index in 0..file_records {
+        let record_id = 6 + index as u64;
+        bytes.extend_from_slice(&mft_record(
+            record_id,
+            vec![
+                file_name_attr(5, &format!("file-{index:04}.bin")),
+                nonresident_data_attr(128),
+            ],
+        ));
+    }
+    bytes
+}
+
 fn mft_record(record_id: u64, attrs: Vec<Vec<u8>>) -> Vec<u8> {
+    mft_record_with_flags(record_id, 0x0001, attrs)
+}
+
+fn mft_record_with_flags(record_id: u64, record_flags: u16, attrs: Vec<Vec<u8>>) -> Vec<u8> {
     let mut record = vec![0_u8; RECORD_SIZE];
     record[0..4].copy_from_slice(b"FILE");
     put_u16(&mut record, 4, USA_OFFSET as u16);
     put_u16(&mut record, 6, 3);
     put_u16(&mut record, 16, record_id as u16);
     put_u16(&mut record, 20, FIRST_ATTR_OFFSET as u16);
-    put_u16(&mut record, 22, 0x0001);
+    put_u16(&mut record, 22, record_flags);
     put_u32(&mut record, 28, RECORD_SIZE as u32);
     put_u32(&mut record, 44, record_id as u32);
 
@@ -62,9 +105,18 @@ fn mft_record(record_id: u64, attrs: Vec<Vec<u8>>) -> Vec<u8> {
 }
 
 fn file_name_attr(parent_id: u64, name: &str) -> Vec<u8> {
+    file_name_attr_with_file_attributes(parent_id, name, 0)
+}
+
+fn file_name_attr_with_file_attributes(
+    parent_id: u64,
+    name: &str,
+    file_attributes: u32,
+) -> Vec<u8> {
     let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
     let mut value = vec![0_u8; 66 + (name_utf16.len() * 2)];
     put_u64(&mut value, 0, parent_id);
+    put_u32(&mut value, 56, file_attributes);
     value[64] = name_utf16.len() as u8;
     value[65] = 1;
     for (index, character) in name_utf16.iter().enumerate() {
