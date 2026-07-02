@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
 
 use crate::parse::{read_u8, read_u16, read_u32, read_u64, slice};
 use crate::{NtfsParseError, Result};
@@ -38,8 +39,13 @@ pub struct AttributeHeader {
     pub name_offset: u16,
     pub flags: u16,
     pub attribute_id: u16,
-    pub resident_value_range: Option<std::ops::Range<usize>>,
-    pub non_resident_data_size: Option<u64>,
+    pub resident_value_range: Option<Range<usize>>,
+    pub lowest_vcn: Option<u64>,
+    pub highest_vcn: Option<u64>,
+    pub non_resident_runlist_range: Option<Range<usize>>,
+    pub non_resident_allocated_size: Option<u64>,
+    pub non_resident_logical_size: Option<u64>,
+    pub non_resident_initialized_size: Option<u64>,
 }
 
 impl AttributeHeader {
@@ -73,11 +79,34 @@ impl AttributeHeader {
         let name_offset = read_u16(record, offset + 10)?;
         let flags = read_u16(record, offset + 12)?;
         let attribute_id = read_u16(record, offset + 14)?;
-        let (resident_value_range, non_resident_data_size) = if non_resident {
+        let (
+            resident_value_range,
+            lowest_vcn,
+            highest_vcn,
+            non_resident_runlist_range,
+            non_resident_allocated_size,
+            non_resident_logical_size,
+            non_resident_initialized_size,
+        ) = if non_resident {
             if length < 64 {
                 return Err(NtfsParseError::InvalidAttribute { offset });
             }
-            (None, Some(read_u64(record, offset + 48)?))
+            let runlist_offset = usize::from(read_u16(record, offset + 32)?);
+            let runlist_start = offset
+                .checked_add(runlist_offset)
+                .ok_or(NtfsParseError::InvalidAttribute { offset })?;
+            if runlist_offset < 64 || runlist_start > attr_end {
+                return Err(NtfsParseError::InvalidAttribute { offset });
+            }
+            (
+                None,
+                Some(read_u64(record, offset + 16)?),
+                Some(read_u64(record, offset + 24)?),
+                Some(runlist_start..attr_end),
+                Some(read_u64(record, offset + 40)?),
+                Some(read_u64(record, offset + 48)?),
+                Some(read_u64(record, offset + 56)?),
+            )
         } else {
             if length < 24 {
                 return Err(NtfsParseError::InvalidAttribute { offset });
@@ -93,7 +122,15 @@ impl AttributeHeader {
             if value_end > attr_end {
                 return Err(NtfsParseError::TruncatedResidentValue { offset });
             }
-            (Some(value_start..value_end), None)
+            (
+                Some(value_start..value_end),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
         };
 
         Ok(Some(Self {
@@ -106,7 +143,12 @@ impl AttributeHeader {
             flags,
             attribute_id,
             resident_value_range,
-            non_resident_data_size,
+            lowest_vcn,
+            highest_vcn,
+            non_resident_runlist_range,
+            non_resident_allocated_size,
+            non_resident_logical_size,
+            non_resident_initialized_size,
         }))
     }
 
@@ -126,6 +168,23 @@ impl AttributeHeader {
 
     pub fn resident_value<'a>(&self, record: &'a [u8]) -> Option<&'a [u8]> {
         self.resident_value_range
+            .as_ref()
+            .and_then(|range| record.get(range.clone()))
+    }
+
+    pub fn name_string(&self, record: &[u8]) -> Result<Option<String>> {
+        let Some(name) = self.name(record)? else {
+            return Ok(None);
+        };
+        let utf16 = name
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        Ok(Some(String::from_utf16_lossy(&utf16)))
+    }
+
+    pub fn non_resident_runlist<'a>(&self, record: &'a [u8]) -> Option<&'a [u8]> {
+        self.non_resident_runlist_range
             .as_ref()
             .and_then(|range| record.get(range.clone()))
     }

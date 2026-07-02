@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-use crate::adapter::{NtfsDataStream, NtfsFileName, NtfsFileReference, NtfsParsedRecord};
+use crate::adapter::{
+    NtfsDataStream, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
+};
 use crate::attrs::{AttributeHeader, AttributeType};
 use crate::fixup::apply_update_sequence;
 use crate::parse::{
     file_reference_sequence_number, low_file_reference_id, read_u16, read_u32, read_u64,
 };
+use crate::runlist::parse_data_runs;
 use crate::{NtfsParseError, Result};
 
 const RECORD_HEADER_MIN_LEN: usize = 48;
@@ -89,6 +92,7 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
         in_use: (record_flags & RECORD_FLAG_IN_USE) != 0,
         is_directory: (record_flags & RECORD_FLAG_DIRECTORY) != 0,
         is_reparse_point: false,
+        attributes: Vec::new(),
         names: Vec::new(),
         data_streams: Vec::new(),
         directory_entries: Vec::new(),
@@ -130,6 +134,16 @@ fn parse_attribute(
     header: &AttributeHeader,
     parsed: &mut NtfsParsedRecord,
 ) -> Result<()> {
+    let attribute_name = attribute_name(record, header)?;
+    parsed.attributes.push(NtfsParsedAttribute {
+        attribute_type: header.attribute_type,
+        attribute_id: header.attribute_id,
+        name: attribute_name.clone(),
+        non_resident: header.non_resident,
+        lowest_vcn: header.lowest_vcn,
+        highest_vcn: header.highest_vcn,
+    });
+
     match header.attribute_type {
         AttributeType::StandardInformation => {
             if let Some(value) = header.resident_value(record)
@@ -162,24 +176,16 @@ fn parse_attribute(
             parsed.names.push(file_name);
         }
         AttributeType::Data => {
-            if header.is_named() {
+            let stream = parse_data_stream(record, header, attribute_name.clone())?;
+            let is_named = stream.name.is_some();
+            push_data_stream(parsed, stream);
+
+            if is_named {
                 parsed.caveats.push(ParseCaveat::new(
                     "named-data-stream",
                     "named data streams are not counted in cleanup size estimates",
                 ));
-                return Ok(());
             }
-
-            let size = header
-                .non_resident_data_size
-                .or_else(|| {
-                    header
-                        .resident_value_range
-                        .as_ref()
-                        .map(|range| range.len() as u64)
-                })
-                .unwrap_or(0);
-            push_unnamed_data_stream(parsed, size);
         }
         AttributeType::ReparsePoint => {
             parsed.is_reparse_point = true;
@@ -188,6 +194,50 @@ fn parse_attribute(
     }
 
     Ok(())
+}
+
+fn attribute_name(record: &[u8], header: &AttributeHeader) -> Result<Option<String>> {
+    header.name_string(record)
+}
+
+fn parse_data_stream(
+    record: &[u8],
+    header: &AttributeHeader,
+    name: Option<String>,
+) -> Result<NtfsDataStream> {
+    if header.non_resident {
+        let lowest_vcn = header.lowest_vcn.unwrap_or(0);
+        let runlist = header
+            .non_resident_runlist(record)
+            .ok_or(NtfsParseError::InvalidRunlist)?;
+        return Ok(NtfsDataStream {
+            attribute_id: header.attribute_id,
+            name,
+            lowest_vcn: header.lowest_vcn,
+            highest_vcn: header.highest_vcn,
+            logical_size: header.non_resident_logical_size.unwrap_or(0),
+            allocated_size: header.non_resident_allocated_size,
+            initialized_size: header.non_resident_initialized_size,
+            data_runs: parse_data_runs(runlist, lowest_vcn)?,
+        });
+    }
+
+    let logical_size = header
+        .resident_value_range
+        .as_ref()
+        .and_then(|range| record.get(range.clone()))
+        .map(|value| value.len() as u64)
+        .unwrap_or(0);
+    Ok(NtfsDataStream {
+        attribute_id: header.attribute_id,
+        name,
+        lowest_vcn: None,
+        highest_vcn: None,
+        logical_size,
+        allocated_size: Some(logical_size),
+        initialized_size: Some(logical_size),
+        data_runs: Vec::new(),
+    })
 }
 
 fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
@@ -206,11 +256,6 @@ fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
         return Err(NtfsParseError::InvalidFileName);
     }
 
-    let mut utf16 = Vec::with_capacity(name_len);
-    for chunk in value[66..66 + name_bytes].chunks_exact(2) {
-        utf16.push(u16::from_le_bytes([chunk[0], chunk[1]]));
-    }
-
     let parent_reference = read_u64(value, 0)?;
     Ok(NtfsFileName {
         parent: NtfsFileReference::known(
@@ -218,27 +263,47 @@ fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
             file_reference_sequence_number(parent_reference),
         ),
         namespace: FileNameNamespace::from_raw(value[65]),
-        name: String::from_utf16_lossy(&utf16),
+        name: utf16_lossy(&value[66..66 + name_bytes]),
         allocated_size: read_u64(value, 40)?,
         real_size: read_u64(value, 48)?,
         file_attributes: read_u32(value, 56)?,
     })
 }
 
-fn push_unnamed_data_stream(record: &mut NtfsParsedRecord, logical_size: u64) {
-    if let Some(stream) = record
-        .data_streams
-        .iter_mut()
-        .find(|stream| stream.name.is_none())
-    {
-        stream.logical_size = stream.logical_size.max(logical_size);
+fn push_data_stream(record: &mut NtfsParsedRecord, mut incoming: NtfsDataStream) {
+    let attribute_id = incoming.attribute_id;
+    let name = incoming.name.clone();
+    let lowest_vcn = incoming.lowest_vcn;
+    if let Some(existing) = record.data_streams.iter_mut().find(|stream| {
+        stream.attribute_id == attribute_id
+            && stream.name == name
+            && stream.lowest_vcn == lowest_vcn
+    }) {
+        existing.logical_size = existing.logical_size.max(incoming.logical_size);
+        existing.allocated_size =
+            max_optional_u64(existing.allocated_size, incoming.allocated_size);
+        existing.initialized_size =
+            max_optional_u64(existing.initialized_size, incoming.initialized_size);
+        existing.highest_vcn = max_optional_u64(existing.highest_vcn, incoming.highest_vcn);
+        existing.data_runs.append(&mut incoming.data_runs);
         return;
     }
 
-    record.data_streams.push(NtfsDataStream {
-        name: None,
-        logical_size,
-        allocated_size: None,
-        initialized_size: None,
-    });
+    record.data_streams.push(incoming);
+}
+
+fn max_optional_u64(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn utf16_lossy(bytes: &[u8]) -> String {
+    let utf16 = bytes
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect::<Vec<_>>();
+    String::from_utf16_lossy(&utf16)
 }

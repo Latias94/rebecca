@@ -9,11 +9,13 @@ pub mod fixup;
 pub mod index;
 pub mod reader;
 pub mod record;
+pub mod runlist;
 
 mod parse;
 
 pub use adapter::{
-    NtfsDataStream, NtfsDirectoryEntry, NtfsFileName, NtfsFileReference, NtfsParsedRecord,
+    NtfsDataRun, NtfsDataStream, NtfsDirectoryEntry, NtfsFileName, NtfsFileReference,
+    NtfsParsedAttribute, NtfsParsedRecord,
 };
 pub use attrs::{AttributeHeader, AttributeType};
 pub use index::{MftIndex, MftIndexEntry, SubtreeSummary};
@@ -44,4 +46,7 @@ pub enum NtfsParseError {
 
     #[error("file name attribute is invalid")]
     InvalidFileName,
+
+    #[error("data run list is invalid")]
+    InvalidRunlist,
 }

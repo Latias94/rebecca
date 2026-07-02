@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::attrs::AttributeType;
 use crate::record::{FileNameNamespace, ParseCaveat};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -30,6 +31,7 @@ pub struct NtfsParsedRecord {
     pub in_use: bool,
     pub is_directory: bool,
     pub is_reparse_point: bool,
+    pub attributes: Vec<NtfsParsedAttribute>,
     pub names: Vec<NtfsFileName>,
     pub data_streams: Vec<NtfsDataStream>,
     pub directory_entries: Vec<NtfsDirectoryEntry>,
@@ -76,6 +78,16 @@ impl NtfsParsedRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtfsParsedAttribute {
+    pub attribute_type: AttributeType,
+    pub attribute_id: u16,
+    pub name: Option<String>,
+    pub non_resident: bool,
+    pub lowest_vcn: Option<u64>,
+    pub highest_vcn: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NtfsFileName {
     pub parent: NtfsFileReference,
     pub namespace: FileNameNamespace,
@@ -87,10 +99,21 @@ pub struct NtfsFileName {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NtfsDataStream {
+    pub attribute_id: u16,
     pub name: Option<String>,
+    pub lowest_vcn: Option<u64>,
+    pub highest_vcn: Option<u64>,
     pub logical_size: u64,
     pub allocated_size: Option<u64>,
     pub initialized_size: Option<u64>,
+    pub data_runs: Vec<NtfsDataRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtfsDataRun {
+    pub starting_vcn: u64,
+    pub cluster_count: u64,
+    pub lcn: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

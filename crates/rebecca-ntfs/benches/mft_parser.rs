@@ -86,14 +86,19 @@ fn resident_attr(attribute_type: u32, value: &[u8]) -> Vec<u8> {
 }
 
 fn nonresident_data_attr(data_size: u64) -> Vec<u8> {
-    let mut attr = vec![0_u8; 64];
+    let runlist = [0x11, 0x01, 0x20, 0x00];
+    let runlist_offset = 64;
+    let total_len = align8(runlist_offset + runlist.len());
+    let mut attr = vec![0_u8; total_len];
     put_u32(&mut attr, 0, ATTR_DATA);
-    put_u32(&mut attr, 4, 64);
+    put_u32(&mut attr, 4, total_len as u32);
     attr[8] = 1;
-    put_u16(&mut attr, 32, 64);
+    put_u64(&mut attr, 24, 0);
+    put_u16(&mut attr, 32, runlist_offset as u16);
     put_u64(&mut attr, 40, data_size);
     put_u64(&mut attr, 48, data_size);
     put_u64(&mut attr, 56, data_size);
+    attr[runlist_offset..runlist_offset + runlist.len()].copy_from_slice(&runlist);
     attr
 }
 

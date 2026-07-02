@@ -58,8 +58,65 @@ fn parsed_record_preserves_owned_references_and_stream_shape() {
     assert_eq!(name.name, "cache.bin");
     assert_eq!(parsed.cleanup_logical_size(), 1234);
     assert_eq!(parsed.data_streams.len(), 1);
-    assert_eq!(parsed.data_streams[0].name, None);
-    assert_eq!(parsed.data_streams[0].logical_size, 1234);
+    let stream = &parsed.data_streams[0];
+    assert_eq!(stream.attribute_id, 0);
+    assert_eq!(stream.name, None);
+    assert_eq!(stream.lowest_vcn, Some(0));
+    assert_eq!(stream.highest_vcn, Some(0));
+    assert_eq!(stream.logical_size, 1234);
+    assert_eq!(stream.allocated_size, Some(1234));
+    assert_eq!(stream.initialized_size, Some(1234));
+    assert_eq!(stream.data_runs.len(), 1);
+    assert_eq!(stream.data_runs[0].starting_vcn, 0);
+    assert_eq!(stream.data_runs[0].cluster_count, 1);
+    assert_eq!(stream.data_runs[0].lcn, Some(32));
+    assert!(parsed.attributes.iter().any(|attribute| {
+        attribute.attribute_id == 0
+            && attribute.attribute_type == rebecca_ntfs::AttributeType::Data
+            && attribute.non_resident
+            && attribute.lowest_vcn == Some(0)
+            && attribute.highest_vcn == Some(0)
+    }));
+}
+
+#[test]
+fn resident_and_named_data_streams_keep_cleanup_size_conservative() {
+    let record = NtfsParsedRecord::parse(
+        43,
+        &mft_record(
+            43,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "streams.bin", 0),
+                resident_data_attr(b"abc"),
+                named_resident_data_attr("secret", b"hidden"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    assert_eq!(record.cleanup_logical_size(), 3);
+    assert_eq!(record.data_streams.len(), 2);
+    let unnamed = record
+        .data_streams
+        .iter()
+        .find(|stream| stream.name.is_none())
+        .unwrap();
+    assert_eq!(unnamed.logical_size, 3);
+    assert_eq!(unnamed.allocated_size, Some(3));
+    assert_eq!(unnamed.initialized_size, Some(3));
+    assert!(unnamed.data_runs.is_empty());
+
+    let named = record
+        .data_streams
+        .iter()
+        .find(|stream| stream.name.as_deref() == Some("secret"))
+        .unwrap();
+    assert_eq!(named.logical_size, 6);
+    assert!(named.data_runs.is_empty());
+    assert!(record.caveats.iter().any(|c| c.code == "named-data-stream"));
 }
 
 #[test]
@@ -478,6 +535,10 @@ fn resident_data_attr(bytes: &[u8]) -> Vec<u8> {
     resident_attr(ATTR_DATA, bytes)
 }
 
+fn named_resident_data_attr(name: &str, bytes: &[u8]) -> Vec<u8> {
+    resident_named_attr(ATTR_DATA, name, bytes)
+}
+
 fn attribute_list_attr() -> Vec<u8> {
     resident_attr(ATTR_ATTRIBUTE_LIST, &[0_u8; 32])
 }
@@ -499,15 +560,50 @@ fn resident_attr(attribute_type: u32, value: &[u8]) -> Vec<u8> {
     attr
 }
 
+fn resident_named_attr(attribute_type: u32, name: &str, value: &[u8]) -> Vec<u8> {
+    let header_len = 24;
+    let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
+    let name_len = name_utf16.len() * 2;
+    let value_offset = align8(header_len + name_len);
+    let total_len = align8(value_offset + value.len());
+    let mut attr = vec![0_u8; total_len];
+    put_u32(&mut attr, 0, attribute_type);
+    put_u32(&mut attr, 4, total_len as u32);
+    attr[8] = 0;
+    attr[9] = name_utf16.len() as u8;
+    put_u16(&mut attr, 10, header_len as u16);
+    put_u32(&mut attr, 16, value.len() as u32);
+    put_u16(&mut attr, 20, value_offset as u16);
+    for (index, character) in name_utf16.iter().enumerate() {
+        put_u16(&mut attr, header_len + (index * 2), *character);
+    }
+    attr[value_offset..value_offset + value.len()].copy_from_slice(value);
+    attr
+}
+
 fn nonresident_data_attr(data_size: u64) -> Vec<u8> {
-    let mut attr = vec![0_u8; 64];
+    nonresident_data_attr_with_runlist(data_size, 0, 0, &[0x11, 0x01, 0x20, 0x00])
+}
+
+fn nonresident_data_attr_with_runlist(
+    data_size: u64,
+    lowest_vcn: u64,
+    highest_vcn: u64,
+    runlist: &[u8],
+) -> Vec<u8> {
+    let runlist_offset = 64;
+    let total_len = align8(runlist_offset + runlist.len());
+    let mut attr = vec![0_u8; total_len];
     put_u32(&mut attr, 0, ATTR_DATA);
-    put_u32(&mut attr, 4, 64);
+    put_u32(&mut attr, 4, total_len as u32);
     attr[8] = 1;
-    put_u16(&mut attr, 32, 64);
+    put_u64(&mut attr, 16, lowest_vcn);
+    put_u64(&mut attr, 24, highest_vcn);
+    put_u16(&mut attr, 32, runlist_offset as u16);
     put_u64(&mut attr, 40, data_size);
     put_u64(&mut attr, 48, data_size);
     put_u64(&mut attr, 56, data_size);
+    attr[runlist_offset..runlist_offset + runlist.len()].copy_from_slice(runlist);
     attr
 }
 
