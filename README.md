@@ -81,7 +81,7 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - `catalog`, `inspect space`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
 - Default execution uses the Windows Recycle Bin.
 - Windows execution can batch already revalidated, non-overlapping targets into fewer Recycle Bin operations, but status, reason codes, pending bytes, and history remain per target.
-- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; `windows-ntfs-mft-experimental` attempts a read-only live NTFS/MFT index on supported local NTFS volumes, tries a sequential `$MFT` source before the per-record FSCTL source, and falls back to a safe directory scanner with provenance when unsupported or unprivileged. `inspect space` accepts the same backend selector for read-only estimates. The default remains the portable cleanup walker.
+- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates; `windows-ntfs-mft-experimental` attempts a read-only live NTFS/MFT index on supported local NTFS volumes, tries a sequential `$MFT` source before the per-record FSCTL source, aggregates through Rebecca's sequence-aware parser/index model, and falls back to a safe directory scanner with provenance when unsupported, unprivileged, or too ambiguous to trust. `inspect space` accepts the same backend selector for read-only estimates. The default remains the portable cleanup walker.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
@@ -177,7 +177,7 @@ Use `--format ndjson` for long-running cleanup workflows that need progress even
 
 Machine-readable success responses use the unified `rebecca.cli.v1` envelope. Every envelope includes `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero.
 
-Cleanup, purge, and `inspect space` targets expose estimate provenance. `estimate_source` remains stable, while `estimate_backend`, optional `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` explain backend selection, cache reuse, actual NTFS source selection, and fallback without changing deletion safety.
+Cleanup, purge, and `inspect space` targets expose estimate provenance. `estimate_source` remains stable, while `estimate_backend`, optional `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` explain backend selection, cache reuse, actual NTFS source selection, parser caveats, and fallback without changing deletion safety. Experimental NTFS/MFT byte totals stay on logical unnamed data streams; lower-level allocated and initialized stream metadata is retained internally for future disk-usage reporting.
 
 The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
 

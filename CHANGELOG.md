@@ -36,6 +36,8 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca-ntfs` now provides read-only NTFS MFT record parsing, fixup validation, file-name/data-size extraction, reparse detection, subtree aggregation, fixture tests, and a generated-record parser benchmark.
 - `clean --scan-backend windows-ntfs-mft-experimental` now attempts a read-only live NTFS/MFT index on supported local NTFS volumes, reuses a per-command volume index for repeated targets, reports estimate caveats, and falls back to a safe directory scanner when unsupported or unprivileged.
 - `windows-ntfs-mft-experimental` now tries a read-only sequential `$MFT::$DATA` source before the per-record `FSCTL_GET_NTFS_FILE_RECORD` source, reads bounded aligned chunks, and keeps per-record FSCTL plus directory scanners as structured fallback paths.
+- `rebecca-ntfs` now models NTFS records as owned parser DTOs with file-reference sequence numbers, attributes, streams, data runs, attribute-list entries, resident `$I30` directory index entries, logical/allocated/initialized size fields, parser caveats, and a generated parse-plus-index benchmark path.
+- Experimental NTFS/MFT estimates now aggregate through a sequence-aware `MftIndex` that preserves hardlink path candidates, resolves direct `$ATTRIBUTE_LIST` extension-record `$DATA` streams, cross-checks resident `$I30` directory entries, and counts each physical record once per subtree.
 - Cleanup, purge, and `inspect space` estimate provenance now include optional `estimate_backend_source` values such as `windows-ntfs-mft-experimental-sequential` and `windows-ntfs-mft-experimental-fsctl-record` so wrappers can distinguish the actual experimental source from the public backend selector.
 - Scan-cache records now have a USN Journal validation model for checkpoint, journal id, range availability, and target-subtree change invalidation; missing USN support falls back to the normal cache policy.
 - Cleanup rule targets now expose explicit search semantics in the manifest parser and catalog output, and glob discovery can reuse a per-plan directory enumeration index for compatible rules.
@@ -63,6 +65,7 @@ All notable changes to Rebecca will be documented in this file.
 - Scan-cache lookups now accept exact v1 records produced by portable, Windows native, or experimental NTFS/MFT scanners when root fingerprint and identity still match, and preserve optional backend-source provenance for cache hits.
 - The performance matrix report schema now carries `backend_source_expectation`; live NTFS source timing is opt-in with `REBECCA_PERF_MATRIX_LIVE_NTFS=1` so default benchmark runs stay deterministic.
 - Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
+- Experimental NTFS/MFT cleanup estimates now keep v1 user-facing byte totals on logical unnamed `$DATA` streams while retaining allocated and initialized stream metadata internally for future disk-usage surfaces.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.
@@ -74,6 +77,7 @@ All notable changes to Rebecca will be documented in this file.
 
 ### Fixed
 - Experimental NTFS/MFT estimate caveats now summarize repeated full-volume parse errors and cap repeated per-target caveat samples so JSON output remains bounded on real volumes.
+- Experimental NTFS/MFT directory-index fallback caveats now stay attached to the affected parent child edge, so `$I30` parent-map supplements remain visible in subtree estimate caveats without duplicating child-entry caveats.
 
 ## [0.2.0]
 

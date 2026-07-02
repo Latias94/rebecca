@@ -97,7 +97,12 @@ The `windows-ntfs-mft-experimental` backend is read-only and opt-in. When live
 NTFS metadata is available, `estimate_backend_source` distinguishes the
 sequential `$MFT` source from the per-record FSCTL fallback source. When live
 metadata is unavailable or ambiguous, Rebecca reports fallback provenance
-instead of treating raw metadata as cleanup authority.
+instead of treating raw metadata as cleanup authority. Parser caveats may
+include sequence mismatches, hardlink path candidates, direct attribute-list
+extension handling, resident `$I30` directory-index fallback, unsupported
+nonresident directory indexes, or bounded parse-error summaries. These caveats
+are explainability fields; they do not authorize deletion or change v1 byte
+semantics.
 
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
 `warnings`. A target with `reason_code: "warning-gate-required"` was excluded

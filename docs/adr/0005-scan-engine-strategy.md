@@ -33,7 +33,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 - Keep symlink and reparse-point traversal disabled.
 - Keep bounded target-level parallelism through Rebecca's shared rayon scan pool.
 - Provide a Windows native directory enumeration backend as an explicit `clean --scan-backend windows-native` opt-in. It uses Windows find data to read entry attributes and file sizes during enumeration, keeps the same reparse protections, and falls back to portable scanning when unsupported.
-- Add NTFS/MFT acceleration only as an optional experimental path. `clean --scan-backend windows-ntfs-mft-experimental` attempts a read-only live NTFS volume index on supported local NTFS volumes, tries sequential `$MFT` reads before per-record FSCTL reads, reuses the index within a command, and falls back with caveats when unsupported, unprivileged, or ambiguous.
+- Add NTFS/MFT acceleration only as an optional experimental path. `clean --scan-backend windows-ntfs-mft-experimental` attempts a read-only live NTFS volume index on supported local NTFS volumes, tries sequential `$MFT` reads before per-record FSCTL reads, aggregates through Rebecca-owned parser/index DTOs, reuses the index within a command, and falls back with caveats when unsupported, unprivileged, or ambiguous.
 - Restrict NTFS fast-path usage to analysis and size discovery, not as a requirement for core cleanup.
 
 # Alternatives Considered
@@ -63,6 +63,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 - Later performance work can happen behind a feature flag or internal adapter selection.
 - Windows users can dogfood a native directory backend without making it the default cleanup authority.
 - The experimental MFT selector can be tested by wrappers without granting it deletion authority; live-volume access remains opt-in, source-provenanced, and fallback-capable.
+- The experimental MFT selector now uses a sequence-aware `MftIndex` with hardlink path candidates, direct attribute-list extension handling, data-run metadata, and resident `$I30` directory-index caveats while preserving logical-byte v1 output.
 - Benchmarks can compare default traversal against NTFS acceleration on representative datasets.
 - Search-tool ignore rules do not create cleanup-size undercounts.
 

@@ -113,8 +113,11 @@ for the backend dogfood runs. The experimental NTFS/MFT run should either show
 `estimate_backend_source: "windows-ntfs-mft-experimental-sequential"` or
 `"windows-ntfs-mft-experimental-fsctl-record"` on a supported elevated local
 NTFS volume, or a clear fallback reason, no backend source, and
-`experimental-ntfs-mft-fallback` caveat. Focused Windows backend tests and the
-performance matrix remain the authoritative evidence for native and
+`experimental-ntfs-mft-fallback` caveat. Successful NTFS/MFT dogfood should also
+review any parser caveats for sequence mismatches, hardlink path candidates,
+attribute-list handling, directory-index fallback, unsupported nonresident index
+allocation, or bounded parse-error summaries. Focused Windows backend tests and
+the performance matrix remain the authoritative evidence for native and
 experimental backend fallback behavior.
 
 ## Current Limitations

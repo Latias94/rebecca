@@ -166,11 +166,21 @@ opt into platform scanners per command with `--scan-backend`:
 
 Experimental NTFS/MFT estimates are explainability data only. They never
 authorize deletion, and execution still revalidates filesystem paths through
-the normal safety model. Machine outputs expose the actual scanner through
-`estimate_backend`, exactness through `estimate_confidence`, fallback detail
-through `estimate_fallback_reason`, actual experimental source through optional
-`estimate_backend_source`, and parser or ambiguity notes through
+the normal safety model. The parser keeps Rebecca-owned records, file-reference
+sequence numbers, attributes, data streams, data runs, direct attribute-list
+extensions, hardlink path candidates, and resident `$I30` directory index
+entries behind the scan backend boundary. Machine outputs expose the actual
+scanner through `estimate_backend`, exactness through `estimate_confidence`,
+fallback detail through `estimate_fallback_reason`, actual experimental source
+through optional `estimate_backend_source`, and parser or ambiguity notes through
 `estimate_caveats`.
+
+The v1 cleanup estimate remains logical bytes from the unnamed `$DATA` stream.
+Allocated and initialized stream sizes are retained internally so a later disk
+usage surface can report allocation-aware reclaim estimates without changing the
+cleanup contract. Unsupported metadata, such as nonresident attribute lists or
+nonresident `$I30` index allocation buffers, must produce caveats or fallback
+instead of silent success.
 
 ## Cache Purge Boundary
 

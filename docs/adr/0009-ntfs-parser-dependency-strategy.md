@@ -131,6 +131,9 @@ edge cases already solved elsewhere.
   fallback, cache reuse, target identity validation, and output provenance.
 - Tests and fixtures must verify caveat behavior for unsupported metadata before
   any dependency-backed path can be trusted.
+- The first-party parser path is allowed to advance without waiting on an
+  external crate when the dependency gate has not accepted a production
+  dependency.
 
 # Success Metrics
 
@@ -143,5 +146,14 @@ edge cases already solved elsewhere.
 
 # Status
 
-Accepted. No production NTFS parser dependency is added yet; the next
-implementation step is the Rebecca-owned adapter contract.
+Accepted. No production NTFS parser dependency is added yet. The owned adapter
+contract and first-party parser core are now the active implementation path:
+`rebecca-ntfs` models records, file references with sequence numbers,
+attributes, streams, data runs, direct attribute-list extension records,
+hardlink path candidates, and resident `$I30` directory entries behind
+Rebecca-owned DTOs. External crates remain candidates for future adapter-backed
+spikes or dev-only oracles, not public cleanup contracts.
+
+Current known gaps stay explicit: nonresident attribute lists and nonresident
+`$I30` index allocation buffers are caveated or fall back until a runlist-backed
+stream reader and fixture/oracle coverage make those paths defensible.
