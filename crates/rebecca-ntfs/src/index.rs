@@ -281,16 +281,16 @@ fn push_child(children: &mut BTreeMap<u64, Vec<u64>>, parent_id: u64, child_id: 
 }
 
 fn cross_check_directory_entries(
-    entries: &mut BTreeMap<u64, MftIndexEntry>,
+    entries: &BTreeMap<u64, MftIndexEntry>,
     children: &mut BTreeMap<u64, Vec<u64>>,
     directory_entries_by_parent: &BTreeMap<u64, Vec<crate::NtfsDirectoryEntry>>,
-    skipped_child_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
+    child_edge_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
 ) {
     for (parent_record_id, directory_entries) in directory_entries_by_parent {
         for directory_entry in directory_entries {
             if directory_entry.parent.record_id != *parent_record_id {
                 push_directory_caveat(
-                    skipped_child_caveats,
+                    child_edge_caveats,
                     *parent_record_id,
                     ParseCaveat::new(
                         "directory-index-parent-mismatch",
@@ -307,7 +307,7 @@ fn cross_check_directory_entries(
 
             let Some(child_entry) = entries.get(&directory_entry.child.record_id) else {
                 push_directory_caveat(
-                    skipped_child_caveats,
+                    child_edge_caveats,
                     *parent_record_id,
                     ParseCaveat::new(
                         "directory-index-child-missing-record",
@@ -328,7 +328,7 @@ fn cross_check_directory_entries(
                 (Some(expected), Some(actual)) if sequence_number_mismatches(expected, actual)
             ) {
                 push_directory_caveat(
-                    skipped_child_caveats,
+                    child_edge_caveats,
                     *parent_record_id,
                     ParseCaveat::new(
                         "directory-index-child-sequence-mismatch",
@@ -348,17 +348,17 @@ fn cross_check_directory_entries(
                 .get(parent_record_id)
                 .is_some_and(|ids| ids.contains(&directory_entry.child.record_id));
             if !parent_edge_exists {
-                let caveat = ParseCaveat::new(
-                    "directory-index-parent-map-fallback",
-                    format!(
-                        "$I30 entry '{}' was used because it is not present in $FILE_NAME parent edges for directory {}",
-                        directory_entry.name, parent_record_id
+                push_directory_caveat(
+                    child_edge_caveats,
+                    *parent_record_id,
+                    ParseCaveat::new(
+                        "directory-index-parent-map-fallback",
+                        format!(
+                            "$I30 entry '{}' was used because it is not present in $FILE_NAME parent edges for directory {}",
+                            directory_entry.name, parent_record_id
+                        ),
                     ),
                 );
-                push_directory_caveat(skipped_child_caveats, *parent_record_id, caveat.clone());
-                if let Some(child_entry) = entries.get_mut(&directory_entry.child.record_id) {
-                    child_entry.caveats.push(caveat);
-                }
                 children
                     .entry(*parent_record_id)
                     .or_default()
@@ -373,11 +373,11 @@ fn sequence_number_mismatches(expected: u16, actual: u16) -> bool {
 }
 
 fn push_directory_caveat(
-    skipped_child_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
+    child_edge_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
     parent_record_id: u64,
     caveat: ParseCaveat,
 ) {
-    skipped_child_caveats
+    child_edge_caveats
         .entry(parent_record_id)
         .or_default()
         .push(caveat);
