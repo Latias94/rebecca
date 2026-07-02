@@ -25,18 +25,27 @@ pub fn apply_update_sequence(record: &[u8], sector_size: usize) -> Result<Vec<u8
 
     let update_sequence = read_u16(record, usa_offset)?;
     let mut fixed = record.to_vec();
+    let mut raw_fixups = 0_usize;
+    let mut applied_fixups = 0_usize;
     for sector_index in 0..sector_count {
         let sector_tail = (sector_index + 1)
             .checked_mul(sector_size)
             .and_then(|end| end.checked_sub(2))
             .ok_or(NtfsParseError::InvalidUpdateSequence)?;
         let observed = read_u16(record, sector_tail)?;
-        if observed != update_sequence {
+        let replacement = read_u16(record, usa_offset + ((sector_index + 1) * 2))?;
+        if observed == update_sequence {
+            raw_fixups = raw_fixups.saturating_add(1);
+            fixed[sector_tail..sector_tail + 2].copy_from_slice(&replacement.to_le_bytes());
+        } else if observed == replacement {
+            applied_fixups = applied_fixups.saturating_add(1);
+        } else {
             return Err(NtfsParseError::InvalidUpdateSequence);
         }
+    }
 
-        let replacement = read_u16(record, usa_offset + ((sector_index + 1) * 2))?;
-        fixed[sector_tail..sector_tail + 2].copy_from_slice(&replacement.to_le_bytes());
+    if raw_fixups > 0 && applied_fixups > 0 {
+        return Err(NtfsParseError::InvalidUpdateSequence);
     }
 
     Ok(fixed)

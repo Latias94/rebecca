@@ -177,7 +177,7 @@ fn scenario_metadata() -> Vec<ScenarioMetadata> {
                 0,
             )
             .with_backend_source_expectation(
-                "windows-ntfs-mft-experimental-sequential|windows-ntfs-mft-experimental-fsctl-record|fallback-none",
+                "windows-ntfs-mft-experimental-targeted-fsctl|windows-ntfs-mft-experimental-sequential|windows-ntfs-mft-experimental-fsctl-record|fallback-none",
             ),
         );
     }
@@ -1081,7 +1081,8 @@ fn assert_ntfs_mft_source_or_fallback(measured: &MeasuredScan) {
             assert!(matches!(
                 measured.backend_source.as_deref(),
                 Some(
-                    "windows-ntfs-mft-experimental-sequential"
+                    "windows-ntfs-mft-experimental-targeted-fsctl"
+                        | "windows-ntfs-mft-experimental-sequential"
                         | "windows-ntfs-mft-experimental-fsctl-record"
                 )
             ));

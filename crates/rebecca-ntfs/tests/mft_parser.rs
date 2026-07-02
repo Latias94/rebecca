@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use rebecca_ntfs::{
     AttributeType, MftIndex, MftRecordReader, NtfsDataRun, NtfsFileReference, NtfsParseError,
     NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry, NtfsStreamReadError, NtfsStreamReader,
-    NtfsStreamSource, SparseRunPolicy,
+    NtfsStreamSource, SparseRunPolicy, resolve_record_with_stream_source,
 };
 
 const RECORD_SIZE: usize = 1024;
@@ -42,6 +42,27 @@ fn valid_fixture_record_parses_name_parent_and_stream_size() {
     assert_eq!(name.parent.record_id, 5);
     assert_eq!(name.parent.sequence_number, Some(5));
     assert_eq!(name.name, "cache.bin");
+}
+
+#[test]
+fn fsctl_applied_fixup_record_parses_name_parent_and_stream_size() {
+    let mut raw = mft_record(
+        42,
+        true,
+        false,
+        vec![
+            standard_information_attr(0),
+            file_name_attr(5, "cache.bin", 0),
+            nonresident_data_attr(1234),
+        ],
+    );
+    mark_test_fixup_as_already_applied(&mut raw);
+
+    let record = NtfsParsedRecord::parse_mft_record(42, &raw, SECTOR_SIZE).unwrap();
+
+    assert!(record.in_use);
+    assert_eq!(record.cleanup_logical_size(), 1234);
+    assert_eq!(record.primary_file_name().unwrap().name, "cache.bin");
 }
 
 #[test]
@@ -749,6 +770,136 @@ fn record_set_expands_attribute_list_i30_index_allocation_extension() {
             .any(|caveat| caveat.code == "attribute-list-extension-records-unexpanded"),
         "{:?}",
         directory.caveats
+    );
+}
+
+#[test]
+fn single_record_resolution_lazily_merges_attribute_list_data_extension() {
+    let base = NtfsParsedRecord::parse_mft_record(
+        20,
+        &mft_record(
+            20,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "split.bin", 0),
+                attribute_list_attr_with_entry(ATTR_DATA, None, 0, file_reference(21, 21), 0),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let extension = NtfsParsedRecord::parse_mft_record(
+        21,
+        &mft_record_with_base(
+            21,
+            file_reference(20, 20),
+            true,
+            false,
+            vec![nonresident_data_attr(123)],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let mut source = FakeStreamSource::default();
+    let mut extension_reads = 0;
+
+    let resolved = resolve_record_with_stream_source(
+        base,
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+        |reference| {
+            extension_reads += 1;
+            assert_eq!(reference, NtfsFileReference::known(21, 21));
+            Ok::<_, ()>(Some(extension.clone()))
+        },
+    )
+    .unwrap();
+
+    assert_eq!(extension_reads, 1);
+    assert_eq!(resolved.cleanup_logical_size(), 123);
+    assert!(
+        !resolved
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "attribute-list-extension-records-unexpanded"),
+        "{:?}",
+        resolved.caveats
+    );
+}
+
+#[test]
+fn single_record_resolution_lazily_merges_attribute_list_i30_extension() {
+    let mut source = FakeStreamSource::default().with_bytes(
+        0x90_000,
+        &index_allocation_record(
+            0,
+            vec![
+                index_allocation_entry(file_reference(6, 6), file_reference(5, 5), "split.bin", 0),
+                index_allocation_last_entry(false),
+            ],
+        ),
+    );
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0),
+                attribute_list_attr_with_entry(
+                    ATTR_INDEX_ALLOCATION,
+                    Some("$I30"),
+                    0,
+                    file_reference(50, 50),
+                    0,
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let extension = NtfsParsedRecord::parse_mft_record(
+        50,
+        &mft_record_with_base(
+            50,
+            file_reference(5, 5),
+            true,
+            true,
+            vec![nonresident_named_attr(
+                ATTR_INDEX_ALLOCATION,
+                "$I30",
+                RECORD_SIZE as u64,
+                0,
+                &[0x21, 0x01, 0x90, 0x00, 0x00],
+            )],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let resolved = resolve_record_with_stream_source(
+        directory,
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+        |reference| {
+            assert_eq!(reference, NtfsFileReference::known(50, 50));
+            Ok::<_, ()>(Some(extension.clone()))
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resolved.directory_entries.len(), 1);
+    assert_eq!(resolved.directory_entries[0].name, "split.bin");
+    assert!(
+        !resolved
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "attribute-list-extension-records-unexpanded"),
+        "{:?}",
+        resolved.caveats
     );
 }
 
@@ -2256,6 +2407,13 @@ fn apply_test_fixup_at(record: &mut [u8], usa_offset: usize) {
     put_u16(record, usa_offset + 4, second_tail);
     put_u16(record, SECTOR_SIZE - 2, usn);
     put_u16(record, RECORD_SIZE - 2, usn);
+}
+
+fn mark_test_fixup_as_already_applied(record: &mut [u8]) {
+    let first_replacement = u16::from_le_bytes([record[USA_OFFSET + 2], record[USA_OFFSET + 3]]);
+    let second_replacement = u16::from_le_bytes([record[USA_OFFSET + 4], record[USA_OFFSET + 5]]);
+    put_u16(record, SECTOR_SIZE - 2, first_replacement);
+    put_u16(record, RECORD_SIZE - 2, second_replacement);
 }
 
 fn align8(value: usize) -> usize {

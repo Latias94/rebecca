@@ -87,7 +87,8 @@ When known, targets also include:
   `portable-recursive`, `windows-native`, or
   `windows-ntfs-mft-experimental`;
 - `estimate_backend_source`: optional implementation source within the selected
-  scanner, such as `windows-ntfs-mft-experimental-sequential` or
+  scanner, such as `windows-ntfs-mft-experimental-targeted-fsctl`,
+  `windows-ntfs-mft-experimental-sequential`, or
   `windows-ntfs-mft-experimental-fsctl-record`;
 - `estimate_confidence`: estimate confidence, currently `exact`;
 - `estimate_fallback_reason`: why Rebecca fell back from a requested backend;
@@ -95,9 +96,10 @@ When known, targets also include:
 
 The `windows-ntfs-mft-experimental` backend is read-only and opt-in. When live
 NTFS metadata is available, `estimate_backend_source` distinguishes the
-sequential `$MFT` source from the per-record FSCTL fallback source. When live
-metadata is unavailable or ambiguous, Rebecca reports fallback provenance
-instead of treating raw metadata as cleanup authority. Parser caveats may
+normal targeted per-record FSCTL traversal source from explicit full-index
+diagnostic sources. When live metadata is unavailable or ambiguous, Rebecca
+reports fallback provenance instead of treating raw metadata as cleanup
+authority. Parser caveats may
 include sequence mismatches, hardlink path candidates, direct attribute-list
 extension handling, resident or nonresident `$I30` directory-index fallback,
 unreadable or unsupported index-allocation streams, or bounded parse-error

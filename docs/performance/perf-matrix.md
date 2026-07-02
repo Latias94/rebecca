@@ -44,13 +44,16 @@ Use the NTFS dogfood script for live `windows-ntfs-mft-experimental` evidence, t
 pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-space -Top 3 -TimeoutSeconds 45
 ```
 
-The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, portable baseline deltas, and timeout status. A timeout from the experimental backend is a valid local finding because live MFT index construction can depend on whole-volume size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
-The experimental backend has its own 20 second live index build budget before
+The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, portable baseline deltas, and timeout status. A timeout from the experimental backend is a valid local finding because live metadata traversal can depend on target size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
+The experimental backend has its own 20 second live metadata budget before
 falling back to a directory scanner; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`
 higher for deep profiling or `0` to disable that guard for one process.
 Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` for live dogfood when you need stage
 timings in timeout fallback reasons or an opt-in `mft-index-build-timing`
 caveat on successful experimental runs.
+Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when you intentionally want a
+targeted-traversal failure to try the older full-volume MFT index path before
+directory-scanner fallback.
 
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 
@@ -60,7 +63,7 @@ pwsh -File scripts/perf/run-benchmark-matrix.ps1
 Remove-Item Env:\REBECCA_PERF_MATRIX_LIVE_NTFS
 ```
 
-When the live scenario succeeds through the experimental backend, its source must be either `windows-ntfs-mft-experimental-sequential` or `windows-ntfs-mft-experimental-fsctl-record`. When the host is unsupported or unelevated, the same scenario must report a directory-scanner fallback with no backend source. Parser caveat volume is part of performance evidence: a faster live run that silently drops attribute-list, sequence, hardlink, runlist, or directory-index uncertainty is not a valid improvement.
+When the live scenario succeeds through the experimental backend, its normal source should be `windows-ntfs-mft-experimental-targeted-fsctl`. Explicit full-index fallback or diagnostic runs may report `windows-ntfs-mft-experimental-sequential` or `windows-ntfs-mft-experimental-fsctl-record`. When the host is unsupported or unelevated, the same scenario must report a directory-scanner fallback with no backend source. Parser caveat volume is part of performance evidence: a faster live run that silently drops attribute-list, sequence, hardlink, runlist, or directory-index uncertainty is not a valid improvement.
 
 For parser-core work, run the NTFS microbench self-check before trusting Criterion numbers:
 

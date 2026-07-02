@@ -161,5 +161,7 @@ oracles, not public cleanup contracts.
 
 Current known gaps stay explicit: nonresident attribute lists remain caveated,
 unusual multi-index-buffer-per-cluster `$I30` geometry is bounded as
-unsupported, and live whole-volume MFT indexing still needs dogfood evidence
-before it can be treated as a fast default path.
+unsupported, and the live backend now prefers target-root-scoped per-record
+FSCTL traversal over whole-volume MFT indexing for ordinary cleanup estimates.
+Whole-volume indexing remains available only as an explicit diagnostic fallback
+or future disk-map/deep-inspect shape, not as the default fast path.

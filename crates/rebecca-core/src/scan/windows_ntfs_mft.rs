@@ -13,8 +13,9 @@ use std::time::{Duration, Instant};
 
 use rayon::{ThreadPool, prelude::*};
 use rebecca_ntfs::{
-    MftIndex, MftRecordBatch, MftRecordReader, NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry,
-    NtfsStreamSource, ParseCaveat,
+    MftIndex, MftRecordBatch, MftRecordReader, NtfsDirectoryEntry, NtfsFileReference,
+    NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry, NtfsStreamSource, ParseCaveat,
+    SubtreeSummary, resolve_record_with_stream_source,
 };
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
@@ -49,14 +50,19 @@ const DRIVE_FIXED: u32 = 3;
 const FILE_REFERENCE_LOW_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 const SEQUENTIAL_MFT_SOURCE_LABEL: &str = "sequential";
 const FSCTL_RECORD_SOURCE_LABEL: &str = "fsctl-record";
+const TARGETED_MFT_SOURCE_LABEL: &str = "targeted-fsctl";
 const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 const SEQUENTIAL_MFT_PARSE_WINDOW_CHUNKS: usize = 8;
+const TARGETED_MFT_MAX_RECORDS: usize = 1_000_000;
+const TARGETED_MFT_MAX_DEPTH: usize = 512;
+const NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES: usize = size_of::<i64>() + size_of::<u32>();
 const MAX_RETRIEVAL_POINTER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 const MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES: usize = 8;
 const MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE: usize = 8;
 const MFT_CAVEAT_SUMMARY_CODE: &str = "mft-caveat-summary";
 const LIVE_NTFS_MFT_INDEX_TIMEOUT_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS";
 const LIVE_NTFS_MFT_INDEX_TIMINGS_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMINGS";
+const LIVE_NTFS_MFT_FULL_INDEX_FALLBACK_ENV: &str = "REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK";
 const DEFAULT_LIVE_NTFS_MFT_INDEX_TIMEOUT: Duration = Duration::from_secs(20);
 const MFT_BUILD_TIMING_CAVEAT_CODE: &str = "mft-index-build-timing";
 
@@ -230,6 +236,9 @@ enum NtfsMftBuildStage {
     SequentialReadMftBytes,
     SequentialParseRecords,
     FsctlReadParseRecords,
+    TargetedReadRecord,
+    TargetedResolveRecord,
+    TargetedTraverseSubtree,
     ResolveIndexAllocations,
     BuildMftIndex,
 }
@@ -244,6 +253,9 @@ impl NtfsMftBuildStage {
             Self::SequentialReadMftBytes => "sequential-read-mft-bytes",
             Self::SequentialParseRecords => "sequential-parse-records",
             Self::FsctlReadParseRecords => "fsctl-read-parse-records",
+            Self::TargetedReadRecord => "targeted-read-record",
+            Self::TargetedResolveRecord => "targeted-resolve-record",
+            Self::TargetedTraverseSubtree => "targeted-traverse-subtree",
             Self::ResolveIndexAllocations => "resolve-index-allocations",
             Self::BuildMftIndex => "build-mft-index",
         }
@@ -283,6 +295,14 @@ fn live_ntfs_mft_index_timeout() -> Option<Duration> {
 
 fn live_ntfs_mft_index_timings_enabled() -> bool {
     std::env::var_os(LIVE_NTFS_MFT_INDEX_TIMINGS_ENV).is_some_and(|raw| {
+        let raw = raw.to_string_lossy();
+        let trimmed = raw.trim();
+        !trimmed.is_empty() && trimmed != "0"
+    })
+}
+
+fn live_ntfs_mft_full_index_fallback_enabled() -> bool {
+    std::env::var_os(LIVE_NTFS_MFT_FULL_INDEX_FALLBACK_ENV).is_some_and(|raw| {
         let raw = raw.to_string_lossy();
         let trimmed = raw.trim();
         !trimmed.is_empty() && trimmed != "0"
@@ -482,31 +502,49 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
             )));
         }
 
-        let index = self
-            .cache
-            .load_or_build(&capabilities, request.cancellation)?;
-        let Some(_) = index.mft_index.get(target_identity.file_reference_number) else {
-            return Err(RebeccaError::PlatformUnavailable(format!(
-                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not map {} to MFT record {}",
-                request.path.display(),
-                target_identity.file_reference_number
-            )));
+        let target_record_id = target_identity.file_reference.record_id;
+        let (summary, source_label, shared_caveats) = match build_targeted_mft_summary(
+            &capabilities,
+            target_identity.file_reference,
+            request.cancellation,
+        ) {
+            Ok((summary, caveats)) => (summary, TARGETED_MFT_SOURCE_LABEL, caveats),
+            Err(err)
+                if live_ntfs_mft_full_index_fallback_enabled()
+                    && mft_record_source_error_can_fallback(&err) =>
+            {
+                let index = self
+                    .cache
+                    .load_or_build(&capabilities, request.cancellation)?;
+                let Some(_) = index.mft_index.get(target_record_id) else {
+                    return Err(RebeccaError::PlatformUnavailable(format!(
+                        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not map {} to MFT record {}",
+                        request.path.display(),
+                        target_record_id
+                    )));
+                };
+                let mut summary = index.mft_index.aggregate_subtree(target_record_id);
+                summary.caveats.push(ParseCaveat::new(
+                    "mft-targeted-full-index-fallback",
+                    format!(
+                        "targeted NTFS/MFT traversal was unavailable ({err}); full-volume MFT index fallback was enabled by {LIVE_NTFS_MFT_FULL_INDEX_FALLBACK_ENV}"
+                    ),
+                ));
+                (summary, index.source_label, index.caveats.clone())
+            }
+            Err(err) => return Err(err),
         };
-
-        let summary = index
-            .mft_index
-            .aggregate_subtree(target_identity.file_reference_number);
         let report = ScanReport {
             bytes_scanned: summary.bytes,
             files_scanned: summary.files,
             directories_scanned: summary.directories,
         };
         let measured = MeasuredScan::exact(report, self.kind())
-            .with_backend_source(mft_backend_source_label(index.source_label));
+            .with_backend_source(mft_backend_source_label(source_label));
 
         Ok(with_bounded_mft_caveats(
             measured,
-            index.caveats.iter().cloned().chain(summary.caveats),
+            shared_caveats.into_iter().chain(summary.caveats),
         ))
     }
 }
@@ -636,7 +674,7 @@ fn drive_type(root_path: &Path) -> u32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FileIdentity {
     volume_serial: u64,
-    file_reference_number: u64,
+    file_reference: NtfsFileReference,
 }
 
 impl FileIdentity {
@@ -665,7 +703,7 @@ impl FileIdentity {
         )?;
         Ok(Self {
             volume_serial: u64::from(info.dwVolumeSerialNumber),
-            file_reference_number: low_file_reference_number(
+            file_reference: file_reference_from_number(
                 (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
             ),
         })
@@ -888,6 +926,389 @@ where
     })?;
     check_mft_build_progress(cancellation, monitor)?;
     Ok((index, records.caveats))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TargetedMftTraversalLimits {
+    max_records: usize,
+    max_depth: usize,
+}
+
+impl Default for TargetedMftTraversalLimits {
+    fn default() -> Self {
+        Self {
+            max_records: TARGETED_MFT_MAX_RECORDS,
+            max_depth: TARGETED_MFT_MAX_DEPTH,
+        }
+    }
+}
+
+trait TargetedMftRecordResolver {
+    fn resolve_record(&mut self, reference: NtfsFileReference) -> Result<Option<NtfsParsedRecord>>;
+}
+
+fn build_targeted_mft_summary(
+    capabilities: &NtfsVolumeCapabilities,
+    target_reference: NtfsFileReference,
+    cancellation: &ScanCancellationToken,
+) -> Result<(SubtreeSummary, Vec<ParseCaveat>)> {
+    let monitor = NtfsMftBuildMonitor::from_environment();
+    check_mft_build_progress(cancellation, &monitor)?;
+    let volume = monitor.measure_checked(NtfsMftBuildStage::OpenVolume, cancellation, || {
+        LiveNtfsVolume::open(capabilities)
+    })?;
+    let volume_data =
+        monitor.measure_checked(NtfsMftBuildStage::ReadVolumeData, cancellation, || {
+            volume.ntfs_volume_data()
+        })?;
+    let geometry = NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)?;
+    let mut resolver = LiveNtfsTargetRecordResolver::new(&volume, geometry, cancellation, &monitor);
+    let mut stream_source = LiveNtfsIndexStreamSource {
+        volume: &volume,
+        cancellation,
+        monitor: &monitor,
+    };
+    let mut traversal = TargetedMftTraversal {
+        resolver: &mut resolver,
+        stream_source: &mut stream_source,
+        geometry,
+        cancellation,
+        monitor: &monitor,
+        limits: TargetedMftTraversalLimits::default(),
+    };
+    let summary = monitor.measure_checked(
+        NtfsMftBuildStage::TargetedTraverseSubtree,
+        cancellation,
+        || traversal.aggregate_subtree(target_reference),
+    )?;
+    let mut caveats = Vec::new();
+    resolver.append_parse_caveats(&mut caveats);
+    if let Some(caveat) = monitor.timing_caveat() {
+        caveats.push(caveat);
+    }
+    Ok((summary, caveats))
+}
+
+struct LiveNtfsTargetRecordResolver<'a> {
+    volume: &'a LiveNtfsVolume,
+    geometry: NtfsRecordGeometry,
+    cancellation: &'a ScanCancellationToken,
+    monitor: &'a NtfsMftBuildMonitor,
+    records: BTreeMap<u64, NtfsParsedRecord>,
+    parse_errors: MftParseErrorCaveats,
+}
+
+impl<'a> LiveNtfsTargetRecordResolver<'a> {
+    fn new(
+        volume: &'a LiveNtfsVolume,
+        geometry: NtfsRecordGeometry,
+        cancellation: &'a ScanCancellationToken,
+        monitor: &'a NtfsMftBuildMonitor,
+    ) -> Self {
+        Self {
+            volume,
+            geometry,
+            cancellation,
+            monitor,
+            records: BTreeMap::new(),
+            parse_errors: MftParseErrorCaveats::default(),
+        }
+    }
+
+    fn append_parse_caveats(self, caveats: &mut Vec<ParseCaveat>) {
+        self.parse_errors.append_to(caveats);
+    }
+
+    fn read_targeted_file_record(
+        &self,
+        reference: NtfsFileReference,
+    ) -> Result<Option<(u64, Vec<u8>)>> {
+        match self
+            .volume
+            .read_file_record(file_reference_number(reference), self.geometry.record_size)
+        {
+            Ok(record) => Ok(record),
+            Err(err) if windows_error_matches(&err, ERROR_HANDLE_EOF) => Ok(None),
+            Err(err) if windows_error_matches(&err, ERROR_INVALID_PARAMETER) => Ok(None),
+            Err(err) => Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {TARGETED_MFT_SOURCE_LABEL} could not read MFT record {} from {}: {}",
+                reference.record_id,
+                self.volume.device_path,
+                err.message()
+            ))),
+        }
+    }
+}
+
+impl TargetedMftRecordResolver for LiveNtfsTargetRecordResolver<'_> {
+    fn resolve_record(&mut self, reference: NtfsFileReference) -> Result<Option<NtfsParsedRecord>> {
+        check_mft_build_progress(self.cancellation, self.monitor)?;
+        if let Some(record) = self.records.get(&reference.record_id) {
+            return Ok(Some(record.clone()));
+        }
+        if reference.record_id >= self.geometry.max_record_count {
+            return Ok(None);
+        }
+
+        let read = self.monitor.measure_checked(
+            NtfsMftBuildStage::TargetedReadRecord,
+            self.cancellation,
+            || self.read_targeted_file_record(reference),
+        )?;
+        let Some((record_id, raw_record)) = read else {
+            return Ok(None);
+        };
+
+        let parsed_record_id = low_file_reference_number(record_id);
+        if parsed_record_id != reference.record_id {
+            return Ok(None);
+        }
+        match NtfsParsedRecord::parse(parsed_record_id, &raw_record, self.geometry.sector_size) {
+            Ok(record) => {
+                self.records.insert(parsed_record_id, record.clone());
+                Ok(Some(record))
+            }
+            Err(err) => {
+                let message = err.to_string();
+                let record_len = raw_record.len();
+                let signature = record_signature_hex(&raw_record);
+                self.parse_errors.record(parsed_record_id, err);
+                Err(RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {TARGETED_MFT_SOURCE_LABEL} could not parse targeted MFT record {parsed_record_id} ({record_len} bytes, signature {signature}): {message}"
+                )))
+            }
+        }
+    }
+}
+
+fn record_signature_hex(record: &[u8]) -> String {
+    record
+        .iter()
+        .take(4)
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+struct TargetedMftTraversal<'a, R, S>
+where
+    R: TargetedMftRecordResolver,
+    S: NtfsStreamSource,
+{
+    resolver: &'a mut R,
+    stream_source: &'a mut S,
+    geometry: NtfsRecordGeometry,
+    cancellation: &'a ScanCancellationToken,
+    monitor: &'a NtfsMftBuildMonitor,
+    limits: TargetedMftTraversalLimits,
+}
+
+impl<R, S> TargetedMftTraversal<'_, R, S>
+where
+    R: TargetedMftRecordResolver,
+    S: NtfsStreamSource,
+{
+    fn aggregate_subtree(&mut self, root: NtfsFileReference) -> Result<SubtreeSummary> {
+        let mut summary = SubtreeSummary::default();
+        let mut stack = vec![TargetedTraversalNode {
+            reference: root,
+            depth: 0,
+            directory_entry: None,
+        }];
+        let mut visited = std::collections::BTreeSet::new();
+        let mut traversal_attempts = 0_usize;
+
+        while let Some(node) = stack.pop() {
+            check_mft_build_progress(self.cancellation, self.monitor)?;
+            if traversal_attempts >= self.limits.max_records {
+                return Err(targeted_mft_unavailable(format!(
+                    "targeted traversal exceeded the {} record candidate budget",
+                    self.limits.max_records
+                )));
+            }
+            traversal_attempts = traversal_attempts.saturating_add(1);
+
+            let Some(record) = self.resolver.resolve_record(node.reference)? else {
+                if node.directory_entry.is_none() {
+                    return Err(targeted_mft_unavailable(format!(
+                        "target root record {} could not be resolved",
+                        node.reference.record_id
+                    )));
+                }
+                summary.caveats.push(ParseCaveat::new(
+                    "missing-record",
+                    format!(
+                        "record {} is not present in the targeted MFT traversal",
+                        node.reference.record_id
+                    ),
+                ));
+                continue;
+            };
+            if reference_sequence_mismatches(node.reference, record.reference) {
+                summary.caveats.push(ParseCaveat::new(
+                    "directory-index-child-sequence-mismatch",
+                    format!(
+                        "targeted traversal expected record {} sequence {:?}, but current sequence is {:?}",
+                        node.reference.record_id,
+                        node.reference.sequence_number,
+                        record.reference.sequence_number
+                    ),
+                ));
+                continue;
+            }
+            if !visited.insert(record.reference.record_id) {
+                summary.caveats.push(ParseCaveat::new(
+                    "mft-targeted-record-already-counted",
+                    format!(
+                        "record {} appeared more than once in targeted subtree traversal",
+                        record.reference.record_id
+                    ),
+                ));
+                continue;
+            }
+
+            let record = self.resolve_record(record)?;
+            summary.caveats.extend(record.caveats.clone());
+            if let Some(directory_entry) = &node.directory_entry {
+                self.push_directory_entry_parent_caveat(&record, directory_entry, &mut summary);
+            }
+            if record.non_dos_file_name_count() > 1 {
+                summary.caveats.push(ParseCaveat::new(
+                    "hardlink-path-candidates",
+                    format!(
+                        "record {} has multiple non-DOS file names; targeted traversal counted the record once",
+                        record.reference.record_id
+                    ),
+                ));
+            }
+            if !record.in_use {
+                continue;
+            }
+            if record.is_reparse_point {
+                summary.caveats.push(ParseCaveat::new(
+                    "reparse-point-skipped",
+                    format!("record {} is a reparse point", record.reference.record_id),
+                ));
+                continue;
+            }
+
+            if record.is_directory {
+                summary.directories = summary.directories.saturating_add(1);
+                if node.depth >= self.limits.max_depth && !record.directory_entries.is_empty() {
+                    return Err(targeted_mft_unavailable(format!(
+                        "targeted traversal reached depth {} below directory record {}",
+                        node.depth, record.reference.record_id
+                    )));
+                }
+                self.push_directory_children(&record, node.depth, &mut stack, &mut summary);
+            } else {
+                summary.files = summary.files.saturating_add(1);
+                summary.bytes = summary.bytes.saturating_add(record.cleanup_logical_size());
+            }
+        }
+
+        Ok(summary)
+    }
+
+    fn push_directory_entry_parent_caveat(
+        &self,
+        record: &NtfsParsedRecord,
+        directory_entry: &NtfsDirectoryEntry,
+        summary: &mut SubtreeSummary,
+    ) {
+        let parent_edge_exists = record.names.iter().any(|name| {
+            !matches!(name.namespace, rebecca_ntfs::FileNameNamespace::Dos)
+                && name.parent == directory_entry.parent
+                && name.name.eq_ignore_ascii_case(&directory_entry.name)
+        });
+        if !parent_edge_exists {
+            summary.caveats.push(ParseCaveat::new(
+                "directory-index-parent-map-fallback",
+                format!(
+                    "$I30 entry '{}' was used because it is not present in $FILE_NAME parent edges for directory {}",
+                    directory_entry.name, directory_entry.parent.record_id
+                ),
+            ));
+        }
+    }
+
+    fn resolve_record(&mut self, record: NtfsParsedRecord) -> Result<NtfsParsedRecord> {
+        let resolver = &mut self.resolver;
+        self.monitor.measure_checked(
+            NtfsMftBuildStage::TargetedResolveRecord,
+            self.cancellation,
+            || {
+                resolve_record_with_stream_source(
+                    record,
+                    self.geometry.stream_geometry(),
+                    self.stream_source,
+                    |reference| resolver.resolve_record(reference),
+                )
+            },
+        )
+    }
+
+    fn push_directory_children(
+        &mut self,
+        record: &NtfsParsedRecord,
+        depth: usize,
+        stack: &mut Vec<TargetedTraversalNode>,
+        summary: &mut SubtreeSummary,
+    ) {
+        for entry in &record.directory_entries {
+            if entry.parent.record_id != record.reference.record_id {
+                summary.caveats.push(ParseCaveat::new(
+                    "directory-index-parent-mismatch",
+                    format!(
+                        "$I30 entry '{}' declares parent {}, but was stored on directory {}",
+                        entry.name, entry.parent.record_id, record.reference.record_id
+                    ),
+                ));
+                continue;
+            }
+            if reference_sequence_mismatches(entry.parent, record.reference) {
+                summary.caveats.push(ParseCaveat::new(
+                    "parent-sequence-mismatch",
+                    format!(
+                        "$I30 entry '{}' references parent {} sequence {:?}, but current sequence is {:?}",
+                        entry.name,
+                        entry.parent.record_id,
+                        entry.parent.sequence_number,
+                        record.reference.sequence_number
+                    ),
+                ));
+                continue;
+            }
+            stack.push(TargetedTraversalNode {
+                reference: entry.child,
+                depth: depth.saturating_add(1),
+                directory_entry: Some(entry.clone()),
+            });
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TargetedTraversalNode {
+    reference: NtfsFileReference,
+    depth: usize,
+    directory_entry: Option<NtfsDirectoryEntry>,
+}
+
+fn targeted_mft_unavailable(reason: String) -> RebeccaError {
+    RebeccaError::PlatformUnavailable(format!(
+        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {TARGETED_MFT_SOURCE_LABEL} {reason}"
+    ))
+}
+
+fn reference_sequence_mismatches(expected: NtfsFileReference, actual: NtfsFileReference) -> bool {
+    if expected.record_id != actual.record_id {
+        return true;
+    }
+    matches!(
+        (expected.sequence_number, actual.sequence_number),
+        (Some(expected), Some(actual)) if expected != 0 && actual != 0 && expected != actual
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1529,8 +1950,7 @@ impl LiveNtfsVolume {
         let mut input = NTFS_FILE_RECORD_INPUT_BUFFER {
             FileReferenceNumber: record_number as i64,
         };
-        let output_size =
-            offset_of!(NTFS_FILE_RECORD_OUTPUT_BUFFER, FileRecordBuffer) + record_size;
+        let output_size = NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES + record_size;
         let mut output = vec![0_u8; output_size];
         let mut bytes_returned = 0_u32;
         unsafe {
@@ -1558,7 +1978,7 @@ impl LiveNtfsVolume {
             return Ok(None);
         }
 
-        let record_offset = offset_of!(NTFS_FILE_RECORD_OUTPUT_BUFFER, FileRecordBuffer);
+        let record_offset = NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES;
         let available = output.len().saturating_sub(record_offset);
         let record_length = record_length.min(available);
         Ok(Some((
@@ -1582,6 +2002,24 @@ fn volume_open_error(device_path: &str, err: &WindowsError) -> RebeccaError {
 
 fn low_file_reference_number(file_reference_number: u64) -> u64 {
     file_reference_number & FILE_REFERENCE_LOW_MASK
+}
+
+fn file_reference_sequence_number(file_reference_number: u64) -> u16 {
+    ((file_reference_number >> 48) & 0xFFFF) as u16
+}
+
+fn file_reference_from_number(file_reference_number: u64) -> NtfsFileReference {
+    NtfsFileReference::known(
+        low_file_reference_number(file_reference_number),
+        file_reference_sequence_number(file_reference_number),
+    )
+}
+
+fn file_reference_number(reference: NtfsFileReference) -> u64 {
+    let record_id = reference.record_id & FILE_REFERENCE_LOW_MASK;
+    reference.sequence_number.map_or(record_id, |sequence| {
+        record_id | (u64::from(sequence) << 48)
+    })
 }
 
 fn root_metadata(path: &Path) -> Result<std::fs::Metadata> {
@@ -1626,10 +2064,12 @@ mod tests {
     use super::{
         MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE, MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES,
         MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE, MftExtent, MftParseErrorCaveats,
-        MftRecordSource, NTFS_VOLUME_DATA_BUFFER, NtfsMftBuildMonitor, NtfsMftBuildStage,
-        NtfsRecordGeometry, ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER,
-        RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken,
-        SequentialMftChunk, VolumePaths, build_mft_index_from_records, check_mft_build_progress,
+        MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
+        NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry, ParsedNtfsRecords,
+        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
+        ScanCancellationToken, SequentialMftChunk, TargetedMftRecordResolver, TargetedMftTraversal,
+        TargetedMftTraversalLimits, VolumePaths, build_mft_index_from_records,
+        check_mft_build_progress, file_reference_from_number, file_reference_number,
         low_file_reference_number, next_mft_chunk_len, parse_retrieval_pointer_extents,
         parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
@@ -1656,6 +2096,23 @@ mod tests {
     #[test]
     fn low_file_reference_masks_sequence_bits() {
         assert_eq!(low_file_reference_number(0x0001_0000_0000_002A), 42);
+    }
+
+    #[test]
+    fn file_reference_roundtrips_sequence_bits_for_targeted_fsctl() {
+        let reference = file_reference_from_number(0x0003_0000_004B_DD21);
+
+        assert_eq!(reference, NtfsFileReference::known(0x4B_DD21, 3));
+        assert_eq!(file_reference_number(reference), 0x0003_0000_004B_DD21);
+        assert_eq!(
+            file_reference_number(NtfsFileReference::unknown_sequence(42)),
+            42
+        );
+    }
+
+    #[test]
+    fn ntfs_file_record_output_buffer_uses_wire_header_offset() {
+        assert_eq!(NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, 12);
     }
 
     #[test]
@@ -1817,6 +2274,224 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+    }
+
+    #[test]
+    fn targeted_traversal_expands_index_allocation_without_full_index() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "large-dir"))
+            .with_record(parsed_file(6, 99, "large.bin", 3));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let summary = {
+            let mut traversal = TargetedMftTraversal {
+                resolver: &mut resolver,
+                stream_source: &mut source,
+                geometry: test_record_geometry(),
+                cancellation: &cancellation,
+                monitor: &monitor,
+                limits: TargetedMftTraversalLimits::default(),
+            };
+            traversal
+                .aggregate_subtree(NtfsFileReference::known(5, 5))
+                .unwrap()
+        };
+
+        assert_eq!(summary.bytes, 3);
+        assert_eq!(summary.files, 1);
+        assert_eq!(summary.directories, 1);
+        assert_eq!(resolver.reads, vec![5, 6]);
+    }
+
+    #[test]
+    fn targeted_traversal_caveats_child_sequence_mismatch() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "large-dir"))
+            .with_record(parsed_file(6, 99, "large.bin", 3));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 99),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let summary = traversal
+            .aggregate_subtree(NtfsFileReference::known(5, 5))
+            .unwrap();
+
+        assert_eq!(summary.bytes, 0);
+        assert_eq!(summary.files, 0);
+        assert!(summary.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-child-sequence-mismatch"
+                && caveat.message.contains("record 6")
+        }));
+    }
+
+    #[test]
+    fn targeted_traversal_stops_at_record_budget() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "large-dir"))
+            .with_record(parsed_file(6, 99, "large.bin", 3));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits {
+                max_records: 1,
+                max_depth: 512,
+            },
+        };
+
+        let err = traversal
+            .aggregate_subtree(NtfsFileReference::known(5, 5))
+            .unwrap_err();
+
+        assert!(matches!(err, RebeccaError::PlatformUnavailable(_)));
+        assert!(err.to_string().contains("record candidate budget"));
+    }
+
+    #[test]
+    fn targeted_traversal_stale_child_does_not_poison_later_valid_child() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "large-dir"))
+            .with_record(parsed_file(6, 5, "large.bin", 3));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_entry(
+                        file_reference(6, 99),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let summary = traversal
+            .aggregate_subtree(NtfsFileReference::known(5, 5))
+            .unwrap();
+
+        assert_eq!(summary.bytes, 3);
+        assert_eq!(summary.files, 1);
+        assert!(summary.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-child-sequence-mismatch"
+                && caveat.message.contains("record 6")
+        }));
+    }
+
+    #[test]
+    fn targeted_traversal_caveats_i30_parent_map_fallback() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "large-dir"))
+            .with_record(parsed_file(6, 99, "large.bin", 3));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let summary = traversal
+            .aggregate_subtree(NtfsFileReference::known(5, 5))
+            .unwrap();
+
+        assert_eq!(summary.bytes, 3);
+        assert!(summary.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-parent-map-fallback"
+                && caveat.message.contains("large.bin")
+        }));
     }
 
     #[test]
@@ -2141,6 +2816,29 @@ mod tests {
                 bytes.push(*byte);
             }
             Ok(bytes)
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeTargetedRecordResolver {
+        records: BTreeMap<u64, NtfsParsedRecord>,
+        reads: Vec<u64>,
+    }
+
+    impl FakeTargetedRecordResolver {
+        fn with_record(mut self, record: NtfsParsedRecord) -> Self {
+            self.records.insert(record.reference.record_id, record);
+            self
+        }
+    }
+
+    impl TargetedMftRecordResolver for FakeTargetedRecordResolver {
+        fn resolve_record(
+            &mut self,
+            reference: NtfsFileReference,
+        ) -> Result<Option<NtfsParsedRecord>> {
+            self.reads.push(reference.record_id);
+            Ok(self.records.get(&reference.record_id).cloned())
         }
     }
 

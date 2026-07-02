@@ -157,20 +157,22 @@ opt into platform scanners per command with `--scan-backend`:
 
 - `windows-native` uses Windows directory enumeration and falls back to the
   portable scanner when unsupported.
-- `windows-ntfs-mft-experimental` attempts a read-only live NTFS/MFT volume
-  index for local fixed NTFS volumes. It tries a sequential `$MFT::$DATA` source
-  before the per-record FSCTL source, requires permission to open the volume
-  read-only, reuses the in-memory volume index only for the current command, and
-  falls back to a safe directory scanner when the volume is unsupported,
-  unprivileged, too slow to index within the live build budget, or too ambiguous
-  to trust.
+- `windows-ntfs-mft-experimental` attempts read-only targeted NTFS/MFT traversal
+  for local fixed NTFS volumes. It resolves the requested target's file
+  reference, reads only the MFT records needed for that subtree through
+  per-record FSCTL lookup, expands reachable `$I30` directory indexes, and falls
+  back to a safe directory scanner when the volume is unsupported, unprivileged,
+  too slow within the live metadata budget, or too ambiguous to trust.
 
 `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` controls the experimental live
-NTFS/MFT index build budget. The default is `20` seconds. Set a larger value for
-diagnostic dogfood on very large volumes, or set `0` to disable the guard for a
-single process. Within one command, Rebecca builds at most one live index per
-volume at a time and remembers unavailable volume outcomes so multiple targets
-do not repeat the same expensive failed MFT attempt.
+NTFS/MFT metadata budget. The default is `20` seconds. Set a larger value for
+diagnostic dogfood on very large target subtrees, or set `0` to disable the
+guard for a single process.
+
+Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when diagnosing whole-volume
+index behavior. With this explicit fallback enabled, targeted traversal failures
+may fall back to the older full-volume MFT index builder before Rebecca returns
+to a directory scanner.
 
 Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` when profiling the experimental backend.
 Timeout fallback reasons then include the active build stage and completed
@@ -186,14 +188,17 @@ entries behind the scan backend boundary. Machine outputs expose the actual
 scanner through `estimate_backend`, exactness through `estimate_confidence`,
 fallback detail through `estimate_fallback_reason`, actual experimental source
 through optional `estimate_backend_source`, and parser or ambiguity notes through
-`estimate_caveats`.
+`estimate_caveats`. The normal successful live source is
+`windows-ntfs-mft-experimental-targeted-fsctl`; sequential and per-record
+full-index source labels are reserved for explicit full-index fallback or
+diagnostic paths.
 
 The v1 cleanup estimate remains logical bytes from the unnamed `$DATA` stream.
 Allocated and initialized stream sizes are retained internally so a later disk
 usage surface can report allocation-aware reclaim estimates without changing the
-cleanup contract. Unsupported metadata, such as nonresident attribute lists or
-nonresident `$I30` index allocation buffers, must produce caveats or fallback
-instead of silent success.
+cleanup contract. Unsupported metadata, such as nonresident attribute lists that
+cannot be expanded directly, stale sequence references, or unreadable `$I30`
+child nodes, must produce caveats or fallback instead of silent success.
 
 ## Cache Purge Boundary
 

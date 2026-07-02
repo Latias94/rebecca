@@ -26,7 +26,7 @@ pub use attrs::{AttributeHeader, AttributeType};
 pub use index::{MftIndex, MftIndexEntry, MftPathCandidate, SubtreeSummary};
 pub use reader::{MftRecordBatch, MftRecordError, MftRecordReader};
 pub use record::{FileNameNamespace, ParseCaveat};
-pub use record_set::NtfsRecordSet;
+pub use record_set::{NtfsRecordResolver, NtfsRecordSet, resolve_record_with_stream_source};
 pub use stream::{
     NtfsStreamGeometry, NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy,
 };

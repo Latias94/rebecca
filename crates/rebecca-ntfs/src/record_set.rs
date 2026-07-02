@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::{
-    NtfsAttributeStream, NtfsDirectoryEntry, NtfsFileReference, NtfsIndexEntry, NtfsParsedRecord,
-    merge_attribute_stream,
+    NtfsAttributeListEntry, NtfsAttributeStream, NtfsDirectoryEntry, NtfsFileReference,
+    NtfsIndexEntry, NtfsParsedRecord, merge_attribute_stream,
 };
 use crate::attrs::AttributeType;
 use crate::dir_index::{NtfsIndexAllocationRecord, parse_i30_index_allocation_record};
@@ -49,78 +49,11 @@ impl NtfsRecordSet {
             }
 
             let mut record = record.clone();
-            let mut unresolved_extension = false;
-            let entries = record.attribute_list_entries.clone();
-            for entry in entries {
-                if entry.file_reference == record.reference
-                    || entry.attribute_type == AttributeType::AttributeList
-                {
-                    continue;
-                }
-
-                let Some(extension) = find_extension_record(
-                    &records,
-                    &record_positions,
-                    &record_ids,
-                    entry.file_reference,
-                ) else {
-                    unresolved_extension = true;
-                    record.caveats.push(ParseCaveat::new(
-                        "attribute-list-extension-record-missing",
-                        format!(
-                            "attribute list references missing extension record {}",
-                            entry.file_reference.record_id
-                        ),
-                    ));
-                    continue;
-                };
-
-                if extension.base_reference != Some(record.reference) {
-                    unresolved_extension = true;
-                    record.caveats.push(ParseCaveat::new(
-                        "attribute-list-extension-base-mismatch",
-                        format!(
-                            "extension record {} does not point back to base record {}",
-                            extension.reference.record_id, record.reference.record_id
-                        ),
-                    ));
-                    continue;
-                }
-
-                match entry.attribute_type {
-                    AttributeType::Data | AttributeType::IndexAllocation => {
-                        let mut matched = false;
-                        for stream in extension.attribute_streams.iter().filter(|stream| {
-                            stream.attribute_type == entry.attribute_type
-                                && stream.attribute_id == entry.attribute_id
-                                && stream.name == entry.name
-                                && stream.lowest_vcn == Some(entry.lowest_vcn)
-                        }) {
-                            merge_attribute_stream(&mut record.attribute_streams, stream.clone());
-                            matched = true;
-                        }
-                        if !matched {
-                            unresolved_extension = true;
-                            record.caveats.push(ParseCaveat::new(
-                                "attribute-list-extension-attribute-missing",
-                                format!(
-                                    "extension record {} does not contain attribute id {}",
-                                    extension.reference.record_id, entry.attribute_id
-                                ),
-                            ));
-                        }
-                    }
-                    other => {
-                        unresolved_extension = true;
-                        record.caveats.push(ParseCaveat::new(
-                            "attribute-list-extension-attribute-unsupported",
-                            format!(
-                                "attribute-list expansion does not yet merge {other:?} attributes"
-                            ),
-                        ));
-                    }
-                }
-            }
+            let unresolved_extension =
+                resolve_attribute_list_extensions(&mut record, |reference| {
+                    find_extension_record(&records, &record_positions, &record_ids, reference)
+                        .cloned()
+                });
             if !unresolved_extension {
                 record
                     .caveats
@@ -164,6 +97,167 @@ impl NtfsRecordSet {
     {
         for record in &mut self.records {
             expand_record_index_allocations(record, geometry, source);
+        }
+    }
+}
+
+pub fn resolve_record_with_stream_source<S, F>(
+    mut record: NtfsParsedRecord,
+    geometry: NtfsStreamGeometry,
+    source: &mut S,
+    resolve_extension: F,
+) -> std::result::Result<NtfsParsedRecord, F::Error>
+where
+    S: NtfsStreamSource,
+    F: NtfsRecordResolver,
+{
+    let unresolved_extension =
+        resolve_attribute_list_extensions_result(&mut record, resolve_extension)?;
+    if !unresolved_extension {
+        record
+            .caveats
+            .retain(|caveat| caveat.code != "attribute-list-extension-records-unexpanded");
+    }
+    expand_record_index_allocations(&mut record, geometry, source);
+    Ok(record)
+}
+
+pub trait NtfsRecordResolver {
+    type Error;
+
+    fn resolve(
+        &mut self,
+        reference: NtfsFileReference,
+    ) -> std::result::Result<Option<NtfsParsedRecord>, Self::Error>;
+}
+
+impl<F, E> NtfsRecordResolver for F
+where
+    F: FnMut(NtfsFileReference) -> std::result::Result<Option<NtfsParsedRecord>, E>,
+{
+    type Error = E;
+
+    fn resolve(
+        &mut self,
+        reference: NtfsFileReference,
+    ) -> std::result::Result<Option<NtfsParsedRecord>, Self::Error> {
+        self(reference)
+    }
+}
+
+fn resolve_attribute_list_extensions_result<R>(
+    record: &mut NtfsParsedRecord,
+    mut resolve: R,
+) -> std::result::Result<bool, R::Error>
+where
+    R: NtfsRecordResolver,
+{
+    let mut unresolved_extension = false;
+    let entries = record.attribute_list_entries.clone();
+    for entry in entries {
+        if should_skip_attribute_list_entry(record.reference, &entry) {
+            continue;
+        }
+
+        let Some(extension) = resolve.resolve(entry.file_reference)? else {
+            unresolved_extension = true;
+            record.caveats.push(ParseCaveat::new(
+                "attribute-list-extension-record-missing",
+                format!(
+                    "attribute list references missing extension record {}",
+                    entry.file_reference.record_id
+                ),
+            ));
+            continue;
+        };
+
+        unresolved_extension |= merge_attribute_list_extension(record, &entry, &extension);
+    }
+
+    Ok(unresolved_extension)
+}
+
+fn resolve_attribute_list_extensions<F>(record: &mut NtfsParsedRecord, mut resolve: F) -> bool
+where
+    F: FnMut(NtfsFileReference) -> Option<NtfsParsedRecord>,
+{
+    let mut unresolved_extension = false;
+    let entries = record.attribute_list_entries.clone();
+    for entry in entries {
+        if should_skip_attribute_list_entry(record.reference, &entry) {
+            continue;
+        }
+
+        let Some(extension) = resolve(entry.file_reference) else {
+            unresolved_extension = true;
+            record.caveats.push(ParseCaveat::new(
+                "attribute-list-extension-record-missing",
+                format!(
+                    "attribute list references missing extension record {}",
+                    entry.file_reference.record_id
+                ),
+            ));
+            continue;
+        };
+
+        unresolved_extension |= merge_attribute_list_extension(record, &entry, &extension);
+    }
+
+    unresolved_extension
+}
+
+fn should_skip_attribute_list_entry(
+    base_reference: NtfsFileReference,
+    entry: &NtfsAttributeListEntry,
+) -> bool {
+    entry.file_reference == base_reference || entry.attribute_type == AttributeType::AttributeList
+}
+
+fn merge_attribute_list_extension(
+    record: &mut NtfsParsedRecord,
+    entry: &NtfsAttributeListEntry,
+    extension: &NtfsParsedRecord,
+) -> bool {
+    if extension.base_reference != Some(record.reference) {
+        record.caveats.push(ParseCaveat::new(
+            "attribute-list-extension-base-mismatch",
+            format!(
+                "extension record {} does not point back to base record {}",
+                extension.reference.record_id, record.reference.record_id
+            ),
+        ));
+        return true;
+    }
+
+    match entry.attribute_type {
+        AttributeType::Data | AttributeType::IndexAllocation => {
+            let mut matched = false;
+            for stream in extension.attribute_streams.iter().filter(|stream| {
+                stream.attribute_type == entry.attribute_type
+                    && stream.attribute_id == entry.attribute_id
+                    && stream.name == entry.name
+                    && stream.lowest_vcn == Some(entry.lowest_vcn)
+            }) {
+                merge_attribute_stream(&mut record.attribute_streams, stream.clone());
+                matched = true;
+            }
+            if !matched {
+                record.caveats.push(ParseCaveat::new(
+                    "attribute-list-extension-attribute-missing",
+                    format!(
+                        "extension record {} does not contain attribute id {}",
+                        extension.reference.record_id, entry.attribute_id
+                    ),
+                ));
+            }
+            !matched
+        }
+        other => {
+            record.caveats.push(ParseCaveat::new(
+                "attribute-list-extension-attribute-unsupported",
+                format!("attribute-list expansion does not yet merge {other:?} attributes"),
+            ));
+            true
         }
     }
 }
