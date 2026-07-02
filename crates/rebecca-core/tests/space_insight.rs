@@ -1,9 +1,51 @@
+use std::ffi::OsString;
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
 use rebecca_core::EstimateSource;
 use rebecca_core::inspect::{
     SpaceInsightDiagnosticKind, SpaceInsightRequest, SpaceInsightScanCache, inspect_space,
 };
 use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence};
 use rebecca_core::scan_cache::{ScanCachePolicy, ScanCacheStore};
+
+static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+const TEST_DISABLE_LIVE_NTFS_MFT_ENV: &str = "REBECCA_TEST_DISABLE_LIVE_NTFS_MFT";
+
+struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<OsString>,
+    _guard: MutexGuard<'static, ()>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test environment lock is poisoned");
+        let previous = std::env::var_os(key);
+        unsafe {
+            std::env::set_var(key, value);
+        }
+        Self {
+            key,
+            previous,
+            _guard: guard,
+        }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+}
 
 fn write_file(path: impl AsRef<std::path::Path>, bytes: &[u8]) {
     let path = path.as_ref();
@@ -110,6 +152,8 @@ fn space_insight_preserves_scan_cache_estimate_source() {
 
 #[test]
 fn space_insight_reports_experimental_backend_provenance() {
+    let _env = EnvVarGuard::set(TEST_DISABLE_LIVE_NTFS_MFT_ENV, "1");
+
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_file(root.join("target").join("app.bin"), b"abcd");
