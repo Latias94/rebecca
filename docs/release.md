@@ -93,6 +93,7 @@ cargo run -p rebecca -- clean --dry-run --scan-cache --category system
 cargo run -p rebecca -- clean --dry-run --scan-cache --category system
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system --format json
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system --format json
+cargo run -p rebecca -- inspect space --scan-backend windows-ntfs-mft-experimental --root . --top 10 --format json
 ```
 
 For delete smoke, use a dry-run against disposable user-temp data and verify the
@@ -107,9 +108,12 @@ cargo run -p rebecca -- clean --dry-run --rule windows.user-temp
 
 Record JSON `estimate_source`, `estimate_backend`, `estimate_confidence`,
 `estimate_fallback_reason`, and `estimate_caveats` values for the backend
-dogfood runs. Focused Windows backend tests and the performance matrix remain
-the authoritative evidence for native and experimental backend fallback
-behavior.
+dogfood runs. The experimental NTFS/MFT run should either show
+`estimate_backend: "windows-ntfs-mft-experimental"` on a supported elevated
+local NTFS volume, or a clear fallback reason and
+`experimental-ntfs-mft-fallback` caveat. Focused Windows backend tests and the
+performance matrix remain the authoritative evidence for native and
+experimental backend fallback behavior.
 
 ## Current Limitations
 

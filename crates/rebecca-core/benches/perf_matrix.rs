@@ -51,8 +51,8 @@ const SCENARIOS: &[ScenarioMetadata] = &[
         0,
     ),
     ScenarioMetadata::scan_backend(
-        "many_small_windows_ntfs_mft_experimental_scan_1024_files",
-        "windows-ntfs-mft-experimental-selected",
+        "many_small_ntfs_mft_fallback_scan_1024_files",
+        "windows-ntfs-mft-experimental-fallback",
         "many-small",
         1024,
         33,
@@ -204,36 +204,37 @@ fn perf_matrix(criterion: &mut Criterion) {
         });
     });
 
-    group.bench_function(
-        "many_small_windows_ntfs_mft_experimental_scan_1024_files",
-        |bencher| {
-            let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
-            let expected = create_many_small_fixture(fixture.path());
+    group.bench_function("many_small_ntfs_mft_fallback_scan_1024_files", |bencher| {
+        let current_dir = std::env::current_dir().expect("benchmark cwd should resolve");
+        let fixture =
+            tempfile::tempdir_in(&current_dir).expect("benchmark fixture should be created");
+        let expected = create_many_small_fixture(fixture.path());
+        let scan_path = fixture
+            .path()
+            .strip_prefix(&current_dir)
+            .expect("benchmark fixture should be below cwd")
+            .to_path_buf();
 
-            bencher.iter(|| {
-                let measured = ScanEngine::new()
-                    .measure_scan_with_backend(
-                        black_box(fixture.path()),
-                        &ScanCancellationToken::new(),
-                        ScanBackendKind::WindowsNtfsMftExperimental,
-                        |_| {},
-                    )
-                    .expect("scan should succeed");
-                assert_report(measured.report, expected);
-                #[cfg(windows)]
-                assert_eq!(measured.backend, ScanBackendKind::WindowsNative);
-                #[cfg(not(windows))]
-                assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
-                assert!(
-                    measured
-                        .caveats
-                        .iter()
-                        .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
-                );
-                black_box(measured);
-            });
-        },
-    );
+        bencher.iter(|| {
+            let measured = ScanEngine::new()
+                .measure_scan_with_backend(
+                    black_box(scan_path.as_path()),
+                    &ScanCancellationToken::new(),
+                    ScanBackendKind::WindowsNtfsMftExperimental,
+                    |_| {},
+                )
+                .expect("scan should succeed");
+            assert_report(measured.report, expected);
+            assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+            assert!(
+                measured
+                    .caveats
+                    .iter()
+                    .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
+            );
+            black_box(measured);
+        });
+    });
 
     group.bench_function("many_small_progress_scan_1024_files", |bencher| {
         let fixture = tempfile::tempdir().expect("benchmark fixture should be created");

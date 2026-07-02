@@ -218,7 +218,8 @@ where
         }
     }
 
-    let measurement_outputs = measure_rule_candidates_in_parallel(&staged_candidates, context);
+    let measurement_outputs =
+        measure_rule_candidates_in_parallel(&staged_candidates, context.clone());
     let mut measurement_outputs = measurement_outputs
         .into_iter()
         .map(|output| (output.candidate_index, output))
@@ -235,7 +236,7 @@ where
                     &mut progress,
                     target.as_ref(),
                     progress_policy,
-                    context,
+                    context.clone(),
                 )?;
                 candidates.push(*target);
             }
@@ -269,7 +270,7 @@ where
         }
     }
 
-    prune_scan_cache(context, &mut progress);
+    prune_scan_cache(context.clone(), &mut progress);
     Ok(finalize_plan(request.clone(), candidates))
 }
 
@@ -404,10 +405,13 @@ fn measure_rule_candidates_in_parallel(
             .into_par_iter()
             .map(|(candidate_index, measurement)| {
                 let mut progress_events = Vec::new();
-                let outcome =
-                    measure_path_with_optional_scan_cache(&measurement.path, context, |event| {
+                let outcome = measure_path_with_optional_scan_cache(
+                    &measurement.path,
+                    context.clone(),
+                    |event| {
                         progress_events.push(OwnedRuleMeasureProgressEvent::from(event));
-                    });
+                    },
+                );
 
                 RuleMeasurementOutput {
                     candidate_index,

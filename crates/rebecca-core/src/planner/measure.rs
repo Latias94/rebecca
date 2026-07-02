@@ -12,7 +12,7 @@ use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{
     PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy, is_reparse_like,
 };
-use crate::scan::{ScanEngine, ScanProgressEvent, ScanReport};
+use crate::scan::{ScanProgressEvent, ScanReport};
 use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss};
 
 use super::{PlanBuildContext, PlanProgressEvent};
@@ -407,7 +407,7 @@ where
         }
     }
 
-    let measured_scan = ScanEngine::new().measure_scan_with_backend(
+    let measured_scan = context.scan_engine().measure_scan_with_backend(
         path,
         context.cancellation(),
         context.scan_backend(),

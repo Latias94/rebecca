@@ -58,7 +58,7 @@ where
     let measured_targets = run_scoped_scan(|| {
         unique_leftovers
             .into_par_iter()
-            .map(|leftover| measure_app_leftover_candidate(leftover, request.mode, context))
+            .map(|leftover| measure_app_leftover_candidate(leftover, request.mode, context.clone()))
             .collect::<Vec<_>>()
     });
 
@@ -70,6 +70,6 @@ where
         candidates.push(measured.target);
     }
 
-    prune_scan_cache(context, &mut progress);
+    prune_scan_cache(context.clone(), &mut progress);
     Ok(finalize_plan(request.clone(), candidates))
 }

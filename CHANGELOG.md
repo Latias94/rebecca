@@ -34,7 +34,7 @@ All notable changes to Rebecca will be documented in this file.
 - `clean --scan-backend windows-native` now opts into a Windows native directory enumeration backend for cleanup plan estimates, with portable fallback when the native path is unsupported.
 - The core performance matrix now includes a Windows native scan selection scenario for many-small-file fixtures.
 - `rebecca-ntfs` now provides read-only NTFS MFT record parsing, fixup validation, file-name/data-size extraction, reparse detection, subtree aggregation, fixture tests, and a generated-record parser benchmark.
-- `clean --scan-backend windows-ntfs-mft-experimental` now exposes an opt-in experimental backend selector that reports a caveat and falls back to a safe directory scanner until live NTFS volume indexing is enabled.
+- `clean --scan-backend windows-ntfs-mft-experimental` now attempts a read-only live NTFS/MFT index on supported local NTFS volumes, reuses a per-command volume index for repeated targets, reports estimate caveats, and falls back to a safe directory scanner when unsupported or unprivileged.
 - Scan-cache records now have a USN Journal validation model for checkpoint, journal id, range availability, and target-subtree change invalidation; missing USN support falls back to the normal cache policy.
 - Cleanup rule targets now expose explicit search semantics in the manifest parser and catalog output, and glob discovery can reuse a per-plan directory enumeration index for compatible rules.
 - Cleanup, purge, and `inspect space` outputs now expose additive v1 estimate provenance fields (`estimate_backend`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats`) while keeping `estimate_source` stable.

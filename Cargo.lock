@@ -1264,6 +1264,7 @@ dependencies = [
  "globset",
  "ignore",
  "rayon",
+ "rebecca-ntfs",
  "rebecca-rules",
  "serde",
  "serde_json",

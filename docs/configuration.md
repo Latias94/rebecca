@@ -2,7 +2,7 @@
 title: "Configuration and Local State Contract"
 status: "implemented"
 created: "2026-06-24"
-last_updated: "2026-06-24"
+last_updated: "2026-07-02"
 ---
 
 # Configuration And Local State Contract
@@ -148,6 +148,26 @@ match. Missing USN support falls back to the normal fingerprint and identity
 policy; mismatched journal ids, unavailable journal ranges, or target-subtree
 changes conservatively invalidate cached records. The scan cache must not be
 treated as durable history.
+
+## Scan Backend Selection
+
+The default scanner remains the portable recursive directory walker. Users can
+opt into platform scanners per command with `--scan-backend`:
+
+- `windows-native` uses Windows directory enumeration and falls back to the
+  portable scanner when unsupported.
+- `windows-ntfs-mft-experimental` attempts a read-only live NTFS/MFT volume
+  index for local fixed NTFS volumes. It requires permission to open the volume
+  read-only, reuses the in-memory volume index only for the current command, and
+  falls back to a safe directory scanner when the volume is unsupported,
+  unprivileged, or too ambiguous to trust.
+
+Experimental NTFS/MFT estimates are explainability data only. They never
+authorize deletion, and execution still revalidates filesystem paths through
+the normal safety model. Machine outputs expose the actual scanner through
+`estimate_backend`, exactness through `estimate_confidence`, fallback detail
+through `estimate_fallback_reason`, and parser or ambiguity notes through
+`estimate_caveats`.
 
 ## Cache Purge Boundary
 

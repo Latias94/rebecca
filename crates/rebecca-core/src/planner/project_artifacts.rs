@@ -46,15 +46,20 @@ where
         measure_project_artifacts_until_reclaim_limit(
             filtered_artifacts,
             request,
-            context,
+            context.clone(),
             limit,
             &mut progress,
         )?
     } else {
-        measure_project_artifacts_in_parallel(filtered_artifacts, request, context, &mut progress)?
+        measure_project_artifacts_in_parallel(
+            filtered_artifacts,
+            request,
+            context.clone(),
+            &mut progress,
+        )?
     };
 
-    prune_scan_cache(context, &mut progress);
+    prune_scan_cache(context.clone(), &mut progress);
     for target in &plan_candidates {
         emit_target_finished(&mut progress, target);
     }
@@ -87,7 +92,7 @@ where
                     artifact,
                     request.mode,
                     request.project_artifact_min_age_days,
-                    context,
+                    context.clone(),
                 )
             })
             .collect::<Vec<_>>()
@@ -144,7 +149,7 @@ where
             artifact,
             request.mode,
             request.project_artifact_min_age_days,
-            context,
+            context.clone(),
         )?;
         emit_measured_target_progress(progress, &measured);
 

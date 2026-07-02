@@ -3,9 +3,11 @@ mod portable;
 mod progress;
 #[cfg(windows)]
 mod windows_native;
+#[cfg(windows)]
+mod windows_ntfs_mft;
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rayon::ThreadPool;
 use rayon::prelude::*;
@@ -46,12 +48,28 @@ impl ScanReport {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ScanEngine;
+#[derive(Debug, Clone)]
+pub struct ScanEngine {
+    context: Arc<ScanEngineContext>,
+}
+
+#[derive(Debug, Default)]
+struct ScanEngineContext {
+    #[cfg(windows)]
+    ntfs_mft_cache: windows_ntfs_mft::WindowsNtfsMftIndexCache,
+}
+
+impl Default for ScanEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ScanEngine {
     pub fn new() -> Self {
-        Self
+        Self {
+            context: Arc::new(ScanEngineContext::default()),
+        }
     }
 
     pub fn measure_path(&self, path: &Path) -> Result<ScanReport> {
@@ -145,7 +163,7 @@ impl ScanEngine {
     {
         let mut progress = progress;
 
-        match measure_windows_ntfs_mft(request, &mut progress) {
+        match measure_windows_ntfs_mft(self, request, &mut progress) {
             Ok(measured) => Ok(measured),
             Err(err) if scan_error_can_fallback(&err) => {
                 self.measure_windows_native_with_portable_fallback(request, progress)
@@ -269,7 +287,25 @@ where
     )))
 }
 
-fn measure_windows_ntfs_mft<F>(_request: ScanRequest<'_>, _progress: F) -> Result<MeasuredScan>
+#[cfg(windows)]
+fn measure_windows_ntfs_mft<F>(
+    engine: &ScanEngine,
+    request: ScanRequest<'_>,
+    progress: F,
+) -> Result<MeasuredScan>
+where
+    F: for<'a> FnMut(ScanProgressEvent<'a>),
+{
+    windows_ntfs_mft::WindowsNtfsMftScanBackend::new(&engine.context.ntfs_mft_cache)
+        .measure_path_with_progress(request, progress)
+}
+
+#[cfg(not(windows))]
+fn measure_windows_ntfs_mft<F>(
+    _engine: &ScanEngine,
+    _request: ScanRequest<'_>,
+    _progress: F,
+) -> Result<MeasuredScan>
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {

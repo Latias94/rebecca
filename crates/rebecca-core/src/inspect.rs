@@ -188,10 +188,18 @@ pub fn inspect_space(
 ) -> Result<SpaceInsightReport> {
     let mut report = SpaceInsightReport::default();
     let mut top_entries = SpaceInsightTopEntries::new(request.top_limit);
+    let scan_engine = ScanEngine::new();
 
     for root in &request.roots {
         check_cancelled(cancellation)?;
-        inspect_root(root, request, cancellation, &mut report, &mut top_entries)?;
+        inspect_root(
+            root,
+            request,
+            cancellation,
+            &scan_engine,
+            &mut report,
+            &mut top_entries,
+        )?;
     }
 
     report.top_entries = top_entries.into_sorted_entries();
@@ -203,6 +211,7 @@ fn inspect_root(
     root: &Path,
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
+    scan_engine: &ScanEngine,
     report: &mut SpaceInsightReport,
     top_entries: &mut SpaceInsightTopEntries,
 ) -> Result<()> {
@@ -302,7 +311,7 @@ fn inspect_root(
             continue;
         }
 
-        match inspect_entry(root, &path, metadata, request, cancellation) {
+        match inspect_entry(root, &path, metadata, request, cancellation, scan_engine) {
             Ok(entry) => {
                 root_metrics.add_report(ScanReport {
                     bytes_scanned: entry.estimated_bytes,
@@ -438,6 +447,7 @@ fn inspect_entry(
     metadata: std::fs::Metadata,
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
+    scan_engine: &ScanEngine,
 ) -> Result<SpaceInsightEntry> {
     let kind = if metadata.is_file() {
         SpaceInsightEntryKind::File
@@ -447,7 +457,7 @@ fn inspect_entry(
         SpaceInsightEntryKind::Other
     };
 
-    let measurement = measure_entry(path, request, cancellation)?;
+    let measurement = measure_entry(path, request, cancellation, scan_engine)?;
     Ok(SpaceInsightEntry {
         path: path.to_path_buf(),
         root: root.to_path_buf(),
@@ -471,6 +481,7 @@ fn measure_entry(
     path: &Path,
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
+    scan_engine: &ScanEngine,
 ) -> Result<SpaceInsightMeasurement> {
     if let Some(scan_cache) = &request.scan_cache {
         match scan_cache.store.load_with_policy(path, scan_cache.policy) {
@@ -488,12 +499,8 @@ fn measure_entry(
         }
     }
 
-    let measured_scan = ScanEngine::new().measure_scan_with_backend(
-        path,
-        cancellation,
-        request.scan_backend,
-        |_| {},
-    )?;
+    let measured_scan =
+        scan_engine.measure_scan_with_backend(path, cancellation, request.scan_backend, |_| {})?;
     let report = measured_scan.report;
     let estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
     if let Some(scan_cache) = &request.scan_cache

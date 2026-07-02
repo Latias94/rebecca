@@ -126,12 +126,14 @@ fn windows_native_selection_falls_back_to_portable_when_unavailable() {
 
 #[test]
 fn windows_ntfs_mft_experimental_selection_falls_back_with_caveat() {
-    let temp = tempfile::tempdir().unwrap();
+    let current_dir = std::env::current_dir().unwrap();
+    let temp = tempfile::tempdir_in(&current_dir).unwrap();
     fs::write(temp.path().join("a.txt"), b"abcd").unwrap();
+    let scan_path = temp.path().strip_prefix(&current_dir).unwrap();
 
     let measured = ScanEngine::new()
         .measure_scan_with_backend(
-            temp.path(),
+            scan_path,
             &ScanCancellationToken::new(),
             ScanBackendKind::WindowsNtfsMftExperimental,
             |_| {},
@@ -139,9 +141,6 @@ fn windows_ntfs_mft_experimental_selection_falls_back_with_caveat() {
         .unwrap();
 
     assert_eq!(measured.report.bytes_scanned, 4);
-    #[cfg(windows)]
-    assert_eq!(measured.backend, ScanBackendKind::WindowsNative);
-    #[cfg(not(windows))]
     assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
     assert!(
         measured

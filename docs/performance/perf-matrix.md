@@ -35,3 +35,6 @@ The report records scenario name, operation, backend, fixture shape, physical fi
 - batch-backend cleanup deletion
 
 Keep reports under `target/perf/`; they are local measurement artifacts and should not be committed unless a future release process explicitly asks for a checked-in baseline.
+
+The default matrix does not read a live NTFS volume because that requires host privileges and can make Criterion results depend on the whole workstation disk.
+Use the release dogfood commands for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios.

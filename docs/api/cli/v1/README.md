@@ -90,6 +90,10 @@ When known, targets also include:
 - `estimate_fallback_reason`: why Rebecca fell back from a requested backend;
 - `estimate_caveats`: structured caveats with `code` and `message`.
 
+The `windows-ntfs-mft-experimental` backend is read-only and opt-in. When live
+NTFS metadata is unavailable or ambiguous, Rebecca reports fallback provenance
+instead of treating raw metadata as cleanup authority.
+
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
 `warnings`. A target with `reason_code: "warning-gate-required"` was excluded
 until the user selects the named gate with `--allow-warning <warning>`.
