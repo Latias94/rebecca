@@ -75,6 +75,11 @@ After the adaptive disk-map refactor, elevated local dogfood under
 `windows-ntfs-mft-experimental-targeted-fsctl` with no fallback, 624422 logical
 bytes, 39 files, and a 910 ms script-measured duration.
 
+The portable map implementation should keep memory proportional to traversal
+depth plus the requested `--top` bound. It uses post-order aggregation and
+pushes completed entries directly into a bounded heap instead of retaining a
+full directory-node tree before ranking.
+
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 
 ```powershell

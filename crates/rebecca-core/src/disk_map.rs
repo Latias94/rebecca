@@ -130,20 +130,23 @@ pub struct DiskMapEntry {
 }
 
 impl DiskMapEntry {
-    fn from_node(
+    fn portable(
         root: &Path,
-        node: PortableDiskMapNode,
+        path: PathBuf,
+        kind: DiskMapEntryKind,
+        depth: usize,
+        metrics: DiskMapMetrics,
         estimate_provenance: &EstimateProvenance,
     ) -> Self {
         Self {
-            path: node.path,
+            path,
             root: root.to_path_buf(),
-            kind: node.kind,
-            depth: node.depth,
-            logical_bytes: node.metrics.logical_bytes,
-            allocated_bytes: node.metrics.allocated_bytes,
-            files: node.metrics.files,
-            directories: node.metrics.directories,
+            kind,
+            depth,
+            logical_bytes: metrics.logical_bytes,
+            allocated_bytes: metrics.allocated_bytes,
+            files: metrics.files,
+            directories: metrics.directories,
             estimate_source: EstimateSource::FreshScan,
             estimate_provenance: estimate_provenance.clone(),
         }
@@ -343,9 +346,17 @@ fn inspect_portable_root(
 
     let max_depth = request.max_depth.unwrap_or(usize::MAX);
     let root_metrics = if metadata.is_file() {
-        let node = portable_file_node(root.to_path_buf(), metadata, 0);
-        top_entries.push(DiskMapEntry::from_node(root, node.clone(), &provenance));
-        node.metrics
+        let metrics = portable_file_metrics(metadata);
+        push_portable_entry(
+            root,
+            root.to_path_buf(),
+            DiskMapEntryKind::File,
+            0,
+            metrics,
+            &provenance,
+            top_entries,
+        );
+        metrics
     } else if metadata.is_dir() {
         inspect_portable_directory_root(root, cancellation, max_depth, &provenance, top_entries)?
     } else {
@@ -416,18 +427,29 @@ fn inspect_portable_directory_root(
     let mut metrics = DiskMapMetrics::default();
     for child in child_paths {
         check_cancelled(cancellation)?;
-        let node = inspect_portable_node(&child, 1, cancellation)?;
-        metrics.add(node.metrics);
-        push_node_if_visible(root, node, max_depth, estimate_provenance, top_entries);
+        let child_metrics = inspect_portable_node(
+            root,
+            &child,
+            1,
+            cancellation,
+            max_depth,
+            estimate_provenance,
+            top_entries,
+        )?;
+        metrics.add(child_metrics);
     }
     Ok(metrics)
 }
 
 fn inspect_portable_node(
+    root: &Path,
     path: &Path,
     depth: usize,
     cancellation: &ScanCancellationToken,
-) -> Result<PortableDiskMapNode> {
+    max_depth: usize,
+    estimate_provenance: &EstimateProvenance,
+    top_entries: &mut DiskMapTopEntries,
+) -> Result<DiskMapMetrics> {
     let metadata = std::fs::symlink_metadata(path).map_err(|err| {
         RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
             path,
@@ -436,27 +458,48 @@ fn inspect_portable_node(
         ))
     })?;
     if is_reparse_like(&metadata) {
-        return Ok(PortableDiskMapNode {
-            path: path.to_path_buf(),
-            kind: DiskMapEntryKind::Other,
+        let metrics = DiskMapMetrics::default();
+        push_portable_entry_if_visible(
+            root,
+            path.to_path_buf(),
+            DiskMapEntryKind::Other,
             depth,
-            metrics: DiskMapMetrics::default(),
-            children: Vec::new(),
-        });
+            metrics,
+            max_depth,
+            estimate_provenance,
+            top_entries,
+        );
+        return Ok(metrics);
     }
 
     if metadata.is_file() {
-        return Ok(portable_file_node(path.to_path_buf(), metadata, depth));
+        let metrics = portable_file_metrics(metadata);
+        push_portable_entry_if_visible(
+            root,
+            path.to_path_buf(),
+            DiskMapEntryKind::File,
+            depth,
+            metrics,
+            max_depth,
+            estimate_provenance,
+            top_entries,
+        );
+        return Ok(metrics);
     }
 
     if !metadata.is_dir() {
-        return Ok(PortableDiskMapNode {
-            path: path.to_path_buf(),
-            kind: DiskMapEntryKind::Other,
+        let metrics = DiskMapMetrics::default();
+        push_portable_entry_if_visible(
+            root,
+            path.to_path_buf(),
+            DiskMapEntryKind::Other,
             depth,
-            metrics: DiskMapMetrics::default(),
-            children: Vec::new(),
-        });
+            metrics,
+            max_depth,
+            estimate_provenance,
+            top_entries,
+        );
+        return Ok(metrics);
     }
 
     let entries = std::fs::read_dir(path).map_err(|err| {
@@ -486,69 +529,86 @@ fn inspect_portable_node(
         files: 0,
         directories: 1,
     };
-    let mut children = Vec::new();
     for child in child_paths {
         check_cancelled(cancellation)?;
-        let child = inspect_portable_node(&child, depth.saturating_add(1), cancellation)?;
-        metrics.add(child.metrics);
-        children.push(child);
+        let child_metrics = inspect_portable_node(
+            root,
+            &child,
+            depth.saturating_add(1),
+            cancellation,
+            max_depth,
+            estimate_provenance,
+            top_entries,
+        )?;
+        metrics.add(child_metrics);
     }
 
-    Ok(PortableDiskMapNode {
-        path: path.to_path_buf(),
-        kind: DiskMapEntryKind::Directory,
+    push_portable_entry_if_visible(
+        root,
+        path.to_path_buf(),
+        DiskMapEntryKind::Directory,
         depth,
         metrics,
-        children,
-    })
+        max_depth,
+        estimate_provenance,
+        top_entries,
+    );
+    Ok(metrics)
 }
 
-fn portable_file_node(
-    path: PathBuf,
-    metadata: std::fs::Metadata,
-    depth: usize,
-) -> PortableDiskMapNode {
-    PortableDiskMapNode {
-        path,
-        kind: DiskMapEntryKind::File,
-        depth,
-        metrics: DiskMapMetrics {
-            logical_bytes: metadata.len(),
-            allocated_bytes: None,
-            files: 1,
-            directories: 0,
-        },
-        children: Vec::new(),
+fn portable_file_metrics(metadata: std::fs::Metadata) -> DiskMapMetrics {
+    DiskMapMetrics {
+        logical_bytes: metadata.len(),
+        allocated_bytes: None,
+        files: 1,
+        directories: 0,
     }
 }
 
-fn push_node_if_visible(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "entry projection keeps call sites explicit during traversal"
+)]
+fn push_portable_entry_if_visible(
     root: &Path,
-    node: PortableDiskMapNode,
-    max_depth: usize,
-    estimate_provenance: &EstimateProvenance,
-    top_entries: &mut DiskMapTopEntries,
-) {
-    if node.depth <= max_depth {
-        top_entries.push(DiskMapEntry::from_node(
-            root,
-            node.clone(),
-            estimate_provenance,
-        ));
-    }
-
-    for child in node.children {
-        push_node_if_visible(root, child, max_depth, estimate_provenance, top_entries);
-    }
-}
-
-#[derive(Debug, Clone)]
-struct PortableDiskMapNode {
     path: PathBuf,
     kind: DiskMapEntryKind,
     depth: usize,
     metrics: DiskMapMetrics,
-    children: Vec<PortableDiskMapNode>,
+    max_depth: usize,
+    estimate_provenance: &EstimateProvenance,
+    top_entries: &mut DiskMapTopEntries,
+) {
+    if depth <= max_depth {
+        push_portable_entry(
+            root,
+            path,
+            kind,
+            depth,
+            metrics,
+            estimate_provenance,
+            top_entries,
+        );
+    }
+}
+
+fn push_portable_entry(
+    root: &Path,
+    path: PathBuf,
+    kind: DiskMapEntryKind,
+    depth: usize,
+    metrics: DiskMapMetrics,
+    estimate_provenance: &EstimateProvenance,
+    top_entries: &mut DiskMapTopEntries,
+) {
+    top_entries.push(DiskMapEntry::portable(
+        root,
+        path,
+        kind,
+        depth,
+        metrics,
+        estimate_provenance,
+    ));
 }
 
 #[derive(Debug, Default)]

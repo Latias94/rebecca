@@ -103,6 +103,26 @@ fn disk_map_top_limit_zero_preserves_totals_without_entries() {
 }
 
 #[test]
+fn disk_map_file_root_is_reported_as_depth_zero_entry() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("single.bin");
+    write_file(&root, b"abcdef");
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(10);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.logical_bytes, 6);
+    assert_eq!(report.totals.files, 1);
+    assert_eq!(report.totals.directories, 0);
+    assert_eq!(report.top_entries.len(), 1);
+    assert_eq!(report.top_entries[0].path, root);
+    assert_eq!(report.top_entries[0].depth, 0);
+    assert_eq!(report.top_entries[0].logical_bytes, 6);
+}
+
+#[test]
 fn disk_map_max_depth_limits_entries_but_not_totals() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
