@@ -330,7 +330,7 @@ fn hardlink_path_candidates_resolve_without_double_counting() {
         summary
             .caveats
             .iter()
-            .any(|c| c.code == "multiple-file-names")
+            .any(|c| c.code == "hardlink-path-candidates")
     );
 }
 
@@ -577,12 +577,7 @@ fn parent_sequence_mismatch_skips_child_edge() {
                 true,
                 false,
                 vec![
-                    file_name_attr_with_parent_reference(
-                        file_reference(5, 99),
-                        "stale.bin",
-                        0,
-                        1,
-                    ),
+                    file_name_attr_with_parent_reference(file_reference(5, 99), "stale.bin", 0, 1),
                     nonresident_data_attr(10),
                 ],
             ),
@@ -595,10 +590,12 @@ fn parent_sequence_mismatch_skips_child_edge() {
     let summary = index.aggregate_subtree(5);
 
     assert_eq!(summary.bytes, 0);
-    assert!(summary
-        .caveats
-        .iter()
-        .any(|c| c.code == "parent-sequence-mismatch"));
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "parent-sequence-mismatch")
+    );
 }
 
 #[test]
