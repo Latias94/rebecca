@@ -101,10 +101,30 @@ impl NtfsMftBuildMonitor {
         }
     }
 
+    #[cfg(test)]
     fn measure<R>(
         &self,
         stage: NtfsMftBuildStage,
         operation: impl FnOnce() -> Result<R>,
+    ) -> Result<R> {
+        self.measure_inner(stage, operation, || Ok(()))
+    }
+
+    fn measure_checked<R>(
+        &self,
+        stage: NtfsMftBuildStage,
+        cancellation: &ScanCancellationToken,
+        operation: impl FnOnce() -> Result<R>,
+    ) -> Result<R> {
+        self.check(cancellation)?;
+        self.measure_inner(stage, operation, || self.check(cancellation))
+    }
+
+    fn measure_inner<R>(
+        &self,
+        stage: NtfsMftBuildStage,
+        operation: impl FnOnce() -> Result<R>,
+        after_success: impl FnOnce() -> Result<()>,
     ) -> Result<R> {
         let started_at = Instant::now();
         let previous_stage = {
@@ -113,13 +133,24 @@ impl NtfsMftBuildMonitor {
         };
         let result = operation();
         let elapsed = started_at.elapsed();
+        let after_success = if result.is_ok() {
+            after_success()
+        } else {
+            Ok(())
+        };
         {
             let mut state = self.state.borrow_mut();
             let total = state.timings.entry(stage).or_default();
             *total = total.saturating_add(elapsed);
             state.active_stage = previous_stage;
         }
-        result
+        match result {
+            Ok(value) => {
+                after_success?;
+                Ok(value)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     fn check(&self, cancellation: &ScanCancellationToken) -> Result<()> {
@@ -191,7 +222,8 @@ enum NtfsMftBuildStage {
     ReadVolumeData,
     SequentialOpenMftData,
     SequentialReadRetrievalPointers,
-    SequentialReadParseRecords,
+    SequentialReadMftBytes,
+    SequentialParseRecords,
     FsctlReadParseRecords,
     ResolveIndexAllocations,
     BuildMftIndex,
@@ -204,7 +236,8 @@ impl NtfsMftBuildStage {
             Self::ReadVolumeData => "read-volume-data",
             Self::SequentialOpenMftData => "sequential-open-mft-data",
             Self::SequentialReadRetrievalPointers => "sequential-read-retrieval-pointers",
-            Self::SequentialReadParseRecords => "sequential-read-parse-records",
+            Self::SequentialReadMftBytes => "sequential-read-mft-bytes",
+            Self::SequentialParseRecords => "sequential-parse-records",
             Self::FsctlReadParseRecords => "fsctl-read-parse-records",
             Self::ResolveIndexAllocations => "resolve-index-allocations",
             Self::BuildMftIndex => "build-mft-index",
@@ -369,12 +402,14 @@ impl CachedNtfsVolumeIndex {
     ) -> Result<Self> {
         let monitor = NtfsMftBuildMonitor::from_environment();
         check_mft_build_progress(cancellation, &monitor)?;
-        let volume = monitor.measure(NtfsMftBuildStage::OpenVolume, || {
-            LiveNtfsVolume::open(capabilities)
-        })?;
-        let volume_data = monitor.measure(NtfsMftBuildStage::ReadVolumeData, || {
-            volume.ntfs_volume_data()
-        })?;
+        let volume =
+            monitor.measure_checked(NtfsMftBuildStage::OpenVolume, cancellation, || {
+                LiveNtfsVolume::open(capabilities)
+            })?;
+        let volume_data =
+            monitor.measure_checked(NtfsMftBuildStage::ReadVolumeData, cancellation, || {
+                volume.ntfs_volume_data()
+            })?;
         let geometry = NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)?;
         let records = volume.read_mft_records(&volume_data, cancellation, &monitor)?;
         let source_label = records.source_label;
@@ -831,15 +866,19 @@ where
     S: NtfsStreamSource,
 {
     check_mft_build_progress(cancellation, monitor)?;
-    let record_set = monitor.measure(NtfsMftBuildStage::ResolveIndexAllocations, || {
-        Ok(NtfsRecordSet::resolve_with_stream_source(
-            records.records,
-            geometry.stream_geometry(),
-            source,
-        ))
-    })?;
+    let record_set = monitor.measure_checked(
+        NtfsMftBuildStage::ResolveIndexAllocations,
+        cancellation,
+        || {
+            Ok(NtfsRecordSet::resolve_with_stream_source(
+                records.records,
+                geometry.stream_geometry(),
+                source,
+            ))
+        },
+    )?;
     check_mft_build_progress(cancellation, monitor)?;
-    let index = monitor.measure(NtfsMftBuildStage::BuildMftIndex, || {
+    let index = monitor.measure_checked(NtfsMftBuildStage::BuildMftIndex, cancellation, || {
         Ok(MftIndex::from_record_set(record_set))
     })?;
     check_mft_build_progress(cancellation, monitor)?;
@@ -1207,32 +1246,32 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
         monitor: &NtfsMftBuildMonitor,
     ) -> Result<ParsedNtfsRecords> {
         let geometry = NtfsRecordGeometry::from_volume_data(&self.volume.device_path, volume_data)?;
-        let mft_data = monitor.measure(NtfsMftBuildStage::SequentialOpenMftData, || {
-            self.volume.open_mft_data_stream()
-        })?;
-        let extents = monitor
-            .measure(NtfsMftBuildStage::SequentialReadRetrievalPointers, || {
-                self.volume.mft_extents(&mft_data, cancellation, monitor)
-            })?;
+        let mft_data = monitor.measure_checked(
+            NtfsMftBuildStage::SequentialOpenMftData,
+            cancellation,
+            || self.volume.open_mft_data_stream(),
+        )?;
+        let extents = monitor.measure_checked(
+            NtfsMftBuildStage::SequentialReadRetrievalPointers,
+            cancellation,
+            || self.volume.mft_extents(&mft_data, cancellation, monitor),
+        )?;
         let reader = MftRecordReader::new(geometry.record_size, geometry.sector_size);
         let mut records = Vec::new();
         let mut caveats = Vec::new();
         let mut parse_errors = MftParseErrorCaveats::default();
 
-        monitor.measure(NtfsMftBuildStage::SequentialReadParseRecords, || {
-            let mut context = SequentialMftReadContext {
-                geometry,
-                reader: &reader,
-                cancellation,
-                monitor,
-                records: &mut records,
-                parse_errors: &mut parse_errors,
-            };
-            for extent in extents {
-                self.read_extent_records(extent, &mut context)?;
-            }
-            Ok(())
-        })?;
+        let mut context = SequentialMftReadContext {
+            geometry,
+            reader: &reader,
+            cancellation,
+            monitor,
+            records: &mut records,
+            parse_errors: &mut parse_errors,
+        };
+        for extent in extents {
+            self.read_extent_records(extent, &mut context)?;
+        }
         parse_errors.append_to(&mut caveats);
 
         Ok(ParsedNtfsRecords {
@@ -1300,7 +1339,11 @@ impl SequentialMftDataSource<'_> {
                 break;
             }
 
-            let bytes = self.volume.read_volume_bytes(volume_offset, read_len)?;
+            let bytes = context.monitor.measure_checked(
+                NtfsMftBuildStage::SequentialReadMftBytes,
+                context.cancellation,
+                || self.volume.read_volume_bytes(volume_offset, read_len),
+            )?;
             if bytes.len() != read_len {
                 return Err(RebeccaError::PlatformUnavailable(format!(
                     "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} read only {} of {read_len} requested bytes from {}",
@@ -1309,7 +1352,11 @@ impl SequentialMftDataSource<'_> {
                 )));
             }
 
-            let batch = context.reader.parse_records_from(next_record_id, &bytes);
+            let batch = context.monitor.measure_checked(
+                NtfsMftBuildStage::SequentialParseRecords,
+                context.cancellation,
+                || Ok(context.reader.parse_records_from(next_record_id, &bytes)),
+            )?;
             context.records.extend(batch.records);
             for err in batch.errors {
                 context.parse_errors.record(err.record_id, err.error);
@@ -1348,44 +1395,49 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
         let mut parse_errors = MftParseErrorCaveats::default();
         let mut requested_record = 0_u64;
 
-        monitor.measure(NtfsMftBuildStage::FsctlReadParseRecords, || {
-            while requested_record < geometry.max_record_count {
-                if requested_record.is_multiple_of(256) {
-                    check_mft_build_progress(cancellation, monitor)?;
-                }
+        monitor.measure_checked(
+            NtfsMftBuildStage::FsctlReadParseRecords,
+            cancellation,
+            || {
+                while requested_record < geometry.max_record_count {
+                    if requested_record.is_multiple_of(256) {
+                        check_mft_build_progress(cancellation, monitor)?;
+                    }
 
-                match self
-                    .volume
-                    .read_file_record(requested_record, geometry.record_size)
-                {
-                    Ok(Some((record_id, raw_record))) => {
-                        let parsed_record_id = low_file_reference_number(record_id);
-                        match NtfsParsedRecord::parse(
-                            parsed_record_id,
-                            &raw_record,
-                            geometry.sector_size,
-                        ) {
-                            Ok(record) => records.push(record),
-                            Err(err) => parse_errors.record(parsed_record_id, err),
+                    match self
+                        .volume
+                        .read_file_record(requested_record, geometry.record_size)
+                    {
+                        Ok(Some((record_id, raw_record))) => {
+                            let parsed_record_id = low_file_reference_number(record_id);
+                            match NtfsParsedRecord::parse(
+                                parsed_record_id,
+                                &raw_record,
+                                geometry.sector_size,
+                            ) {
+                                Ok(record) => records.push(record),
+                                Err(err) => parse_errors.record(parsed_record_id, err),
+                            }
+                            requested_record =
+                                parsed_record_id.max(requested_record).saturating_add(1);
                         }
-                        requested_record = parsed_record_id.max(requested_record).saturating_add(1);
-                    }
-                    Ok(None) => break,
-                    Err(err) if windows_error_matches(&err, ERROR_HANDLE_EOF) => break,
-                    Err(err) if windows_error_matches(&err, ERROR_INVALID_PARAMETER) => {
-                        requested_record = requested_record.saturating_add(1);
-                    }
-                    Err(err) => {
-                        return Err(RebeccaError::PlatformUnavailable(format!(
-                            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not read MFT record {requested_record} from {}: {}",
-                            self.volume.device_path,
-                            err.message()
-                        )));
+                        Ok(None) => break,
+                        Err(err) if windows_error_matches(&err, ERROR_HANDLE_EOF) => break,
+                        Err(err) if windows_error_matches(&err, ERROR_INVALID_PARAMETER) => {
+                            requested_record = requested_record.saturating_add(1);
+                        }
+                        Err(err) => {
+                            return Err(RebeccaError::PlatformUnavailable(format!(
+                                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not read MFT record {requested_record} from {}: {}",
+                                self.volume.device_path,
+                                err.message()
+                            )));
+                        }
                     }
                 }
-            }
-            Ok(())
-        })?;
+                Ok(())
+            },
+        )?;
         parse_errors.append_to(&mut caveats);
 
         Ok(ParsedNtfsRecords {
@@ -1715,13 +1767,13 @@ mod tests {
             .unwrap();
 
         let err = monitor
-            .measure(NtfsMftBuildStage::SequentialReadParseRecords, || {
+            .measure(NtfsMftBuildStage::SequentialParseRecords, || {
                 check_mft_build_progress(&ScanCancellationToken::new(), &monitor)
             })
             .unwrap_err();
 
         let message = err.to_string();
-        assert!(message.contains("while sequential-read-parse-records"));
+        assert!(message.contains("while sequential-parse-records"));
         assert!(message.contains("completed_timings=open-volume="));
     }
 
@@ -1730,11 +1782,19 @@ mod tests {
         let monitor = NtfsMftBuildMonitor::new(None, true);
 
         monitor
+            .measure(NtfsMftBuildStage::SequentialReadMftBytes, || Ok(()))
+            .unwrap();
+        monitor
+            .measure(NtfsMftBuildStage::SequentialParseRecords, || Ok(()))
+            .unwrap();
+        monitor
             .measure(NtfsMftBuildStage::BuildMftIndex, || Ok(()))
             .unwrap();
         let caveat = monitor.timing_caveat().unwrap();
 
         assert_eq!(caveat.code, MFT_BUILD_TIMING_CAVEAT_CODE);
+        assert!(caveat.message.contains("sequential-read-mft-bytes="));
+        assert!(caveat.message.contains("sequential-parse-records="));
         assert!(caveat.message.contains("build-mft-index="));
     }
 
