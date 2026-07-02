@@ -378,8 +378,17 @@ fn resident_i30_index_root_can_supply_verified_fallback_edge() {
 
     let index = MftIndex::from_parsed_records(records);
     let summary = index.aggregate_subtree(5);
+    let child = index.get(6).unwrap();
 
     assert_eq!(summary.bytes, 12);
+    assert!(
+        child
+            .caveats
+            .iter()
+            .any(|c| c.code == "directory-index-parent-map-fallback"),
+        "{:?}",
+        child.caveats
+    );
     assert!(
         summary
             .caveats
