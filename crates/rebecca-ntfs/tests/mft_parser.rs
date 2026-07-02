@@ -716,6 +716,184 @@ fn record_set_expands_attribute_list_i30_index_allocation_extension() {
 }
 
 #[test]
+fn nonresident_i30_index_allocation_supplies_mft_index_fallback_edge() {
+    let mut source = FakeStreamSource::default().with_bytes(
+        0x80_000,
+        &index_allocation_record(
+            0,
+            vec![
+                index_allocation_entry(file_reference(6, 6), file_reference(5, 5), "large.bin", 0),
+                index_allocation_last_entry(false),
+            ],
+        ),
+    );
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr(RECORD_SIZE as u32),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    RECORD_SIZE as u64,
+                    0,
+                    &[0x21, 0x01, 0x80, 0x00, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let child = NtfsParsedRecord::parse_mft_record(
+        6,
+        &mft_record(
+            6,
+            true,
+            false,
+            vec![
+                file_name_attr(99, "large.bin", 0),
+                resident_data_attr(b"abc"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory, child],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let index = MftIndex::from_record_set(record_set);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 3);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "directory-index-parent-map-fallback"),
+        "{:?}",
+        summary.caveats
+    );
+}
+
+#[test]
+fn nonresident_i30_index_allocation_does_not_duplicate_existing_parent_edge() {
+    let mut source = FakeStreamSource::default().with_bytes(
+        0x80_000,
+        &index_allocation_record(
+            0,
+            vec![
+                index_allocation_entry(file_reference(6, 6), file_reference(5, 5), "large.bin", 0),
+                index_allocation_last_entry(false),
+            ],
+        ),
+    );
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr(RECORD_SIZE as u32),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    RECORD_SIZE as u64,
+                    0,
+                    &[0x21, 0x01, 0x80, 0x00, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let child = NtfsParsedRecord::parse_mft_record(
+        6,
+        &mft_record(
+            6,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "large.bin", 0),
+                resident_data_attr(b"abc"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory, child],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let index = MftIndex::from_record_set(record_set);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 3);
+    assert!(
+        !summary
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "directory-index-parent-map-fallback"),
+        "{:?}",
+        summary.caveats
+    );
+}
+
+#[test]
+fn invalid_nonresident_i30_index_allocation_caveat_surfaces_in_subtree() {
+    let mut source = FakeStreamSource::default().with_bytes(0x80_000, b"not-indx");
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                empty_index_root_attr(RECORD_SIZE as u32),
+                nonresident_named_attr(
+                    ATTR_INDEX_ALLOCATION,
+                    "$I30",
+                    RECORD_SIZE as u64,
+                    0,
+                    &[0x21, 0x01, 0x80, 0x00, 0x00],
+                ),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![directory],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let index = MftIndex::from_record_set(record_set);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 0);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "invalid-index-allocation"),
+        "{:?}",
+        summary.caveats
+    );
+}
+
+#[test]
 fn nonresident_attribute_list_is_preserved_as_attribute_stream_and_caveated() {
     let record = NtfsParsedRecord::parse_mft_record(
         16,

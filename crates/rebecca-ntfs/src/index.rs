@@ -20,6 +20,10 @@ impl MftIndex {
         Self::from_resolved_records(record_set.records, record_set.caveats)
     }
 
+    pub fn from_record_set(record_set: NtfsRecordSet) -> Self {
+        Self::from_resolved_records(record_set.records, record_set.caveats)
+    }
+
     fn from_resolved_records(
         records: impl IntoIterator<Item = NtfsParsedRecord>,
         mut caveats: Vec<ParseCaveat>,
