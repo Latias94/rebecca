@@ -12,6 +12,7 @@ This folder captures durable architecture choices for the Windows cleaner projec
 - [0006 - Deletion and recovery model](0006-deletion-and-recovery-model.md)
 - [0007 - Rule catalog and license provenance](0007-rule-catalog-and-license-provenance.md)
 - [0008 - Configuration and local state model](0008-configuration-and-local-state-model.md)
+- [0009 - NTFS parser dependency strategy](0009-ntfs-parser-dependency-strategy.md)
 
 ## Notes
 
