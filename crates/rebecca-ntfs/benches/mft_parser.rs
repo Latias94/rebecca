@@ -137,7 +137,7 @@ fn build_index_allocation_tree_fixture(file_records: usize) -> (Vec<u8>, InMemor
         0x0003,
         vec![
             file_name_attr_with_file_attributes(5, "root", FILE_ATTRIBUTE_DIRECTORY),
-            empty_index_root_attr(INDEX_ALLOCATION_RECORD_SIZE as u32),
+            index_root_attr_with_child_vcn(INDEX_ALLOCATION_RECORD_SIZE as u32, 0),
             nonresident_named_attr(
                 ATTR_INDEX_ALLOCATION,
                 "$I30",
@@ -166,14 +166,18 @@ fn build_index_allocation_tree_fixture(file_records: usize) -> (Vec<u8>, InMemor
 fn build_index_allocation_records(file_records: usize) -> Vec<u8> {
     let mut records = Vec::new();
     let entries_per_record = 32;
-    for (record_index, chunk) in (0..file_records)
-        .collect::<Vec<_>>()
-        .chunks(entries_per_record)
-        .enumerate()
-    {
+    let chunk_count = file_records.div_ceil(entries_per_record);
+    for record_index in 0..chunk_count {
+        let next_vcn = if record_index + 1 < chunk_count {
+            Some((record_index + 1) as u64)
+        } else {
+            None
+        };
         let mut entries = Vec::new();
-        for file_index in chunk {
-            let record_id = 6 + *file_index as u64;
+        let start = record_index * entries_per_record;
+        let end = (start + entries_per_record).min(file_records);
+        for file_index in start..end {
+            let record_id = 6 + file_index as u64;
             entries.push(index_allocation_entry(
                 file_reference(record_id, record_id as u16),
                 file_reference(5, 5),
@@ -181,7 +185,7 @@ fn build_index_allocation_records(file_records: usize) -> Vec<u8> {
                 0,
             ));
         }
-        entries.push(index_allocation_last_entry());
+        entries.push(index_allocation_last_entry(next_vcn));
         records.extend_from_slice(&index_allocation_record(record_index as u64, entries));
     }
     records
@@ -235,21 +239,22 @@ fn file_name_attr_with_file_attributes(
     resident_attr(ATTR_FILE_NAME, &value)
 }
 
-fn empty_index_root_attr(index_record_size: u32) -> Vec<u8> {
+fn index_root_attr_with_child_vcn(index_record_size: u32, child_vcn: u64) -> Vec<u8> {
     let entries_offset = 16;
-    let end_entry_len = 16;
+    let end_entry_len = 24;
     let entries_size = end_entry_len;
     let mut value = vec![0_u8; 16 + entries_offset + entries_size];
 
     put_u32(&mut value, 0, ATTR_FILE_NAME);
     put_u32(&mut value, 8, index_record_size);
     put_u32(&mut value, 16, entries_offset as u32);
-    put_u32(&mut value, 20, entries_size as u32);
-    put_u32(&mut value, 24, entries_size as u32);
+    put_u32(&mut value, 20, (entries_offset + entries_size) as u32);
+    put_u32(&mut value, 24, (entries_offset + entries_size) as u32);
 
     let end_offset = 16 + entries_offset;
     put_u16(&mut value, end_offset + 8, end_entry_len as u16);
-    put_u16(&mut value, end_offset + 12, 0x0002);
+    put_u16(&mut value, end_offset + 12, 0x0001 | 0x0002);
+    put_u64(&mut value, end_offset + end_entry_len - 8, child_vcn);
 
     resident_named_attr(ATTR_INDEX_ROOT, "$I30", &value)
 }
@@ -290,21 +295,31 @@ fn index_allocation_entry(
     file_attributes: u32,
 ) -> Vec<u8> {
     let file_name = file_name_value(parent_reference, name, file_attributes);
-    let entry_len = align8(16 + file_name.len() + 8);
+    let entry_len = align8(16 + file_name.len());
     let mut entry = vec![0_u8; entry_len];
     put_u64(&mut entry, 0, child_reference);
     put_u16(&mut entry, 8, entry_len as u16);
     put_u16(&mut entry, 10, file_name.len() as u16);
-    put_u16(&mut entry, 12, 0x0001);
     entry[16..16 + file_name.len()].copy_from_slice(&file_name);
-    put_u64(&mut entry, entry_len - 8, 8);
     entry
 }
 
-fn index_allocation_last_entry() -> Vec<u8> {
-    let mut entry = vec![0_u8; 16];
-    put_u16(&mut entry, 8, 16);
-    put_u16(&mut entry, 12, 0x0002);
+fn index_allocation_last_entry(child_vcn: Option<u64>) -> Vec<u8> {
+    let entry_len = if child_vcn.is_some() { 24 } else { 16 };
+    let mut entry = vec![0_u8; entry_len];
+    put_u16(&mut entry, 8, entry_len as u16);
+    put_u16(
+        &mut entry,
+        12,
+        if child_vcn.is_some() {
+            0x0001 | 0x0002
+        } else {
+            0x0002
+        },
+    );
+    if let Some(child_vcn) = child_vcn {
+        put_u64(&mut entry, entry_len - 8, child_vcn);
+    }
     entry
 }
 
