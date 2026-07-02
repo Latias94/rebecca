@@ -18,15 +18,17 @@ pub mod stream;
 mod parse;
 
 pub use adapter::{
-    NtfsAttributeListEntry, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryEntry, NtfsFileName,
-    NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
+    NtfsAttributeListEntry, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryEntry,
+    NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
 };
 pub use attrs::{AttributeHeader, AttributeType};
 pub use index::{MftIndex, MftIndexEntry, MftPathCandidate, SubtreeSummary};
 pub use reader::{MftRecordBatch, MftRecordError, MftRecordReader};
 pub use record::{FileNameNamespace, ParseCaveat};
 pub use record_set::NtfsRecordSet;
-pub use stream::{NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy};
+pub use stream::{
+    NtfsStreamGeometry, NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy,
+};
 
 pub type Result<T> = std::result::Result<T, NtfsParseError>;
 

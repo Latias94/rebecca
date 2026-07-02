@@ -14,12 +14,25 @@ const INDEX_ENTRY_HEADER_LEN: usize = 16;
 const INDEX_ENTRY_FLAG_NODE: u16 = 0x0001;
 const INDEX_ENTRY_FLAG_LAST: u16 = 0x0002;
 
-pub fn parse_i30_index_root(value: &[u8]) -> Result<Vec<NtfsDirectoryEntry>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NtfsIndexRoot {
+    pub indexed_attribute: AttributeType,
+    pub index_record_size: u32,
+    pub entries: Vec<NtfsDirectoryEntry>,
+}
+
+pub fn parse_i30_index_root(value: &[u8]) -> Result<NtfsIndexRoot> {
     if value.len() < INDEX_ROOT_HEADER_LEN + INDEX_HEADER_LEN {
         return Err(NtfsParseError::InvalidDirectoryIndex);
     }
-    if AttributeType::from_code(read_u32(value, 0)?) != AttributeType::FileName {
-        return Ok(Vec::new());
+    let indexed_attribute = AttributeType::from_code(read_u32(value, 0)?);
+    let index_record_size = read_u32(value, 8)?;
+    if indexed_attribute != AttributeType::FileName {
+        return Ok(NtfsIndexRoot {
+            indexed_attribute,
+            index_record_size,
+            entries: Vec::new(),
+        });
     }
 
     let index_header_offset = INDEX_ROOT_HEADER_LEN;
@@ -35,7 +48,11 @@ pub fn parse_i30_index_root(value: &[u8]) -> Result<Vec<NtfsDirectoryEntry>> {
         return Err(NtfsParseError::InvalidDirectoryIndex);
     }
 
-    parse_i30_entries(value, entries_start, entries_end)
+    Ok(NtfsIndexRoot {
+        indexed_attribute,
+        index_record_size,
+        entries: parse_i30_entries(value, entries_start, entries_end)?,
+    })
 }
 
 pub fn parse_i30_index_allocation_record(

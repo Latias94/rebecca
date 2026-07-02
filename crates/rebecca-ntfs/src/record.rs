@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::{
-    NtfsAttributeStream, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
-    merge_attribute_stream,
+    NtfsAttributeStream, NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsParsedAttribute,
+    NtfsParsedRecord, merge_attribute_stream,
 };
 use crate::attribute_list::parse_attribute_list;
 use crate::attrs::{AttributeHeader, AttributeType};
@@ -102,6 +102,7 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
         attribute_list_entries: Vec::new(),
         names: Vec::new(),
         attribute_streams: Vec::new(),
+        directory_indexes: Vec::new(),
         directory_entries: Vec::new(),
         caveats: Vec::new(),
     };
@@ -196,9 +197,14 @@ fn parse_attribute(
                 let Some(value) = header.resident_value(record) else {
                     return Err(NtfsParseError::InvalidDirectoryIndex);
                 };
-                parsed
-                    .directory_entries
-                    .extend(parse_i30_index_root(value)?);
+                let index_root = parse_i30_index_root(value)?;
+                parsed.directory_indexes.push(NtfsDirectoryIndex {
+                    name: "$I30".to_string(),
+                    attribute_id: header.attribute_id,
+                    indexed_attribute: index_root.indexed_attribute,
+                    index_record_size: index_root.index_record_size,
+                });
+                parsed.directory_entries.extend(index_root.entries);
             }
         }
         AttributeType::IndexAllocation => {

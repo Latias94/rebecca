@@ -2,9 +2,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapter::{NtfsFileReference, NtfsParsedRecord, merge_attribute_stream};
+use crate::adapter::{
+    NtfsAttributeStream, NtfsDirectoryEntry, NtfsFileReference, NtfsParsedRecord,
+    merge_attribute_stream,
+};
 use crate::attrs::AttributeType;
+use crate::dir_index::parse_i30_index_allocation_record;
 use crate::record::ParseCaveat;
+use crate::stream::{NtfsStreamGeometry, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy};
+
+const INDEX_ALLOCATION_FLAG_COMPRESSED: u16 = 0x0001;
+const INDEX_ALLOCATION_FLAG_ENCRYPTED: u16 = 0x4000;
+const INDEX_ALLOCATION_FLAG_SPARSE: u16 = 0x8000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NtfsRecordSet {
@@ -77,10 +86,10 @@ impl NtfsRecordSet {
                 }
 
                 match entry.attribute_type {
-                    AttributeType::Data => {
+                    AttributeType::Data | AttributeType::IndexAllocation => {
                         let mut matched = false;
                         for stream in extension.attribute_streams.iter().filter(|stream| {
-                            stream.attribute_type == AttributeType::Data
+                            stream.attribute_type == entry.attribute_type
                                 && stream.attribute_id == entry.attribute_id
                                 && stream.name == entry.name
                                 && stream.lowest_vcn == Some(entry.lowest_vcn)
@@ -133,6 +142,211 @@ impl NtfsRecordSet {
             caveats,
         }
     }
+
+    pub fn resolve_with_stream_source<S>(
+        records: Vec<NtfsParsedRecord>,
+        geometry: NtfsStreamGeometry,
+        source: &mut S,
+    ) -> Self
+    where
+        S: NtfsStreamSource,
+    {
+        let mut record_set = Self::resolve_attribute_lists(records);
+        record_set.expand_index_allocations(geometry, source);
+        record_set
+    }
+
+    fn expand_index_allocations<S>(&mut self, geometry: NtfsStreamGeometry, source: &mut S)
+    where
+        S: NtfsStreamSource,
+    {
+        for record in &mut self.records {
+            expand_record_index_allocations(record, geometry, source);
+        }
+    }
+}
+
+fn expand_record_index_allocations<S>(
+    record: &mut NtfsParsedRecord,
+    geometry: NtfsStreamGeometry,
+    source: &mut S,
+) where
+    S: NtfsStreamSource,
+{
+    let streams = record
+        .attribute_streams
+        .iter()
+        .filter(|stream| {
+            stream.attribute_type == AttributeType::IndexAllocation
+                && stream.name.as_deref() == Some("$I30")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if streams.is_empty() {
+        return;
+    }
+
+    let Some(directory_index) = record
+        .directory_indexes
+        .iter()
+        .find(|index| index.name == "$I30" && index.indexed_attribute == AttributeType::FileName)
+    else {
+        record.caveats.push(ParseCaveat::new(
+            "index-allocation-root-missing",
+            format!(
+                "record {} has $INDEX_ALLOCATION:$I30 but no resident $INDEX_ROOT:$I30 metadata",
+                record.reference.record_id
+            ),
+        ));
+        return;
+    };
+    let Ok(index_record_size) = usize::try_from(directory_index.index_record_size) else {
+        record.caveats.push(invalid_index_allocation_caveat(
+            record.reference.record_id,
+            "index record size does not fit in memory",
+        ));
+        return;
+    };
+    if index_record_size == 0 {
+        record.caveats.push(invalid_index_allocation_caveat(
+            record.reference.record_id,
+            "index record size is zero",
+        ));
+        return;
+    }
+    if geometry.bytes_per_cluster == 0 || geometry.bytes_per_sector < 2 {
+        record.caveats.push(invalid_index_allocation_caveat(
+            record.reference.record_id,
+            "stream geometry is invalid",
+        ));
+        return;
+    }
+
+    let reader = NtfsStreamReader::new(geometry.bytes_per_cluster, SparseRunPolicy::Reject);
+    for stream in streams {
+        expand_index_allocation_stream(
+            record,
+            &reader,
+            geometry,
+            index_record_size,
+            &stream,
+            source,
+        );
+    }
+}
+
+fn expand_index_allocation_stream<S>(
+    record: &mut NtfsParsedRecord,
+    reader: &NtfsStreamReader,
+    geometry: NtfsStreamGeometry,
+    index_record_size: usize,
+    stream: &NtfsAttributeStream,
+    source: &mut S,
+) where
+    S: NtfsStreamSource,
+{
+    if (stream.flags & (INDEX_ALLOCATION_FLAG_COMPRESSED | INDEX_ALLOCATION_FLAG_ENCRYPTED)) != 0 {
+        record.caveats.push(ParseCaveat::new(
+            "unsupported-index-allocation",
+            format!(
+                "record {} has compressed or encrypted $INDEX_ALLOCATION:$I30",
+                record.reference.record_id
+            ),
+        ));
+        return;
+    }
+    if (stream.flags & INDEX_ALLOCATION_FLAG_SPARSE) != 0 {
+        record.caveats.push(ParseCaveat::new(
+            "unsupported-index-allocation",
+            format!(
+                "record {} has sparse $INDEX_ALLOCATION:$I30",
+                record.reference.record_id
+            ),
+        ));
+        return;
+    }
+    if stream.logical_size == 0 {
+        return;
+    }
+
+    let Ok(index_record_size_u64) = u64::try_from(index_record_size) else {
+        record.caveats.push(invalid_index_allocation_caveat(
+            record.reference.record_id,
+            "index record size does not fit in u64",
+        ));
+        return;
+    };
+
+    let mut logical_offset = 0_u64;
+    while logical_offset < stream.logical_size {
+        let remaining = stream.logical_size - logical_offset;
+        if remaining < index_record_size_u64 {
+            record.caveats.push(invalid_index_allocation_caveat(
+                record.reference.record_id,
+                "index allocation stream has a partial trailing INDX record",
+            ));
+            return;
+        }
+
+        let raw_record =
+            match reader.read_range(source, &stream.data_runs, logical_offset, index_record_size) {
+                Ok(raw_record) => raw_record,
+                Err(err) => {
+                    record.caveats.push(invalid_index_allocation_caveat(
+                        record.reference.record_id,
+                        format!("stream read failed: {err}"),
+                    ));
+                    return;
+                }
+            };
+        let expected_vcn = logical_offset / geometry.bytes_per_cluster;
+        match parse_i30_index_allocation_record(
+            &raw_record,
+            geometry.bytes_per_sector,
+            expected_vcn,
+        ) {
+            Ok(entries) => append_unique_directory_entries(&mut record.directory_entries, entries),
+            Err(err) => {
+                record.caveats.push(invalid_index_allocation_caveat(
+                    record.reference.record_id,
+                    format!("INDX record at logical offset {logical_offset} is invalid: {err}"),
+                ));
+                return;
+            }
+        }
+
+        logical_offset = match logical_offset.checked_add(index_record_size_u64) {
+            Some(next) => next,
+            None => {
+                record.caveats.push(invalid_index_allocation_caveat(
+                    record.reference.record_id,
+                    "logical offset overflowed while reading index allocation",
+                ));
+                return;
+            }
+        };
+    }
+}
+
+fn append_unique_directory_entries(
+    existing: &mut Vec<NtfsDirectoryEntry>,
+    incoming: Vec<NtfsDirectoryEntry>,
+) {
+    for entry in incoming {
+        if !existing.contains(&entry) {
+            existing.push(entry);
+        }
+    }
+}
+
+fn invalid_index_allocation_caveat(record_id: u64, reason: impl Into<String>) -> ParseCaveat {
+    ParseCaveat::new(
+        "invalid-index-allocation",
+        format!(
+            "record {record_id} $INDEX_ALLOCATION:$I30 could not be parsed: {}",
+            reason.into()
+        ),
+    )
 }
 
 fn find_extension_record<'a>(

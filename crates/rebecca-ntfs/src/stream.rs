@@ -2,6 +2,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::adapter::NtfsDataRun;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtfsStreamGeometry {
+    pub bytes_per_cluster: u64,
+    pub bytes_per_sector: usize,
+}
+
+impl NtfsStreamGeometry {
+    pub const fn new(bytes_per_cluster: u64, bytes_per_sector: usize) -> Self {
+        Self {
+            bytes_per_cluster,
+            bytes_per_sector,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SparseRunPolicy {
     Reject,

@@ -36,6 +36,7 @@ pub struct NtfsParsedRecord {
     pub attribute_list_entries: Vec<NtfsAttributeListEntry>,
     pub names: Vec<NtfsFileName>,
     pub attribute_streams: Vec<NtfsAttributeStream>,
+    pub directory_indexes: Vec<NtfsDirectoryIndex>,
     pub directory_entries: Vec<NtfsDirectoryEntry>,
     pub caveats: Vec<ParseCaveat>,
 }
@@ -124,6 +125,14 @@ pub struct NtfsAttributeStream {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NtfsDirectoryIndex {
+    pub name: String,
+    pub attribute_id: u16,
+    pub indexed_attribute: AttributeType,
+    pub index_record_size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NtfsDataRun {
     pub starting_vcn: u64,
     pub cluster_count: u64,
@@ -138,19 +147,36 @@ pub(crate) fn merge_attribute_stream(
         stream.attribute_type == incoming.attribute_type
             && stream.attribute_id == incoming.attribute_id
             && stream.name == incoming.name
-            && stream.lowest_vcn == incoming.lowest_vcn
     }) {
         existing.non_resident |= incoming.non_resident;
         existing.flags |= incoming.flags;
+        existing.lowest_vcn = min_optional_vcn(existing.lowest_vcn, incoming.lowest_vcn);
         existing.logical_size = existing.logical_size.max(incoming.logical_size);
         existing.allocated_size = existing.allocated_size.max(incoming.allocated_size);
         existing.initialized_size = existing.initialized_size.max(incoming.initialized_size);
         existing.highest_vcn = existing.highest_vcn.max(incoming.highest_vcn);
         existing.data_runs.append(&mut incoming.data_runs);
+        existing.data_runs.sort_by_key(|run| {
+            (
+                run.starting_vcn,
+                run.lcn.unwrap_or(u64::MAX),
+                run.cluster_count,
+            )
+        });
+        existing.data_runs.dedup();
         return;
     }
 
     streams.push(incoming);
+}
+
+fn min_optional_vcn(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
