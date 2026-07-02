@@ -8,11 +8,12 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use rayon::{ThreadPool, prelude::*};
 use rebecca_ntfs::{
-    MftIndex, MftRecordReader, NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry,
+    MftIndex, MftRecordBatch, MftRecordReader, NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry,
     NtfsStreamSource, ParseCaveat,
 };
 use windows::Win32::Foundation::{
@@ -35,6 +36,7 @@ use windows::Win32::System::Ioctl::{
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
+use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::safety::is_reparse_like;
 
 use super::backend::{MeasuredScan, ScanBackend, ScanBackendKind, ScanRequest};
@@ -47,7 +49,8 @@ const DRIVE_FIXED: u32 = 3;
 const FILE_REFERENCE_LOW_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 const SEQUENTIAL_MFT_SOURCE_LABEL: &str = "sequential";
 const FSCTL_RECORD_SOURCE_LABEL: &str = "fsctl-record";
-const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 4 * 1024 * 1024;
+const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+const SEQUENTIAL_MFT_PARSE_WINDOW_CHUNKS: usize = 8;
 const MAX_RETRIEVAL_POINTER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 const MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES: usize = 8;
 const MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE: usize = 8;
@@ -56,6 +59,8 @@ const LIVE_NTFS_MFT_INDEX_TIMEOUT_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMEOUT_SE
 const LIVE_NTFS_MFT_INDEX_TIMINGS_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMINGS";
 const DEFAULT_LIVE_NTFS_MFT_INDEX_TIMEOUT: Duration = Duration::from_secs(20);
 const MFT_BUILD_TIMING_CAVEAT_CODE: &str = "mft-index-build-timing";
+
+static MFT_PARSE_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 struct NtfsMftBuildBudget {
@@ -997,6 +1002,40 @@ fn next_mft_chunk_len(
     usize::try_from(bytes_to_read - (bytes_to_read % record_size as u64)).unwrap_or(0)
 }
 
+fn sequential_mft_parse_window_chunks() -> usize {
+    bounded_parallelism_budget().min(SEQUENTIAL_MFT_PARSE_WINDOW_CHUNKS)
+}
+
+fn run_scoped_mft_parse<R, F>(work: F) -> R
+where
+    F: FnOnce() -> R + Send,
+    R: Send,
+{
+    run_scoped_parallel_work(&MFT_PARSE_THREAD_POOL, "ntfs-mft-parse", work)
+}
+
+#[derive(Debug)]
+struct SequentialMftChunk {
+    base_record_id: u64,
+    bytes: Vec<u8>,
+}
+
+fn parse_sequential_mft_chunks(
+    reader: &MftRecordReader,
+    cancellation: &ScanCancellationToken,
+    chunks: &[SequentialMftChunk],
+) -> Result<Vec<MftRecordBatch>> {
+    run_scoped_mft_parse(|| {
+        chunks
+            .par_iter()
+            .map(|chunk| {
+                check_not_cancelled(cancellation)?;
+                Ok(reader.parse_records_from(chunk.base_record_id, &chunk.bytes))
+            })
+            .collect::<Result<Vec<_>>>()
+    })
+}
+
 struct LiveNtfsVolume {
     handle: HANDLE,
     device_path: String,
@@ -1268,10 +1307,13 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
             monitor,
             records: &mut records,
             parse_errors: &mut parse_errors,
+            parse_chunks: Vec::with_capacity(sequential_mft_parse_window_chunks()),
+            parse_window_chunks: sequential_mft_parse_window_chunks(),
         };
         for extent in extents {
             self.read_extent_records(extent, &mut context)?;
         }
+        context.flush_parse_chunks()?;
         parse_errors.append_to(&mut caveats);
 
         Ok(ParsedNtfsRecords {
@@ -1289,6 +1331,42 @@ struct SequentialMftReadContext<'a> {
     monitor: &'a NtfsMftBuildMonitor,
     records: &'a mut Vec<NtfsParsedRecord>,
     parse_errors: &'a mut MftParseErrorCaveats,
+    parse_chunks: Vec<SequentialMftChunk>,
+    parse_window_chunks: usize,
+}
+
+impl SequentialMftReadContext<'_> {
+    fn push_parse_chunk(&mut self, chunk: SequentialMftChunk) -> Result<()> {
+        self.parse_chunks.push(chunk);
+        if self.parse_chunks.len() >= self.parse_window_chunks {
+            self.flush_parse_chunks()?;
+        }
+        Ok(())
+    }
+
+    fn flush_parse_chunks(&mut self) -> Result<()> {
+        if self.parse_chunks.is_empty() {
+            return Ok(());
+        }
+
+        let chunks = std::mem::replace(
+            &mut self.parse_chunks,
+            Vec::with_capacity(self.parse_window_chunks),
+        );
+        let batches = self.monitor.measure_checked(
+            NtfsMftBuildStage::SequentialParseRecords,
+            self.cancellation,
+            || parse_sequential_mft_chunks(self.reader, self.cancellation, &chunks),
+        )?;
+        for batch in batches {
+            self.records.extend(batch.records);
+            for err in batch.errors {
+                self.parse_errors.record(err.record_id, err.error);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl SequentialMftDataSource<'_> {
@@ -1352,18 +1430,12 @@ impl SequentialMftDataSource<'_> {
                 )));
             }
 
-            let batch = context.monitor.measure_checked(
-                NtfsMftBuildStage::SequentialParseRecords,
-                context.cancellation,
-                || Ok(context.reader.parse_records_from(next_record_id, &bytes)),
-            )?;
-            context.records.extend(batch.records);
-            for err in batch.errors {
-                context.parse_errors.record(err.record_id, err.error);
-            }
-
             let read_len = read_len as u64;
             let records_read = read_len / geometry.record_size as u64;
+            context.push_parse_chunk(SequentialMftChunk {
+                base_record_id: next_record_id,
+                bytes,
+            })?;
             next_record_id = next_record_id.saturating_add(records_read);
             volume_offset = volume_offset.saturating_add(read_len);
             bytes_remaining = bytes_remaining.saturating_sub(read_len);
@@ -1546,9 +1618,9 @@ mod tests {
     use std::time::Duration;
 
     use rebecca_ntfs::{
-        AttributeType, FileNameNamespace, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryIndex,
-        NtfsFileName, NtfsFileReference, NtfsIndexEntry, NtfsParsedRecord, NtfsStreamSource,
-        ParseCaveat,
+        AttributeType, FileNameNamespace, MftRecordReader, NtfsAttributeStream, NtfsDataRun,
+        NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsIndexEntry, NtfsParsedRecord,
+        NtfsStreamSource, ParseCaveat,
     };
 
     use super::{
@@ -1557,9 +1629,9 @@ mod tests {
         MftRecordSource, NTFS_VOLUME_DATA_BUFFER, NtfsMftBuildMonitor, NtfsMftBuildStage,
         NtfsRecordGeometry, ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER,
         RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken,
-        VolumePaths, build_mft_index_from_records, check_mft_build_progress,
+        SequentialMftChunk, VolumePaths, build_mft_index_from_records, check_mft_build_progress,
         low_file_reference_number, next_mft_chunk_len, parse_retrieval_pointer_extents,
-        read_mft_records_from_sources, with_bounded_mft_caveats,
+        parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
     use crate::error::{RebeccaError, Result};
     use crate::scan::ScanReport;
@@ -1796,6 +1868,50 @@ mod tests {
         assert!(caveat.message.contains("sequential-read-mft-bytes="));
         assert!(caveat.message.contains("sequential-parse-records="));
         assert!(caveat.message.contains("build-mft-index="));
+    }
+
+    #[test]
+    fn sequential_mft_parallel_parse_preserves_chunk_order_and_base_ids() {
+        let reader = MftRecordReader::new(4, 1);
+        let chunks = vec![
+            SequentialMftChunk {
+                base_record_id: 20,
+                bytes: vec![0; 8],
+            },
+            SequentialMftChunk {
+                base_record_id: 10,
+                bytes: vec![0; 4],
+            },
+        ];
+
+        let batches =
+            parse_sequential_mft_chunks(&reader, &ScanCancellationToken::new(), &chunks).unwrap();
+        let error_record_ids: Vec<_> = batches
+            .into_iter()
+            .flat_map(|batch| batch.errors)
+            .map(|error| error.record_id)
+            .collect();
+
+        assert_eq!(error_record_ids, vec![20, 21, 10]);
+    }
+
+    #[test]
+    fn sequential_mft_parallel_parse_preserves_cancellation() {
+        let reader = MftRecordReader::new(4, 1);
+        let cancellation = ScanCancellationToken::new();
+        cancellation.cancel();
+
+        let err = parse_sequential_mft_chunks(
+            &reader,
+            &cancellation,
+            &[SequentialMftChunk {
+                base_record_id: 0,
+                bytes: vec![0; 4],
+            }],
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, RebeccaError::OperationCancelled(_)));
     }
 
     #[test]
