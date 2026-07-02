@@ -9,7 +9,10 @@ use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
-use rebecca_ntfs::{MftIndex, MftRecordReader, NtfsParsedRecord, ParseCaveat};
+use rebecca_ntfs::{
+    MftIndex, MftRecordReader, NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry,
+    NtfsStreamSource, ParseCaveat,
+};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
     HANDLE, WIN32_ERROR,
@@ -89,11 +92,19 @@ impl CachedNtfsVolumeIndex {
     ) -> Result<Self> {
         let volume = LiveNtfsVolume::open(capabilities)?;
         let volume_data = volume.ntfs_volume_data()?;
+        let geometry = NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)?;
         let records = volume.read_mft_records(&volume_data, cancellation)?;
+        let source_label = records.source_label;
+        let mut stream_source = LiveNtfsIndexStreamSource {
+            volume: &volume,
+            cancellation,
+        };
+        let (mft_index, caveats) =
+            build_mft_index_from_records(records, geometry, &mut stream_source, cancellation)?;
         Ok(Self {
-            mft_index: MftIndex::from_parsed_records(records.records),
-            source_label: records.source_label,
-            caveats: records.caveats,
+            mft_index,
+            source_label,
+            caveats,
         })
     }
 }
@@ -508,6 +519,29 @@ impl NtfsRecordGeometry {
             max_record_count,
         })
     }
+
+    fn stream_geometry(self) -> NtfsStreamGeometry {
+        NtfsStreamGeometry::new(self.bytes_per_cluster, self.sector_size)
+    }
+}
+
+fn build_mft_index_from_records<S>(
+    records: ParsedNtfsRecords,
+    geometry: NtfsRecordGeometry,
+    source: &mut S,
+    cancellation: &ScanCancellationToken,
+) -> Result<(MftIndex, Vec<ParseCaveat>)>
+where
+    S: NtfsStreamSource,
+{
+    check_not_cancelled(cancellation)?;
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        records.records,
+        geometry.stream_geometry(),
+        source,
+    );
+    check_not_cancelled(cancellation)?;
+    Ok((MftIndex::from_record_set(record_set), records.caveats))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -828,6 +862,24 @@ impl Drop for LiveNtfsMetadataFile {
     }
 }
 
+struct LiveNtfsIndexStreamSource<'a> {
+    volume: &'a LiveNtfsVolume,
+    cancellation: &'a ScanCancellationToken,
+}
+
+impl NtfsStreamSource for LiveNtfsIndexStreamSource<'_> {
+    type Error = RebeccaError;
+
+    fn read_bytes_at(
+        &mut self,
+        volume_offset: u64,
+        len: usize,
+    ) -> std::result::Result<Vec<u8>, Self::Error> {
+        check_not_cancelled(self.cancellation)?;
+        self.volume.read_volume_bytes(volume_offset, len)
+    }
+}
+
 struct SequentialMftDataSource<'a> {
     volume: &'a LiveNtfsVolume,
 }
@@ -1107,14 +1159,19 @@ fn windows_error_matches(err: &WindowsError, code: WIN32_ERROR) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use rebecca_ntfs::ParseCaveat;
+    use std::collections::BTreeMap;
+
+    use rebecca_ntfs::{
+        AttributeType, FileNameNamespace, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryIndex,
+        NtfsFileName, NtfsFileReference, NtfsParsedRecord, NtfsStreamSource, ParseCaveat,
+    };
 
     use super::{
         MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE, MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES,
         MFT_CAVEAT_SUMMARY_CODE, MftExtent, MftParseErrorCaveats, MftRecordSource,
         NTFS_VOLUME_DATA_BUFFER, NtfsRecordGeometry, ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER,
         RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken,
-        VolumePaths, low_file_reference_number, next_mft_chunk_len,
+        VolumePaths, build_mft_index_from_records, low_file_reference_number, next_mft_chunk_len,
         parse_retrieval_pointer_extents, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
     use crate::error::{RebeccaError, Result};
@@ -1203,6 +1260,98 @@ mod tests {
             SEQUENTIAL_MFT_CHUNK_BYTES
         );
         assert_eq!(next_mft_chunk_len(512, 10, 1024), 0);
+    }
+
+    #[test]
+    fn mft_index_builder_expands_live_index_allocation_streams() {
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let records = ParsedNtfsRecords {
+            source_label: "sequential",
+            records: vec![
+                parsed_directory_with_index_allocation(5, "large-dir"),
+                parsed_file(6, 99, "large.bin", 3),
+            ],
+            caveats: vec![ParseCaveat::new("source-caveat", "source")],
+        };
+
+        let (index, caveats) = build_mft_index_from_records(
+            records,
+            test_record_geometry(),
+            &mut source,
+            &ScanCancellationToken::new(),
+        )
+        .unwrap();
+        let summary = index.aggregate_subtree(5);
+
+        assert_eq!(summary.bytes, 3);
+        assert!(summary.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-parent-map-fallback"
+                && caveat.message.contains("large.bin")
+        }));
+        assert_eq!(caveats.len(), 1);
+        assert_eq!(caveats[0].code, "source-caveat");
+    }
+
+    #[test]
+    fn mft_index_builder_turns_stream_read_failure_into_bounded_caveat() {
+        let mut source = FakeIndexStreamSource::default();
+        let records = ParsedNtfsRecords {
+            source_label: "sequential",
+            records: vec![parsed_directory_with_index_allocation(5, "large-dir")],
+            caveats: Vec::new(),
+        };
+
+        let (index, caveats) = build_mft_index_from_records(
+            records,
+            test_record_geometry(),
+            &mut source,
+            &ScanCancellationToken::new(),
+        )
+        .unwrap();
+        let summary = index.aggregate_subtree(5);
+
+        assert!(caveats.is_empty());
+        assert!(summary.caveats.iter().any(|caveat| {
+            caveat.code == "invalid-index-allocation"
+                && caveat.message.contains("stream read failed")
+        }));
+    }
+
+    #[test]
+    fn mft_index_builder_preserves_cancellation_during_stream_expansion() {
+        let cancellation = ScanCancellationToken::new();
+        let mut source = CancellingIndexStreamSource {
+            cancellation: cancellation.clone(),
+        };
+        let records = ParsedNtfsRecords {
+            source_label: "sequential",
+            records: vec![parsed_directory_with_index_allocation(5, "large-dir")],
+            caveats: Vec::new(),
+        };
+
+        let err = build_mft_index_from_records(
+            records,
+            test_record_geometry(),
+            &mut source,
+            &cancellation,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, RebeccaError::OperationCancelled(_)));
     }
 
     #[test]
@@ -1375,6 +1524,143 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeIndexStreamSource {
+        bytes: BTreeMap<u64, u8>,
+    }
+
+    impl FakeIndexStreamSource {
+        fn with_bytes(mut self, offset: u64, bytes: &[u8]) -> Self {
+            for (index, byte) in bytes.iter().copied().enumerate() {
+                self.bytes.insert(offset + index as u64, byte);
+            }
+            self
+        }
+    }
+
+    impl NtfsStreamSource for FakeIndexStreamSource {
+        type Error = &'static str;
+
+        fn read_bytes_at(
+            &mut self,
+            volume_offset: u64,
+            len: usize,
+        ) -> std::result::Result<Vec<u8>, Self::Error> {
+            let mut bytes = Vec::new();
+            for index in 0..len {
+                let Some(byte) = self.bytes.get(&(volume_offset + index as u64)) else {
+                    break;
+                };
+                bytes.push(*byte);
+            }
+            Ok(bytes)
+        }
+    }
+
+    struct CancellingIndexStreamSource {
+        cancellation: ScanCancellationToken,
+    }
+
+    impl NtfsStreamSource for CancellingIndexStreamSource {
+        type Error = &'static str;
+
+        fn read_bytes_at(
+            &mut self,
+            _volume_offset: u64,
+            _len: usize,
+        ) -> std::result::Result<Vec<u8>, Self::Error> {
+            self.cancellation.cancel();
+            Err("cancelled")
+        }
+    }
+
+    fn test_record_geometry() -> NtfsRecordGeometry {
+        NtfsRecordGeometry {
+            record_size: 1024,
+            sector_size: 512,
+            bytes_per_cluster: 4096,
+            max_record_count: 16,
+        }
+    }
+
+    fn parsed_directory_with_index_allocation(record_id: u64, name: &str) -> NtfsParsedRecord {
+        NtfsParsedRecord {
+            reference: NtfsFileReference::known(record_id, record_id as u16),
+            base_reference: None,
+            in_use: true,
+            is_directory: true,
+            is_reparse_point: false,
+            attributes: Vec::new(),
+            attribute_list_entries: Vec::new(),
+            names: vec![parsed_file_name(record_id, name, FILE_ATTRIBUTE_DIRECTORY)],
+            attribute_streams: vec![NtfsAttributeStream {
+                attribute_type: AttributeType::IndexAllocation,
+                attribute_id: 0,
+                name: Some("$I30".to_string()),
+                non_resident: true,
+                flags: 0,
+                lowest_vcn: Some(0),
+                highest_vcn: Some(0),
+                logical_size: RECORD_SIZE as u64,
+                allocated_size: Some(RECORD_SIZE as u64),
+                initialized_size: Some(RECORD_SIZE as u64),
+                data_runs: vec![NtfsDataRun {
+                    starting_vcn: 0,
+                    cluster_count: 1,
+                    lcn: Some(0x80),
+                }],
+            }],
+            directory_indexes: vec![NtfsDirectoryIndex {
+                name: "$I30".to_string(),
+                attribute_id: 0,
+                indexed_attribute: AttributeType::FileName,
+                index_record_size: RECORD_SIZE as u32,
+            }],
+            directory_entries: Vec::new(),
+            caveats: Vec::new(),
+        }
+    }
+
+    fn parsed_file(record_id: u64, parent_id: u64, name: &str, bytes: u64) -> NtfsParsedRecord {
+        NtfsParsedRecord {
+            reference: NtfsFileReference::known(record_id, record_id as u16),
+            base_reference: None,
+            in_use: true,
+            is_directory: false,
+            is_reparse_point: false,
+            attributes: Vec::new(),
+            attribute_list_entries: Vec::new(),
+            names: vec![parsed_file_name(parent_id, name, 0)],
+            attribute_streams: vec![NtfsAttributeStream {
+                attribute_type: AttributeType::Data,
+                attribute_id: 0,
+                name: None,
+                non_resident: false,
+                flags: 0,
+                lowest_vcn: None,
+                highest_vcn: None,
+                logical_size: bytes,
+                allocated_size: Some(bytes),
+                initialized_size: Some(bytes),
+                data_runs: Vec::new(),
+            }],
+            directory_indexes: Vec::new(),
+            directory_entries: Vec::new(),
+            caveats: Vec::new(),
+        }
+    }
+
+    fn parsed_file_name(parent_id: u64, name: &str, file_attributes: u32) -> NtfsFileName {
+        NtfsFileName {
+            parent: NtfsFileReference::known(parent_id, parent_id as u16),
+            namespace: FileNameNamespace::Win32,
+            name: name.to_string(),
+            allocated_size: 0,
+            real_size: 0,
+            file_attributes,
+        }
+    }
+
     fn ntfs_volume_data(
         record_size: u32,
         sector_size: u32,
@@ -1388,6 +1674,105 @@ mod tests {
             MftValidDataLength: mft_valid_data_length,
             ..Default::default()
         }
+    }
+
+    const RECORD_SIZE: usize = 1024;
+    const SECTOR_SIZE: usize = 512;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+
+    fn index_allocation_record(vcn: u64, entries: Vec<Vec<u8>>) -> Vec<u8> {
+        let mut raw_entries = Vec::new();
+        for entry in entries {
+            raw_entries.extend_from_slice(&entry);
+        }
+
+        let mut record = vec![0_u8; RECORD_SIZE];
+        let usa_offset = 0x28;
+        let index_header_offset = 0x18;
+        let entries_offset = 0x20;
+        let entries_start = index_header_offset + entries_offset;
+        let index_size = entries_offset + raw_entries.len();
+
+        record[0..4].copy_from_slice(b"INDX");
+        put_u16(&mut record, 4, usa_offset as u16);
+        put_u16(&mut record, 6, 3);
+        put_u64(&mut record, 16, vcn);
+        put_u32(&mut record, index_header_offset, entries_offset as u32);
+        put_u32(&mut record, index_header_offset + 4, index_size as u32);
+        put_u32(&mut record, index_header_offset + 8, index_size as u32);
+        record[entries_start..entries_start + raw_entries.len()].copy_from_slice(&raw_entries);
+        apply_test_fixup_at(&mut record, usa_offset);
+        record
+    }
+
+    fn index_allocation_entry(
+        child_reference: u64,
+        parent_reference: u64,
+        name: &str,
+        file_attributes: u32,
+    ) -> Vec<u8> {
+        let file_name = file_name_value(parent_reference, name, file_attributes);
+        let entry_len = align8(16 + file_name.len() + 8);
+        let mut entry = vec![0_u8; entry_len];
+        put_u64(&mut entry, 0, child_reference);
+        put_u16(&mut entry, 8, entry_len as u16);
+        put_u16(&mut entry, 10, file_name.len() as u16);
+        put_u16(&mut entry, 12, 0x0001);
+        entry[16..16 + file_name.len()].copy_from_slice(&file_name);
+        put_u64(&mut entry, entry_len - 8, 8);
+        entry
+    }
+
+    fn index_allocation_last_entry() -> Vec<u8> {
+        let mut entry = vec![0_u8; 16];
+        put_u16(&mut entry, 8, 16);
+        put_u16(&mut entry, 12, 0x0002);
+        entry
+    }
+
+    fn file_name_value(parent_reference: u64, name: &str, file_attributes: u32) -> Vec<u8> {
+        let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
+        let mut value = vec![0_u8; 66 + (name_utf16.len() * 2)];
+        put_u64(&mut value, 0, parent_reference);
+        put_u32(&mut value, 56, file_attributes);
+        value[64] = name_utf16.len() as u8;
+        value[65] = 1;
+        for (index, character) in name_utf16.iter().enumerate() {
+            put_u16(&mut value, 66 + (index * 2), *character);
+        }
+        value
+    }
+
+    fn file_reference(record_id: u64, sequence_number: u16) -> u64 {
+        ((sequence_number as u64) << 48) | (record_id & 0x0000_FFFF_FFFF_FFFF)
+    }
+
+    fn apply_test_fixup_at(record: &mut [u8], usa_offset: usize) {
+        let update_sequence = 0xBBAA_u16;
+        let sector_count = record.len() / SECTOR_SIZE;
+        put_u16(record, usa_offset, update_sequence);
+        for sector_index in 0..sector_count {
+            let tail = ((sector_index + 1) * SECTOR_SIZE) - 2;
+            let original = u16::from_le_bytes([record[tail], record[tail + 1]]);
+            put_u16(record, usa_offset + ((sector_index + 1) * 2), original);
+            put_u16(record, tail, update_sequence);
+        }
+    }
+
+    fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
+        bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_u64(bytes: &mut [u8], offset: usize, value: u64) {
+        bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn align8(value: usize) -> usize {
+        (value + 7) & !7
     }
 
     fn retrieval_pointer_buffer(starting_vcn: i64, extents: &[(i64, i64)]) -> Vec<u8> {
