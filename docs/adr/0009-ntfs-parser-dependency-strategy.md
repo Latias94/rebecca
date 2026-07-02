@@ -134,6 +134,10 @@ edge cases already solved elsewhere.
 - The first-party parser path is allowed to advance without waiting on an
   external crate when the dependency gate has not accepted a production
   dependency.
+- Future dependency spikes must prove parity with the owned parser's current
+  tree-aware `$I30` behavior: child VCN preservation, reachable-node traversal
+  from `$INDEX_ROOT`, cycle/out-of-range caveats, and direct
+  `$INDEX_ALLOCATION` attribute-list extension merging.
 
 # Success Metrics
 
@@ -150,10 +154,12 @@ Accepted. No production NTFS parser dependency is added yet. The owned adapter
 contract and first-party parser core are now the active implementation path:
 `rebecca-ntfs` models records, file references with sequence numbers,
 attributes, streams, data runs, direct attribute-list extension records,
-hardlink path candidates, and resident `$I30` directory entries behind
-Rebecca-owned DTOs. External crates remain candidates for future adapter-backed
-spikes or dev-only oracles, not public cleanup contracts.
+hardlink path candidates, resident `$I30` directory entries, and reachable
+runlist-backed `$INDEX_ALLOCATION:$I30` nodes behind Rebecca-owned DTOs.
+External crates remain candidates for future adapter-backed spikes or dev-only
+oracles, not public cleanup contracts.
 
-Current known gaps stay explicit: nonresident attribute lists and nonresident
-`$I30` index allocation buffers are caveated or fall back until a runlist-backed
-stream reader and fixture/oracle coverage make those paths defensible.
+Current known gaps stay explicit: nonresident attribute lists remain caveated,
+unusual multi-index-buffer-per-cluster `$I30` geometry is bounded as
+unsupported, and live whole-volume MFT indexing still needs dogfood evidence
+before it can be treated as a fast default path.

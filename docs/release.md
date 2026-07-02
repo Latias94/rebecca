@@ -82,6 +82,21 @@ pwsh -File scripts\perf\run-benchmark-matrix.ps1
 The expected report path is
 `target\perf\rebecca-core-perf_matrix-report.json`.
 
+Collect live NTFS/MFT evidence with the local dogfood script. It isolates
+Rebecca config, state, cache, and history under `target\ntfs-dogfood\<run-id>\`
+and writes a JSON report plus raw command output for each backend run.
+
+```powershell
+pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Root . -Mode inspect-space -Top 10 -TimeoutSeconds 180
+pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Mode clean-dry-run -Backend portable-recursive -TimeoutSeconds 180
+```
+
+Use a smaller `-Root` such as `docs\plans` when the repository root includes
+large `target\` or `repo-ref\` trees. A `timeout` status for
+`windows-ntfs-mft-experimental` is release-relevant evidence: keep the report
+under `target\`, note the root and timeout, and treat it as a live backend
+performance or fallback gap rather than a script failure.
+
 Run this dogfood checklist on a representative Windows workstation:
 
 ```powershell
@@ -95,6 +110,9 @@ cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-n
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system --format json
 cargo run -p rebecca -- inspect space --scan-backend windows-ntfs-mft-experimental --root . --top 10 --format json
 ```
+
+Prefer the script for repeatable backend comparison; use the raw commands above
+when diagnosing a single CLI behavior or reproducing a script-captured failure.
 
 For delete smoke, use a dry-run against disposable user-temp data and verify the
 default plan remains recoverable before any real `--yes` run:
