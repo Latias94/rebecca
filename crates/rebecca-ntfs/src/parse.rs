@@ -42,3 +42,11 @@ pub(crate) fn low_file_reference_id(reference: u64) -> u64 {
 pub(crate) fn file_reference_sequence_number(reference: u64) -> u16 {
     (reference >> 48) as u16
 }
+
+pub(crate) fn utf16_lossy(bytes: &[u8]) -> String {
+    let utf16 = bytes
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect::<Vec<_>>();
+    String::from_utf16_lossy(&utf16)
+}

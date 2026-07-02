@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::adapter::{
     NtfsDataStream, NtfsFileName, NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
+    merge_data_stream,
 };
 use crate::attribute_list::parse_attribute_list;
 use crate::attrs::{AttributeHeader, AttributeType};
@@ -9,6 +10,7 @@ use crate::dir_index::parse_i30_index_root;
 use crate::fixup::apply_update_sequence;
 use crate::parse::{
     file_reference_sequence_number, low_file_reference_id, read_u16, read_u32, read_u64,
+    utf16_lossy,
 };
 use crate::runlist::parse_data_runs;
 use crate::{NtfsParseError, Result};
@@ -180,7 +182,7 @@ fn parse_attribute(
         AttributeType::Data => {
             let stream = parse_data_stream(record, header, attribute_name.clone())?;
             let is_named = stream.name.is_some();
-            push_data_stream(parsed, stream);
+            merge_data_stream(&mut parsed.data_streams, stream);
 
             if is_named {
                 parsed.caveats.push(ParseCaveat::new(
@@ -295,7 +297,7 @@ fn parse_data_stream(
     })
 }
 
-fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
+pub(crate) fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
     if value.len() < FILE_NAME_MIN_LEN {
         return Err(NtfsParseError::InvalidFileName);
     }
@@ -333,42 +335,4 @@ fn parse_optional_file_reference(raw_reference: u64) -> Option<NtfsFileReference
         low_file_reference_id(raw_reference),
         file_reference_sequence_number(raw_reference),
     ))
-}
-
-fn push_data_stream(record: &mut NtfsParsedRecord, mut incoming: NtfsDataStream) {
-    let attribute_id = incoming.attribute_id;
-    let name = incoming.name.clone();
-    let lowest_vcn = incoming.lowest_vcn;
-    if let Some(existing) = record.data_streams.iter_mut().find(|stream| {
-        stream.attribute_id == attribute_id
-            && stream.name == name
-            && stream.lowest_vcn == lowest_vcn
-    }) {
-        existing.logical_size = existing.logical_size.max(incoming.logical_size);
-        existing.allocated_size =
-            max_optional_u64(existing.allocated_size, incoming.allocated_size);
-        existing.initialized_size =
-            max_optional_u64(existing.initialized_size, incoming.initialized_size);
-        existing.highest_vcn = max_optional_u64(existing.highest_vcn, incoming.highest_vcn);
-        existing.data_runs.append(&mut incoming.data_runs);
-        return;
-    }
-
-    record.data_streams.push(incoming);
-}
-
-fn max_optional_u64(left: Option<u64>, right: Option<u64>) -> Option<u64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    }
-}
-
-fn utf16_lossy(bytes: &[u8]) -> String {
-    let utf16 = bytes
-        .chunks_exact(2)
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect::<Vec<_>>();
-    String::from_utf16_lossy(&utf16)
 }

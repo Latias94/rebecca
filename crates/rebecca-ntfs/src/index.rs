@@ -151,7 +151,7 @@ impl MftIndex {
         let mut visited = BTreeSet::new();
 
         while let Some(record_id) = stack.pop() {
-            if visited.contains(&record_id) {
+            if !visited.insert(record_id) {
                 if self
                     .entries
                     .get(&record_id)
@@ -166,7 +166,6 @@ impl MftIndex {
                 }
                 continue;
             }
-            visited.insert(record_id);
 
             let Some(entry) = self.entries.get(&record_id) else {
                 summary.caveats.push(ParseCaveat::new(
@@ -359,10 +358,7 @@ fn cross_check_directory_entries(
                 if let Some(child_entry) = entries.get_mut(&directory_entry.child.record_id) {
                     child_entry.caveats.push(caveat);
                 }
-                children
-                    .entry(*parent_record_id)
-                    .or_default()
-                    .push(directory_entry.child.record_id);
+                push_child(children, *parent_record_id, directory_entry.child.record_id);
             }
         }
     }

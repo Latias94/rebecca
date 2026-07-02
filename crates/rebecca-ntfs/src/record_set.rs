@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapter::{NtfsDataStream, NtfsFileReference, NtfsParsedRecord};
+use crate::adapter::{NtfsFileReference, NtfsParsedRecord, merge_data_stream};
 use crate::attrs::AttributeType;
 use crate::record::ParseCaveat;
 
@@ -144,31 +144,4 @@ fn find_extension_record<'a>(
         .get(&reference)
         .or_else(|| record_ids.get(&reference.record_id))
         .and_then(|index| records.get(*index))
-}
-
-fn merge_data_stream(streams: &mut Vec<NtfsDataStream>, mut incoming: NtfsDataStream) {
-    if let Some(existing) = streams.iter_mut().find(|stream| {
-        stream.attribute_id == incoming.attribute_id
-            && stream.name == incoming.name
-            && stream.lowest_vcn == incoming.lowest_vcn
-    }) {
-        existing.logical_size = existing.logical_size.max(incoming.logical_size);
-        existing.allocated_size =
-            max_optional_u64(existing.allocated_size, incoming.allocated_size);
-        existing.initialized_size =
-            max_optional_u64(existing.initialized_size, incoming.initialized_size);
-        existing.highest_vcn = max_optional_u64(existing.highest_vcn, incoming.highest_vcn);
-        existing.data_runs.append(&mut incoming.data_runs);
-        return;
-    }
-
-    streams.push(incoming);
-}
-
-fn max_optional_u64(left: Option<u64>, right: Option<u64>) -> Option<u64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    }
 }

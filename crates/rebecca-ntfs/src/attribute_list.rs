@@ -2,6 +2,7 @@ use crate::adapter::{NtfsAttributeListEntry, NtfsFileReference};
 use crate::attrs::AttributeType;
 use crate::parse::{
     file_reference_sequence_number, low_file_reference_id, read_u16, read_u32, read_u64, slice,
+    utf16_lossy,
 };
 use crate::{NtfsParseError, Result};
 
@@ -68,12 +69,4 @@ pub fn parse_attribute_list(bytes: &[u8]) -> Result<Vec<NtfsAttributeListEntry>>
     }
 
     Ok(entries)
-}
-
-fn utf16_lossy(bytes: &[u8]) -> String {
-    let utf16 = bytes
-        .chunks_exact(2)
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect::<Vec<_>>();
-    String::from_utf16_lossy(&utf16)
 }

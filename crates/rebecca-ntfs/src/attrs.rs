@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
-use crate::parse::{read_u8, read_u16, read_u32, read_u64, slice};
+use crate::parse::{read_u8, read_u16, read_u32, read_u64, slice, utf16_lossy};
 use crate::{NtfsParseError, Result};
 
 pub const ATTRIBUTE_END: u32 = 0xFFFF_FFFF;
@@ -180,11 +180,7 @@ impl AttributeHeader {
         let Some(name) = self.name(record)? else {
             return Ok(None);
         };
-        let utf16 = name
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect::<Vec<_>>();
-        Ok(Some(String::from_utf16_lossy(&utf16)))
+        Ok(Some(utf16_lossy(name)))
     }
 
     pub fn non_resident_runlist<'a>(&self, record: &'a [u8]) -> Option<&'a [u8]> {
