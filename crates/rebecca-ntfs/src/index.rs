@@ -10,7 +10,7 @@ use crate::record_set::NtfsRecordSet;
 pub struct MftIndex {
     entries: BTreeMap<u64, MftIndexEntry>,
     children: BTreeMap<u64, Vec<u64>>,
-    skipped_child_caveats: BTreeMap<u64, Vec<ParseCaveat>>,
+    child_edge_caveats: BTreeMap<u64, Vec<ParseCaveat>>,
     pub caveats: Vec<ParseCaveat>,
 }
 
@@ -36,7 +36,7 @@ impl MftIndex {
             .collect::<BTreeMap<_, _>>();
         let mut entries = BTreeMap::new();
         let mut children: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
-        let mut skipped_child_caveats: BTreeMap<u64, Vec<ParseCaveat>> = BTreeMap::new();
+        let mut child_edge_caveats: BTreeMap<u64, Vec<ParseCaveat>> = BTreeMap::new();
 
         for record in records {
             if !record.in_use {
@@ -79,7 +79,7 @@ impl MftIndex {
                     continue;
                 }
                 if parent_sequence_mismatches(&references, candidate.parent_reference) {
-                    skipped_child_caveats
+                    child_edge_caveats
                         .entry(parent_record_id)
                         .or_default()
                         .push(ParseCaveat::new(
@@ -101,13 +101,13 @@ impl MftIndex {
             &entries,
             &mut children,
             &directory_entries_by_parent,
-            &mut skipped_child_caveats,
+            &mut child_edge_caveats,
         );
 
         Self {
             entries,
             children,
-            skipped_child_caveats,
+            child_edge_caveats,
             caveats,
         }
     }
@@ -187,7 +187,7 @@ impl MftIndex {
 
             if entry.is_directory {
                 summary.directories = summary.directories.saturating_add(1);
-                if let Some(caveats) = self.skipped_child_caveats.get(&record_id) {
+                if let Some(caveats) = self.child_edge_caveats.get(&record_id) {
                     summary.caveats.extend(caveats.clone());
                 }
                 if let Some(child_ids) = self.children.get(&record_id) {
@@ -281,7 +281,7 @@ fn push_child(children: &mut BTreeMap<u64, Vec<u64>>, parent_id: u64, child_id: 
 }
 
 fn cross_check_directory_entries(
-    entries: &BTreeMap<u64, MftIndexEntry>,
+    entries: &mut BTreeMap<u64, MftIndexEntry>,
     children: &mut BTreeMap<u64, Vec<u64>>,
     directory_entries_by_parent: &BTreeMap<u64, Vec<crate::NtfsDirectoryEntry>>,
     skipped_child_caveats: &mut BTreeMap<u64, Vec<ParseCaveat>>,
@@ -348,17 +348,17 @@ fn cross_check_directory_entries(
                 .get(parent_record_id)
                 .is_some_and(|ids| ids.contains(&directory_entry.child.record_id));
             if !parent_edge_exists {
-                push_directory_caveat(
-                    skipped_child_caveats,
-                    *parent_record_id,
-                    ParseCaveat::new(
-                        "directory-index-parent-map-fallback",
-                        format!(
-                            "$I30 entry '{}' was used because it is not present in $FILE_NAME parent edges for directory {}",
-                            directory_entry.name, parent_record_id
-                        ),
+                let caveat = ParseCaveat::new(
+                    "directory-index-parent-map-fallback",
+                    format!(
+                        "$I30 entry '{}' was used because it is not present in $FILE_NAME parent edges for directory {}",
+                        directory_entry.name, parent_record_id
                     ),
                 );
+                push_directory_caveat(skipped_child_caveats, *parent_record_id, caveat.clone());
+                if let Some(child_entry) = entries.get_mut(&directory_entry.child.record_id) {
+                    child_entry.caveats.push(caveat);
+                }
                 children
                     .entry(*parent_record_id)
                     .or_default()
