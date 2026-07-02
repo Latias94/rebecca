@@ -82,6 +82,7 @@ All notable changes to Rebecca will be documented in this file.
 - Experimental NTFS/MFT `$I30` expansion now reads allocation records by requested child VCN and reports unsupported multi-buffer-per-cluster geometry as a bounded caveat instead of using flat sequential offsets as authority.
 - `inspect map` defaults to portable recursive inventory, while `--scan-backend windows-ntfs-mft-experimental` now uses targeted NTFS/MFT traversal for scoped roots and reserves full-volume MFT inventory for drive roots or explicit full-index diagnostics.
 - Portable `inspect map` ranking now uses streaming post-order aggregation and a bounded top-entry heap instead of materializing the full directory tree before rendering entries.
+- Portable `inspect map` now returns conservative partial reports with diagnostics when child entries cannot be read, child metadata disappears, child directories are unreadable, or child reparse points are skipped.
 
 ### Breaking
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.

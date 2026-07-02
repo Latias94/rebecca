@@ -79,6 +79,10 @@ The portable map implementation should keep memory proportional to traversal
 depth plus the requested `--top` bound. It uses post-order aggregation and
 pushes completed entries directly into a bounded heap instead of retaining a
 full directory-node tree before ranking.
+Child-level metadata, directory-read, directory-entry, and reparse failures are
+reported as diagnostics with zero bytes for skipped subtrees, so active cache
+trees can still produce useful conservative maps instead of failing the entire
+command.
 
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 
