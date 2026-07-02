@@ -20,7 +20,7 @@ pub use adapter::{
     NtfsFileReference, NtfsParsedAttribute, NtfsParsedRecord,
 };
 pub use attrs::{AttributeHeader, AttributeType};
-pub use index::{MftIndex, MftIndexEntry, SubtreeSummary};
+pub use index::{MftIndex, MftIndexEntry, MftPathCandidate, SubtreeSummary};
 pub use reader::{MftRecordBatch, MftRecordError, MftRecordReader};
 pub use record::{FileNameNamespace, ParseCaveat};
 pub use record_set::NtfsRecordSet;

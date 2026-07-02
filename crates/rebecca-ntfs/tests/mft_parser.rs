@@ -34,7 +34,7 @@ fn valid_fixture_record_parses_name_parent_and_stream_size() {
     assert_eq!(record.cleanup_logical_size(), 1234);
     let name = record.primary_file_name().unwrap();
     assert_eq!(name.parent.record_id, 5);
-    assert_eq!(name.parent.sequence_number, Some(0));
+    assert_eq!(name.parent.sequence_number, Some(5));
     assert_eq!(name.name, "cache.bin");
 }
 
@@ -228,6 +228,110 @@ fn index_resolves_child_paths_case_insensitively() {
     let entry = index.find_path(5, ["cache", "data.bin"]).unwrap();
 
     assert_eq!(entry.reference.record_id, 7);
+}
+
+#[test]
+fn parent_sequence_mismatch_is_caveated_and_not_counted() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            6,
+            mft_record(
+                6,
+                true,
+                false,
+                vec![
+                    file_name_attr_with_parent_reference(file_reference(5, 99), "stale.bin", 0, 1),
+                    nonresident_data_attr(10),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 0);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "parent-sequence-mismatch")
+    );
+}
+
+#[test]
+fn hardlink_path_candidates_resolve_without_double_counting() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            6,
+            mft_record(
+                6,
+                true,
+                true,
+                vec![file_name_attr(5, "a", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            7,
+            mft_record(
+                7,
+                true,
+                true,
+                vec![file_name_attr(5, "b", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            8,
+            mft_record(
+                8,
+                true,
+                false,
+                vec![
+                    file_name_attr_with_parent_reference(file_reference(6, 6), "left.bin", 0, 1),
+                    file_name_attr_with_parent_reference(file_reference(7, 7), "right.bin", 0, 1),
+                    nonresident_data_attr(10),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let left = index.find_path(5, ["a", "left.bin"]).unwrap();
+    let right = index.find_path(5, ["b", "right.bin"]).unwrap();
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(left.reference.record_id, 8);
+    assert_eq!(right.reference.record_id, 8);
+    assert_eq!(left.path_candidates.len(), 2);
+    assert_eq!(summary.bytes, 10);
+    assert!(
+        summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "multiple-file-names")
+    );
 }
 
 #[test]
@@ -455,6 +559,95 @@ fn subtree_aggregation_surfaces_record_caveats() {
 }
 
 #[test]
+fn parent_sequence_mismatch_skips_child_edge() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            6,
+            mft_record(
+                6,
+                true,
+                false,
+                vec![
+                    file_name_attr_with_parent_reference(
+                        file_reference(5, 99),
+                        "stale.bin",
+                        0,
+                        1,
+                    ),
+                    nonresident_data_attr(10),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 0);
+    assert!(summary
+        .caveats
+        .iter()
+        .any(|c| c.code == "parent-sequence-mismatch"));
+}
+
+#[test]
+fn hardlink_path_candidates_are_preserved_and_counted_once() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            9,
+            mft_record(
+                9,
+                true,
+                true,
+                vec![file_name_attr(9, "other", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            10,
+            mft_record(
+                10,
+                true,
+                false,
+                vec![
+                    file_name_attr(5, "a.bin", 0),
+                    file_name_attr(9, "b.bin", 0),
+                    nonresident_data_attr(11),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let entry = index.get(10).unwrap();
+
+    assert_eq!(entry.path_candidates.len(), 2);
+    assert_eq!(index.aggregate_subtree(5).bytes, 11);
+    assert_eq!(index.aggregate_subtree(9).bytes, 11);
+}
+
+#[test]
 fn subtree_aggregation_caveats_multiple_non_dos_file_names() {
     let records = [
         (
@@ -491,7 +684,7 @@ fn subtree_aggregation_caveats_multiple_non_dos_file_names() {
         summary
             .caveats
             .iter()
-            .any(|c| c.code == "multiple-file-names")
+            .any(|c| c.code == "hardlink-path-candidates")
     );
 }
 
@@ -608,7 +801,12 @@ fn file_name_attr_with_namespace(
     file_attributes: u32,
     namespace: u8,
 ) -> Vec<u8> {
-    file_name_attr_with_parent_reference(parent_id, name, file_attributes, namespace)
+    file_name_attr_with_parent_reference(
+        file_reference(parent_id, parent_id as u16),
+        name,
+        file_attributes,
+        namespace,
+    )
 }
 
 fn file_name_attr_with_parent_reference(
