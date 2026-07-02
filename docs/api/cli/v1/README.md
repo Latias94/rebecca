@@ -86,12 +86,17 @@ When known, targets also include:
 - `estimate_backend`: scanner that produced the byte estimate, such as
   `portable-recursive`, `windows-native`, or
   `windows-ntfs-mft-experimental`;
+- `estimate_backend_source`: optional implementation source within the selected
+  scanner, such as `windows-ntfs-mft-experimental-sequential` or
+  `windows-ntfs-mft-experimental-fsctl-record`;
 - `estimate_confidence`: estimate confidence, currently `exact`;
 - `estimate_fallback_reason`: why Rebecca fell back from a requested backend;
 - `estimate_caveats`: structured caveats with `code` and `message`.
 
 The `windows-ntfs-mft-experimental` backend is read-only and opt-in. When live
-NTFS metadata is unavailable or ambiguous, Rebecca reports fallback provenance
+NTFS metadata is available, `estimate_backend_source` distinguishes the
+sequential `$MFT` source from the per-record FSCTL fallback source. When live
+metadata is unavailable or ambiguous, Rebecca reports fallback provenance
 instead of treating raw metadata as cleanup authority.
 
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
@@ -129,7 +134,7 @@ target counts.
 
 Purge targets carry the same estimate provenance fields as cleanup targets.
 Consumers should use the explicit `rule_id`, `status`, `reason_code`,
-`estimate_source`, backend/confidence/caveat fields, and `project_artifact`
+`estimate_source`, backend/source/confidence/caveat fields, and `project_artifact`
 explanation fields. Provenance explains where a byte estimate came from; it is
 not a freshness guarantee and is never deletion authority.
 

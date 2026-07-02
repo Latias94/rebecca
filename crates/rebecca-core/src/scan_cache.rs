@@ -63,6 +63,8 @@ pub struct ScanCacheRecord {
     pub root: PathBuf,
     #[serde(default = "default_scan_cache_backend")]
     pub backend: ScanBackendKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_source: Option<String>,
     #[serde(default = "default_scan_cache_confidence")]
     pub confidence: ScanEstimateConfidence,
     #[serde(default)]
@@ -82,6 +84,7 @@ impl ScanCacheRecord {
             version: SCAN_CACHE_VERSION,
             root,
             backend: measured_scan.backend,
+            backend_source: measured_scan.backend_source,
             confidence: measured_scan.confidence,
             identity: snapshot.identity,
             fingerprint: snapshot.fingerprint,
@@ -410,10 +413,11 @@ pub enum ScanCacheFileType {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanCacheHit {
     pub report: ScanReport,
     pub backend: ScanBackendKind,
+    pub backend_source: Option<String>,
     pub confidence: ScanEstimateConfidence,
 }
 
@@ -422,12 +426,13 @@ impl ScanCacheHit {
         Self {
             report: record.report,
             backend: record.backend,
+            backend_source: record.backend_source.clone(),
             confidence: record.confidence,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanCacheLookup {
     Hit(ScanCacheHit),
     Miss(ScanCacheMissOutcome),

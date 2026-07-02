@@ -42,6 +42,8 @@ pub struct EstimateProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimate_backend: Option<ScanBackendKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate_backend_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimate_confidence: Option<ScanEstimateConfidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimate_fallback_reason: Option<String>,
@@ -53,6 +55,7 @@ impl EstimateProvenance {
     pub fn from_measured_scan(scan: &MeasuredScan) -> Self {
         Self {
             estimate_backend: Some(scan.backend),
+            estimate_backend_source: scan.backend_source.clone(),
             estimate_confidence: Some(scan.confidence),
             estimate_fallback_reason: scan.fallback_reason.clone(),
             estimate_caveats: scan.caveats.clone(),
@@ -63,8 +66,17 @@ impl EstimateProvenance {
         backend: ScanBackendKind,
         confidence: ScanEstimateConfidence,
     ) -> Self {
+        Self::from_backend_confidence_and_source(backend, confidence, None)
+    }
+
+    pub fn from_backend_confidence_and_source(
+        backend: ScanBackendKind,
+        confidence: ScanEstimateConfidence,
+        source: Option<String>,
+    ) -> Self {
         Self {
             estimate_backend: Some(backend),
+            estimate_backend_source: source,
             estimate_confidence: Some(confidence),
             estimate_fallback_reason: None,
             estimate_caveats: Vec::new(),
@@ -73,6 +85,7 @@ impl EstimateProvenance {
 
     pub fn is_empty(&self) -> bool {
         self.estimate_backend.is_none()
+            && self.estimate_backend_source.is_none()
             && self.estimate_confidence.is_none()
             && self.estimate_fallback_reason.is_none()
             && self.estimate_caveats.is_empty()
@@ -86,7 +99,9 @@ impl EstimateProvenance {
             backend != ScanBackendKind::PortableRecursive
                 || !self.estimate_caveats.is_empty()
                 || self.estimate_fallback_reason.is_some()
+                || self.estimate_backend_source.is_some()
         }) || self.estimate_fallback_reason.is_some()
+            || self.estimate_backend_source.is_some()
             || !self.estimate_caveats.is_empty()
     }
 }

@@ -45,6 +45,10 @@
         "windows-ntfs-mft-experimental"
       ]
     },
+    "estimateBackendSource": {
+      "type": "string",
+      "minLength": 1
+    },
     "estimateConfidence": {
       "type": "string",
       "enum": [
@@ -682,6 +686,9 @@
         "estimate_backend": {
           "$ref": "#/$defs/estimateBackend"
         },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
+        },
         "estimate_confidence": {
           "$ref": "#/$defs/estimateConfidence"
         },
@@ -1063,6 +1070,9 @@
         },
         "estimate_backend": {
           "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
         },
         "estimate_confidence": {
           "$ref": "#/$defs/estimateConfidence"

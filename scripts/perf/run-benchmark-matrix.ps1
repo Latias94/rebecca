@@ -45,6 +45,7 @@ function Convert-Estimate {
         scenario = $Scenario.scenario
         operation = $Scenario.operation
         backend = $Scenario.backend
+        backend_source_expectation = $Scenario.backend_source_expectation
         fixture = $Scenario.fixture
         physical_files = $Scenario.physical_files
         physical_directories = $Scenario.physical_directories
@@ -103,7 +104,7 @@ try {
     }
 
     $report = [pscustomobject]@{
-        schema_version = 1
+        schema_version = 2
         generated_at_unix_seconds = Get-UnixTimeSeconds
         package = $Package
         bench = $Bench

@@ -392,9 +392,10 @@ where
                 return Ok(MeasuredPath {
                     report: hit.report,
                     estimate_source: EstimateSource::ScanCache,
-                    estimate_provenance: EstimateProvenance::from_backend_confidence(
+                    estimate_provenance: EstimateProvenance::from_backend_confidence_and_source(
                         hit.backend,
                         hit.confidence,
+                        hit.backend_source,
                     ),
                 });
             }

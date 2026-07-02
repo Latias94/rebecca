@@ -137,8 +137,9 @@ The scan cache is a derived cache under `<cache_dir>\scan`. It stores compact,
 versioned JSON records for scan reuse and is safe to delete. The current record
 version is `1`; unsupported records are treated as stale, pruned, and rebuilt. Each
 record carries the scanned root path, root metadata fingerprint, scan report,
-write time, scan backend, estimate confidence, and optional filesystem identity
-fields such as volume serial, file id, and USN checkpoint data. Rebecca
+write time, scan backend, optional backend source, estimate confidence, and
+optional filesystem identity fields such as volume serial, file id, and USN
+checkpoint data. Rebecca
 uses atomic replacement for cache writes and keeps strict file sync as an
 internal policy option rather than the default hot-path behavior. Stale,
 expired, corrupted, or unsupported cache files are pruned on lookup and rebuilt
@@ -157,7 +158,8 @@ opt into platform scanners per command with `--scan-backend`:
 - `windows-native` uses Windows directory enumeration and falls back to the
   portable scanner when unsupported.
 - `windows-ntfs-mft-experimental` attempts a read-only live NTFS/MFT volume
-  index for local fixed NTFS volumes. It requires permission to open the volume
+  index for local fixed NTFS volumes. It tries a sequential `$MFT::$DATA` source
+  before the per-record FSCTL source, requires permission to open the volume
   read-only, reuses the in-memory volume index only for the current command, and
   falls back to a safe directory scanner when the volume is unsupported,
   unprivileged, or too ambiguous to trust.
@@ -166,7 +168,8 @@ Experimental NTFS/MFT estimates are explainability data only. They never
 authorize deletion, and execution still revalidates filesystem paths through
 the normal safety model. Machine outputs expose the actual scanner through
 `estimate_backend`, exactness through `estimate_confidence`, fallback detail
-through `estimate_fallback_reason`, and parser or ambiguity notes through
+through `estimate_fallback_reason`, actual experimental source through optional
+`estimate_backend_source`, and parser or ambiguity notes through
 `estimate_caveats`.
 
 ## Cache Purge Boundary
@@ -277,9 +280,10 @@ provenance on each target. `estimate_source` explains whether bytes came from
 this command (`fresh-scan`), a valid scan-cache record (`scan-cache`), a skipped
 or blocked unmeasured target (`not-measured`), or legacy serialized input
 (`unknown`). When known, `estimate_backend`, `estimate_confidence`,
-`estimate_fallback_reason`, and `estimate_caveats` identify the scanner,
-confidence, backend fallback, and caveats behind the estimate. These fields are
-explainability metadata, not deletion authority.
+`estimate_backend_source`, `estimate_fallback_reason`, and `estimate_caveats`
+identify the scanner, source strategy, confidence, backend fallback, and caveats
+behind the estimate. These fields are explainability metadata, not deletion
+authority.
 
 The first supported artifact set tracks high-confidence rebuildable project
 directories such as `node_modules`, `target`, `build`, `dist`, frontend
@@ -329,8 +333,8 @@ The current cleanup safety boundaries and planned hardening steps are documented
 in [Rebecca Cleanup Safety Audit](security-audit.md).
 
 Scan-cache records may store target paths, metadata fingerprints, filesystem
-identity fields, scan backend/confidence metadata, scan reports, and write
-times. They are rebuildable optimization data, not an audit log.
+identity fields, scan backend/source/confidence metadata, scan reports, and
+write times. They are rebuildable optimization data, not an audit log.
 
 ## CLI Contract
 

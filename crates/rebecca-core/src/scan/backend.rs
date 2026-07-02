@@ -50,6 +50,8 @@ pub struct MeasuredScan {
     pub backend: ScanBackendKind,
     pub confidence: ScanEstimateConfidence,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub caveats: Vec<ScanEstimateCaveat>,
@@ -61,9 +63,15 @@ impl MeasuredScan {
             report,
             backend,
             confidence: ScanEstimateConfidence::Exact,
+            backend_source: None,
             fallback_reason: None,
             caveats: Vec::new(),
         }
+    }
+
+    pub(crate) fn with_backend_source(mut self, source: impl Into<String>) -> Self {
+        self.backend_source = Some(source.into());
+        self
     }
 
     pub(crate) fn with_fallback_reason(mut self, reason: impl Into<String>) -> Self {

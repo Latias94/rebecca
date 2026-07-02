@@ -85,6 +85,7 @@ fn usn_record() -> ScanCacheRecord {
         version: SCAN_CACHE_VERSION,
         root: PathBuf::from("C:\\Temp"),
         backend: ScanBackendKind::WindowsNative,
+        backend_source: None,
         confidence: ScanEstimateConfidence::Exact,
         identity: ScanCacheIdentity {
             volume_serial: Some(5),

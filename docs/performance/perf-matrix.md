@@ -16,7 +16,7 @@ pwsh -File scripts/perf/run-benchmark-matrix.ps1
 
 The script runs `cargo bench -p rebecca-core --bench perf_matrix`, reads Criterion estimates from `target/criterion/perf_matrix`, combines them with scenario metadata from `target/perf/perf_matrix-scenarios.json`, and writes `target/perf/rebecca-core-perf_matrix-report.json`.
 
-The report records scenario name, operation, backend, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, and Criterion mean/median timing estimates. The default scenarios cover:
+The report records scenario name, operation, requested backend, backend-source expectation, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, and Criterion mean/median timing estimates. The default scenarios cover:
 
 - cold recursive scan over many small files
 - Windows native directory scan selection over many small files
@@ -37,4 +37,14 @@ The report records scenario name, operation, backend, fixture shape, physical fi
 Keep reports under `target/perf/`; they are local measurement artifacts and should not be committed unless a future release process explicitly asks for a checked-in baseline.
 
 The default matrix does not read a live NTFS volume because that requires host privileges and can make Criterion results depend on the whole workstation disk.
-Use the release dogfood commands for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios.
+Use the release dogfood commands for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_backend_source`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios.
+
+To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
+
+```powershell
+$env:REBECCA_PERF_MATRIX_LIVE_NTFS = "1"
+pwsh -File scripts/perf/run-benchmark-matrix.ps1
+Remove-Item Env:\REBECCA_PERF_MATRIX_LIVE_NTFS
+```
+
+When the live scenario succeeds through the experimental backend, its source must be either `windows-ntfs-mft-experimental-sequential` or `windows-ntfs-mft-experimental-fsctl-record`. When the host is unsupported or unelevated, the same scenario must report a directory-scanner fallback with no backend source.

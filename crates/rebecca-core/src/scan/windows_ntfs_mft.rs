@@ -39,7 +39,7 @@ const EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL: &str = "windows-ntfs-mft-experimental
 const NTFS_FILE_SYSTEM_NAME: &str = "NTFS";
 const DRIVE_FIXED: u32 = 3;
 const FILE_REFERENCE_LOW_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
-const SEQUENTIAL_MFT_SOURCE_LABEL: &str = "sequential-mft-data";
+const SEQUENTIAL_MFT_SOURCE_LABEL: &str = "sequential";
 const FSCTL_RECORD_SOURCE_LABEL: &str = "fsctl-record";
 const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RETRIEVAL_POINTER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
@@ -74,6 +74,7 @@ impl WindowsNtfsMftIndexCache {
 #[derive(Debug)]
 struct CachedNtfsVolumeIndex {
     tree: MftTree,
+    source_label: &'static str,
     caveats: Vec<ParseCaveat>,
 }
 
@@ -87,6 +88,7 @@ impl CachedNtfsVolumeIndex {
         let records = volume.read_mft_records(&volume_data, cancellation)?;
         Ok(Self {
             tree: MftTree::from_records(records.records),
+            source_label: records.source_label,
             caveats: records.caveats,
         })
     }
@@ -152,7 +154,8 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
             files_scanned: summary.files,
             directories_scanned: summary.directories,
         };
-        let mut measured = MeasuredScan::exact(report, self.kind());
+        let mut measured = MeasuredScan::exact(report, self.kind())
+            .with_backend_source(mft_backend_source_label(index.source_label));
         for caveat in index.caveats.iter().cloned().chain(summary.caveats) {
             measured = measured.with_caveat(caveat.code, caveat.message);
         }
@@ -324,6 +327,7 @@ impl FileIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedMftRecords {
+    source_label: &'static str,
     records: Vec<MftRecord>,
     caveats: Vec<ParseCaveat>,
 }
@@ -349,6 +353,7 @@ fn read_mft_records_from_sources(
         check_not_cancelled(cancellation)?;
         match source.read_records(volume_data, cancellation) {
             Ok(mut records) => {
+                records.source_label = source.label();
                 records.caveats.extend(
                     fallback_errors
                         .drain(..)
@@ -376,6 +381,10 @@ fn mft_record_source_error_can_fallback(err: &RebeccaError) -> bool {
     )
 }
 
+fn mft_backend_source_label(source_label: &str) -> String {
+    format!("{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL}-{source_label}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NtfsRecordGeometry {
     record_size: usize,
@@ -388,7 +397,7 @@ impl NtfsRecordGeometry {
     fn from_volume_data(device_path: &str, volume_data: &NTFS_VOLUME_DATA_BUFFER) -> Result<Self> {
         let record_size = usize::try_from(volume_data.BytesPerFileRecordSegment).unwrap_or(0);
         let sector_size = usize::try_from(volume_data.BytesPerSector).unwrap_or(0);
-        let bytes_per_cluster = u64::try_from(volume_data.BytesPerCluster).unwrap_or(0);
+        let bytes_per_cluster = u64::from(volume_data.BytesPerCluster);
         let mft_valid_data_length = u64::try_from(volume_data.MftValidDataLength).unwrap_or(0);
 
         if record_size == 0 || sector_size == 0 || bytes_per_cluster == 0 {
@@ -773,7 +782,11 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
             )?;
         }
 
-        Ok(ParsedMftRecords { records, caveats })
+        Ok(ParsedMftRecords {
+            source_label: self.label(),
+            records,
+            caveats,
+        })
     }
 }
 
@@ -915,7 +928,11 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
             }
         }
 
-        Ok(ParsedMftRecords { records, caveats })
+        Ok(ParsedMftRecords {
+            source_label: self.label(),
+            records,
+            caveats,
+        })
     }
 }
 
@@ -1121,6 +1138,7 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(records.source_label, "primary");
         assert_eq!(records.caveats.len(), 1);
         assert_eq!(records.caveats[0].code, "primary-success");
     }
@@ -1143,6 +1161,7 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(records.source_label, "fsctl-record");
         assert!(
             records
                 .caveats
@@ -1198,6 +1217,7 @@ mod tests {
         ) -> Result<ParsedMftRecords> {
             match self.behavior {
                 FakeRecordSourceBehavior::Success(code) => Ok(ParsedMftRecords {
+                    source_label: self.label,
                     records: Vec::new(),
                     caveats: vec![ParseCaveat::new(code, self.label)],
                 }),

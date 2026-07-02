@@ -14,7 +14,8 @@ use rebecca_core::planner::{
 };
 use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::scan::{
-    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanTargetRequest,
+    MeasuredScan, ScanBackendKind, ScanCancellationToken, ScanEngine, ScanProgressEvent,
+    ScanTargetRequest,
 };
 use rebecca_core::scan_cache::{ScanCacheLookup, ScanCacheStore};
 use rebecca_core::{
@@ -32,137 +33,165 @@ const DUPLICATE_TARGET_UNIQUE_FILES: usize = 32;
 const DUPLICATE_TARGET_REPEATS: usize = 32;
 const BYTES_PER_FILE: usize = 128;
 
-const SCENARIOS: &[ScenarioMetadata] = &[
-    ScenarioMetadata::scan(
-        "many_small_cold_scan_1024_files",
-        "many-small",
-        1024,
-        33,
-        131_072,
-        0,
-    ),
-    ScenarioMetadata::scan_backend(
-        "many_small_windows_native_scan_1024_files",
-        "windows-native-selected",
-        "many-small",
-        1024,
-        33,
-        131_072,
-        0,
-    ),
-    ScenarioMetadata::scan_backend(
-        "many_small_ntfs_mft_fallback_scan_1024_files",
-        "windows-ntfs-mft-experimental-fallback",
-        "many-small",
-        1024,
-        33,
-        131_072,
-        0,
-    ),
-    ScenarioMetadata::scan(
-        "many_small_progress_scan_1024_files",
-        "many-small",
-        1024,
-        33,
-        131_072,
-        1024,
-    ),
-    ScenarioMetadata::scan(
-        "large_single_directory_cold_scan_1024_files",
-        "large-single-directory",
-        1024,
-        1,
-        131_072,
-        0,
-    ),
-    ScenarioMetadata::scan(
-        "deep_tree_cold_scan_128_files",
-        "deep-tree",
-        128,
-        33,
-        16_384,
-        0,
-    ),
-    ScenarioMetadata::targets(
-        "scan_targets_parallel_1024_files",
-        "many-small",
-        1024,
-        33,
-        131_072,
-        1024,
-    ),
-    ScenarioMetadata::targets(
-        "scan_targets_duplicate_paths_1024_candidates",
-        "duplicate-targets",
-        32,
-        2,
-        131_072,
-        1024,
-    ),
-    ScenarioMetadata::rule_plan(
-        "rule_plan_32_dirs_1024_files",
-        "many-small-directories",
-        1024,
-        33,
-        131_072,
-        32,
-    ),
-    ScenarioMetadata::rule_plan_progress(
-        "rule_plan_target_progress_32_dirs_1024_files",
-        "many-small-directories",
-        1024,
-        33,
-        131_072,
-        32,
-        64,
-    ),
-    ScenarioMetadata::cache(
-        "scan_cache_miss_store_many_small_1024_files",
-        "many-small",
-        1024,
-        33,
-        131_072,
-        "miss-store",
-    ),
-    ScenarioMetadata::cache(
-        "scan_cache_hit_many_small_1024_files",
-        "many-small",
-        1024,
-        33,
-        131_072,
-        "hit",
-    ),
-    ScenarioMetadata::delete(
-        "cleanup_delete_serial_32_dirs_1024_files",
-        "many-small-directories",
-        1024,
-        33,
-        131_072,
-        "serial-recycle",
-        32,
-    ),
-    ScenarioMetadata::delete(
-        "cleanup_delete_parallel_32_dirs_1024_files",
-        "many-small-directories",
-        1024,
-        33,
-        131_072,
-        "parallel-recycle",
-        32,
-    ),
-    ScenarioMetadata::delete(
-        "cleanup_delete_batch_32_dirs_1024_files",
-        "many-small-directories",
-        1024,
-        33,
-        131_072,
-        "batch-recycle",
-        32,
-    ),
-];
+const LIVE_NTFS_MATRIX_ENV: &str = "REBECCA_PERF_MATRIX_LIVE_NTFS";
+
+fn scenario_metadata() -> Vec<ScenarioMetadata> {
+    let mut scenarios = vec![
+        ScenarioMetadata::scan(
+            "many_small_cold_scan_1024_files",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            0,
+        ),
+        ScenarioMetadata::scan_backend(
+            "many_small_windows_native_scan_1024_files",
+            "windows-native-selected",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            0,
+        ),
+        ScenarioMetadata::scan_backend(
+            "many_small_ntfs_mft_fallback_scan_1024_files",
+            "windows-ntfs-mft-experimental-fallback",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            0,
+        ),
+        ScenarioMetadata::scan(
+            "many_small_progress_scan_1024_files",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            1024,
+        ),
+        ScenarioMetadata::scan(
+            "large_single_directory_cold_scan_1024_files",
+            "large-single-directory",
+            1024,
+            1,
+            131_072,
+            0,
+        ),
+        ScenarioMetadata::scan(
+            "deep_tree_cold_scan_128_files",
+            "deep-tree",
+            128,
+            33,
+            16_384,
+            0,
+        ),
+        ScenarioMetadata::targets(
+            "scan_targets_parallel_1024_files",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            1024,
+        ),
+        ScenarioMetadata::targets(
+            "scan_targets_duplicate_paths_1024_candidates",
+            "duplicate-targets",
+            32,
+            2,
+            131_072,
+            1024,
+        ),
+        ScenarioMetadata::rule_plan(
+            "rule_plan_32_dirs_1024_files",
+            "many-small-directories",
+            1024,
+            33,
+            131_072,
+            32,
+        ),
+        ScenarioMetadata::rule_plan_progress(
+            "rule_plan_target_progress_32_dirs_1024_files",
+            "many-small-directories",
+            1024,
+            33,
+            131_072,
+            32,
+            64,
+        ),
+        ScenarioMetadata::cache(
+            "scan_cache_miss_store_many_small_1024_files",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            "miss-store",
+        ),
+        ScenarioMetadata::cache(
+            "scan_cache_hit_many_small_1024_files",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            "hit",
+        ),
+        ScenarioMetadata::delete(
+            "cleanup_delete_serial_32_dirs_1024_files",
+            "many-small-directories",
+            1024,
+            33,
+            131_072,
+            "serial-recycle",
+            32,
+        ),
+        ScenarioMetadata::delete(
+            "cleanup_delete_parallel_32_dirs_1024_files",
+            "many-small-directories",
+            1024,
+            33,
+            131_072,
+            "parallel-recycle",
+            32,
+        ),
+        ScenarioMetadata::delete(
+            "cleanup_delete_batch_32_dirs_1024_files",
+            "many-small-directories",
+            1024,
+            33,
+            131_072,
+            "batch-recycle",
+            32,
+        ),
+    ];
+
+    if live_ntfs_matrix_enabled() {
+        scenarios.push(
+            ScenarioMetadata::scan_backend(
+                "many_small_ntfs_mft_live_source_scan_1024_files",
+                "windows-ntfs-mft-experimental",
+                "many-small",
+                1024,
+                33,
+                131_072,
+                0,
+            )
+            .with_backend_source_expectation(
+                "windows-ntfs-mft-experimental-sequential|windows-ntfs-mft-experimental-fsctl-record|fallback-none",
+            ),
+        );
+    }
+
+    scenarios
+}
+
+fn live_ntfs_matrix_enabled() -> bool {
+    std::env::var_os(LIVE_NTFS_MATRIX_ENV).is_some()
+}
 
 fn perf_matrix(criterion: &mut Criterion) {
-    write_scenario_manifest();
+    let scenarios = scenario_metadata();
+    write_scenario_manifest(&scenarios);
 
     let mut group = criterion.benchmark_group("perf_matrix");
     group.sample_size(10);
@@ -226,6 +255,7 @@ fn perf_matrix(criterion: &mut Criterion) {
                 .expect("scan should succeed");
             assert_report(measured.report, expected);
             assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
+            assert!(measured.backend_source.is_none());
             assert!(
                 measured
                     .caveats
@@ -235,6 +265,30 @@ fn perf_matrix(criterion: &mut Criterion) {
             black_box(measured);
         });
     });
+
+    if live_ntfs_matrix_enabled() {
+        group.bench_function(
+            "many_small_ntfs_mft_live_source_scan_1024_files",
+            |bencher| {
+                let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
+                let expected = create_many_small_fixture(fixture.path());
+
+                bencher.iter(|| {
+                    let measured = ScanEngine::new()
+                        .measure_scan_with_backend(
+                            black_box(fixture.path()),
+                            &ScanCancellationToken::new(),
+                            ScanBackendKind::WindowsNtfsMftExperimental,
+                            |_| {},
+                        )
+                        .expect("scan should succeed");
+                    assert_report(measured.report, expected);
+                    assert_ntfs_mft_source_or_fallback(&measured);
+                    black_box(measured);
+                });
+            },
+        );
+    }
 
     group.bench_function("many_small_progress_scan_1024_files", |bencher| {
         let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
@@ -560,6 +614,7 @@ struct ScenarioMetadata {
     scenario: &'static str,
     operation: &'static str,
     backend: &'static str,
+    backend_source_expectation: &'static str,
     fixture: &'static str,
     physical_files: u64,
     physical_directories: u64,
@@ -571,6 +626,14 @@ struct ScenarioMetadata {
 }
 
 impl ScenarioMetadata {
+    const fn with_backend_source_expectation(
+        mut self,
+        backend_source_expectation: &'static str,
+    ) -> Self {
+        self.backend_source_expectation = backend_source_expectation;
+        self
+    }
+
     const fn scan(
         scenario: &'static str,
         fixture: &'static str,
@@ -583,6 +646,7 @@ impl ScenarioMetadata {
             scenario,
             operation: "scan",
             backend: "portable-recursive",
+            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
@@ -607,6 +671,7 @@ impl ScenarioMetadata {
             scenario,
             operation: "scan",
             backend,
+            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
@@ -630,6 +695,7 @@ impl ScenarioMetadata {
             scenario,
             operation: "target-scan",
             backend: "portable-recursive",
+            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
@@ -653,6 +719,7 @@ impl ScenarioMetadata {
             scenario,
             operation: "rule-plan",
             backend: "portable-recursive",
+            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
@@ -677,6 +744,7 @@ impl ScenarioMetadata {
             scenario,
             operation: "rule-plan-progress",
             backend: "portable-recursive",
+            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
@@ -700,6 +768,7 @@ impl ScenarioMetadata {
             scenario,
             operation: "scan-cache",
             backend: "portable-recursive",
+            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
@@ -724,6 +793,7 @@ impl ScenarioMetadata {
             scenario,
             operation: "delete",
             backend: "fixture-delete",
+            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
@@ -742,7 +812,7 @@ struct ScenarioManifest {
     generated_at_unix_seconds: u64,
     package: &'static str,
     bench: &'static str,
-    scenarios: &'static [ScenarioMetadata],
+    scenarios: Vec<ScenarioMetadata>,
 }
 
 impl CleanupBackend for CleanupFixtureBackend {
@@ -1005,7 +1075,30 @@ fn assert_report(actual: rebecca_core::scan::ScanReport, expected: ExpectedScan)
     assert_eq!(actual.bytes_scanned, expected.bytes);
 }
 
-fn write_scenario_manifest() {
+fn assert_ntfs_mft_source_or_fallback(measured: &MeasuredScan) {
+    match measured.backend {
+        ScanBackendKind::WindowsNtfsMftExperimental => {
+            assert!(matches!(
+                measured.backend_source.as_deref(),
+                Some(
+                    "windows-ntfs-mft-experimental-sequential"
+                        | "windows-ntfs-mft-experimental-fsctl-record"
+                )
+            ));
+        }
+        ScanBackendKind::WindowsNative | ScanBackendKind::PortableRecursive => {
+            assert!(measured.backend_source.is_none());
+            assert!(
+                measured
+                    .caveats
+                    .iter()
+                    .any(|caveat| caveat.code == "experimental-ntfs-mft-fallback")
+            );
+        }
+    }
+}
+
+fn write_scenario_manifest(scenarios: &[ScenarioMetadata]) {
     let manifest_path = scenario_manifest_path();
     let Some(parent) = manifest_path.parent() else {
         return;
@@ -1013,11 +1106,11 @@ fn write_scenario_manifest() {
     fs::create_dir_all(parent).expect("perf manifest directory should be created");
 
     let manifest = ScenarioManifest {
-        schema_version: 1,
+        schema_version: 2,
         generated_at_unix_seconds: unix_now(),
         package: "rebecca-core",
         bench: "perf_matrix",
-        scenarios: SCENARIOS,
+        scenarios: scenarios.to_vec(),
     };
     let raw = serde_json::to_vec_pretty(&manifest).expect("perf manifest should serialize");
     fs::write(manifest_path, raw).expect("perf manifest should be written");

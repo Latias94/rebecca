@@ -223,6 +223,7 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
         )
         .with_estimate_provenance(EstimateProvenance {
             estimate_backend: Some(ScanBackendKind::WindowsNative),
+            estimate_backend_source: Some("windows-native-usn".to_string()),
             estimate_confidence: Some(ScanEstimateConfidence::Exact),
             estimate_fallback_reason: Some("windows-native: unavailable".to_string()),
             estimate_caveats: vec![ScanEstimateCaveat {
@@ -236,6 +237,10 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
     let json = serde_json::to_value(&plan).expect("plan should serialize");
     assert_eq!(json["targets"][0]["estimate_source"], "fresh-scan");
     assert_eq!(json["targets"][0]["estimate_backend"], "windows-native");
+    assert_eq!(
+        json["targets"][0]["estimate_backend_source"],
+        "windows-native-usn"
+    );
     assert_eq!(json["targets"][0]["estimate_confidence"], "exact");
     assert_eq!(
         json["targets"][0]["estimate_fallback_reason"],
@@ -250,6 +255,13 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
     assert_eq!(
         decoded.targets[0].estimate_provenance.estimate_backend,
         Some(ScanBackendKind::WindowsNative)
+    );
+    assert_eq!(
+        decoded.targets[0]
+            .estimate_provenance
+            .estimate_backend_source
+            .as_deref(),
+        Some("windows-native-usn")
     );
     assert_eq!(
         decoded.targets[0]

@@ -106,11 +106,13 @@ Set-Content -LiteralPath (Join-Path $root "delete-me.tmp") -Value "smoke"
 cargo run -p rebecca -- clean --dry-run --rule windows.user-temp
 ```
 
-Record JSON `estimate_source`, `estimate_backend`, `estimate_confidence`,
-`estimate_fallback_reason`, and `estimate_caveats` values for the backend
-dogfood runs. The experimental NTFS/MFT run should either show
-`estimate_backend: "windows-ntfs-mft-experimental"` on a supported elevated
-local NTFS volume, or a clear fallback reason and
+Record JSON `estimate_source`, `estimate_backend`, `estimate_backend_source`,
+`estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` values
+for the backend dogfood runs. The experimental NTFS/MFT run should either show
+`estimate_backend: "windows-ntfs-mft-experimental"` with
+`estimate_backend_source: "windows-ntfs-mft-experimental-sequential"` or
+`"windows-ntfs-mft-experimental-fsctl-record"` on a supported elevated local
+NTFS volume, or a clear fallback reason, no backend source, and
 `experimental-ntfs-mft-fallback` caveat. Focused Windows backend tests and the
 performance matrix remain the authoritative evidence for native and
 experimental backend fallback behavior.

@@ -378,6 +378,7 @@ mod tests {
         ScanCacheLookup::Hit(ScanCacheHit {
             report,
             backend,
+            backend_source: None,
             confidence: ScanEstimateConfidence::Exact,
         })
     }
@@ -416,6 +417,7 @@ mod tests {
         assert_eq!(record.version, SCAN_CACHE_VERSION);
         assert_eq!(record.root, root);
         assert_eq!(record.backend, ScanBackendKind::PortableRecursive);
+        assert_eq!(record.backend_source, None);
         assert_eq!(record.confidence, ScanEstimateConfidence::Exact);
         assert!(store.cache_file_for(&record.root).exists());
         assert_eq!(lookup, hit(report, ScanBackendKind::PortableRecursive));
@@ -447,6 +449,46 @@ mod tests {
     }
 
     #[test]
+    fn scan_cache_round_trips_backend_source_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file.bin"), b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 1,
+        };
+
+        let record = store
+            .store_measured_scan(
+                &root,
+                crate::scan::MeasuredScan::exact(
+                    report,
+                    ScanBackendKind::WindowsNtfsMftExperimental,
+                )
+                .with_backend_source("windows-ntfs-mft-experimental-sequential"),
+            )
+            .unwrap();
+        let lookup = store.load(&root);
+
+        assert_eq!(
+            record.backend_source.as_deref(),
+            Some("windows-ntfs-mft-experimental-sequential")
+        );
+        assert_eq!(
+            lookup,
+            ScanCacheLookup::Hit(ScanCacheHit {
+                report,
+                backend: ScanBackendKind::WindowsNtfsMftExperimental,
+                backend_source: Some("windows-ntfs-mft-experimental-sequential".to_string()),
+                confidence: ScanEstimateConfidence::Exact,
+            })
+        );
+    }
+
+    #[test]
     fn scan_cache_writes_compact_v1_records_with_identity_metadata() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("target.txt");
@@ -466,6 +508,7 @@ mod tests {
         assert!(!raw.contains('\n'), "cache records should be compact JSON");
         assert_eq!(parsed["version"], SCAN_CACHE_VERSION);
         assert_eq!(parsed["backend"], "portable-recursive");
+        assert!(parsed.get("backend_source").is_none());
         assert_eq!(parsed["confidence"], "exact");
         assert_eq!(parsed["identity"].as_object().unwrap().len(), 2);
         assert!(parsed["identity"].get("usn_checkpoint").is_none());

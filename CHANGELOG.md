@@ -29,15 +29,17 @@ All notable changes to Rebecca will be documented in this file.
 - Cleanup planning now deduplicates equivalent existing directories by filesystem identity and keeps directory scan cache records valid for their configured freshness window despite root metadata churn.
 - Dry-run cleanup previews now use the rebuildable scan cache by default, with `--no-scan-cache` available when a fully fresh estimate is preferred; `--yes` execution remains fresh-scan by default.
 - The core performance matrix now includes an ordinary-rule planning benchmark for many directory targets.
-- Scan-cache records now use a compact v1 format with scan backend, estimate confidence, optional filesystem identity fields, and USN checkpoint placeholders.
+- Scan-cache records now use a compact v1 format with scan backend, optional backend source, estimate confidence, optional filesystem identity fields, and USN checkpoint placeholders.
 - Cleanup execution backends can now receive revalidated, non-overlapping safe batches while still returning per-target outcomes.
 - `clean --scan-backend windows-native` now opts into a Windows native directory enumeration backend for cleanup plan estimates, with portable fallback when the native path is unsupported.
 - The core performance matrix now includes a Windows native scan selection scenario for many-small-file fixtures.
 - `rebecca-ntfs` now provides read-only NTFS MFT record parsing, fixup validation, file-name/data-size extraction, reparse detection, subtree aggregation, fixture tests, and a generated-record parser benchmark.
 - `clean --scan-backend windows-ntfs-mft-experimental` now attempts a read-only live NTFS/MFT index on supported local NTFS volumes, reuses a per-command volume index for repeated targets, reports estimate caveats, and falls back to a safe directory scanner when unsupported or unprivileged.
+- `windows-ntfs-mft-experimental` now tries a read-only sequential `$MFT::$DATA` source before the per-record `FSCTL_GET_NTFS_FILE_RECORD` source, reads bounded aligned chunks, and keeps per-record FSCTL plus directory scanners as structured fallback paths.
+- Cleanup, purge, and `inspect space` estimate provenance now include optional `estimate_backend_source` values such as `windows-ntfs-mft-experimental-sequential` and `windows-ntfs-mft-experimental-fsctl-record` so wrappers can distinguish the actual experimental source from the public backend selector.
 - Scan-cache records now have a USN Journal validation model for checkpoint, journal id, range availability, and target-subtree change invalidation; missing USN support falls back to the normal cache policy.
 - Cleanup rule targets now expose explicit search semantics in the manifest parser and catalog output, and glob discovery can reuse a per-plan directory enumeration index for compatible rules.
-- Cleanup, purge, and `inspect space` outputs now expose additive v1 estimate provenance fields (`estimate_backend`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats`) while keeping `estimate_source` stable.
+- Cleanup, purge, and `inspect space` outputs now expose additive v1 estimate provenance fields (`estimate_backend`, `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats`) while keeping `estimate_source` stable.
 - `inspect space --scan-backend <BACKEND>` now accepts the same scan backend selectors as cleanup dry-runs for read-only space estimates.
 
 ### Changed
@@ -58,7 +60,8 @@ All notable changes to Rebecca will be documented in this file.
 - Scan traversal now reuses walker entry type information where possible while preserving root metadata checks and reparse-point protection.
 - `history --limit` now loads only the bounded tail of non-empty history records before building the history projection.
 - Scan-cache writes now use atomic replacement without strict file sync on the default hot path; strict sync remains available as an internal policy option.
-- Scan-cache lookups now accept exact v1 records produced by either the portable recursive scanner or the Windows native directory scanner when root fingerprint and identity still match.
+- Scan-cache lookups now accept exact v1 records produced by portable, Windows native, or experimental NTFS/MFT scanners when root fingerprint and identity still match, and preserve optional backend-source provenance for cache hits.
+- The performance matrix report schema now carries `backend_source_expectation`; live NTFS source timing is opt-in with `REBECCA_PERF_MATRIX_LIVE_NTFS=1` so default benchmark runs stay deterministic.
 - Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
 
 ### Breaking
