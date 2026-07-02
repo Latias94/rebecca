@@ -72,6 +72,7 @@ All notable changes to Rebecca will be documented in this file.
 - The performance matrix report schema now carries `backend_source_expectation`; live NTFS source timing is opt-in with `REBECCA_PERF_MATRIX_LIVE_NTFS=1` so default benchmark runs stay deterministic.
 - Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
 - Experimental NTFS/MFT index construction now avoids quadratic directory-entry checks for large `$I30` indexes, makes fallback edges path-searchable, and builds live volume indexes outside the shared cache mutex.
+- Experimental NTFS/MFT live volume index construction now has a default 20 second build budget, tunable with `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`, plus per-command single-flight volume builds and cached unavailable outcomes so slow whole-volume MFT reads fall back to safe directory scanners with provenance instead of hanging or retrying each target.
 - Experimental NTFS/MFT cleanup estimates now keep v1 user-facing byte totals on logical unnamed `$DATA` streams while retaining allocated and initialized stream metadata internally for future disk-usage surfaces.
 - Experimental NTFS/MFT `$I30` expansion now reads allocation records by requested child VCN and reports unsupported multi-buffer-per-cluster geometry as a bounded caveat instead of using flat sequential offsets as authority.
 

@@ -95,7 +95,10 @@ Use a smaller `-Root` such as `docs\plans` when the repository root includes
 large `target\` or `repo-ref\` trees. A `timeout` status for
 `windows-ntfs-mft-experimental` is release-relevant evidence: keep the report
 under `target\`, note the root and timeout, and treat it as a live backend
-performance or fallback gap rather than a script failure.
+performance or fallback gap rather than a script failure. The backend also has
+an internal 20 second live MFT index build budget by default; set
+`REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` higher for deep diagnosis, or `0` to
+disable the guard for a single dogfood process.
 
 Run this dogfood checklist on a representative Windows workstation:
 

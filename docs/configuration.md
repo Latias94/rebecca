@@ -162,7 +162,15 @@ opt into platform scanners per command with `--scan-backend`:
   before the per-record FSCTL source, requires permission to open the volume
   read-only, reuses the in-memory volume index only for the current command, and
   falls back to a safe directory scanner when the volume is unsupported,
-  unprivileged, or too ambiguous to trust.
+  unprivileged, too slow to index within the live build budget, or too ambiguous
+  to trust.
+
+`REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` controls the experimental live
+NTFS/MFT index build budget. The default is `20` seconds. Set a larger value for
+diagnostic dogfood on very large volumes, or set `0` to disable the guard for a
+single process. Within one command, Rebecca builds at most one live index per
+volume at a time and remembers unavailable volume outcomes so multiple targets
+do not repeat the same expensive failed MFT attempt.
 
 Experimental NTFS/MFT estimates are explainability data only. They never
 authorize deletion, and execution still revalidates filesystem paths through

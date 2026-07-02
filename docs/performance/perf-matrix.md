@@ -45,6 +45,9 @@ pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-
 ```
 
 The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, portable baseline deltas, and timeout status. A timeout from the experimental backend is a valid local finding because live MFT index construction can depend on whole-volume size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
+The experimental backend has its own 20 second live index build budget before
+falling back to a directory scanner; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`
+higher for deep profiling or `0` to disable that guard for one process.
 
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 
