@@ -249,6 +249,24 @@ fn disk_map_windows_native_reports_hardlink_caveats() {
     let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
 
     assert_eq!(report.totals.logical_bytes, 8);
+    assert_eq!(report.totals.unique_logical_bytes, Some(4));
+    assert_eq!(report.roots[0].metrics.unique_logical_bytes, Some(4));
+    let allocated_bytes = report
+        .totals
+        .allocated_bytes
+        .expect("native hardlink fixture should report path-ranked allocated bytes");
+    let unique_allocated_bytes = report
+        .totals
+        .unique_allocated_bytes
+        .expect("native hardlink fixture should report unique allocated bytes");
+    assert!(
+        allocated_bytes >= unique_allocated_bytes,
+        "path-ranked allocation should be at least unique allocation"
+    );
+    assert!(
+        unique_allocated_bytes >= 4,
+        "unique allocation should include the hardlinked file payload"
+    );
     assert!(
         report.roots[0]
             .estimate_provenance

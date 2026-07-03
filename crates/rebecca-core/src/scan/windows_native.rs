@@ -73,6 +73,13 @@ pub(crate) struct WindowsNativeFileSemantics {
     pub(crate) compressed: bool,
     pub(crate) sparse: bool,
     pub(crate) hardlink_count: Option<u32>,
+    pub(crate) file_id: Option<WindowsNativeFileId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WindowsNativeFileId {
+    pub(crate) volume_serial_number: u32,
+    pub(crate) file_index: u64,
 }
 
 impl WindowsNativeFileSemantics {
@@ -86,10 +93,15 @@ impl WindowsNativeFileSemantics {
             return Self::default();
         }
 
+        let file_information = file_information(path);
         Self {
             compressed: has_attribute(attributes, FILE_ATTRIBUTE_COMPRESSED.0),
             sparse: has_attribute(attributes, FILE_ATTRIBUTE_SPARSE_FILE.0),
-            hardlink_count: file_hardlink_count(path),
+            hardlink_count: file_information.as_ref().map(|info| info.nNumberOfLinks),
+            file_id: file_information.as_ref().map(|info| WindowsNativeFileId {
+                volume_serial_number: info.dwVolumeSerialNumber,
+                file_index: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+            }),
         }
     }
 }
@@ -399,14 +411,14 @@ pub(crate) fn file_allocated_size(path: &Path) -> Option<u64> {
     }
 }
 
-fn file_hardlink_count(path: &Path) -> Option<u32> {
+fn file_information(path: &Path) -> Option<BY_HANDLE_FILE_INFORMATION> {
     let handle = FileHandle::open_read_attributes(path)?;
     let mut info = BY_HANDLE_FILE_INFORMATION::default();
     unsafe {
         GetFileInformationByHandle(handle.raw(), &mut info).ok()?;
     }
 
-    Some(info.nNumberOfLinks)
+    Some(info)
 }
 
 fn has_attribute(attributes: u32, attribute: u32) -> bool {

@@ -706,6 +706,8 @@ fn collect_mft_disk_map_entry(
         DiskMapMetrics {
             logical_bytes: 0,
             allocated_bytes: None,
+            unique_logical_bytes: None,
+            unique_allocated_bytes: None,
             files: 0,
             directories: 1,
         }
@@ -713,6 +715,8 @@ fn collect_mft_disk_map_entry(
         DiskMapMetrics {
             logical_bytes: entry.logical_size,
             allocated_bytes: entry.allocated_size,
+            unique_logical_bytes: None,
+            unique_allocated_bytes: None,
             files: 1,
             directories: 0,
         }
@@ -749,6 +753,8 @@ fn collect_mft_disk_map_entry(
             depth,
             logical_bytes: metrics.logical_bytes,
             allocated_bytes: metrics.allocated_bytes,
+            unique_logical_bytes: metrics.unique_logical_bytes,
+            unique_allocated_bytes: metrics.unique_allocated_bytes,
             files: metrics.files,
             directories: metrics.directories,
             estimate_source: EstimateSource::FreshScan,
@@ -1658,6 +1664,8 @@ where
             let mut metrics = DiskMapMetrics {
                 logical_bytes: 0,
                 allocated_bytes: None,
+                unique_logical_bytes: None,
+                unique_allocated_bytes: None,
                 files: 0,
                 directories: if include_root_directory || node.directory_entry.is_some() {
                     1
@@ -1680,6 +1688,8 @@ where
             DiskMapMetrics {
                 logical_bytes: record.cleanup_logical_size(),
                 allocated_bytes: record.cleanup_allocated_size(),
+                unique_logical_bytes: None,
+                unique_allocated_bytes: None,
                 files: 1,
                 directories: 0,
             }
@@ -1699,6 +1709,8 @@ where
                 depth: node.depth,
                 logical_bytes: metrics.logical_bytes,
                 allocated_bytes: metrics.allocated_bytes,
+                unique_logical_bytes: metrics.unique_logical_bytes,
+                unique_allocated_bytes: metrics.unique_allocated_bytes,
                 files: metrics.files,
                 directories: metrics.directories,
                 estimate_source: EstimateSource::FreshScan,

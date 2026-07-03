@@ -102,6 +102,20 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
             format_bytes(allocated_bytes)
         );
     }
+    if let Some(unique_logical_bytes) = report.totals.unique_logical_bytes {
+        println!(
+            "Unique logical bytes: {} ({})",
+            unique_logical_bytes,
+            format_bytes(unique_logical_bytes)
+        );
+    }
+    if let Some(unique_allocated_bytes) = report.totals.unique_allocated_bytes {
+        println!(
+            "Unique allocated bytes: {} ({})",
+            unique_allocated_bytes,
+            format_bytes(unique_allocated_bytes)
+        );
+    }
     println!("Files: {}", report.totals.files);
     println!("Directories: {}", report.totals.directories);
     println!("Diagnostics: {}", report.diagnostic_summary.total);
@@ -114,14 +128,24 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
                 .allocated_bytes
                 .map(|bytes| format!(", allocated {} ({})", bytes, format_bytes(bytes)))
                 .unwrap_or_default();
+            let unique_logical = entry
+                .unique_logical_bytes
+                .map(|bytes| format!(", unique logical {} ({})", bytes, format_bytes(bytes)))
+                .unwrap_or_default();
+            let unique_allocated = entry
+                .unique_allocated_bytes
+                .map(|bytes| format!(", unique allocated {} ({})", bytes, format_bytes(bytes)))
+                .unwrap_or_default();
             println!(
-                "  - {} [{} depth={}] {} bytes ({}){}{} - {} files, {} dirs",
+                "  - {} [{} depth={}] {} bytes ({}){}{}{}{} - {} files, {} dirs",
                 entry.path.display(),
                 entry.kind.label(),
                 entry.depth,
                 entry.logical_bytes,
                 format_bytes(entry.logical_bytes),
                 allocated,
+                unique_logical,
+                unique_allocated,
                 estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance),
                 entry.files,
                 entry.directories

@@ -12,6 +12,8 @@
         "metrics": {
           "logical_bytes": 7,
           "allocated_bytes": null,
+          "unique_logical_bytes": null,
+          "unique_allocated_bytes": null,
           "files": 3,
           "directories": 2
         },
@@ -23,6 +25,8 @@
     "totals": {
       "logical_bytes": 7,
       "allocated_bytes": null,
+      "unique_logical_bytes": null,
+      "unique_allocated_bytes": null,
       "files": 3,
       "directories": 2
     },
@@ -34,6 +38,8 @@
         "depth": 1,
         "logical_bytes": 4,
         "allocated_bytes": null,
+        "unique_logical_bytes": null,
+        "unique_allocated_bytes": null,
         "files": 1,
         "directories": 1,
         "estimate_source": "fresh-scan",

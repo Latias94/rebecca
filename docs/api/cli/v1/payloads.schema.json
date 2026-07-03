@@ -811,6 +811,8 @@
       "required": [
         "logical_bytes",
         "allocated_bytes",
+        "unique_logical_bytes",
+        "unique_allocated_bytes",
         "files",
         "directories"
       ],
@@ -819,6 +821,20 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_logical_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_allocated_bytes": {
           "type": [
             "integer",
             "null"
@@ -917,6 +933,8 @@
         "depth",
         "logical_bytes",
         "allocated_bytes",
+        "unique_logical_bytes",
+        "unique_allocated_bytes",
         "files",
         "directories",
         "estimate_source"
@@ -938,6 +956,20 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_logical_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_allocated_bytes": {
           "type": [
             "integer",
             "null"

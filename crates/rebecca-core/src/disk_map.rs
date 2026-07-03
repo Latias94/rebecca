@@ -11,7 +11,6 @@ use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
 use crate::scan::{
     ScanBackendKind, ScanCancellationToken, ScanEngine, ScanEstimateCaveat, ScanEstimateConfidence,
-    ScanReport,
 };
 
 pub const DEFAULT_DISK_MAP_TOP_LIMIT: usize = 20;
@@ -99,6 +98,8 @@ impl DiskMapRootStatus {
 pub struct DiskMapMetrics {
     pub logical_bytes: u64,
     pub allocated_bytes: Option<u64>,
+    pub unique_logical_bytes: Option<u64>,
+    pub unique_allocated_bytes: Option<u64>,
     pub files: u64,
     pub directories: u64,
 }
@@ -112,17 +113,20 @@ impl DiskMapMetrics {
             other.allocated_bytes,
             other.files,
         );
+        self.unique_logical_bytes = add_optional_bytes(
+            self.unique_logical_bytes,
+            self.files,
+            other.unique_logical_bytes,
+            other.files,
+        );
+        self.unique_allocated_bytes = add_optional_bytes(
+            self.unique_allocated_bytes,
+            self.files,
+            other.unique_allocated_bytes,
+            other.files,
+        );
         self.files = self.files.saturating_add(other.files);
         self.directories = self.directories.saturating_add(other.directories);
-    }
-
-    fn from_scan_report(report: ScanReport) -> Self {
-        Self {
-            logical_bytes: report.bytes_scanned,
-            allocated_bytes: None,
-            files: report.files_scanned,
-            directories: report.directories_scanned,
-        }
     }
 }
 
@@ -134,6 +138,8 @@ pub struct DiskMapEntry {
     pub depth: usize,
     pub logical_bytes: u64,
     pub allocated_bytes: Option<u64>,
+    pub unique_logical_bytes: Option<u64>,
+    pub unique_allocated_bytes: Option<u64>,
     pub files: u64,
     pub directories: u64,
     pub estimate_source: EstimateSource,
@@ -157,6 +163,8 @@ impl DiskMapEntry {
             depth,
             logical_bytes: metrics.logical_bytes,
             allocated_bytes: metrics.allocated_bytes,
+            unique_logical_bytes: metrics.unique_logical_bytes,
+            unique_allocated_bytes: metrics.unique_allocated_bytes,
             files: metrics.files,
             directories: metrics.directories,
             estimate_source: EstimateSource::FreshScan,
@@ -249,11 +257,12 @@ pub fn inspect_map(
     let mut report = DiskMapReport::default();
     let mut top_entries = DiskMapTopEntries::new(request.top_limit);
     let mut diagnostics = DiskMapDiagnostics::new(request.diagnostic_limit);
+    let mut unique_files = DiskMapUniqueFiles::default();
     let scan_engine = ScanEngine::new();
 
     for root in &request.roots {
         check_cancelled(cancellation)?;
-        inspect_root(
+        unique_files.merge(inspect_root(
             root,
             request,
             cancellation,
@@ -261,9 +270,10 @@ pub fn inspect_map(
             &mut report,
             &mut top_entries,
             &mut diagnostics,
-        )?;
+        )?);
     }
 
+    unique_files.apply_to_metrics(&mut report.totals);
     report.top_entries = top_entries.into_sorted_entries();
     diagnostics.finish(&mut report);
     Ok(report)
@@ -383,7 +393,7 @@ where
         root: &Path,
         provenance: EstimateProvenance,
         fallback_reason: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<DiskMapUniqueFiles> {
         if let Some(reason) = &fallback_reason {
             self.diagnostics.push_priority(DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::Fallback,
@@ -403,7 +413,7 @@ where
                     provenance,
                     self.diagnostics,
                 );
-                return Ok(());
+                return Ok(DiskMapUniqueFiles::default());
             }
             Err(err) => {
                 push_root_skip(
@@ -414,7 +424,7 @@ where
                     provenance,
                     self.diagnostics,
                 );
-                return Ok(());
+                return Ok(DiskMapUniqueFiles::default());
             }
         };
 
@@ -427,18 +437,19 @@ where
                 provenance,
                 self.diagnostics,
             );
-            return Ok(());
+            return Ok(DiskMapUniqueFiles::default());
         }
 
         let mut semantic_caveats = DiskMapSemanticCaveats::default();
         let max_depth = self.request.max_depth.unwrap_or(usize::MAX);
-        let root_metrics = match self.walker.metadata_kind(&metadata) {
+        let root_result = match self.walker.metadata_kind(&metadata) {
             DiskMapMetadataKind::File => {
                 let semantics = self.walker.metadata_semantics(&metadata);
                 semantic_caveats.record(semantics);
-                let metrics = file_metrics(
+                let result = DiskMapTraversalResult::file(
                     self.walker.metadata_len(&metadata),
                     self.walker.metadata_allocated_len(&metadata),
+                    semantics,
                 );
                 let entry_provenance = estimate_provenance_with_entry_semantics(
                     &provenance,
@@ -450,11 +461,11 @@ where
                     root.to_path_buf(),
                     DiskMapEntryKind::File,
                     0,
-                    metrics,
+                    result.metrics,
                     &entry_provenance,
                     self.top_entries,
                 );
-                metrics
+                result
             }
             DiskMapMetadataKind::Directory => match (DiskMapTraversal {
                 root,
@@ -479,23 +490,23 @@ where
                         provenance,
                         self.diagnostics,
                     );
-                    return Ok(());
+                    return Ok(DiskMapUniqueFiles::default());
                 }
             },
-            DiskMapMetadataKind::Other => DiskMapMetrics::from_scan_report(ScanReport::default()),
+            DiskMapMetadataKind::Other => DiskMapTraversalResult::default(),
         };
 
         let provenance = semantic_caveats.apply_to_root_provenance(provenance);
-        self.report.totals.add(root_metrics);
+        self.report.totals.add(root_result.metrics);
         self.report.roots.push(DiskMapRoot {
             path: root.to_path_buf(),
             status: DiskMapRootStatus::Scanned,
-            metrics: root_metrics,
+            metrics: root_result.metrics,
             estimate_source: EstimateSource::FreshScan,
             estimate_provenance: provenance,
             reason: None,
         });
-        Ok(())
+        Ok(root_result.unique_files)
     }
 }
 
@@ -506,11 +517,18 @@ enum DiskMapMetadataKind {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct DiskMapFileIdentity {
+    volume_serial_number: u32,
+    file_index: u64,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct DiskMapMetadataSemantics {
     compressed: bool,
     sparse: bool,
     hardlink_count: Option<u32>,
+    file_identity: Option<DiskMapFileIdentity>,
     reparse_like: bool,
 }
 
@@ -522,6 +540,117 @@ impl DiskMapMetadataSemantics {
 
     fn is_hardlinked(self) -> bool {
         self.hardlink_count.is_some_and(|count| count > 1)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DiskMapUniqueFileBytes {
+    logical_bytes: u64,
+    allocated_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct DiskMapUniqueFiles {
+    files: BTreeMap<DiskMapFileIdentity, DiskMapUniqueFileBytes>,
+    unidentified_files: u64,
+    unique_logical_bytes: u64,
+    unique_allocated_bytes: Option<u64>,
+}
+
+impl Default for DiskMapUniqueFiles {
+    fn default() -> Self {
+        Self {
+            files: BTreeMap::new(),
+            unidentified_files: 0,
+            unique_logical_bytes: 0,
+            unique_allocated_bytes: Some(0),
+        }
+    }
+}
+
+impl DiskMapUniqueFiles {
+    fn unavailable_for_files(files: u64) -> Self {
+        Self {
+            unidentified_files: files,
+            ..Self::default()
+        }
+    }
+
+    fn record_file(
+        &mut self,
+        identity: Option<DiskMapFileIdentity>,
+        logical_bytes: u64,
+        allocated_bytes: Option<u64>,
+    ) {
+        let Some(identity) = identity else {
+            self.unidentified_files = self.unidentified_files.saturating_add(1);
+            return;
+        };
+
+        if self.files.contains_key(&identity) {
+            return;
+        }
+
+        self.files.insert(
+            identity,
+            DiskMapUniqueFileBytes {
+                logical_bytes,
+                allocated_bytes,
+            },
+        );
+        self.unique_logical_bytes = self.unique_logical_bytes.saturating_add(logical_bytes);
+        self.unique_allocated_bytes = match (self.unique_allocated_bytes, allocated_bytes) {
+            (Some(left), Some(right)) => Some(left.saturating_add(right)),
+            _ => None,
+        };
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.unidentified_files = self
+            .unidentified_files
+            .saturating_add(other.unidentified_files);
+        for (identity, bytes) in other.files {
+            self.record_file(Some(identity), bytes.logical_bytes, bytes.allocated_bytes);
+        }
+    }
+
+    fn apply_to_metrics(&self, metrics: &mut DiskMapMetrics) {
+        metrics.unique_logical_bytes =
+            (self.unidentified_files == 0).then_some(self.unique_logical_bytes);
+        metrics.unique_allocated_bytes = if self.unidentified_files == 0 {
+            self.unique_allocated_bytes
+        } else {
+            None
+        };
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct DiskMapTraversalResult {
+    metrics: DiskMapMetrics,
+    unique_files: DiskMapUniqueFiles,
+}
+
+impl DiskMapTraversalResult {
+    fn file(
+        logical_bytes: u64,
+        allocated_bytes: Option<u64>,
+        semantics: DiskMapMetadataSemantics,
+    ) -> Self {
+        let mut unique_files = DiskMapUniqueFiles::default();
+        unique_files.record_file(semantics.file_identity, logical_bytes, allocated_bytes);
+        let mut metrics = file_metrics(logical_bytes, allocated_bytes);
+        unique_files.apply_to_metrics(&mut metrics);
+        Self {
+            metrics,
+            unique_files,
+        }
+    }
+
+    fn add_child(&mut self, child: Self) {
+        self.metrics.add(child.metrics);
+        self.unique_files.merge(child.unique_files);
+        self.unique_files.apply_to_metrics(&mut self.metrics);
     }
 }
 
@@ -825,6 +954,10 @@ impl From<crate::scan::windows_native::WindowsNativeFileSemantics> for DiskMapMe
             compressed: value.compressed,
             sparse: value.sparse,
             hardlink_count: value.hardlink_count,
+            file_identity: value.file_id.map(|file_id| DiskMapFileIdentity {
+                volume_serial_number: file_id.volume_serial_number,
+                file_index: file_id.file_index,
+            }),
             reparse_like: false,
         }
     }
@@ -906,23 +1039,24 @@ impl<'a, W> DiskMapTraversal<'a, W>
 where
     W: DiskMapWalker,
 {
-    fn inspect_root_directory(&mut self) -> Result<DiskMapMetrics> {
+    fn inspect_root_directory(&mut self) -> Result<DiskMapTraversalResult> {
         let child_entries = self.read_sorted_child_entries(self.root)?;
 
-        let mut metrics = DiskMapMetrics::default();
+        let mut result = DiskMapTraversalResult::default();
         for child in child_entries {
             check_cancelled(self.cancellation)?;
-            let child_metrics = self.inspect_node(child, 1)?;
-            metrics.add(child_metrics);
+            let child_result = self.inspect_node(child, 1)?;
+            result.add_child(child_result);
         }
-        Ok(metrics)
+        result.unique_files.apply_to_metrics(&mut result.metrics);
+        Ok(result)
     }
 
     fn inspect_node(
         &mut self,
         entry: DiskMapWalkerEntry<W::Metadata>,
         depth: usize,
-    ) -> Result<DiskMapMetrics> {
+    ) -> Result<DiskMapTraversalResult> {
         let path = entry.path;
         let metadata = match entry.metadata {
             Some(metadata) => metadata,
@@ -934,7 +1068,7 @@ where
                         path.clone(),
                         format!("disk map entry metadata could not be read: {err}"),
                     ));
-                    return Ok(DiskMapMetrics::default());
+                    return Ok(DiskMapTraversalResult::default());
                 }
             },
         };
@@ -947,28 +1081,29 @@ where
                 path.clone(),
                 "disk map entry is a symlink or reparse point",
             ));
-            let metrics = DiskMapMetrics::default();
             let entry_provenance = estimate_provenance_with_entry_semantics(
                 self.estimate_provenance,
                 semantics,
                 DiskMapEntryKind::Other,
             );
+            let result = DiskMapTraversalResult::default();
             self.push_entry_if_visible(
                 &path,
                 DiskMapEntryKind::Other,
                 depth,
-                metrics,
+                result.metrics,
                 &entry_provenance,
             );
-            return Ok(metrics);
+            return Ok(result);
         }
 
         match self.walker.metadata_kind(&metadata) {
             DiskMapMetadataKind::File => {
                 self.semantic_caveats.record(semantics);
-                let metrics = file_metrics(
+                let result = DiskMapTraversalResult::file(
                     self.walker.metadata_len(&metadata),
                     self.walker.metadata_allocated_len(&metadata),
+                    semantics,
                 );
                 let entry_provenance = estimate_provenance_with_entry_semantics(
                     self.estimate_provenance,
@@ -979,27 +1114,31 @@ where
                     &path,
                     DiskMapEntryKind::File,
                     depth,
-                    metrics,
+                    result.metrics,
                     &entry_provenance,
                 );
-                Ok(metrics)
+                Ok(result)
             }
             DiskMapMetadataKind::Directory => self.inspect_directory_node(&path, depth),
             DiskMapMetadataKind::Other => {
-                let metrics = DiskMapMetrics::default();
+                let result = DiskMapTraversalResult::default();
                 self.push_entry_if_visible(
                     &path,
                     DiskMapEntryKind::Other,
                     depth,
-                    metrics,
+                    result.metrics,
                     self.estimate_provenance,
                 );
-                Ok(metrics)
+                Ok(result)
             }
         }
     }
 
-    fn inspect_directory_node(&mut self, path: &Path, depth: usize) -> Result<DiskMapMetrics> {
+    fn inspect_directory_node(
+        &mut self,
+        path: &Path,
+        depth: usize,
+    ) -> Result<DiskMapTraversalResult> {
         let child_entries = match self.read_sorted_child_entries(path) {
             Ok(child_paths) => child_paths,
             Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
@@ -1009,30 +1148,36 @@ where
                     path.to_path_buf(),
                     format!("disk map directory could not be read: {err}"),
                 ));
-                return Ok(DiskMapMetrics::default());
+                return Ok(DiskMapTraversalResult::default());
             }
         };
 
-        let mut metrics = DiskMapMetrics {
-            logical_bytes: 0,
-            allocated_bytes: None,
-            files: 0,
-            directories: 1,
+        let mut result = DiskMapTraversalResult {
+            metrics: DiskMapMetrics {
+                logical_bytes: 0,
+                allocated_bytes: None,
+                unique_logical_bytes: Some(0),
+                unique_allocated_bytes: Some(0),
+                files: 0,
+                directories: 1,
+            },
+            unique_files: DiskMapUniqueFiles::default(),
         };
         for child in child_entries {
             check_cancelled(self.cancellation)?;
-            let child_metrics = self.inspect_node(child, depth.saturating_add(1))?;
-            metrics.add(child_metrics);
+            let child_result = self.inspect_node(child, depth.saturating_add(1))?;
+            result.add_child(child_result);
         }
+        result.unique_files.apply_to_metrics(&mut result.metrics);
 
         self.push_entry_if_visible(
             path,
             DiskMapEntryKind::Directory,
             depth,
-            metrics,
+            result.metrics,
             self.estimate_provenance,
         );
-        Ok(metrics)
+        Ok(result)
     }
 
     fn read_sorted_child_entries(
@@ -1088,7 +1233,7 @@ fn inspect_root(
     report: &mut DiskMapReport,
     top_entries: &mut DiskMapTopEntries,
     diagnostics: &mut DiskMapDiagnostics,
-) -> Result<()> {
+) -> Result<DiskMapUniqueFiles> {
     let walker = FsPortableDiskMapWalker;
     if request.scan_backend == ScanBackendKind::WindowsNative {
         match inspect_windows_native_root(
@@ -1099,7 +1244,7 @@ fn inspect_root(
             top_entries,
             diagnostics,
         ) {
-            Ok(()) => return Ok(()),
+            Ok(unique_files) => return Ok(unique_files),
             Err(err) if disk_map_backend_error_can_fallback(&err) => {
                 let fallback_reason =
                     format!("windows-native disk-map inventory was unavailable: {err}");
@@ -1129,8 +1274,10 @@ fn inspect_root(
             cancellation,
         ) {
             Ok(root_map) => {
+                let unique_files =
+                    DiskMapUniqueFiles::unavailable_for_files(root_map.metrics.files);
                 push_backend_root(root, root_map, report, top_entries, diagnostics);
-                return Ok(());
+                return Ok(unique_files);
             }
             Err(err) if disk_map_backend_error_can_fallback(&err) => {
                 let fallback_reason = format!(
@@ -1183,7 +1330,7 @@ fn inspect_windows_native_root(
     report: &mut DiskMapReport,
     top_entries: &mut DiskMapTopEntries,
     diagnostics: &mut DiskMapDiagnostics,
-) -> Result<()> {
+) -> Result<DiskMapUniqueFiles> {
     if let Some(reason) = crate::scan::windows_native::unsupported_path_reason(root) {
         return Err(RebeccaError::PlatformUnavailable(reason));
     }
@@ -1215,7 +1362,7 @@ fn inspect_windows_native_root(
     _report: &mut DiskMapReport,
     _top_entries: &mut DiskMapTopEntries,
     _diagnostics: &mut DiskMapDiagnostics,
-) -> Result<()> {
+) -> Result<DiskMapUniqueFiles> {
     Err(RebeccaError::PlatformUnavailable(format!(
         "{} disk-map inventory is only available on Windows",
         ScanBackendKind::WindowsNative.label()
@@ -1248,6 +1395,8 @@ fn file_metrics(logical_bytes: u64, allocated_bytes: Option<u64>) -> DiskMapMetr
     DiskMapMetrics {
         logical_bytes,
         allocated_bytes,
+        unique_logical_bytes: None,
+        unique_allocated_bytes: None,
         files: 1,
         directories: 0,
     }
@@ -1480,20 +1629,24 @@ where
     let mut report = DiskMapReport::default();
     let mut top_entries = DiskMapTopEntries::new(request.top_limit);
     let mut diagnostics = DiskMapDiagnostics::new(request.diagnostic_limit);
+    let mut unique_files = DiskMapUniqueFiles::default();
 
     for root in &request.roots {
         check_cancelled(cancellation)?;
-        DiskMapRootInspection {
-            request,
-            cancellation,
-            report: &mut report,
-            top_entries: &mut top_entries,
-            diagnostics: &mut diagnostics,
-            walker,
-        }
-        .inspect(root, portable_estimate_provenance(None), None)?;
+        unique_files.merge(
+            DiskMapRootInspection {
+                request,
+                cancellation,
+                report: &mut report,
+                top_entries: &mut top_entries,
+                diagnostics: &mut diagnostics,
+                walker,
+            }
+            .inspect(root, portable_estimate_provenance(None), None)?,
+        );
     }
 
+    unique_files.apply_to_metrics(&mut report.totals);
     report.top_entries = top_entries.into_sorted_entries();
     diagnostics.finish(&mut report);
     Ok(report)
@@ -1516,6 +1669,8 @@ mod tests {
     struct FakeMetadata {
         kind: FakeMetadataKind,
         len: u64,
+        allocated_len: Option<u64>,
+        semantics: DiskMapMetadataSemantics,
     }
 
     #[derive(Debug, Clone, Copy)]
@@ -1539,6 +1694,30 @@ mod tests {
                 Ok(FakeMetadata {
                     kind: FakeMetadataKind::File,
                     len,
+                    allocated_len: None,
+                    semantics: DiskMapMetadataSemantics::default(),
+                }),
+            );
+            self
+        }
+
+        fn with_identified_file(
+            mut self,
+            path: impl Into<PathBuf>,
+            len: u64,
+            allocated_len: Option<u64>,
+            identity: DiskMapFileIdentity,
+        ) -> Self {
+            self.metadata.insert(
+                path.into(),
+                Ok(FakeMetadata {
+                    kind: FakeMetadataKind::File,
+                    len,
+                    allocated_len,
+                    semantics: DiskMapMetadataSemantics {
+                        file_identity: Some(identity),
+                        ..DiskMapMetadataSemantics::default()
+                    },
                 }),
             );
             self
@@ -1555,6 +1734,8 @@ mod tests {
                 Ok(FakeMetadata {
                     kind: FakeMetadataKind::Directory,
                     len: 0,
+                    allocated_len: None,
+                    semantics: DiskMapMetadataSemantics::default(),
                 }),
             );
             self.directories
@@ -1568,6 +1749,8 @@ mod tests {
                 Ok(FakeMetadata {
                     kind: FakeMetadataKind::Other,
                     len: 0,
+                    allocated_len: None,
+                    semantics: DiskMapMetadataSemantics::default(),
                 }),
             );
             self
@@ -1585,6 +1768,8 @@ mod tests {
                 Ok(FakeMetadata {
                     kind: FakeMetadataKind::Directory,
                     len: 0,
+                    allocated_len: None,
+                    semantics: DiskMapMetadataSemantics::default(),
                 }),
             );
             self.directories.insert(path, Err(message));
@@ -1629,12 +1814,12 @@ mod tests {
             metadata.len
         }
 
-        fn metadata_allocated_len(&self, _metadata: &Self::Metadata) -> Option<u64> {
-            None
+        fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64> {
+            metadata.allocated_len
         }
 
-        fn metadata_semantics(&self, _metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
-            DiskMapMetadataSemantics::default()
+        fn metadata_semantics(&self, metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
+            metadata.semantics
         }
 
         fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
@@ -1799,6 +1984,57 @@ mod tests {
     }
 
     #[test]
+    fn disk_map_file_identity_deduplicates_unique_bytes_across_siblings() {
+        let root = PathBuf::from("C:\\root");
+        let left = root.join("left");
+        let right = root.join("right");
+        let first = left.join("shared.bin");
+        let second = right.join("shared.bin");
+        let identity = DiskMapFileIdentity {
+            volume_serial_number: 7,
+            file_index: 42,
+        };
+        let walker = FakeDiskMapWalker::default()
+            .with_directory(
+                &root,
+                [
+                    FakeEntry::Path(left.clone()),
+                    FakeEntry::Path(right.clone()),
+                ],
+            )
+            .with_directory(&left, [FakeEntry::Path(first.clone())])
+            .with_directory(&right, [FakeEntry::Path(second.clone())])
+            .with_identified_file(&first, 4, Some(4096), identity)
+            .with_identified_file(&second, 4, Some(4096), identity);
+
+        let report = inspect_map_with_walker_for_test(
+            &DiskMapRequest::new(vec![root.clone()]).with_top_limit(10),
+            &ScanCancellationToken::new(),
+            &walker,
+        )
+        .unwrap();
+
+        assert_eq!(report.totals.logical_bytes, 8);
+        assert_eq!(report.totals.allocated_bytes, Some(8192));
+        assert_eq!(report.totals.unique_logical_bytes, Some(4));
+        assert_eq!(report.totals.unique_allocated_bytes, Some(4096));
+        assert_eq!(report.roots[0].metrics.unique_logical_bytes, Some(4));
+        assert_eq!(report.roots[0].metrics.unique_allocated_bytes, Some(4096));
+        assert!(report.top_entries.iter().any(|entry| {
+            entry.path == first
+                && entry.logical_bytes == 4
+                && entry.unique_logical_bytes == Some(4)
+                && entry.unique_allocated_bytes == Some(4096)
+        }));
+        assert!(report.top_entries.iter().any(|entry| {
+            entry.path == left
+                && entry.logical_bytes == 4
+                && entry.unique_logical_bytes == Some(4)
+                && entry.unique_allocated_bytes == Some(4096)
+        }));
+    }
+
+    #[test]
     fn portable_map_bounds_raw_diagnostics_but_counts_all_failures() {
         let root = PathBuf::from("C:\\root");
         let failed_paths = (0..5)
@@ -1898,6 +2134,7 @@ mod tests {
             sparse: true,
             hardlink_count: Some(2),
             reparse_like: true,
+            ..DiskMapMetadataSemantics::default()
         });
 
         let provenance =
@@ -1931,6 +2168,7 @@ mod tests {
                 sparse: true,
                 hardlink_count: Some(3),
                 reparse_like: false,
+                ..DiskMapMetadataSemantics::default()
             },
             DiskMapEntryKind::File,
         );

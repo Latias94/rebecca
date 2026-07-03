@@ -60,9 +60,11 @@ directory-scanner fallback.
 `--scan-backend windows-native` exercises the Windows find-data inventory path
 and should report `estimate_backend: "windows-native"` plus non-null
 `allocated_bytes` on supported local roots where file allocation metadata is
-available. Native caveats for compressed, sparse, hardlinked, or skipped reparse
-entries are part of the evidence because a faster run that hides allocation
-semantics is not a valid improvement.
+available. On hardlinked fixtures, it should also report non-null
+`unique_logical_bytes` and `unique_allocated_bytes` when Windows file identity
+metadata is available. Native caveats for compressed, sparse, hardlinked, or
+skipped reparse entries are part of the evidence because a faster run that hides
+allocation or unique-file semantics is not a valid improvement.
 Selecting `--scan-backend windows-ntfs-mft-experimental` is adaptive: scoped
 roots should normally report `windows-ntfs-mft-experimental-targeted-fsctl`,
 while drive-root maps or explicit full-index diagnostics may report sequential

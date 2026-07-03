@@ -391,6 +391,18 @@ fn inspect_map_json_windows_native_reports_hardlink_caveat() {
     let envelope = common::support::api_envelope(&output.stdout);
     let value = &envelope["data"];
     assert_eq!(value["totals"]["logical_bytes"], 8);
+    assert_eq!(value["totals"]["unique_logical_bytes"], 4);
+    assert_eq!(value["roots"][0]["metrics"]["unique_logical_bytes"], 4);
+    let allocated_bytes = value["totals"]["allocated_bytes"]
+        .as_u64()
+        .expect("native hardlink fixture should report path-ranked allocated bytes");
+    let unique_allocated_bytes = value["totals"]["unique_allocated_bytes"]
+        .as_u64()
+        .expect("native hardlink fixture should report unique allocated bytes");
+    assert!(
+        allocated_bytes >= unique_allocated_bytes,
+        "path-ranked allocation should be at least unique allocation"
+    );
     assert!(
         value["roots"][0]["estimate_caveats"]
             .as_array()

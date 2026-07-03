@@ -111,8 +111,10 @@ authorize deletion or change v1 byte semantics.
 `inspect-map` can also emit Windows-native disk inventory caveats such as
 `windows-native-compressed-file`, `windows-native-sparse-file`,
 `windows-native-hardlink-file`, and `windows-native-reparse-skipped`.
-Hardlink caveats mean path-ranked logical and allocated bytes may overstate
-unique physical bytes until a future unique-file-id accounting mode is selected.
+Hardlink caveats mean path-ranked logical and allocated bytes include each path.
+When Windows native file-id metadata is available, `unique_logical_bytes` and
+`unique_allocated_bytes` deduplicate those paths by `(volume serial, file index)`;
+otherwise the unique fields remain `null` rather than mixing accounting modes.
 
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
 `warnings`. A target with `reason_code: "warning-gate-required"` was excluded
@@ -131,11 +133,15 @@ supported action kinds. `catalog-validation` is emitted by
 read-only cleanup intelligence reports. They inventory top-level space, ranked
 disk-map usage, project artifact reclaim opportunities, or duplicate/large/empty
 file findings without prompting, executing cleanup, writing history, or mutating
-files. `inspect-map` uses `logical_bytes` plus nullable `allocated_bytes`
-instead of `estimated_bytes` because it is a disk inventory surface rather than
-a cleanup estimate surface. Portable inventory leaves allocation unknown;
-Windows native inventory fills file allocation bytes when the host API exposes
-them, and NTFS/MFT inventory can fill allocation from parsed stream metadata.
+files. `inspect-map` uses path-ranked `logical_bytes` plus nullable
+`allocated_bytes` instead of `estimated_bytes` because it is a disk inventory
+surface rather than a cleanup estimate surface. It also exposes nullable
+`unique_logical_bytes` and `unique_allocated_bytes` for backends that can
+deduplicate stable file identities. Portable inventory leaves allocation and
+unique accounting unknown; Windows native inventory fills file allocation bytes
+and file-id-deduplicated unique bytes when the host API exposes them; NTFS/MFT
+inventory can fill allocation from parsed stream metadata but leaves unique
+fields null until its record identity accounting is projected into this contract.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
