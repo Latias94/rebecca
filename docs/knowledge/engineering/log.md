@@ -1,6 +1,7 @@
 # Engineering Memory Update Log
 
 ## 2026-07-03
+* **Disk-map table row filtering**: Added repeated `inspect map --table-row total|root|entry|group` for CSV/TSV table exports. The default `--table csv|tsv` output remains the full `total`, `root`, `entry`, and `group` table, while scripts can now request only the row kinds they need without parsing and filtering unrelated rows.
 * **Disk-map CSV/TSV table export**: Added `inspect map --table csv|tsv` for flat spreadsheet/query-tool output. The export writes `total`, `root`, `entry`, and `group` rows with a single header, keeps JSON/NDJSON v1 envelopes unchanged, and rejects mixing table output with `--format json` or `--format ndjson`.
 * **Disk-map NDJSON row stream**: `inspect map --format ndjson` now emits bounded `map-entry` events for ranked `top_entries` and `map-group` events for requested distribution groups before the terminal `completed` event. The row events use v1 payload kinds `inspect-map-entry` and `inspect-map-group`, while the final `completed` event still carries the authoritative `inspect-map` report for existing consumers that read only the terminal payload.
 * **Disk-map sortable rankings**: Added `inspect map --sort logical|allocated|files|unique` for top entries and `--group-sort logical|allocated|files|unique` for grouped distributions. Sorting is request-level, shared by portable, Windows native, and experimental NTFS/MFT backends, and falls back to logical-byte rank when allocated or unique metrics are unavailable.

@@ -61,7 +61,9 @@ JSON/NDJSON API envelope. It cannot be combined with `--format json` or
 `--format ndjson`. The table has one header and flat `total`, `root`, `entry`,
 and `group` rows using the same bounded `top_entries` and requested `groups` as
 the report payload; empty cells mean the column is not applicable to that row
-type or the metric is unknown.
+type or the metric is unknown. Repeated `--table-row total|root|entry|group`
+flags can limit the export to selected row kinds; omitting them preserves the
+full table.
 
 ## Payload Kinds
 
@@ -175,6 +177,8 @@ emitted as ranked `map-entry` and `map-group` events before the final full
 report.
 For table-first tools, `--table csv|tsv` exports the same totals, roots, ranked
 entries, and requested groups as a flat row set outside the JSON API envelope.
+Repeated `--table-row` flags can narrow that row set when a caller only needs
+entries, groups, or root summaries.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -215,7 +219,7 @@ rebecca catalog --format json --kind warning
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
 rebecca inspect map --format ndjson --root . --top 20 --group-by extension
-rebecca inspect map --table csv --root . --top 20 --group-by extension
+rebecca inspect map --table csv --table-row entry --table-row group --root . --top 20 --group-by extension
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0
 rebecca inspect lint --format json --root .

@@ -484,6 +484,62 @@ fn inspect_map_table_tsv_exports_tab_separated_rows() {
 }
 
 #[test]
+fn inspect_map_table_row_filters_selected_kinds() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("many").join("a.txt"), b"x");
+    write_fixture_file(root.join("many").join("b.txt"), b"x");
+    write_fixture_file(root.join("large.bin"), b"abcdefghij");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--table",
+            "csv",
+            "--table-row",
+            "entry",
+            "--table-row",
+            "group",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "1",
+            "--sort",
+            "files",
+            "--group-by",
+            "extension",
+            "--group-limit",
+            "1",
+            "--group-sort",
+            "files",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_CSV);
+    assert!(lines[1].starts_with("entry,1,"));
+    assert!(lines[2].starts_with("group,1,"));
+    let row_kinds = lines
+        .iter()
+        .skip(1)
+        .map(|line| line.split(',').next().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(row_kinds, ["entry", "group"]);
+}
+
+#[test]
 fn inspect_map_table_rejects_machine_format() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
@@ -505,6 +561,28 @@ fn inspect_map_table_rejects_machine_format() {
 
     assert!(!output.status.success());
     assert!(common::support::stderr(&output).contains("--table"));
+}
+
+#[test]
+fn inspect_map_table_row_requires_table_output() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--table-row",
+            "entry",
+            "--root",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(common::support::stderr(&output).contains("--table-row"));
 }
 
 fn assert_json_group(

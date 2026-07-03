@@ -166,6 +166,24 @@ fn run_inspect(
                     cli::InspectMapTableFormatArg::Csv => inspect::InspectMapTableFormat::Csv,
                     cli::InspectMapTableFormatArg::Tsv => inspect::InspectMapTableFormat::Tsv,
                 }),
+                table_row_kinds: args
+                    .table_row_kinds
+                    .into_iter()
+                    .map(|kind| match kind {
+                        cli::InspectMapTableRowKindArg::Total => {
+                            inspect::InspectMapTableRowKind::Total
+                        }
+                        cli::InspectMapTableRowKindArg::Root => {
+                            inspect::InspectMapTableRowKind::Root
+                        }
+                        cli::InspectMapTableRowKindArg::Entry => {
+                            inspect::InspectMapTableRowKind::Entry
+                        }
+                        cli::InspectMapTableRowKindArg::Group => {
+                            inspect::InspectMapTableRowKind::Group
+                        }
+                    })
+                    .collect(),
                 diagnostic_limit: args.diagnostic_limit,
                 max_depth: args.max_depth,
             },

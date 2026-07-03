@@ -106,6 +106,14 @@ pub enum InspectMapTableFormatArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum InspectMapTableRowKindArg {
+    Total,
+    Root,
+    Entry,
+    Group,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CatalogKindArg {
     CleanupRule,
     ProjectArtifact,
@@ -273,6 +281,9 @@ pub struct InspectMapArgs {
     /// Export the flat map table as CSV or TSV. Cannot be combined with --format json/ndjson.
     #[arg(long = "table", value_enum, value_name = "FORMAT")]
     pub table_format: Option<InspectMapTableFormatArg>,
+    /// Limit table output to selected row kinds. Can be repeated: total, root, entry, group.
+    #[arg(long = "table-row", value_enum, value_name = "KIND")]
+    pub table_row_kinds: Vec<InspectMapTableRowKindArg>,
     /// Maximum number of raw diagnostics to include. Use 0 for summary only.
     #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
     pub diagnostic_limit: usize,

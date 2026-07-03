@@ -11,6 +11,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca inspect map` now provides a read-only ranked disk map with logical bytes, optional allocated bytes, depth-bounded top entries, diagnostics, JSON output, and NDJSON completion events.
 - `rebecca inspect map --format ndjson` now streams bounded `map-entry` and `map-group` events before the final `inspect-map` completion payload so scripts and future TUI surfaces can consume ranked disk-map rows incrementally.
 - `rebecca inspect map --table csv|tsv` now exports flat disk-map table rows for totals, roots, ranked entries, and requested groups without wrapping them in the JSON/NDJSON API envelope.
+- `rebecca inspect map --table-row total|root|entry|group` now filters CSV/TSV table output to selected row kinds while keeping the default full-table export unchanged.
 - `rebecca inspect map --diagnostic-limit <N>` now bounds raw diagnostic samples while keeping complete diagnostic summary counts; use `--diagnostic-limit 0` for summary-only output.
 - `rebecca inspect artifacts` is now the canonical read-only project artifact insight command with JSON/NDJSON `inspect-artifacts` output, grouped totals, top targets, warning-gate awareness, reclaim-limit support, diagnostics, and no cleanup prompts or history writes.
 - `rebecca inspect lint` now reports duplicate groups, large files, empty files, and empty directories without deleting files, remediating duplicates, or writing cleanup history.

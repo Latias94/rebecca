@@ -53,6 +53,7 @@ pub struct InspectMapOptions {
     pub group_limit: usize,
     pub group_sort: DiskMapSortField,
     pub table_format: Option<InspectMapTableFormat>,
+    pub table_row_kinds: Vec<InspectMapTableRowKind>,
     pub diagnostic_limit: usize,
     pub max_depth: Option<usize>,
 }
@@ -61,6 +62,14 @@ pub struct InspectMapOptions {
 pub(crate) enum InspectMapTableFormat {
     Csv,
     Tsv,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InspectMapTableRowKind {
+    Total,
+    Root,
+    Entry,
+    Group,
 }
 
 #[derive(Debug)]
@@ -113,6 +122,13 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
 }
 
 pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime) -> Result<()> {
+    if !options.table_row_kinds.is_empty() {
+        ensure!(
+            options.table_format.is_some(),
+            "--table-row requires --table csv|tsv"
+        );
+    }
+
     if options.table_format.is_some() {
         ensure!(
             options.output_mode.is_human(),
@@ -134,7 +150,7 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
 
     let report = inspect_map_core(&request, runtime.cancellation())?;
     if let Some(table_format) = options.table_format {
-        return print_map_report_table(table_format, &report);
+        return print_map_report_table(table_format, &options.table_row_kinds, &report);
     }
 
     let contract = CliApiContract::v1("inspect map", "inspect-map");
@@ -323,68 +339,87 @@ const INSPECT_MAP_TABLE_HEADER: [&str; 23] = [
     "reason",
 ];
 
-fn print_map_report_table(format: InspectMapTableFormat, report: &DiskMapReport) -> Result<()> {
+fn print_map_report_table(
+    format: InspectMapTableFormat,
+    row_kinds: &[InspectMapTableRowKind],
+    report: &DiskMapReport,
+) -> Result<()> {
     let stdout = io::stdout();
     let mut writer = stdout.lock();
 
     write_table_row(&mut writer, format, INSPECT_MAP_TABLE_HEADER)?;
-    write_table_row(&mut writer, format, total_table_row(report))?;
-
-    for (index, root) in report.roots.iter().enumerate() {
-        let mut row = table_row_prefix(TableRowPrefix {
-            row_kind: "root",
-            rank: Some(index + 1),
-            path: root.path.display().to_string(),
-            status: root.status.label().to_string(),
-            ..TableRowPrefix::default()
-        });
-        push_metrics(&mut row, &root.metrics);
-        push_provenance(
-            &mut row,
-            Some(root.estimate_source.label()),
-            &root.estimate_provenance,
-        );
-        row.push(root.reason.clone().unwrap_or_default());
-        write_table_row(&mut writer, format, row)?;
+    if includes_table_row(row_kinds, InspectMapTableRowKind::Total) {
+        write_table_row(&mut writer, format, total_table_row(report))?;
     }
 
-    for (index, entry) in report.top_entries.iter().enumerate() {
-        let mut row = table_row_prefix(TableRowPrefix {
-            row_kind: "entry",
-            rank: Some(index + 1),
-            path: entry.path.display().to_string(),
-            root: entry.root.display().to_string(),
-            entry_kind: entry.kind.label().to_string(),
-            depth: Some(entry.depth),
-            ..TableRowPrefix::default()
-        });
-        push_entry_metrics(&mut row, entry);
-        push_provenance(
-            &mut row,
-            Some(entry.estimate_source.label()),
-            &entry.estimate_provenance,
-        );
-        row.push(String::new());
-        write_table_row(&mut writer, format, row)?;
+    if includes_table_row(row_kinds, InspectMapTableRowKind::Root) {
+        for (index, root) in report.roots.iter().enumerate() {
+            let mut row = table_row_prefix(TableRowPrefix {
+                row_kind: "root",
+                rank: Some(index + 1),
+                path: root.path.display().to_string(),
+                status: root.status.label().to_string(),
+                ..TableRowPrefix::default()
+            });
+            push_metrics(&mut row, &root.metrics);
+            push_provenance(
+                &mut row,
+                Some(root.estimate_source.label()),
+                &root.estimate_provenance,
+            );
+            row.push(root.reason.clone().unwrap_or_default());
+            write_table_row(&mut writer, format, row)?;
+        }
     }
 
-    for (index, group) in report.groups.iter().enumerate() {
-        let mut row = table_row_prefix(TableRowPrefix {
-            row_kind: "group",
-            rank: Some(index + 1),
-            group_kind: group.kind.label().to_string(),
-            group_key: group.key.clone(),
-            group_label: group.label.clone(),
-            ..TableRowPrefix::default()
-        });
-        push_metrics(&mut row, &group.metrics);
-        push_empty_provenance(&mut row);
-        row.push(String::new());
-        write_table_row(&mut writer, format, row)?;
+    if includes_table_row(row_kinds, InspectMapTableRowKind::Entry) {
+        for (index, entry) in report.top_entries.iter().enumerate() {
+            let mut row = table_row_prefix(TableRowPrefix {
+                row_kind: "entry",
+                rank: Some(index + 1),
+                path: entry.path.display().to_string(),
+                root: entry.root.display().to_string(),
+                entry_kind: entry.kind.label().to_string(),
+                depth: Some(entry.depth),
+                ..TableRowPrefix::default()
+            });
+            push_entry_metrics(&mut row, entry);
+            push_provenance(
+                &mut row,
+                Some(entry.estimate_source.label()),
+                &entry.estimate_provenance,
+            );
+            row.push(String::new());
+            write_table_row(&mut writer, format, row)?;
+        }
+    }
+
+    if includes_table_row(row_kinds, InspectMapTableRowKind::Group) {
+        for (index, group) in report.groups.iter().enumerate() {
+            let mut row = table_row_prefix(TableRowPrefix {
+                row_kind: "group",
+                rank: Some(index + 1),
+                group_kind: group.kind.label().to_string(),
+                group_key: group.key.clone(),
+                group_label: group.label.clone(),
+                ..TableRowPrefix::default()
+            });
+            push_metrics(&mut row, &group.metrics);
+            push_empty_provenance(&mut row);
+            row.push(String::new());
+            write_table_row(&mut writer, format, row)?;
+        }
     }
 
     writer.flush()?;
     Ok(())
+}
+
+fn includes_table_row(
+    row_kinds: &[InspectMapTableRowKind],
+    row_kind: InspectMapTableRowKind,
+) -> bool {
+    row_kinds.is_empty() || row_kinds.contains(&row_kind)
 }
 
 fn total_table_row(report: &DiskMapReport) -> Vec<String> {
