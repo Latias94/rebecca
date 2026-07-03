@@ -38,26 +38,15 @@ The report records scenario name, operation, requested backend, backend-source e
 Keep reports under `target/perf/`; they are local measurement artifacts and should not be committed unless a future release process explicitly asks for a checked-in baseline.
 
 The default matrix does not read a live NTFS volume because that requires host privileges and can make Criterion results depend on the whole workstation disk.
-Use the NTFS dogfood script for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_backend_source`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios. NTFS parser-core performance work should keep the first-party parser path distinguishable from any future external adapter or oracle path in report labels before adding new speed thresholds.
-
-```powershell
-pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-space -Top 3 -TimeoutSeconds 45
-pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-map -Top 3 -TimeoutSeconds 60
-```
-
-The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, diagnostic summary totals, per-run portable baseline deltas, and a top-level `comparisons` section with match status, fastest run id, fastest requested/actual backend identity, duration ratios, and metric deltas. A timeout from the experimental backend is a valid local finding because live metadata traversal can depend on target size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
-For map-specific backend evidence, prefer the inspect-map report script. It runs
-one `inspect map --format json` scan per backend/repetition, then derives JSON,
-CSV, and Markdown artifacts without re-running table mode:
+Use the inspect-map dogfood script for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_backend_source`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios.
+NTFS parser-core performance work should keep the first-party parser path distinguishable from any future external adapter or oracle path in report labels before adding new speed thresholds.
+The script runs one `inspect map --format json` scan per backend/repetition, then derives JSON, CSV, and Markdown artifacts without re-running table mode:
 
 ```powershell
 pwsh -File scripts/dogfood/run-inspect-map-report.ps1 -Root docs -Backend portable-recursive,windows-native,windows-ntfs-mft-experimental -Repeat 1 -Top 20 -GroupBy extension,depth,age -DiagnosticLimit 0
 ```
 
-The report is written under `target/inspect-map-dogfood/` and includes raw JSON
-stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested
-versus actual backend fields, diagnostic summary totals, fallback reasons,
-caveats, and portable-baseline comparison status.
+The report is written under `target/inspect-map-dogfood/` and includes raw JSON stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested versus actual backend fields, diagnostic summary totals, fallback reasons, caveats, and portable-baseline comparison status.
 When scanning a root that contains the default report directory, pass an
 external `-OutputDirectory` or explicitly opt into `-AllowOutputInsideRoot`.
 Backend mismatches or missing portable baselines are non-zero by default; pass

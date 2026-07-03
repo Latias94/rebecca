@@ -64,7 +64,7 @@ Use a deep `ScanEngine` module as the default cleanup measurement interface.
 - Windows users can dogfood a native directory backend without making it the default cleanup authority.
 - The experimental MFT selector can be tested by wrappers without granting it deletion authority; live-volume access remains opt-in, source-provenanced, and fallback-capable.
 - The experimental MFT selector now uses a sequence-aware `MftIndex` with hardlink path candidates, direct attribute-list extension handling, runlist-backed stream metadata, and resident/nonresident `$I30` directory-index caveats while preserving logical-byte v1 output.
-- Live NTFS backend evidence is collected through `scripts/ntfs/run-live-mft-dogfood.ps1` or equivalent raw read-only/dry-run commands, and reports stay under `target/` because backend source, timeout, caveat, and fallback behavior are machine-dependent.
+- Live NTFS backend evidence is collected through `scripts/dogfood/run-inspect-map-report.ps1` or equivalent raw read-only/dry-run commands, and reports stay under `target/` because backend source, timeout, caveat, and fallback behavior are machine-dependent.
 - Benchmarks can compare default traversal against NTFS acceleration on representative datasets.
 - Search-tool ignore rules do not create cleanup-size undercounts.
 

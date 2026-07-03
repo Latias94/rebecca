@@ -82,31 +82,18 @@ pwsh -File scripts\perf\run-benchmark-matrix.ps1
 The expected report path is
 `target\perf\rebecca-core-perf_matrix-report.json`.
 
-Collect live NTFS/MFT evidence with the local dogfood script. It isolates
-Rebecca config, state, cache, and history under `target\ntfs-dogfood\<run-id>\`
-and writes a JSON report plus raw command output for each backend run. Use the
-top-level `comparisons` section first: it records portable-baseline match
-status, fastest run id, fastest requested and actual backend identity, duration
-ratios, and byte/file/directory deltas for each mode/root group.
+Collect live NTFS/MFT evidence with the inspect-map dogfood script. It isolates
+Rebecca config, state, cache, and history under
+`target\inspect-map-dogfood\<run-id>\` and writes JSON, CSV, Markdown, and raw
+command output for each backend run. Use the run-level comparison fields first:
+they record portable-baseline match status, requested and actual backend
+identity, and byte/file/directory deltas for each backend/repetition.
 
 ```powershell
-pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Root . -Mode inspect-space -Top 10 -TimeoutSeconds 180
-pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Root docs\plans -Mode inspect-map -Top 10 -TimeoutSeconds 180
-pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Mode clean-dry-run -Backend portable-recursive -TimeoutSeconds 180
+pwsh -File scripts\dogfood\run-inspect-map-report.ps1 -Root docs\plans -Backend portable-recursive,windows-native,windows-ntfs-mft-experimental -Repeat 1 -Top 20 -GroupBy extension,depth,age -DiagnosticLimit 0
 ```
 
-Use a smaller `-Root` such as `docs\plans` when the repository root includes
-large `target\` or `repo-ref\` trees. A `timeout` status for
-`windows-ntfs-mft-experimental` is release-relevant evidence: keep the report
-under `target\`, note the root and timeout, and treat it as a live backend
-performance or fallback gap rather than a script failure. The backend has an
-internal 20 second live metadata budget by default; set
-`REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` higher for deep diagnosis, or `0` to
-disable the guard for a single dogfood process. Set
-`REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture active-stage timeout context and
-successful `mft-index-build-timing` caveats during release dogfood. Set
-`REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when you intentionally want to
-compare targeted traversal against the older full-volume MFT index path.
+Use a smaller `-Root` such as `docs\plans` when the repository root includes large `target\` or `repo-ref\` trees. The script refuses output directories inside the scanned root unless `-AllowOutputInsideRoot` is passed. Backend mismatches, missing portable baselines, parse failures, and timeouts exit non-zero by default; pass `-AllowMismatch` only when collecting exploratory evidence from a changing tree. The backend has an internal 20 second live metadata budget by default; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` higher for deep diagnosis, or `0` to disable the guard for a single dogfood process. Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture active-stage timeout context and successful `mft-index-build-timing` caveats during release dogfood. Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when you intentionally want to compare targeted traversal against the older full-volume MFT index path.
 
 Run this dogfood checklist on a representative Windows workstation:
 
@@ -125,8 +112,7 @@ cargo run -p rebecca -- inspect map --scan-backend windows-native --root docs\pl
 cargo run -p rebecca -- inspect map --scan-backend windows-ntfs-mft-experimental --root docs\plans --top 10 --format json
 ```
 
-Prefer the script for repeatable backend comparison; use the raw commands above
-when diagnosing a single CLI behavior or reproducing a script-captured failure.
+Prefer the script for repeatable backend comparison; use the raw commands above when diagnosing a single CLI behavior, dry-run safety, or reproducing a script-captured failure.
 
 For delete smoke, use a dry-run against disposable user-temp data and verify the
 default plan remains recoverable before any real `--yes` run:
