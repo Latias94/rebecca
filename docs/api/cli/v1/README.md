@@ -142,6 +142,14 @@ unique accounting unknown; Windows native inventory fills file allocation bytes
 and file-id-deduplicated unique bytes when the host API exposes them; NTFS/MFT
 inventory can fill allocation from parsed stream metadata but leaves unique
 fields null until its record identity accounting is projected into this contract.
+When callers pass one or more `--group-by extension|depth|age` flags,
+`inspect-map` includes `groups`: bounded file-only distribution summaries with
+`kind`, stable `key`, human `label`, and the same `metrics` object used by roots
+and entries. `--group-limit` bounds the combined group list across all requested
+group kinds. Grouped requests through `windows-ntfs-mft-experimental` currently
+fall back to portable inventory with explicit provenance because the
+experimental backend does not yet stream per-file group records into this
+contract.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was

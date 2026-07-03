@@ -65,6 +65,9 @@ available. On hardlinked fixtures, it should also report non-null
 metadata is available. Native caveats for compressed, sparse, hardlinked, or
 skipped reparse entries are part of the evidence because a faster run that hides
 allocation or unique-file semantics is not a valid improvement.
+Grouped runs using `--group-by extension --group-by depth --group-by age`
+should keep matching totals and emit bounded group summaries from the same
+traversal rather than paying for a second scan.
 Selecting `--scan-backend windows-ntfs-mft-experimental` is adaptive: scoped
 roots should normally report `windows-ntfs-mft-experimental-targeted-fsctl`,
 while drive-root maps or explicit full-index diagnostics may report sequential

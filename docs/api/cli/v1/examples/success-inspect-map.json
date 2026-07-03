@@ -47,6 +47,7 @@
         "estimate_confidence": "exact"
       }
     ],
+    "groups": [],
     "diagnostic_summary": {
       "total": 0,
       "retained": 0,

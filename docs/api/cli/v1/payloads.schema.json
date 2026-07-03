@@ -877,6 +877,14 @@
         "scan-failed"
       ]
     },
+    "diskMapGroupKind": {
+      "type": "string",
+      "enum": [
+        "extension",
+        "depth",
+        "age"
+      ]
+    },
     "diskMapRoot": {
       "type": "object",
       "additionalProperties": false,
@@ -1006,6 +1014,30 @@
         }
       }
     },
+    "diskMapGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "key",
+        "label",
+        "metrics"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/diskMapGroupKind"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metrics": {
+          "$ref": "#/$defs/diskMapMetrics"
+        }
+      }
+    },
     "diskMapDiagnostic": {
       "type": "object",
       "additionalProperties": false,
@@ -1076,6 +1108,7 @@
         "roots",
         "totals",
         "top_entries",
+        "groups",
         "diagnostic_summary",
         "diagnostics"
       ],
@@ -1093,6 +1126,12 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/diskMapEntry"
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapGroup"
           }
         },
         "diagnostic_summary": {

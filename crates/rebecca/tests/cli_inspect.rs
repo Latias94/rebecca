@@ -296,6 +296,70 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
     assert_eq!(value["diagnostics"][0]["kind"], "fallback");
 }
 
+#[test]
+fn inspect_map_json_reports_requested_groups() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("src").join("main.rs"), b"abcd");
+    write_fixture_file(root.join("readme.md"), b"xy");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "0",
+            "--group-by",
+            "extension",
+            "--group-by",
+            "depth",
+            "--group-by",
+            "age",
+            "--group-limit",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert!(value["top_entries"].as_array().unwrap().is_empty());
+    assert_json_group(value, "extension", ".rs", 4, 1);
+    assert_json_group(value, "extension", ".md", 2, 1);
+    assert_json_group(value, "depth", "depth-1", 2, 1);
+    assert_json_group(value, "depth", "depth-2", 4, 1);
+    assert_json_group(value, "age", "modified-7d", 6, 2);
+}
+
+fn assert_json_group(
+    value: &serde_json::Value,
+    kind: &str,
+    key: &str,
+    logical_bytes: u64,
+    files: u64,
+) {
+    let group = value["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["kind"] == kind && group["key"] == key)
+        .unwrap_or_else(|| panic!("missing group {kind}:{key}"));
+    assert_eq!(group["metrics"]["logical_bytes"], logical_bytes);
+    assert_eq!(group["metrics"]["files"], files);
+}
+
 #[cfg(windows)]
 #[test]
 fn inspect_map_json_windows_native_reports_native_provenance() {

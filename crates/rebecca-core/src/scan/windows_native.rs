@@ -2,6 +2,7 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf, Prefix};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_FILES, ERROR_SUCCESS, GetLastError, HANDLE,
@@ -38,6 +39,7 @@ pub(crate) struct WindowsNativeDirectoryEntry {
     kind: WindowsNativeEntryKind,
     file_size: u64,
     allocated_size: Option<u64>,
+    modified_time: Option<SystemTime>,
     semantics: WindowsNativeFileSemantics,
     reparse_like: bool,
 }
@@ -57,6 +59,10 @@ impl WindowsNativeDirectoryEntry {
 
     pub(crate) fn allocated_size(&self) -> Option<u64> {
         self.allocated_size
+    }
+
+    pub(crate) fn modified_time(&self) -> Option<SystemTime> {
+        self.modified_time
     }
 
     pub(crate) fn semantics(&self) -> WindowsNativeFileSemantics {
@@ -314,6 +320,9 @@ fn directory_entry_from_find_data(
         kind,
         file_size: find_data_file_size(data),
         semantics,
+        modified_time: include_disk_map_metadata
+            .then(|| find_data_modified_time(data))
+            .flatten(),
         reparse_like,
     })
 }
@@ -381,6 +390,24 @@ fn is_reparse_entry(data: &WIN32_FIND_DATAW) -> bool {
 
 fn find_data_file_size(data: &WIN32_FIND_DATAW) -> u64 {
     (u64::from(data.nFileSizeHigh) << 32) | u64::from(data.nFileSizeLow)
+}
+
+fn find_data_modified_time(data: &WIN32_FIND_DATAW) -> Option<SystemTime> {
+    filetime_to_system_time(
+        data.ftLastWriteTime.dwLowDateTime,
+        data.ftLastWriteTime.dwHighDateTime,
+    )
+}
+
+fn filetime_to_system_time(low: u32, high: u32) -> Option<SystemTime> {
+    const WINDOWS_TO_UNIX_EPOCH_100NS: u64 = 116_444_736_000_000_000;
+    const TICKS_PER_SECOND: u64 = 10_000_000;
+
+    let ticks = (u64::from(high) << 32) | u64::from(low);
+    let unix_ticks = ticks.checked_sub(WINDOWS_TO_UNIX_EPOCH_100NS)?;
+    let seconds = unix_ticks / TICKS_PER_SECOND;
+    let nanos = ((unix_ticks % TICKS_PER_SECOND) * 100) as u32;
+    UNIX_EPOCH.checked_add(Duration::new(seconds, nanos))
 }
 
 fn find_data_allocated_size(

@@ -217,6 +217,11 @@ bytes when the unnamed `$DATA` stream exposes them. Windows native inventory
 caveats compressed, sparse, hardlinked, and skipped reparse entries; hardlink
 caveats mean path-ranked bytes may overstate unique physical usage, while
 non-null unique fields deduplicate stable Windows file ids.
+`inspect map --group-by extension|depth|age` adds bounded file-only distribution
+groups from the same traversal; `--group-limit` caps the combined group list.
+Grouped requests through `windows-ntfs-mft-experimental` must fall back with
+provenance until the experimental backend exposes per-file group records through
+the common disk-map contract.
 Unsupported metadata, such as nonresident attribute lists that cannot be
 expanded directly, stale sequence references, or unreadable `$I30` child nodes,
 must produce caveats or fallback instead of silent success.

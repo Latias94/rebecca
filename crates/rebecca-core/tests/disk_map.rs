@@ -1,7 +1,9 @@
 use std::ffi::OsString;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use rebecca_core::disk_map::{DiskMapDiagnosticKind, DiskMapRequest, inspect_map};
+use rebecca_core::disk_map::{
+    DiskMapDiagnosticKind, DiskMapGroupKind, DiskMapRequest, inspect_map,
+};
 use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence};
 
 static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -83,6 +85,52 @@ fn disk_map_reports_ranked_entries_in_deterministic_order() {
             .estimate_confidence,
         Some(ScanEstimateConfidence::Exact)
     );
+}
+
+#[test]
+fn disk_map_groups_files_by_extension_depth_and_age() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("alpha").join("src").join("main.rs"), b"abc");
+    write_file(root.join("beta").join("readme.md"), b"abcde");
+    write_file(root.join("LICENSE"), b"xy");
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(0)
+        .with_group_kinds(vec![
+            DiskMapGroupKind::Extension,
+            DiskMapGroupKind::Depth,
+            DiskMapGroupKind::Age,
+        ])
+        .with_group_limit(10);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.top_entries.len(), 0);
+    assert_eq!(report.groups.len(), 7);
+    assert_group_metrics(&report, DiskMapGroupKind::Extension, ".md", 5, 1);
+    assert_group_metrics(&report, DiskMapGroupKind::Extension, ".rs", 3, 1);
+    assert_group_metrics(&report, DiskMapGroupKind::Extension, "[no-extension]", 2, 1);
+    assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-1", 2, 1);
+    assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-2", 5, 1);
+    assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-3", 3, 1);
+    assert_group_metrics(&report, DiskMapGroupKind::Age, "modified-7d", 10, 3);
+}
+
+fn assert_group_metrics(
+    report: &rebecca_core::disk_map::DiskMapReport,
+    kind: DiskMapGroupKind,
+    key: &str,
+    logical_bytes: u64,
+    files: u64,
+) {
+    let group = report
+        .groups
+        .iter()
+        .find(|group| group.kind == kind && group.key == key)
+        .unwrap_or_else(|| panic!("missing group {kind:?}:{key}"));
+    assert_eq!(group.metrics.logical_bytes, logical_bytes);
+    assert_eq!(group.metrics.files, files);
 }
 
 #[test]
@@ -184,6 +232,32 @@ fn disk_map_experimental_backend_records_portable_fallback() {
             .estimate_fallback_reason
             .as_deref()
             .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
+    );
+    assert_eq!(report.diagnostics[0].kind, DiskMapDiagnosticKind::Fallback);
+}
+
+#[test]
+fn disk_map_experimental_backend_uses_portable_inventory_for_groups() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("target").join("app.bin"), b"abcd");
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::WindowsNtfsMftExperimental)
+        .with_group_kinds(vec![DiskMapGroupKind::Extension]);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_group_metrics(&report, DiskMapGroupKind::Extension, ".bin", 4, 1);
+    assert_eq!(
+        report.roots[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::PortableRecursive)
+    );
+    assert!(
+        report.roots[0]
+            .estimate_provenance
+            .estimate_fallback_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("grouping is not available"))
     );
     assert_eq!(report.diagnostics[0].kind, DiskMapDiagnosticKind::Fallback);
 }

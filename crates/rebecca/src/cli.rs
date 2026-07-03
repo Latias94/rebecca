@@ -63,6 +63,23 @@ impl From<ScanBackendArg> for rebecca::core::scan::ScanBackendKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum DiskMapGroupKindArg {
+    Extension,
+    Depth,
+    Age,
+}
+
+impl From<DiskMapGroupKindArg> for rebecca::core::disk_map::DiskMapGroupKind {
+    fn from(value: DiskMapGroupKindArg) -> Self {
+        match value {
+            DiskMapGroupKindArg::Extension => Self::Extension,
+            DiskMapGroupKindArg::Depth => Self::Depth,
+            DiskMapGroupKindArg::Age => Self::Age,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CatalogKindArg {
     CleanupRule,
     ProjectArtifact,
@@ -215,6 +232,12 @@ pub struct InspectMapArgs {
     /// Maximum number of largest entries to include. Use 0 for totals only.
     #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_TOP_LIMIT)]
     pub top_limit: usize,
+    /// Add a file grouping section. Can be repeated: extension, depth, age.
+    #[arg(long = "group-by", value_enum)]
+    pub group_kinds: Vec<DiskMapGroupKindArg>,
+    /// Maximum number of groups to include across all requested group kinds.
+    #[arg(long = "group-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_GROUP_LIMIT)]
+    pub group_limit: usize,
     /// Maximum number of raw diagnostics to include. Use 0 for summary only.
     #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
     pub diagnostic_limit: usize,

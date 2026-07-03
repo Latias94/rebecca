@@ -153,6 +153,39 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
         }
     }
 
+    if !report.groups.is_empty() {
+        println!();
+        println!("Map groups:");
+        for group in &report.groups {
+            let allocated = group
+                .metrics
+                .allocated_bytes
+                .map(|bytes| format!(", allocated {} ({})", bytes, format_bytes(bytes)))
+                .unwrap_or_default();
+            let unique_logical = group
+                .metrics
+                .unique_logical_bytes
+                .map(|bytes| format!(", unique logical {} ({})", bytes, format_bytes(bytes)))
+                .unwrap_or_default();
+            let unique_allocated = group
+                .metrics
+                .unique_allocated_bytes
+                .map(|bytes| format!(", unique allocated {} ({})", bytes, format_bytes(bytes)))
+                .unwrap_or_default();
+            println!(
+                "  - {} [{}] {} bytes ({}){}{}{} - {} files",
+                group.label,
+                group.kind.label(),
+                group.metrics.logical_bytes,
+                format_bytes(group.metrics.logical_bytes),
+                allocated,
+                unique_logical,
+                unique_allocated,
+                group.metrics.files
+            );
+        }
+    }
+
     if report.diagnostic_summary.total > 0 {
         println!();
         println!(

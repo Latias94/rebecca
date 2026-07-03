@@ -149,8 +149,9 @@ the same run should keep path-ranked bytes unchanged while reporting non-null
 available. Windows native runs may also report
 `windows-native-compressed-file`, `windows-native-sparse-file`,
 `windows-native-hardlink-file`, or `windows-native-reparse-skipped` caveats when
-those filesystem semantics are present. The experimental NTFS/MFT run should
-either show
+those filesystem semantics are present. A grouped map run with `--group-by extension --group-by depth --group-by age`
+should emit bounded `groups` with logical bytes and file counts from the same
+traversal. The experimental NTFS/MFT run should either show
 `estimate_backend: "windows-ntfs-mft-experimental"` with
 `estimate_backend_source: "windows-ntfs-mft-experimental-targeted-fsctl"` on a
 supported elevated local NTFS volume, including scoped `inspect map` roots.

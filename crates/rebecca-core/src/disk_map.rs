@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BinaryHeap};
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,12 +16,15 @@ use crate::scan::{
 
 pub const DEFAULT_DISK_MAP_TOP_LIMIT: usize = 20;
 pub const DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT: usize = 100;
+pub const DEFAULT_DISK_MAP_GROUP_LIMIT: usize = 20;
 
 #[derive(Debug, Clone)]
 pub struct DiskMapRequest {
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
     pub diagnostic_limit: usize,
+    pub group_kinds: Vec<DiskMapGroupKind>,
+    pub group_limit: usize,
     pub max_depth: Option<usize>,
     pub scan_backend: ScanBackendKind,
 }
@@ -31,6 +35,8 @@ impl DiskMapRequest {
             roots,
             top_limit: DEFAULT_DISK_MAP_TOP_LIMIT,
             diagnostic_limit: DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT,
+            group_kinds: Vec::new(),
+            group_limit: DEFAULT_DISK_MAP_GROUP_LIMIT,
             max_depth: None,
             scan_backend: ScanBackendKind::PortableRecursive,
         }
@@ -43,6 +49,16 @@ impl DiskMapRequest {
 
     pub fn with_diagnostic_limit(mut self, diagnostic_limit: usize) -> Self {
         self.diagnostic_limit = diagnostic_limit;
+        self
+    }
+
+    pub fn with_group_kinds(mut self, group_kinds: Vec<DiskMapGroupKind>) -> Self {
+        self.group_kinds = group_kinds;
+        self
+    }
+
+    pub fn with_group_limit(mut self, group_limit: usize) -> Self {
+        self.group_limit = group_limit;
         self
     }
 
@@ -62,6 +78,7 @@ pub struct DiskMapReport {
     pub roots: Vec<DiskMapRoot>,
     pub totals: DiskMapMetrics,
     pub top_entries: Vec<DiskMapEntry>,
+    pub groups: Vec<DiskMapGroup>,
     pub diagnostic_summary: DiskMapDiagnosticSummary,
     pub diagnostics: Vec<DiskMapDiagnostic>,
 }
@@ -173,6 +190,32 @@ impl DiskMapEntry {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskMapGroupKind {
+    Extension,
+    Depth,
+    Age,
+}
+
+impl DiskMapGroupKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Extension => "extension",
+            Self::Depth => "depth",
+            Self::Age => "age",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskMapGroup {
+    pub kind: DiskMapGroupKind,
+    pub key: String,
+    pub label: String,
+    pub metrics: DiskMapMetrics,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiskMapEntryKind {
@@ -254,9 +297,7 @@ pub fn inspect_map(
     request: &DiskMapRequest,
     cancellation: &ScanCancellationToken,
 ) -> Result<DiskMapReport> {
-    let mut report = DiskMapReport::default();
-    let mut top_entries = DiskMapTopEntries::new(request.top_limit);
-    let mut diagnostics = DiskMapDiagnostics::new(request.diagnostic_limit);
+    let mut state = DiskMapInspectionState::new(request);
     let mut unique_files = DiskMapUniqueFiles::default();
     let scan_engine = ScanEngine::new();
 
@@ -267,16 +308,42 @@ pub fn inspect_map(
             request,
             cancellation,
             &scan_engine,
-            &mut report,
-            &mut top_entries,
-            &mut diagnostics,
+            &mut state,
         )?);
     }
 
-    unique_files.apply_to_metrics(&mut report.totals);
-    report.top_entries = top_entries.into_sorted_entries();
-    diagnostics.finish(&mut report);
-    Ok(report)
+    Ok(state.finish(unique_files))
+}
+
+#[derive(Debug)]
+struct DiskMapInspectionState {
+    report: DiskMapReport,
+    top_entries: DiskMapTopEntries,
+    groups: DiskMapGroupCollector,
+    diagnostics: DiskMapDiagnostics,
+}
+
+impl DiskMapInspectionState {
+    fn new(request: &DiskMapRequest) -> Self {
+        Self {
+            report: DiskMapReport::default(),
+            top_entries: DiskMapTopEntries::new(request.top_limit),
+            groups: DiskMapGroupCollector::new(
+                request.group_kinds.clone(),
+                request.group_limit,
+                SystemTime::now(),
+            ),
+            diagnostics: DiskMapDiagnostics::new(request.diagnostic_limit),
+        }
+    }
+
+    fn finish(mut self, unique_files: DiskMapUniqueFiles) -> DiskMapReport {
+        unique_files.apply_to_metrics(&mut self.report.totals);
+        self.report.top_entries = self.top_entries.into_sorted_entries();
+        self.report.groups = self.groups.finish();
+        self.diagnostics.finish(&mut self.report);
+        self.report
+    }
 }
 
 #[derive(Debug)]
@@ -378,9 +445,7 @@ where
 {
     request: &'a DiskMapRequest,
     cancellation: &'a ScanCancellationToken,
-    report: &'a mut DiskMapReport,
-    top_entries: &'a mut DiskMapTopEntries,
-    diagnostics: &'a mut DiskMapDiagnostics,
+    state: &'a mut DiskMapInspectionState,
     walker: &'a W,
 }
 
@@ -395,7 +460,7 @@ where
         fallback_reason: Option<String>,
     ) -> Result<DiskMapUniqueFiles> {
         if let Some(reason) = &fallback_reason {
-            self.diagnostics.push_priority(DiskMapDiagnostic::new(
+            self.state.diagnostics.push_priority(DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::Fallback,
                 root.to_path_buf(),
                 reason.clone(),
@@ -406,23 +471,23 @@ where
             Ok(metadata) => metadata,
             Err(RebeccaError::ScanFailed(failure)) if failure.kind == ScanFailureKind::NotFound => {
                 push_root_skip(
-                    self.report,
+                    &mut self.state.report,
                     root,
                     DiskMapDiagnosticKind::RootMissing,
                     "disk map root does not exist",
                     provenance,
-                    self.diagnostics,
+                    &mut self.state.diagnostics,
                 );
                 return Ok(DiskMapUniqueFiles::default());
             }
             Err(err) => {
                 push_root_skip(
-                    self.report,
+                    &mut self.state.report,
                     root,
                     DiskMapDiagnosticKind::RootMetadataReadSkipped,
                     format!("disk map root metadata could not be read: {err}"),
                     provenance,
-                    self.diagnostics,
+                    &mut self.state.diagnostics,
                 );
                 return Ok(DiskMapUniqueFiles::default());
             }
@@ -430,12 +495,12 @@ where
 
         if self.walker.is_reparse_like(root, &metadata) {
             push_root_skip(
-                self.report,
+                &mut self.state.report,
                 root,
                 DiskMapDiagnosticKind::ReparsePointSkipped,
                 "disk map root is a symlink or reparse point",
                 provenance,
-                self.diagnostics,
+                &mut self.state.diagnostics,
             );
             return Ok(DiskMapUniqueFiles::default());
         }
@@ -451,6 +516,14 @@ where
                     self.walker.metadata_allocated_len(&metadata),
                     semantics,
                 );
+                self.state.groups.record_file(
+                    root,
+                    0,
+                    result.metrics.logical_bytes,
+                    result.metrics.allocated_bytes,
+                    self.walker.metadata_modified_time(&metadata),
+                    semantics,
+                );
                 let entry_provenance = estimate_provenance_with_entry_semantics(
                     &provenance,
                     semantics,
@@ -463,7 +536,7 @@ where
                     0,
                     result.metrics,
                     &entry_provenance,
-                    self.top_entries,
+                    &mut self.state.top_entries,
                 );
                 result
             }
@@ -472,10 +545,11 @@ where
                 cancellation: self.cancellation,
                 max_depth,
                 estimate_provenance: &provenance,
-                top_entries: self.top_entries,
-                diagnostics: self.diagnostics,
+                top_entries: &mut self.state.top_entries,
+                diagnostics: &mut self.state.diagnostics,
                 walker: self.walker,
                 semantic_caveats: &mut semantic_caveats,
+                groups: &mut self.state.groups,
             })
             .inspect_root_directory()
             {
@@ -483,12 +557,12 @@ where
                 Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
                 Err(err) => {
                     push_root_skip(
-                        self.report,
+                        &mut self.state.report,
                         root,
                         DiskMapDiagnosticKind::DirectoryReadSkipped,
                         format!("disk map root directory could not be read: {err}"),
                         provenance,
-                        self.diagnostics,
+                        &mut self.state.diagnostics,
                     );
                     return Ok(DiskMapUniqueFiles::default());
                 }
@@ -497,8 +571,8 @@ where
         };
 
         let provenance = semantic_caveats.apply_to_root_provenance(provenance);
-        self.report.totals.add(root_result.metrics);
-        self.report.roots.push(DiskMapRoot {
+        self.state.report.totals.add(root_result.metrics);
+        self.state.report.roots.push(DiskMapRoot {
             path: root.to_path_buf(),
             status: DiskMapRootStatus::Scanned,
             metrics: root_result.metrics,
@@ -654,6 +728,175 @@ impl DiskMapTraversalResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DiskMapGroupMapKey {
+    kind: DiskMapGroupKind,
+    key: String,
+}
+
+#[derive(Debug, Clone)]
+struct DiskMapGroupAccumulator {
+    kind: DiskMapGroupKind,
+    key: String,
+    label: String,
+    metrics: DiskMapMetrics,
+    unique_files: DiskMapUniqueFiles,
+}
+
+impl DiskMapGroupAccumulator {
+    fn new(kind: DiskMapGroupKind, key: String, label: String) -> Self {
+        Self {
+            kind,
+            key,
+            label,
+            metrics: DiskMapMetrics::default(),
+            unique_files: DiskMapUniqueFiles::default(),
+        }
+    }
+
+    fn record_file(
+        &mut self,
+        logical_bytes: u64,
+        allocated_bytes: Option<u64>,
+        semantics: DiskMapMetadataSemantics,
+    ) {
+        self.metrics
+            .add(file_metrics(logical_bytes, allocated_bytes));
+        self.unique_files
+            .record_file(semantics.file_identity, logical_bytes, allocated_bytes);
+        self.unique_files.apply_to_metrics(&mut self.metrics);
+    }
+
+    fn into_group(self) -> DiskMapGroup {
+        DiskMapGroup {
+            kind: self.kind,
+            key: self.key,
+            label: self.label,
+            metrics: self.metrics,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DiskMapGroupCollector {
+    kinds: Vec<DiskMapGroupKind>,
+    limit: usize,
+    now: SystemTime,
+    groups: BTreeMap<DiskMapGroupMapKey, DiskMapGroupAccumulator>,
+}
+
+impl DiskMapGroupCollector {
+    fn new(mut kinds: Vec<DiskMapGroupKind>, limit: usize, now: SystemTime) -> Self {
+        kinds.sort();
+        kinds.dedup();
+        Self {
+            kinds,
+            limit,
+            now,
+            groups: BTreeMap::new(),
+        }
+    }
+
+    fn record_file(
+        &mut self,
+        path: &Path,
+        depth: usize,
+        logical_bytes: u64,
+        allocated_bytes: Option<u64>,
+        modified_time: Option<SystemTime>,
+        semantics: DiskMapMetadataSemantics,
+    ) {
+        if self.kinds.is_empty() || self.limit == 0 {
+            return;
+        }
+
+        for kind in self.kinds.clone() {
+            let (key, label) = match kind {
+                DiskMapGroupKind::Extension => disk_map_extension_group(path),
+                DiskMapGroupKind::Depth => disk_map_depth_group(depth),
+                DiskMapGroupKind::Age => disk_map_age_group(modified_time, self.now),
+            };
+            let map_key = DiskMapGroupMapKey {
+                kind,
+                key: key.clone(),
+            };
+            self.groups
+                .entry(map_key)
+                .or_insert_with(|| DiskMapGroupAccumulator::new(kind, key, label))
+                .record_file(logical_bytes, allocated_bytes, semantics);
+        }
+    }
+
+    fn finish(self) -> Vec<DiskMapGroup> {
+        let mut groups = self
+            .groups
+            .into_values()
+            .map(DiskMapGroupAccumulator::into_group)
+            .collect::<Vec<_>>();
+        groups.sort_by(|left, right| {
+            right
+                .metrics
+                .logical_bytes
+                .cmp(&left.metrics.logical_bytes)
+                .then_with(|| right.metrics.files.cmp(&left.metrics.files))
+                .then_with(|| left.kind.cmp(&right.kind))
+                .then_with(|| left.key.cmp(&right.key))
+        });
+        groups.truncate(self.limit);
+        groups
+    }
+}
+
+fn disk_map_extension_group(path: &Path) -> (String, String) {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| {
+            let key = format!(".{}", extension.to_ascii_lowercase());
+            (key.clone(), key)
+        })
+        .unwrap_or_else(|| ("[no-extension]".to_string(), "No extension".to_string()))
+}
+
+fn disk_map_depth_group(depth: usize) -> (String, String) {
+    (format!("depth-{depth}"), format!("Depth {depth}"))
+}
+
+fn disk_map_age_group(modified_time: Option<SystemTime>, now: SystemTime) -> (String, String) {
+    let Some(modified_time) = modified_time else {
+        return (
+            "modified-unknown".to_string(),
+            "Modified time unknown".to_string(),
+        );
+    };
+    let age = now
+        .duration_since(modified_time)
+        .unwrap_or_else(|_| Duration::from_secs(0));
+    let age_days = age.as_secs() / 86_400;
+    match age_days {
+        0..=7 => (
+            "modified-7d".to_string(),
+            "Modified within 7 days".to_string(),
+        ),
+        8..=30 => (
+            "modified-30d".to_string(),
+            "Modified within 30 days".to_string(),
+        ),
+        31..=90 => (
+            "modified-90d".to_string(),
+            "Modified within 90 days".to_string(),
+        ),
+        91..=365 => (
+            "modified-365d".to_string(),
+            "Modified within 365 days".to_string(),
+        ),
+        _ => (
+            "modified-older".to_string(),
+            "Modified more than 365 days ago".to_string(),
+        ),
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct DiskMapSemanticCaveats {
     compressed_files: u64,
@@ -794,6 +1037,7 @@ trait DiskMapWalker {
     fn is_reparse_like(&self, path: &Path, metadata: &Self::Metadata) -> bool;
     fn metadata_len(&self, metadata: &Self::Metadata) -> u64;
     fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64>;
+    fn metadata_modified_time(&self, metadata: &Self::Metadata) -> Option<SystemTime>;
     fn metadata_semantics(&self, metadata: &Self::Metadata) -> DiskMapMetadataSemantics;
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind;
     fn read_dir(&self, path: &Path, cancellation: &ScanCancellationToken) -> Result<Self::ReadDir>;
@@ -830,6 +1074,10 @@ impl DiskMapWalker for FsPortableDiskMapWalker {
 
     fn metadata_allocated_len(&self, _metadata: &Self::Metadata) -> Option<u64> {
         None
+    }
+
+    fn metadata_modified_time(&self, metadata: &Self::Metadata) -> Option<SystemTime> {
+        metadata.modified().ok()
     }
 
     fn metadata_semantics(&self, _metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
@@ -888,6 +1136,7 @@ struct WindowsNativeDiskMapMetadata {
     kind: DiskMapMetadataKind,
     len: u64,
     allocated_len: Option<u64>,
+    modified_time: Option<SystemTime>,
     semantics: DiskMapMetadataSemantics,
     reparse_like: bool,
 }
@@ -924,6 +1173,7 @@ impl WindowsNativeDiskMapMetadata {
             },
             kind,
             len: metadata.len(),
+            modified_time: metadata.modified().ok(),
             semantics: DiskMapMetadataSemantics::from(native_semantics),
             reparse_like,
         }
@@ -941,6 +1191,7 @@ impl WindowsNativeDiskMapMetadata {
             },
             len: entry.file_size(),
             allocated_len: entry.allocated_size(),
+            modified_time: entry.modified_time(),
             semantics: DiskMapMetadataSemantics::from(entry.semantics()),
             reparse_like: entry.is_reparse_like(),
         }
@@ -992,6 +1243,10 @@ impl DiskMapWalker for WindowsNativeDiskMapWalker {
         metadata.allocated_len
     }
 
+    fn metadata_modified_time(&self, metadata: &Self::Metadata) -> Option<SystemTime> {
+        metadata.modified_time
+    }
+
     fn metadata_semantics(&self, metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
         if metadata.reparse_like {
             metadata.semantics.with_reparse_like()
@@ -1033,6 +1288,7 @@ where
     diagnostics: &'a mut DiskMapDiagnostics,
     walker: &'a W,
     semantic_caveats: &'a mut DiskMapSemanticCaveats,
+    groups: &'a mut DiskMapGroupCollector,
 }
 
 impl<'a, W> DiskMapTraversal<'a, W>
@@ -1103,6 +1359,14 @@ where
                 let result = DiskMapTraversalResult::file(
                     self.walker.metadata_len(&metadata),
                     self.walker.metadata_allocated_len(&metadata),
+                    semantics,
+                );
+                self.groups.record_file(
+                    &path,
+                    depth,
+                    result.metrics.logical_bytes,
+                    result.metrics.allocated_bytes,
+                    self.walker.metadata_modified_time(&metadata),
                     semantics,
                 );
                 let entry_provenance = estimate_provenance_with_entry_semantics(
@@ -1230,20 +1494,11 @@ fn inspect_root(
     request: &DiskMapRequest,
     cancellation: &ScanCancellationToken,
     scan_engine: &ScanEngine,
-    report: &mut DiskMapReport,
-    top_entries: &mut DiskMapTopEntries,
-    diagnostics: &mut DiskMapDiagnostics,
+    state: &mut DiskMapInspectionState,
 ) -> Result<DiskMapUniqueFiles> {
     let walker = FsPortableDiskMapWalker;
     if request.scan_backend == ScanBackendKind::WindowsNative {
-        match inspect_windows_native_root(
-            root,
-            request,
-            cancellation,
-            report,
-            top_entries,
-            diagnostics,
-        ) {
+        match inspect_windows_native_root(root, request, cancellation, state) {
             Ok(unique_files) => return Ok(unique_files),
             Err(err) if disk_map_backend_error_can_fallback(&err) => {
                 let fallback_reason =
@@ -1251,9 +1506,7 @@ fn inspect_root(
                 return DiskMapRootInspection {
                     request,
                     cancellation,
-                    report,
-                    top_entries,
-                    diagnostics,
+                    state,
                     walker: &walker,
                 }
                 .inspect(
@@ -1267,6 +1520,22 @@ fn inspect_root(
     }
 
     if request.scan_backend == ScanBackendKind::WindowsNtfsMftExperimental {
+        if !request.group_kinds.is_empty() {
+            let fallback_reason =
+                "windows-ntfs-mft-experimental disk-map grouping is not available; portable recursive inventory was used".to_string();
+            return DiskMapRootInspection {
+                request,
+                cancellation,
+                state,
+                walker: &walker,
+            }
+            .inspect(
+                root,
+                portable_estimate_provenance(Some(fallback_reason.clone())),
+                Some(fallback_reason),
+            );
+        }
+
         match scan_engine.inspect_windows_ntfs_mft_disk_map(
             root,
             request.top_limit,
@@ -1276,7 +1545,7 @@ fn inspect_root(
             Ok(root_map) => {
                 let unique_files =
                     DiskMapUniqueFiles::unavailable_for_files(root_map.metrics.files);
-                push_backend_root(root, root_map, report, top_entries, diagnostics);
+                push_backend_root(root, root_map, state);
                 return Ok(unique_files);
             }
             Err(err) if disk_map_backend_error_can_fallback(&err) => {
@@ -1286,9 +1555,7 @@ fn inspect_root(
                 return DiskMapRootInspection {
                     request,
                     cancellation,
-                    report,
-                    top_entries,
-                    diagnostics,
+                    state,
                     walker: &walker,
                 }
                 .inspect(
@@ -1310,9 +1577,7 @@ fn inspect_root(
     DiskMapRootInspection {
         request,
         cancellation,
-        report,
-        top_entries,
-        diagnostics,
+        state,
         walker: &walker,
     }
     .inspect(
@@ -1327,9 +1592,7 @@ fn inspect_windows_native_root(
     root: &Path,
     request: &DiskMapRequest,
     cancellation: &ScanCancellationToken,
-    report: &mut DiskMapReport,
-    top_entries: &mut DiskMapTopEntries,
-    diagnostics: &mut DiskMapDiagnostics,
+    state: &mut DiskMapInspectionState,
 ) -> Result<DiskMapUniqueFiles> {
     if let Some(reason) = crate::scan::windows_native::unsupported_path_reason(root) {
         return Err(RebeccaError::PlatformUnavailable(reason));
@@ -1339,9 +1602,7 @@ fn inspect_windows_native_root(
     DiskMapRootInspection {
         request,
         cancellation,
-        report,
-        top_entries,
-        diagnostics,
+        state,
         walker: &walker,
     }
     .inspect(
@@ -1359,9 +1620,7 @@ fn inspect_windows_native_root(
     _root: &Path,
     _request: &DiskMapRequest,
     _cancellation: &ScanCancellationToken,
-    _report: &mut DiskMapReport,
-    _top_entries: &mut DiskMapTopEntries,
-    _diagnostics: &mut DiskMapDiagnostics,
+    _state: &mut DiskMapInspectionState,
 ) -> Result<DiskMapUniqueFiles> {
     Err(RebeccaError::PlatformUnavailable(format!(
         "{} disk-map inventory is only available on Windows",
@@ -1372,16 +1631,14 @@ fn inspect_windows_native_root(
 fn push_backend_root(
     root: &Path,
     root_map: DiskMapBackendRoot,
-    report: &mut DiskMapReport,
-    top_entries: &mut DiskMapTopEntries,
-    diagnostics: &mut DiskMapDiagnostics,
+    state: &mut DiskMapInspectionState,
 ) {
-    report.totals.add(root_map.metrics);
+    state.report.totals.add(root_map.metrics);
     for entry in root_map.top_entries {
-        top_entries.push(entry);
+        state.top_entries.push(entry);
     }
-    diagnostics.extend(root_map.diagnostics);
-    report.roots.push(DiskMapRoot {
+    state.diagnostics.extend(root_map.diagnostics);
+    state.report.roots.push(DiskMapRoot {
         path: root.to_path_buf(),
         status: DiskMapRootStatus::Scanned,
         metrics: root_map.metrics,
@@ -1626,9 +1883,7 @@ fn inspect_map_with_walker_for_test<W>(
 where
     W: DiskMapWalker,
 {
-    let mut report = DiskMapReport::default();
-    let mut top_entries = DiskMapTopEntries::new(request.top_limit);
-    let mut diagnostics = DiskMapDiagnostics::new(request.diagnostic_limit);
+    let mut state = DiskMapInspectionState::new(request);
     let mut unique_files = DiskMapUniqueFiles::default();
 
     for root in &request.roots {
@@ -1637,19 +1892,14 @@ where
             DiskMapRootInspection {
                 request,
                 cancellation,
-                report: &mut report,
-                top_entries: &mut top_entries,
-                diagnostics: &mut diagnostics,
+                state: &mut state,
                 walker,
             }
             .inspect(root, portable_estimate_provenance(None), None)?,
         );
     }
 
-    unique_files.apply_to_metrics(&mut report.totals);
-    report.top_entries = top_entries.into_sorted_entries();
-    diagnostics.finish(&mut report);
-    Ok(report)
+    Ok(state.finish(unique_files))
 }
 
 #[cfg(test)]
@@ -1670,6 +1920,7 @@ mod tests {
         kind: FakeMetadataKind,
         len: u64,
         allocated_len: Option<u64>,
+        modified_time: Option<SystemTime>,
         semantics: DiskMapMetadataSemantics,
     }
 
@@ -1695,6 +1946,7 @@ mod tests {
                     kind: FakeMetadataKind::File,
                     len,
                     allocated_len: None,
+                    modified_time: None,
                     semantics: DiskMapMetadataSemantics::default(),
                 }),
             );
@@ -1714,6 +1966,7 @@ mod tests {
                     kind: FakeMetadataKind::File,
                     len,
                     allocated_len,
+                    modified_time: None,
                     semantics: DiskMapMetadataSemantics {
                         file_identity: Some(identity),
                         ..DiskMapMetadataSemantics::default()
@@ -1735,6 +1988,7 @@ mod tests {
                     kind: FakeMetadataKind::Directory,
                     len: 0,
                     allocated_len: None,
+                    modified_time: None,
                     semantics: DiskMapMetadataSemantics::default(),
                 }),
             );
@@ -1750,6 +2004,7 @@ mod tests {
                     kind: FakeMetadataKind::Other,
                     len: 0,
                     allocated_len: None,
+                    modified_time: None,
                     semantics: DiskMapMetadataSemantics::default(),
                 }),
             );
@@ -1769,6 +2024,7 @@ mod tests {
                     kind: FakeMetadataKind::Directory,
                     len: 0,
                     allocated_len: None,
+                    modified_time: None,
                     semantics: DiskMapMetadataSemantics::default(),
                 }),
             );
@@ -1816,6 +2072,10 @@ mod tests {
 
         fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64> {
             metadata.allocated_len
+        }
+
+        fn metadata_modified_time(&self, metadata: &Self::Metadata) -> Option<SystemTime> {
+            metadata.modified_time
         }
 
         fn metadata_semantics(&self, metadata: &Self::Metadata) -> DiskMapMetadataSemantics {

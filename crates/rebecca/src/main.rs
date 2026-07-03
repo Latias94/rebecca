@@ -158,6 +158,8 @@ fn run_inspect(
                 scan_backend: args.scan_backend,
                 roots: args.roots,
                 top_limit: args.top_limit,
+                group_kinds: args.group_kinds.into_iter().map(Into::into).collect(),
+                group_limit: args.group_limit,
                 diagnostic_limit: args.diagnostic_limit,
                 max_depth: args.max_depth,
             },
