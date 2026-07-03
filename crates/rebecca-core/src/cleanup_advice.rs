@@ -12,6 +12,7 @@ use crate::environment::Environment;
 use crate::error::Result;
 use crate::model::{PlanRequest, RuleDefinition, SafetyLevel};
 use crate::path_overlap::{PathRelation, path_relation};
+use crate::project_artifacts::{ProjectArtifactCandidate, recently_modified_reason};
 use crate::protection::{ProtectionAssessment, ProtectionPolicy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,6 +214,8 @@ impl<'a> CleanupAdviceIndex<'a> {
                         safety_level: Some(rule.safety_level),
                         required_flags: required_flags.clone(),
                         required_warnings: required_warnings.clone(),
+                        reason: None,
+                        suggested_command: cleanup_rule_command(&rule.id),
                     });
                 }
             }
@@ -240,6 +243,49 @@ impl<'a> CleanupAdviceIndex<'a> {
             .unwrap_or_else(CleanupAdvice::unknown)
     }
 
+    pub fn add_project_artifact_candidates(
+        &mut self,
+        candidates: impl IntoIterator<Item = ProjectArtifactCandidate>,
+        min_age_days: u64,
+    ) {
+        for candidate in candidates {
+            let recent_reason = recently_modified_reason(&candidate.path, min_age_days);
+            let mut required_flags = Vec::new();
+            if recent_reason.is_some() {
+                required_flags.push("--min-age-days 0".to_string());
+            }
+            let reason = recent_reason.unwrap_or_else(|| {
+                format!(
+                    "path is a project artifact {} anchored by {}",
+                    candidate.policy.artifact,
+                    candidate.context.project_anchor.display()
+                )
+            });
+
+            self.targets.push(CleanupAdviceTarget {
+                source: CleanupAdviceSource::ProjectArtifact,
+                path: candidate.path,
+                rule_id: Some(candidate.definition.rule_id.to_string()),
+                category: Some("project-artifact".to_string()),
+                safety_level: None,
+                required_flags,
+                required_warnings: Vec::new(),
+                reason: Some(reason),
+                suggested_command: Some(CleanupAdviceCommand {
+                    command: "rebecca".to_string(),
+                    args: vec![
+                        "purge".to_string(),
+                        "--dry-run".to_string(),
+                        "--root".to_string(),
+                        candidate.context.project_root.display().to_string(),
+                        "--artifact".to_string(),
+                        candidate.policy.artifact.to_string(),
+                    ],
+                }),
+            });
+        }
+    }
+
     pub fn annotate_disk_map_report(&self, report: &mut DiskMapReport) {
         for entry in &mut report.top_entries {
             entry.cleanup_advice = Some(self.advise_path(&entry.path));
@@ -256,6 +302,8 @@ struct CleanupAdviceTarget {
     safety_level: Option<SafetyLevel>,
     required_flags: Vec<String>,
     required_warnings: Vec<String>,
+    reason: Option<String>,
+    suggested_command: Option<CleanupAdviceCommand>,
 }
 
 impl CleanupAdviceTarget {
@@ -288,18 +336,36 @@ impl CleanupAdviceTarget {
                 required_warnings: self.required_warnings.clone(),
                 protection_kind: None,
                 matched_path: Some(self.path.clone()),
-                reason: advice_reason(status, relation, self.rule_id.as_deref()),
-                suggested_command: self.rule_id.as_ref().map(|rule_id| CleanupAdviceCommand {
-                    command: "rebecca".to_string(),
-                    args: vec![
-                        "clean".to_string(),
-                        "--dry-run".to_string(),
-                        "--rule".to_string(),
-                        rule_id.clone(),
-                    ],
-                }),
+                reason: self.advice_reason(status, relation),
+                suggested_command: self.suggested_command.clone(),
             },
         })
+    }
+
+    fn advice_reason(
+        &self,
+        status: CleanupAdviceStatus,
+        relation: CleanupAdviceRelation,
+    ) -> String {
+        if let Some(reason) = &self.reason
+            && matches!(relation, CleanupAdviceRelation::Exact)
+        {
+            return reason.clone();
+        }
+
+        match self.source {
+            CleanupAdviceSource::CleanupRule => {
+                cleanup_rule_advice_reason(status, relation, self.rule_id.as_deref())
+            }
+            CleanupAdviceSource::ProjectArtifact => {
+                project_artifact_advice_reason(status, relation, self.rule_id.as_deref())
+            }
+            CleanupAdviceSource::AppLeftover => format!(
+                "path matched app leftover policy {}",
+                self.rule_id.as_deref().unwrap_or("matched policy")
+            ),
+            CleanupAdviceSource::Protection => "path matched protection policy".to_string(),
+        }
     }
 }
 
@@ -336,7 +402,7 @@ fn advice_rank(status: CleanupAdviceStatus, relation: CleanupAdviceRelation) -> 
     (status_rank, relation_rank)
 }
 
-fn advice_reason(
+fn cleanup_rule_advice_reason(
     status: CleanupAdviceStatus,
     relation: CleanupAdviceRelation,
     rule_id: Option<&str>,
@@ -362,6 +428,46 @@ fn advice_reason(
         }
         _ => format!("path matched cleanup rule {rule_id}"),
     }
+}
+
+fn project_artifact_advice_reason(
+    status: CleanupAdviceStatus,
+    relation: CleanupAdviceRelation,
+    rule_id: Option<&str>,
+) -> String {
+    let rule_id = rule_id.unwrap_or("project artifact policy");
+    match (status, relation) {
+        (CleanupAdviceStatus::Cleanable, CleanupAdviceRelation::Exact) => {
+            format!("path is a direct project artifact target of {rule_id}")
+        }
+        (CleanupAdviceStatus::Cleanable, CleanupAdviceRelation::Descendant) => {
+            format!("path is inside project artifact target {rule_id}")
+        }
+        (CleanupAdviceStatus::MaybeCleanable, CleanupAdviceRelation::Exact) => {
+            format!("project artifact target {rule_id} requires additional opt-in")
+        }
+        (CleanupAdviceStatus::MaybeCleanable, CleanupAdviceRelation::Descendant) => {
+            format!(
+                "path is inside project artifact target {rule_id}, but the target requires additional opt-in"
+            )
+        }
+        (CleanupAdviceStatus::ContainsCleanable, CleanupAdviceRelation::Ancestor) => {
+            format!("path contains project artifact target {rule_id}")
+        }
+        _ => format!("path matched project artifact policy {rule_id}"),
+    }
+}
+
+fn cleanup_rule_command(rule_id: &str) -> Option<CleanupAdviceCommand> {
+    Some(CleanupAdviceCommand {
+        command: "rebecca".to_string(),
+        args: vec![
+            "clean".to_string(),
+            "--dry-run".to_string(),
+            "--rule".to_string(),
+            rule_id.to_string(),
+        ],
+    })
 }
 
 fn required_safety_flags(request: &PlanRequest, safety_level: SafetyLevel) -> Vec<String> {

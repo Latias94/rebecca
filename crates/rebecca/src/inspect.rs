@@ -15,8 +15,11 @@ use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
 };
 use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
+use rebecca::core::project_artifacts::{
+    ProjectArtifactScanOptions, discover_project_artifacts_with_diagnostics,
+};
 use rebecca::core::protection::ProtectionPolicy;
-use rebecca::core::scan::ScanBackendKind;
+use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{CleanupWorkflow, DeleteMode, EstimateProvenance, PlanRequest, Platform};
 use serde::Serialize;
@@ -168,6 +171,7 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
             &mut report,
             &runtime_config,
             options.advice_status,
+            runtime.cancellation(),
         )?;
     }
     if let Some(table_format) = options.table_format {
@@ -195,6 +199,7 @@ fn annotate_map_report_with_cleanup_advice(
     report: &mut DiskMapReport,
     runtime_config: &AppRuntimeConfig,
     advice_status: Option<CleanupAdviceStatus>,
+    cancellation: &ScanCancellationToken,
 ) -> Result<()> {
     let rules = rebecca::rules::builtin_rules()?;
     let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
@@ -208,12 +213,33 @@ fn annotate_map_report_with_cleanup_advice(
         protection_policy = protection_policy.with_protected_paths(&protected_paths);
     }
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
-    let index = CleanupAdviceIndex::build(
+    let mut index = CleanupAdviceIndex::build(
         CleanupAdviceBuildRequest::new(request, protection_policy),
         &rules,
         &rebecca::core::environment::SystemEnvironment,
         applications.as_ref(),
     )?;
+    let artifact_roots = report
+        .roots
+        .iter()
+        .filter(|root| {
+            matches!(
+                root.status,
+                rebecca::core::disk_map::DiskMapRootStatus::Scanned
+            )
+        })
+        .map(|root| root.path.clone())
+        .collect::<Vec<_>>();
+    if !artifact_roots.is_empty() {
+        let artifact_options = ProjectArtifactScanOptions::new(artifact_roots)
+            .with_max_depth(runtime_config.purge.max_depth);
+        let artifact_discovery =
+            discover_project_artifacts_with_diagnostics(&artifact_options, cancellation)?;
+        index.add_project_artifact_candidates(
+            artifact_discovery.candidates,
+            runtime_config.purge.min_age_days,
+        );
+    }
     index.annotate_disk_map_report(report);
 
     if let Some(status) = advice_status {

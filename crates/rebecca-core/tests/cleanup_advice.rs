@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rebecca_core::applications::NoopApplicationDiscovery;
 use rebecca_core::cleanup_advice::{
@@ -9,7 +9,12 @@ use rebecca_core::model::{
     DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
     SafetyLevel,
 };
+use rebecca_core::project_artifacts::{
+    ProjectArtifactCandidate, ProjectArtifactScanOptions,
+    discover_project_artifacts_with_diagnostics,
+};
 use rebecca_core::protection::ProtectionPolicy;
+use rebecca_core::scan::ScanCancellationToken;
 
 fn rule(id: &str, target: impl AsRef<Path>, safety_level: SafetyLevel) -> RuleDefinition {
     RuleDefinition {
@@ -48,6 +53,23 @@ fn build_index<'a>(
         &NoopApplicationDiscovery::new(),
     )
     .unwrap()
+}
+
+fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(path, bytes).unwrap();
+}
+
+fn discover_artifacts(root: PathBuf) -> Vec<ProjectArtifactCandidate> {
+    discover_project_artifacts_with_diagnostics(
+        &ProjectArtifactScanOptions::new(vec![root]),
+        &ScanCancellationToken::new(),
+    )
+    .unwrap()
+    .candidates
 }
 
 #[test]
@@ -120,6 +142,50 @@ fn parent_directory_contains_cleanable_target_but_is_not_directly_cleanable() {
     assert_eq!(advice.status, CleanupAdviceStatus::ContainsCleanable);
     assert_eq!(advice.relation, Some(CleanupAdviceRelation::Ancestor));
     assert_eq!(advice.matched_path.as_deref(), Some(target.as_path()));
+}
+
+#[test]
+fn project_artifact_candidate_is_cleanable_when_context_is_verified() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let target = root.join("node_modules");
+    write_fixture_file(root.join("package.json"), b"{}");
+    write_fixture_file(target.join(".cache").join("entry.bin"), b"abcdef");
+
+    let mut index = build_index(&[], ProtectionPolicy::new());
+    index.add_project_artifact_candidates(discover_artifacts(root.clone()), 0);
+
+    let advice = index.advise_path(&target);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::Cleanable);
+    assert_eq!(advice.source.unwrap().label(), "project-artifact");
+    assert_eq!(
+        advice.rule_id.as_deref(),
+        Some("windows.project-artifact-node-modules")
+    );
+    assert_eq!(advice.category.as_deref(), Some("project-artifact"));
+    let args = &advice.suggested_command.as_ref().unwrap().args;
+    assert_eq!(args[0], "purge");
+    assert_eq!(args[1], "--dry-run");
+    assert_eq!(args[2], "--root");
+    assert_eq!(args[3], root.display().to_string());
+    assert_eq!(args[4], "--artifact");
+    assert_eq!(args[5], "node_modules");
+}
+
+#[test]
+fn bare_project_artifact_name_without_context_remains_unknown() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let target = root.join("node_modules");
+    write_fixture_file(target.join(".cache").join("entry.bin"), b"abcdef");
+
+    let mut index = build_index(&[], ProtectionPolicy::new());
+    index.add_project_artifact_candidates(discover_artifacts(root), 0);
+
+    let advice = index.advise_path(&target);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::Unknown);
 }
 
 #[test]

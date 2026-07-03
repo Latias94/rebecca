@@ -465,6 +465,8 @@ fn inspect_map_table_uses_ranked_entry_filters() {
             root.to_str().unwrap(),
             "--top",
             "10",
+            "--max-depth",
+            "1",
             "--entry-kind",
             "directory",
             "--path-contains",
@@ -508,6 +510,8 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
             root.to_str().unwrap(),
             "--top",
             "10",
+            "--max-depth",
+            "1",
             "--entry-kind",
             "directory",
             "--path-contains",
@@ -525,9 +529,11 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
 
     let envelope = common::support::api_envelope(&output.stdout);
     let entries = envelope["data"]["top_entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 1);
-    assert_eq!(PathBuf::from(entries[0]["path"].as_str().unwrap()), target);
-    let advice = &entries[0]["cleanup_advice"];
+    let entry = entries
+        .iter()
+        .find(|entry| PathBuf::from(entry["path"].as_str().unwrap()) == target)
+        .expect("node_modules entry should be present");
+    let advice = &entry["cleanup_advice"];
     assert_eq!(advice["status"], "maybe-cleanable");
     assert_eq!(advice["source"], "cleanup-rule");
     assert_eq!(advice["relation"], "exact");
@@ -540,6 +546,58 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
         advice["suggested_command"]["args"],
         serde_json::json!(["clean", "--dry-run", "--rule", "windows.npm-cache"])
     );
+}
+
+#[test]
+fn inspect_map_json_reports_project_artifact_cleanup_advice() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let target = root.join("node_modules");
+    write_fixture_file(root.join("package.json"), b"{}");
+    write_fixture_file(target.join(".cache").join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "node_modules",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let entries = envelope["data"]["top_entries"].as_array().unwrap();
+    let entry = entries
+        .iter()
+        .find(|entry| PathBuf::from(entry["path"].as_str().unwrap()) == target)
+        .expect("node_modules entry should be present");
+    let advice = &entry["cleanup_advice"];
+    assert_eq!(advice["status"], "maybe-cleanable");
+    assert_eq!(advice["source"], "project-artifact");
+    assert_eq!(advice["rule_id"], "windows.project-artifact-node-modules");
+    assert_eq!(advice["category"], "project-artifact");
+    assert_eq!(advice["required_flags"][0], "--min-age-days 0");
+    assert_eq!(advice["suggested_command"]["args"][0], "purge");
+    assert_eq!(advice["suggested_command"]["args"][4], "--artifact");
+    assert_eq!(advice["suggested_command"]["args"][5], "node_modules");
 }
 
 #[test]

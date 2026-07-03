@@ -184,11 +184,12 @@ Repeated `--table-row` flags can narrow that row set when a caller only needs
 entries, groups, or root summaries.
 When callers pass `--cleanup-advice`, each ranked entry may include
 `cleanup_advice`. Advice is read-only guidance derived from Rebecca's cleanup
-rule catalog and protection policy; it is not deletion authority. Status values
-are `cleanable`, `maybe-cleanable`, `contains-cleanable`, `protected`, and
-`unknown`. Rule-backed advice can include `rule_id`, `category`, `safety_level`,
-`required_flags`, `required_warnings`, `matched_path`, `reason`, and a
-structured `suggested_command`. `--advice-status <status>` implies
+rule catalog, project artifact policy, and protection policy; it is not deletion
+authority. Status values are `cleanable`, `maybe-cleanable`,
+`contains-cleanable`, `protected`, and `unknown`. Rule-backed and
+project-artifact-backed advice can include `rule_id`, `category`,
+`safety_level`, `required_flags`, `required_warnings`, `matched_path`, `reason`,
+and a structured `suggested_command`. `--advice-status <status>` implies
 `--cleanup-advice` and filters only the ranked entries, not root totals or
 diagnostic summaries.
 
