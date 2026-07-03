@@ -127,7 +127,9 @@ disk-map usage, project artifact reclaim opportunities, or duplicate/large/empty
 file findings without prompting, executing cleanup, writing history, or mutating
 files. `inspect-map` uses `logical_bytes` plus nullable `allocated_bytes`
 instead of `estimated_bytes` because it is a disk inventory surface rather than
-a cleanup estimate surface.
+a cleanup estimate surface. Portable inventory leaves allocation unknown;
+Windows native inventory fills file allocation bytes when the host API exposes
+them, and NTFS/MFT inventory can fill allocation from parsed stream metadata.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was

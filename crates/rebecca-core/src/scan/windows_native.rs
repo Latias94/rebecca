@@ -3,10 +3,13 @@ use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf, Prefix};
 
-use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_FILES, HANDLE, WIN32_ERROR};
+use windows::Win32::Foundation::{
+    ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_FILES, ERROR_SUCCESS, GetLastError, HANDLE, SetLastError,
+    WIN32_ERROR,
+};
 use windows::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW,
-    FindNextFileW, WIN32_FIND_DATAW,
+    FindNextFileW, GetCompressedFileSizeW, INVALID_FILE_SIZE, WIN32_FIND_DATAW,
 };
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
@@ -31,6 +34,7 @@ pub(crate) struct WindowsNativeDirectoryEntry {
     path: PathBuf,
     kind: WindowsNativeEntryKind,
     file_size: u64,
+    allocated_size: Option<u64>,
     reparse_like: bool,
 }
 
@@ -45,6 +49,10 @@ impl WindowsNativeDirectoryEntry {
 
     pub(crate) fn file_size(&self) -> u64 {
         self.file_size
+    }
+
+    pub(crate) fn allocated_size(&self) -> Option<u64> {
+        self.allocated_size
     }
 
     pub(crate) fn is_reparse_like(&self) -> bool {
@@ -235,11 +243,15 @@ fn directory_entry_from_find_data(
         return None;
     }
 
+    let path = directory.join(file_name);
+    let kind = find_data_entry_kind(data);
+    let reparse_like = is_reparse_entry(data);
     Some(WindowsNativeDirectoryEntry {
-        path: directory.join(file_name),
-        kind: find_data_entry_kind(data),
+        allocated_size: find_data_allocated_size(&path, kind, reparse_like),
+        path,
+        kind,
         file_size: find_data_file_size(data),
-        reparse_like: is_reparse_entry(data),
+        reparse_like,
     })
 }
 
@@ -306,6 +318,34 @@ fn is_reparse_entry(data: &WIN32_FIND_DATAW) -> bool {
 
 fn find_data_file_size(data: &WIN32_FIND_DATAW) -> u64 {
     (u64::from(data.nFileSizeHigh) << 32) | u64::from(data.nFileSizeLow)
+}
+
+fn find_data_allocated_size(
+    path: &Path,
+    kind: WindowsNativeEntryKind,
+    reparse_like: bool,
+) -> Option<u64> {
+    if kind != WindowsNativeEntryKind::File || reparse_like {
+        return None;
+    }
+
+    file_allocated_size(path)
+}
+
+pub(crate) fn file_allocated_size(path: &Path) -> Option<u64> {
+    let wide_path = wide_null(path.as_os_str());
+    let mut high = 0_u32;
+
+    unsafe {
+        SetLastError(ERROR_SUCCESS);
+        let low = GetCompressedFileSizeW(PCWSTR(wide_path.as_ptr()), Some(&mut high));
+        let last_error = GetLastError();
+        if low == INVALID_FILE_SIZE && last_error != ERROR_SUCCESS {
+            return None;
+        }
+
+        Some((u64::from(high) << 32) | u64::from(low))
+    }
 }
 
 fn find_data_file_name(data: &WIN32_FIND_DATAW) -> Option<OsString> {

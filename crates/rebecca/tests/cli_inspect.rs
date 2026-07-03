@@ -329,8 +329,20 @@ fn inspect_map_json_windows_native_reports_native_provenance() {
     let envelope = common::support::api_envelope(&output.stdout);
     let value = &envelope["data"];
     assert_eq!(value["totals"]["logical_bytes"], 7);
+    assert!(
+        value["totals"]["allocated_bytes"]
+            .as_u64()
+            .is_some_and(|bytes| bytes >= 7)
+    );
     assert_eq!(value["totals"]["files"], 2);
     assert_eq!(value["totals"]["directories"], 1);
+    assert!(
+        value["top_entries"][0]["allocated_bytes"]
+            .as_u64()
+            .is_some_and(
+                |bytes| bytes >= value["top_entries"][0]["logical_bytes"].as_u64().unwrap()
+            )
+    );
     assert_eq!(
         value["top_entries"][0]["estimate_backend"],
         "windows-native"

@@ -58,7 +58,9 @@ directory-scanner fallback.
 
 `inspect map` defaults to portable recursive inventory. Selecting
 `--scan-backend windows-native` exercises the Windows find-data inventory path
-and should report `estimate_backend: "windows-native"` on supported local roots.
+and should report `estimate_backend: "windows-native"` plus non-null
+`allocated_bytes` on supported local roots where file allocation metadata is
+available.
 Selecting `--scan-backend windows-ntfs-mft-experimental` is adaptive: scoped
 roots should normally report `windows-ntfs-mft-experimental-targeted-fsctl`,
 while drive-root maps or explicit full-index diagnostics may report sequential

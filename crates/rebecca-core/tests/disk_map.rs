@@ -202,6 +202,14 @@ fn disk_map_windows_native_backend_reports_native_provenance() {
     let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
 
     assert_eq!(report.totals.logical_bytes, 7);
+    assert!(
+        report
+            .totals
+            .allocated_bytes
+            .is_some_and(|bytes| bytes >= report.totals.logical_bytes),
+        "windows-native disk maps should report file allocation when the host API exposes it: {:?}",
+        report.totals.allocated_bytes
+    );
     assert_eq!(report.totals.files, 2);
     assert_eq!(report.totals.directories, 1);
     assert!(report.diagnostics.is_empty());
@@ -216,6 +224,11 @@ fn disk_map_windows_native_backend_reports_native_provenance() {
     assert_eq!(
         report.top_entries[0].estimate_provenance.estimate_backend,
         Some(ScanBackendKind::WindowsNative)
+    );
+    assert!(
+        report.top_entries[0]
+            .allocated_bytes
+            .is_some_and(|bytes| bytes >= report.top_entries[0].logical_bytes)
     );
     assert_eq!(report.top_entries[0].path, root.join("alpha"));
 }

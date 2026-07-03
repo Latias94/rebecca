@@ -430,7 +430,10 @@ where
         let max_depth = self.request.max_depth.unwrap_or(usize::MAX);
         let root_metrics = match self.walker.metadata_kind(&metadata) {
             DiskMapMetadataKind::File => {
-                let metrics = portable_file_metrics(self.walker.metadata_len(&metadata));
+                let metrics = file_metrics(
+                    self.walker.metadata_len(&metadata),
+                    self.walker.metadata_allocated_len(&metadata),
+                );
                 push_portable_entry(
                     root,
                     root.to_path_buf(),
@@ -519,6 +522,7 @@ trait DiskMapWalker {
     fn symlink_metadata(&self, path: &Path) -> Result<Self::Metadata>;
     fn is_reparse_like(&self, path: &Path, metadata: &Self::Metadata) -> bool;
     fn metadata_len(&self, metadata: &Self::Metadata) -> u64;
+    fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64>;
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind;
     fn read_dir(&self, path: &Path, cancellation: &ScanCancellationToken) -> Result<Self::ReadDir>;
     fn next_entry(
@@ -550,6 +554,10 @@ impl DiskMapWalker for FsPortableDiskMapWalker {
 
     fn metadata_len(&self, metadata: &Self::Metadata) -> u64 {
         metadata.len()
+    }
+
+    fn metadata_allocated_len(&self, _metadata: &Self::Metadata) -> Option<u64> {
+        None
     }
 
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
@@ -603,20 +611,26 @@ struct WindowsNativeDiskMapWalker;
 struct WindowsNativeDiskMapMetadata {
     kind: DiskMapMetadataKind,
     len: u64,
+    allocated_len: Option<u64>,
     reparse_like: bool,
 }
 
 #[cfg(windows)]
 impl WindowsNativeDiskMapMetadata {
-    fn from_fs_metadata(metadata: &std::fs::Metadata) -> Self {
+    fn from_fs_metadata(path: &Path, metadata: &std::fs::Metadata) -> Self {
+        let kind = if metadata.is_file() {
+            DiskMapMetadataKind::File
+        } else if metadata.is_dir() {
+            DiskMapMetadataKind::Directory
+        } else {
+            DiskMapMetadataKind::Other
+        };
         Self {
-            kind: if metadata.is_file() {
-                DiskMapMetadataKind::File
-            } else if metadata.is_dir() {
-                DiskMapMetadataKind::Directory
-            } else {
-                DiskMapMetadataKind::Other
+            allocated_len: match kind {
+                DiskMapMetadataKind::File => crate::scan::windows_native::file_allocated_size(path),
+                DiskMapMetadataKind::Directory | DiskMapMetadataKind::Other => None,
             },
+            kind,
             len: metadata.len(),
             reparse_like: is_reparse_like(metadata),
         }
@@ -633,6 +647,7 @@ impl WindowsNativeDiskMapMetadata {
                 }
             },
             len: entry.file_size(),
+            allocated_len: entry.allocated_size(),
             reparse_like: entry.is_reparse_like(),
         }
     }
@@ -645,7 +660,7 @@ impl DiskMapWalker for WindowsNativeDiskMapWalker {
 
     fn symlink_metadata(&self, path: &Path) -> Result<Self::Metadata> {
         std::fs::symlink_metadata(path)
-            .map(|metadata| WindowsNativeDiskMapMetadata::from_fs_metadata(&metadata))
+            .map(|metadata| WindowsNativeDiskMapMetadata::from_fs_metadata(path, &metadata))
             .map_err(|err| {
                 RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
                     path,
@@ -661,6 +676,10 @@ impl DiskMapWalker for WindowsNativeDiskMapWalker {
 
     fn metadata_len(&self, metadata: &Self::Metadata) -> u64 {
         metadata.len
+    }
+
+    fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64> {
+        metadata.allocated_len
     }
 
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
@@ -746,7 +765,10 @@ where
 
         match self.walker.metadata_kind(&metadata) {
             DiskMapMetadataKind::File => {
-                let metrics = portable_file_metrics(self.walker.metadata_len(&metadata));
+                let metrics = file_metrics(
+                    self.walker.metadata_len(&metadata),
+                    self.walker.metadata_allocated_len(&metadata),
+                );
                 self.push_entry_if_visible(&path, DiskMapEntryKind::File, depth, metrics);
                 Ok(metrics)
             }
@@ -997,10 +1019,10 @@ fn push_backend_root(
     });
 }
 
-fn portable_file_metrics(len: u64) -> DiskMapMetrics {
+fn file_metrics(logical_bytes: u64, allocated_bytes: Option<u64>) -> DiskMapMetrics {
     DiskMapMetrics {
-        logical_bytes: len,
-        allocated_bytes: None,
+        logical_bytes,
+        allocated_bytes,
         files: 1,
         directories: 0,
     }
@@ -1380,6 +1402,10 @@ mod tests {
 
         fn metadata_len(&self, metadata: &Self::Metadata) -> u64 {
             metadata.len
+        }
+
+        fn metadata_allocated_len(&self, _metadata: &Self::Metadata) -> Option<u64> {
+            None
         }
 
         fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
