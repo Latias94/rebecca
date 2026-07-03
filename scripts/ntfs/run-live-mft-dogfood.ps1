@@ -188,6 +188,25 @@ function Get-JsonMetric {
     }
 }
 
+function Get-JsonDiagnosticSummary {
+    param([object]$Json)
+
+    $summary = Get-NestedProperty -Object (Get-ObjectProperty -Object $Json -Name "data") -Path @("diagnostic_summary")
+    if ($null -eq $summary) {
+        return $null
+    }
+
+    $total = Get-ObjectProperty -Object $summary -Name "total"
+    $retained = Get-ObjectProperty -Object $summary -Name "retained"
+    $truncated = Get-ObjectProperty -Object $summary -Name "truncated"
+
+    return [pscustomobject]@{
+        total = if ($null -eq $total) { $null } else { [int64]$total }
+        retained = if ($null -eq $retained) { $null } else { [int64]$retained }
+        truncated = if ($null -eq $truncated) { $null } else { [int64]$truncated }
+    }
+}
+
 function Convert-JsonProbe {
     param([string]$Raw)
 
@@ -199,6 +218,7 @@ function Convert-JsonProbe {
             backend_sources = @()
             fallback_reasons = @()
             caveats = @()
+            diagnostic_summary = $null
             metric = $null
         }
     }
@@ -220,6 +240,7 @@ function Convert-JsonProbe {
             backend_sources = @(Find-JsonValues -Node $json -Names @("estimate_backend_source", "backend_source"))
             fallback_reasons = @(Find-JsonValues -Node $json -Names @("estimate_fallback_reason", "fallback_reason"))
             caveats = @(Find-JsonValues -Node $json -Names @("estimate_caveats", "caveats", "diagnostics"))
+            diagnostic_summary = Get-JsonDiagnosticSummary -Json $json
             metric = Get-JsonMetric -Json $json
         }
     }
@@ -231,6 +252,7 @@ function Convert-JsonProbe {
             backend_sources = @()
             fallback_reasons = @()
             caveats = @()
+            diagnostic_summary = $null
             metric = $null
         }
     }
@@ -374,6 +396,7 @@ function Invoke-DogfoodCommand {
         backend_sources = @($probe.backend_sources)
         fallback_reasons = @($probe.fallback_reasons)
         caveats = @($probe.caveats)
+        diagnostic_summary = $probe.diagnostic_summary
         status = $status
         exit_code = $exitCode
         timed_out = $timedOut
@@ -396,38 +419,157 @@ function Invoke-DogfoodCommand {
 function Add-Comparisons {
     param([object[]]$Runs)
 
+    $summaries = @()
     foreach ($modeGroup in ($Runs | Group-Object mode)) {
         foreach ($rootGroup in ($modeGroup.Group | Group-Object root)) {
             $portable = $rootGroup.Group |
                 Where-Object { $_.requested_backend -eq "portable-recursive" -and $null -ne $_.metric } |
                 Select-Object -First 1
             if ($null -eq $portable -or $null -eq $portable.metric.estimated_bytes) {
+                $summaries += [pscustomobject]@{
+                    mode = $modeGroup.Name
+                    root = $rootGroup.Name
+                    baseline_backend = "portable-recursive"
+                    baseline_run_id = $null
+                    status = "baseline-missing"
+                    fastest_backend = $null
+                    fastest_duration_ms = $null
+                    runs = @()
+                }
                 continue
             }
 
+            $runComparisons = @()
             foreach ($run in $rootGroup.Group) {
                 if ($null -eq $run.metric -or $null -eq $run.metric.estimated_bytes) {
+                    $run.comparison = [pscustomobject]@{
+                        baseline_backend = "portable-recursive"
+                        baseline_run_id = $portable.run_id
+                        status = "metric-missing"
+                        estimated_bytes_delta = $null
+                        estimated_bytes_delta_percent = $null
+                        files_delta = $null
+                        directories_delta = $null
+                        duration_ms_delta = $null
+                        duration_ratio = $null
+                        matches = [pscustomobject]@{
+                            estimated_bytes = $false
+                            files = $false
+                            directories = $false
+                        }
+                    }
+                    $runComparisons += [pscustomobject]@{
+                        run_id = $run.run_id
+                        requested_backend = $run.requested_backend
+                        actual_backend = $run.actual_backend
+                        status = $run.comparison.status
+                        duration_ms = $run.duration_ms
+                        estimated_bytes_delta = $null
+                        files_delta = $null
+                        directories_delta = $null
+                    }
                     continue
+                }
+                $estimatedBytesDelta = [int64]$run.metric.estimated_bytes - [int64]$portable.metric.estimated_bytes
+                $filesDelta = if ($null -eq $run.metric.files -or $null -eq $portable.metric.files) {
+                    $null
+                }
+                else {
+                    [int64]$run.metric.files - [int64]$portable.metric.files
+                }
+                $directoriesDelta = if ($null -eq $run.metric.directories -or $null -eq $portable.metric.directories) {
+                    $null
+                }
+                else {
+                    [int64]$run.metric.directories - [int64]$portable.metric.directories
+                }
+                $durationDelta = if ($null -eq $run.duration_ms -or $null -eq $portable.duration_ms) {
+                    $null
+                }
+                else {
+                    [int64]$run.duration_ms - [int64]$portable.duration_ms
+                }
+                $durationRatio = if ($null -eq $run.duration_ms -or $null -eq $portable.duration_ms -or [int64]$portable.duration_ms -eq 0) {
+                    $null
+                }
+                else {
+                    [math]::Round(([double]$run.duration_ms / [double]$portable.duration_ms), 4)
+                }
+                $estimatedBytesDeltaPercent = if ([int64]$portable.metric.estimated_bytes -eq 0) {
+                    if ($estimatedBytesDelta -eq 0) { 0.0 } else { $null }
+                }
+                else {
+                    [math]::Round((100.0 * [double]$estimatedBytesDelta / [double]$portable.metric.estimated_bytes), 4)
+                }
+                $bytesMatch = $estimatedBytesDelta -eq 0
+                $filesMatch = $null -ne $filesDelta -and $filesDelta -eq 0
+                $directoriesMatch = $null -ne $directoriesDelta -and $directoriesDelta -eq 0
+                $comparisonStatus = if ($run.status -ne "passed") {
+                    "run-not-passed"
+                }
+                elseif ($bytesMatch -and $filesMatch -and $directoriesMatch) {
+                    "matched"
+                }
+                else {
+                    "mismatched"
                 }
                 $run.comparison = [pscustomobject]@{
                     baseline_backend = "portable-recursive"
-                    estimated_bytes_delta = [int64]$run.metric.estimated_bytes - [int64]$portable.metric.estimated_bytes
-                    files_delta = if ($null -eq $run.metric.files -or $null -eq $portable.metric.files) {
-                        $null
-                    }
-                    else {
-                        [int64]$run.metric.files - [int64]$portable.metric.files
-                    }
-                    directories_delta = if ($null -eq $run.metric.directories -or $null -eq $portable.metric.directories) {
-                        $null
-                    }
-                    else {
-                        [int64]$run.metric.directories - [int64]$portable.metric.directories
+                    baseline_run_id = $portable.run_id
+                    status = $comparisonStatus
+                    estimated_bytes_delta = $estimatedBytesDelta
+                    estimated_bytes_delta_percent = $estimatedBytesDeltaPercent
+                    files_delta = $filesDelta
+                    directories_delta = $directoriesDelta
+                    duration_ms_delta = $durationDelta
+                    duration_ratio = $durationRatio
+                    matches = [pscustomobject]@{
+                        estimated_bytes = $bytesMatch
+                        files = $filesMatch
+                        directories = $directoriesMatch
                     }
                 }
+                $runComparisons += [pscustomobject]@{
+                    run_id = $run.run_id
+                    requested_backend = $run.requested_backend
+                    actual_backend = $run.actual_backend
+                    status = $run.comparison.status
+                    duration_ms = $run.duration_ms
+                    duration_ratio = $durationRatio
+                    estimated_bytes_delta = $estimatedBytesDelta
+                    estimated_bytes_delta_percent = $estimatedBytesDeltaPercent
+                    files_delta = $filesDelta
+                    directories_delta = $directoriesDelta
+                }
+            }
+
+            $passedRuns = @($rootGroup.Group | Where-Object { $_.status -eq "passed" -and $null -ne $_.duration_ms } | Sort-Object duration_ms)
+            $fastest = if ($passedRuns.Count -gt 0) { $passedRuns[0] } else { $null }
+            $mismatchedComparisons = @($runComparisons | Where-Object { $_.status -eq "mismatched" })
+            $incompleteComparisons = @($runComparisons | Where-Object { $_.status -ne "matched" })
+            $summaryStatus = if ($mismatchedComparisons.Count -gt 0) {
+                "mismatched"
+            }
+            elseif ($incompleteComparisons.Count -gt 0) {
+                "incomplete"
+            }
+            else {
+                "matched"
+            }
+            $summaries += [pscustomobject]@{
+                mode = $modeGroup.Name
+                root = $rootGroup.Name
+                baseline_backend = "portable-recursive"
+                baseline_run_id = $portable.run_id
+                baseline_metric = $portable.metric
+                status = $summaryStatus
+                fastest_backend = if ($null -eq $fastest) { $null } else { $fastest.requested_backend }
+                fastest_duration_ms = if ($null -eq $fastest) { $null } else { $fastest.duration_ms }
+                runs = @($runComparisons)
             }
         }
     }
+    return @($summaries)
 }
 
 function Test-Self {
@@ -468,6 +610,9 @@ function Test-Self {
     if ($probe.metric.estimated_bytes -ne 123) {
         throw "SelfTest failed: metric extraction returned $($probe.metric.estimated_bytes)."
     }
+    if ($null -ne $probe.diagnostic_summary) {
+        throw "SelfTest failed: fake inspect-space JSON should not have a diagnostic summary."
+    }
 
     $fakeMap = @'
 {
@@ -477,6 +622,17 @@ function Test-Self {
   "payload_kind": "inspect-map",
   "generated_at_unix_seconds": 1,
   "data": {
+    "diagnostic_summary": {
+      "total": 1,
+      "retained": 1,
+      "truncated": 0,
+      "by_kind": [
+        {
+          "kind": "fallback",
+          "count": 1
+        }
+      ]
+    },
     "totals": {
       "logical_bytes": 456,
       "allocated_bytes": null,
@@ -502,6 +658,80 @@ function Test-Self {
     if ($mapProbe.backend_sources -notcontains "windows-ntfs-mft-experimental-targeted-fsctl") {
         throw "SelfTest failed: inspect-map backend source extraction did not find targeted-fsctl."
     }
+    if ($mapProbe.diagnostic_summary.total -ne 1) {
+        throw "SelfTest failed: inspect-map diagnostic summary extraction returned $($mapProbe.diagnostic_summary.total)."
+    }
+
+    $selfTestRuns = @(
+        [pscustomobject]@{
+            run_id = "self-test-portable"
+            root = $RepoRoot
+            mode = "inspect-map"
+            requested_backend = "portable-recursive"
+            actual_backend = "portable-recursive"
+            actual_backends = @("portable-recursive")
+            backend_sources = @()
+            fallback_reasons = @()
+            caveats = @()
+            diagnostic_summary = $null
+            status = "passed"
+            exit_code = 0
+            timed_out = $false
+            timeout_seconds = 0
+            duration_ms = 100
+            command = @()
+            raw_output_path = $null
+            raw_stderr_path = $null
+            stderr_preview = ""
+            json_parse_error = $null
+            metric = [pscustomobject]@{
+                estimated_bytes = 456
+                files = 3
+                directories = 2
+                total_targets = $null
+            }
+            safety = [pscustomobject]@{
+                dry_run_only = $true
+                scan_cache_disabled = $true
+            }
+            comparison = $null
+        },
+        [pscustomobject]@{
+            run_id = "self-test-ntfs"
+            root = $RepoRoot
+            mode = "inspect-map"
+            requested_backend = "windows-ntfs-mft-experimental"
+            actual_backend = "windows-ntfs-mft-experimental"
+            actual_backends = @($mapProbe.actual_backends)
+            backend_sources = @($mapProbe.backend_sources)
+            fallback_reasons = @($mapProbe.fallback_reasons)
+            caveats = @($mapProbe.caveats)
+            diagnostic_summary = $mapProbe.diagnostic_summary
+            status = "passed"
+            exit_code = 0
+            timed_out = $false
+            timeout_seconds = 0
+            duration_ms = 50
+            command = @()
+            raw_output_path = $null
+            raw_stderr_path = $null
+            stderr_preview = ""
+            json_parse_error = $null
+            metric = $mapProbe.metric
+            safety = [pscustomobject]@{
+                dry_run_only = $true
+                scan_cache_disabled = $true
+            }
+            comparison = $null
+        }
+    )
+    $comparisonSummaries = Add-Comparisons -Runs $selfTestRuns
+    if ($comparisonSummaries.Count -ne 1 -or $comparisonSummaries[0].status -ne "matched") {
+        throw "SelfTest failed: comparison summary did not report a matched backend comparison."
+    }
+    if ($selfTestRuns[1].comparison.duration_ratio -ne 0.5) {
+        throw "SelfTest failed: comparison duration ratio was $($selfTestRuns[1].comparison.duration_ratio)."
+    }
 
     $report = [pscustomobject]@{
         schema_version = 1
@@ -512,33 +742,8 @@ function Test-Self {
         host = Get-HostSummary
         output_path = $OutputPath
         self_test = $true
-        runs = @(
-            [pscustomobject]@{
-                run_id = "self-test"
-                root = $RepoRoot
-                mode = "inspect-space"
-                requested_backend = "windows-ntfs-mft-experimental"
-                actual_backend = "windows-ntfs-mft-experimental"
-                actual_backends = @($probe.actual_backends)
-                backend_sources = @($probe.backend_sources)
-                fallback_reasons = @($probe.fallback_reasons)
-                caveats = @($probe.caveats)
-                status = "passed"
-                exit_code = 0
-                duration_ms = 0
-                command = @()
-                raw_output_path = $null
-                raw_stderr_path = $null
-                stderr_preview = ""
-                json_parse_error = $null
-                metric = $probe.metric
-                safety = [pscustomobject]@{
-                    dry_run_only = $true
-                    scan_cache_disabled = $true
-                }
-                comparison = $null
-            }
-        )
+        comparisons = @($comparisonSummaries)
+        runs = @($selfTestRuns)
     }
     Ensure-OutputParent -Path $OutputPath
     $report | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $OutputPath -Encoding utf8
@@ -616,7 +821,7 @@ try {
         }
     }
 
-    Add-Comparisons -Runs $runs
+    $comparisonSummaries = Add-Comparisons -Runs $runs
 
     $report = [pscustomobject]@{
         schema_version = 1
@@ -634,6 +839,7 @@ try {
             history_file = $historyFile
         }
         roots = @($Root | ForEach-Object { Get-RootSummary -Path $_ })
+        comparisons = @($comparisonSummaries)
         runs = @($runs)
     }
 

@@ -1,6 +1,7 @@
 # Engineering Memory Update Log
 
 ## 2026-07-03
+* **NTFS dogfood backend comparisons**: Upgraded `scripts/ntfs/run-live-mft-dogfood.ps1` so reports include top-level `comparisons` grouped by mode/root, with portable-baseline match status, fastest backend, duration ratios, metric deltas, and extracted `diagnostic_summary` totals. Local elevated `inspect-map` dogfood on `docs/plans` under `target/ntfs-dogfood/20260703-030929-55124/` matched portable-recursive across portable, Windows-native requested fallback, and `windows-ntfs-mft-experimental-targeted-fsctl`: 654253 bytes, 42 files, zero deltas; targeted NTFS took 9619 ms, about 0.3389x the portable run.
 * **Inspect-space bounded diagnostics**: Aligned `inspect space` with disk-map diagnostics by adding complete `diagnostic_summary` counts, bounded raw samples, and `--diagnostic-limit`. Human, JSON, and NDJSON outputs now use the same summary-first contract as `inspect map`, so root-level and scan-failure diagnostics cannot flood machine output while authoritative counts remain visible.
 * **Disk-map bounded diagnostics**: Added a bounded `inspect map` diagnostic collector with complete `diagnostic_summary` counts and raw diagnostic samples capped by `--diagnostic-limit`. Root and fallback diagnostics are priority samples, while child-level diagnostic storms retain grouped counts without flooding human, JSON, or NDJSON output. Human disk-map output now prints grouped diagnostic counts before bounded samples.
 

@@ -84,7 +84,10 @@ The expected report path is
 
 Collect live NTFS/MFT evidence with the local dogfood script. It isolates
 Rebecca config, state, cache, and history under `target\ntfs-dogfood\<run-id>\`
-and writes a JSON report plus raw command output for each backend run.
+and writes a JSON report plus raw command output for each backend run. Use the
+top-level `comparisons` section first: it records portable-baseline match
+status, fastest backend, duration ratios, and byte/file/directory deltas for
+each mode/root group.
 
 ```powershell
 pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Root . -Mode inspect-space -Top 10 -TimeoutSeconds 180
@@ -136,7 +139,9 @@ cargo run -p rebecca -- clean --dry-run --rule windows.user-temp
 
 Record JSON `estimate_source`, `estimate_backend`, `estimate_backend_source`,
 `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` values
-for the backend dogfood runs. The experimental NTFS/MFT run should either show
+for the backend dogfood runs. Also record any `diagnostic_summary` totals and
+the dogfood report's `comparisons.status` value. The experimental NTFS/MFT run
+should either show
 `estimate_backend: "windows-ntfs-mft-experimental"` with
 `estimate_backend_source: "windows-ntfs-mft-experimental-targeted-fsctl"` on a
 supported elevated local NTFS volume, including scoped `inspect map` roots.

@@ -45,7 +45,7 @@ pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-
 pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-map -Top 3 -TimeoutSeconds 60
 ```
 
-The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, portable baseline deltas, and timeout status. A timeout from the experimental backend is a valid local finding because live metadata traversal can depend on target size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
+The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, diagnostic summary totals, per-run portable baseline deltas, and a top-level `comparisons` section with match status, fastest backend, duration ratios, and metric deltas. A timeout from the experimental backend is a valid local finding because live metadata traversal can depend on target size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
 The experimental backend has its own 20 second live metadata budget before
 falling back to a directory scanner; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`
 higher for deep profiling or `0` to disable that guard for one process.
