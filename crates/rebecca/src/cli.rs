@@ -199,6 +199,9 @@ pub struct InspectSpaceArgs {
     /// Maximum number of largest entries to include.
     #[arg(long = "top", value_name = "N", default_value_t = 10)]
     pub top_limit: usize,
+    /// Maximum number of raw diagnostics to include. Use 0 for summary only.
+    #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::inspect::DEFAULT_SPACE_INSIGHT_DIAGNOSTIC_LIMIT)]
+    pub diagnostic_limit: usize,
 }
 
 #[derive(Debug, Args)]

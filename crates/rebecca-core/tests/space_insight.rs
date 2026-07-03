@@ -115,6 +115,33 @@ fn space_insight_reports_root_diagnostics_without_failing() {
         report.diagnostics[0].kind,
         SpaceInsightDiagnosticKind::RootMissing
     );
+    assert_eq!(report.diagnostic_summary.total, 1);
+    assert_eq!(report.diagnostic_summary.retained, 1);
+    assert_eq!(report.diagnostic_summary.truncated, 0);
+    assert_eq!(
+        report.diagnostic_summary.by_kind[0].kind,
+        SpaceInsightDiagnosticKind::RootMissing
+    );
+    assert_eq!(report.diagnostic_summary.by_kind[0].count, 1);
+}
+
+#[test]
+fn space_insight_diagnostic_limit_zero_keeps_summary_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing = temp.path().join("missing");
+
+    let request = SpaceInsightRequest::new(vec![missing]).with_diagnostic_limit(0);
+    let report = inspect_space(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.diagnostic_summary.total, 1);
+    assert_eq!(report.diagnostic_summary.retained, 0);
+    assert_eq!(report.diagnostic_summary.truncated, 1);
+    assert_eq!(
+        report.diagnostic_summary.by_kind[0].kind,
+        SpaceInsightDiagnosticKind::RootMissing
+    );
+    assert_eq!(report.diagnostic_summary.by_kind[0].count, 1);
+    assert!(report.diagnostics.is_empty());
 }
 
 #[test]

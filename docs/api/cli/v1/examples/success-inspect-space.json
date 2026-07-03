@@ -34,6 +34,12 @@
         "estimate_confidence": "exact"
       }
     ],
+    "diagnostic_summary": {
+      "total": 0,
+      "retained": 0,
+      "truncated": 0,
+      "by_kind": []
+    },
     "diagnostics": []
   }
 }

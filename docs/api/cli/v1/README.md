@@ -144,10 +144,10 @@ Diagnostics are plan-level observations with `kind`, `path`, and `detail`; they
 make partial discovery visible without adding fake cleanup targets or changing
 target counts.
 
-`inspect-map` reports include `diagnostic_summary` with complete diagnostic
-counts. The `diagnostics` array is a bounded raw sample list controlled by
-`--diagnostic-limit`; use the summary fields for authoritative totals and
-truncation detection.
+`inspect-space` and `inspect-map` reports include `diagnostic_summary` with
+complete diagnostic counts. The `diagnostics` array is a bounded raw sample list
+controlled by `--diagnostic-limit`; use the summary fields for authoritative
+totals and truncation detection.
 
 Purge targets carry the same estimate provenance fields as cleanup targets.
 Consumers should use the explicit `rule_id`, `status`, `reason_code`,
@@ -165,7 +165,7 @@ rebecca clean --format ndjson --progress-detail file --rule windows.user-temp
 rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
 rebecca catalog --format json --kind warning
-rebecca inspect space --format json --root .
+rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --diagnostic-limit 100
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0

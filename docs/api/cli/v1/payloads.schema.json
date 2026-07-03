@@ -725,6 +725,49 @@
         }
       }
     },
+    "spaceInsightDiagnosticKindSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "count"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/spaceInsightDiagnosticKind"
+        },
+        "count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "spaceInsightDiagnosticSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "retained",
+        "truncated",
+        "by_kind"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "retained": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "truncated": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "by_kind": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightDiagnosticKindSummary"
+          }
+        }
+      }
+    },
     "inspectSpace": {
       "type": "object",
       "additionalProperties": false,
@@ -732,6 +775,7 @@
         "roots",
         "totals",
         "top_entries",
+        "diagnostic_summary",
         "diagnostics"
       ],
       "properties": {
@@ -749,6 +793,9 @@
           "items": {
             "$ref": "#/$defs/spaceInsightEntry"
           }
+        },
+        "diagnostic_summary": {
+          "$ref": "#/$defs/spaceInsightDiagnosticSummary"
         },
         "diagnostics": {
           "type": "array",

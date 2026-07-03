@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BTreeMap, BinaryHeap};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -11,11 +11,13 @@ use crate::scan::{ScanBackendKind, ScanCancellationToken, ScanEngine, ScanReport
 use crate::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 
 pub const DEFAULT_SPACE_INSIGHT_TOP_LIMIT: usize = 10;
+pub const DEFAULT_SPACE_INSIGHT_DIAGNOSTIC_LIMIT: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct SpaceInsightRequest {
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+    pub diagnostic_limit: usize,
     pub scan_backend: ScanBackendKind,
     pub scan_cache: Option<SpaceInsightScanCache>,
 }
@@ -25,6 +27,7 @@ impl SpaceInsightRequest {
         Self {
             roots,
             top_limit: DEFAULT_SPACE_INSIGHT_TOP_LIMIT,
+            diagnostic_limit: DEFAULT_SPACE_INSIGHT_DIAGNOSTIC_LIMIT,
             scan_backend: ScanBackendKind::PortableRecursive,
             scan_cache: None,
         }
@@ -32,6 +35,11 @@ impl SpaceInsightRequest {
 
     pub fn with_top_limit(mut self, top_limit: usize) -> Self {
         self.top_limit = top_limit;
+        self
+    }
+
+    pub fn with_diagnostic_limit(mut self, diagnostic_limit: usize) -> Self {
+        self.diagnostic_limit = diagnostic_limit;
         self
     }
 
@@ -63,6 +71,7 @@ pub struct SpaceInsightReport {
     pub roots: Vec<SpaceInsightRoot>,
     pub totals: SpaceInsightMetrics,
     pub top_entries: Vec<SpaceInsightEntry>,
+    pub diagnostic_summary: SpaceInsightDiagnosticSummary,
     pub diagnostics: Vec<SpaceInsightDiagnostic>,
 }
 
@@ -154,6 +163,20 @@ impl SpaceInsightDiagnostic {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceInsightDiagnosticSummary {
+    pub total: u64,
+    pub retained: u64,
+    pub truncated: u64,
+    pub by_kind: Vec<SpaceInsightDiagnosticKindSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceInsightDiagnosticKindSummary {
+    pub kind: SpaceInsightDiagnosticKind,
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SpaceInsightDiagnosticKind {
@@ -188,6 +211,7 @@ pub fn inspect_space(
 ) -> Result<SpaceInsightReport> {
     let mut report = SpaceInsightReport::default();
     let mut top_entries = SpaceInsightTopEntries::new(request.top_limit);
+    let mut diagnostics = SpaceInsightDiagnostics::new(request.diagnostic_limit);
     let scan_engine = ScanEngine::new();
 
     for root in &request.roots {
@@ -199,12 +223,83 @@ pub fn inspect_space(
             &scan_engine,
             &mut report,
             &mut top_entries,
+            &mut diagnostics,
         )?;
     }
 
     report.top_entries = top_entries.into_sorted_entries();
-    report.diagnostics.sort();
+    diagnostics.finish(&mut report);
     Ok(report)
+}
+
+#[derive(Debug)]
+struct SpaceInsightDiagnostics {
+    limit: usize,
+    total: u64,
+    counts_by_kind: BTreeMap<SpaceInsightDiagnosticKind, u64>,
+    samples: Vec<SpaceInsightDiagnosticSample>,
+    sequence: u64,
+}
+
+impl SpaceInsightDiagnostics {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            total: 0,
+            counts_by_kind: BTreeMap::new(),
+            samples: Vec::new(),
+            sequence: 0,
+        }
+    }
+
+    fn push(&mut self, diagnostic: SpaceInsightDiagnostic) {
+        self.total = self.total.saturating_add(1);
+        *self.counts_by_kind.entry(diagnostic.kind).or_default() += 1;
+
+        if self.limit == 0 {
+            return;
+        }
+
+        let sample = SpaceInsightDiagnosticSample {
+            sequence: self.sequence,
+            diagnostic,
+        };
+        self.sequence = self.sequence.saturating_add(1);
+
+        if self.samples.len() < self.limit {
+            self.samples.push(sample);
+        }
+    }
+
+    fn finish(self, report: &mut SpaceInsightReport) {
+        let mut samples = self.samples;
+        samples.sort_by(|left, right| {
+            left.diagnostic
+                .cmp(&right.diagnostic)
+                .then_with(|| left.sequence.cmp(&right.sequence))
+        });
+        report.diagnostics = samples
+            .into_iter()
+            .map(|sample| sample.diagnostic)
+            .collect();
+        let retained = report.diagnostics.len() as u64;
+        report.diagnostic_summary = SpaceInsightDiagnosticSummary {
+            total: self.total,
+            retained,
+            truncated: self.total.saturating_sub(retained),
+            by_kind: self
+                .counts_by_kind
+                .into_iter()
+                .map(|(kind, count)| SpaceInsightDiagnosticKindSummary { kind, count })
+                .collect(),
+        };
+    }
+}
+
+#[derive(Debug)]
+struct SpaceInsightDiagnosticSample {
+    sequence: u64,
+    diagnostic: SpaceInsightDiagnostic,
 }
 
 fn inspect_root(
@@ -214,6 +309,7 @@ fn inspect_root(
     scan_engine: &ScanEngine,
     report: &mut SpaceInsightReport,
     top_entries: &mut SpaceInsightTopEntries,
+    diagnostics: &mut SpaceInsightDiagnostics,
 ) -> Result<()> {
     let metadata = match std::fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
@@ -223,6 +319,7 @@ fn inspect_root(
                 root,
                 SpaceInsightDiagnosticKind::RootMissing,
                 "space inspection root does not exist",
+                diagnostics,
             );
             return Ok(());
         }
@@ -232,6 +329,7 @@ fn inspect_root(
                 root,
                 SpaceInsightDiagnosticKind::RootMetadataReadSkipped,
                 format!("space inspection root metadata could not be read: {err}"),
+                diagnostics,
             );
             return Ok(());
         }
@@ -243,6 +341,7 @@ fn inspect_root(
             root,
             SpaceInsightDiagnosticKind::RootNotDirectory,
             "space inspection root is not a directory",
+            diagnostics,
         );
         return Ok(());
     }
@@ -253,6 +352,7 @@ fn inspect_root(
             root,
             SpaceInsightDiagnosticKind::ReparsePointSkipped,
             "space inspection root is a symlink or reparse point",
+            diagnostics,
         );
         return Ok(());
     }
@@ -265,6 +365,7 @@ fn inspect_root(
                 root,
                 SpaceInsightDiagnosticKind::DirectoryReadSkipped,
                 format!("space inspection root could not be read: {err}"),
+                diagnostics,
             );
             return Ok(());
         }
@@ -277,7 +378,7 @@ fn inspect_root(
         let entry = match entry {
             Ok(entry) => entry,
             Err(err) => {
-                report.diagnostics.push(SpaceInsightDiagnostic::new(
+                diagnostics.push(SpaceInsightDiagnostic::new(
                     SpaceInsightDiagnosticKind::DirectoryEntryReadSkipped,
                     root.to_path_buf(),
                     format!("space inspection directory entry could not be read: {err}"),
@@ -294,7 +395,7 @@ fn inspect_root(
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(err) => {
-                report.diagnostics.push(SpaceInsightDiagnostic::new(
+                diagnostics.push(SpaceInsightDiagnostic::new(
                     SpaceInsightDiagnosticKind::MetadataReadSkipped,
                     path,
                     format!("space inspection entry metadata could not be read: {err}"),
@@ -303,7 +404,7 @@ fn inspect_root(
             }
         };
         if is_reparse_like(&metadata) {
-            report.diagnostics.push(SpaceInsightDiagnostic::new(
+            diagnostics.push(SpaceInsightDiagnostic::new(
                 SpaceInsightDiagnosticKind::ReparsePointSkipped,
                 path,
                 "space inspection entry is a symlink or reparse point",
@@ -320,7 +421,7 @@ fn inspect_root(
                 });
                 top_entries.push(entry);
             }
-            Err(err) => report.diagnostics.push(SpaceInsightDiagnostic::new(
+            Err(err) => diagnostics.push(SpaceInsightDiagnostic::new(
                 SpaceInsightDiagnosticKind::ScanFailed,
                 path,
                 err.to_string(),
@@ -529,6 +630,7 @@ fn push_root_skip(
     root: &Path,
     kind: SpaceInsightDiagnosticKind,
     detail: impl Into<String>,
+    diagnostics: &mut SpaceInsightDiagnostics,
 ) {
     let detail = detail.into();
     report.roots.push(SpaceInsightRoot {
@@ -537,7 +639,7 @@ fn push_root_skip(
         metrics: SpaceInsightMetrics::default(),
         reason: Some(detail.clone()),
     });
-    report.diagnostics.push(SpaceInsightDiagnostic::new(
+    diagnostics.push(SpaceInsightDiagnostic::new(
         kind,
         root.to_path_buf(),
         detail,

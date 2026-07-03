@@ -7,6 +7,7 @@ All notable changes to Rebecca will be documented in this file.
 ### Added
 - `rebecca catalog` now provides a unified read-only catalog for cleanup rules, project artifact policies, warning gates, safety categories, and action kinds using the unified `rebecca.cli.v1` machine envelope.
 - `rebecca inspect space` now provides read-only disk space insight with root totals, largest entries, diagnostics, JSON output, and NDJSON completion events.
+- `rebecca inspect space --diagnostic-limit <N>` now bounds raw diagnostic samples while keeping complete diagnostic summary counts; use `--diagnostic-limit 0` for summary-only output.
 - `rebecca inspect map` now provides a read-only ranked disk map with logical bytes, optional allocated bytes, depth-bounded top entries, diagnostics, JSON output, and NDJSON completion events.
 - `rebecca inspect map --diagnostic-limit <N>` now bounds raw diagnostic samples while keeping complete diagnostic summary counts; use `--diagnostic-limit 0` for summary-only output.
 - `rebecca inspect artifacts` is now the canonical read-only project artifact insight command with JSON/NDJSON `inspect-artifacts` output, grouped totals, top targets, warning-gate awareness, reclaim-limit support, diagnostics, and no cleanup prompts or history writes.
@@ -84,6 +85,7 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect map` defaults to portable recursive inventory, while `--scan-backend windows-ntfs-mft-experimental` now uses targeted NTFS/MFT traversal for scoped roots and reserves full-volume MFT inventory for drive roots or explicit full-index diagnostics.
 - Portable `inspect map` ranking now uses streaming post-order aggregation and a bounded top-entry heap instead of materializing the full directory tree before rendering entries.
 - Portable `inspect map` now returns conservative partial reports with diagnostics when child entries cannot be read, child metadata disappears, child directories are unreadable, or child reparse points are skipped.
+- `inspect space` human output now prints diagnostic grouped counts before bounded raw diagnostic samples.
 - `inspect map` human output now prints diagnostic grouped counts before bounded raw diagnostic samples.
 
 ### Breaking
@@ -93,7 +95,7 @@ All notable changes to Rebecca will be documented in this file.
 - `cache purge` machine output no longer uses `mode: "delete"`; callers must handle `mode: "recoverable-delete"` and `mode: "permanent-delete"` plus the new `pending_reclaim_bytes`, `recoverably_deleted_entries`, and `permanently_deleted_entries` summary fields.
 - Project artifact reclaim-limit skips now use `reason_code: "reclaim-limit-satisfied"` and can leave skipped targets with `estimate_source: "not-measured"` because later candidates are no longer measured after the limit is satisfied.
 - The pre-release scan-cache format was reset to the single v1 identity format because no released consumers depend on the earlier experimental record numbering.
-- `inspect-map` machine payloads now include `diagnostic_summary`; `diagnostics` is a bounded raw sample list rather than the authoritative count of all diagnostic observations.
+- `inspect-space` and `inspect-map` machine payloads now include `diagnostic_summary`; `diagnostics` is a bounded raw sample list rather than the authoritative count of all diagnostic observations.
 
 ### Fixed
 - `FSCTL_GET_NTFS_FILE_RECORD` outputs with already-applied NTFS update-sequence fixups now parse correctly, allowing targeted live MFT estimates to use per-record FSCTL data without falling back to directory scanners on valid records.

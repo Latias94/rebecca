@@ -94,7 +94,91 @@ fn inspect_space_json_reports_top_entries_and_diagnostics() {
         "portable-recursive"
     );
     assert_eq!(value["top_entries"][0]["estimate_confidence"], "exact");
+    assert_eq!(value["diagnostic_summary"]["total"], 1);
+    assert_eq!(value["diagnostic_summary"]["retained"], 1);
+    assert_eq!(value["diagnostic_summary"]["truncated"], 0);
+    assert_eq!(
+        value["diagnostic_summary"]["by_kind"][0]["kind"],
+        "root-missing"
+    );
+    assert_eq!(value["diagnostic_summary"]["by_kind"][0]["count"], 1);
     assert_eq!(value["diagnostics"][0]["kind"], "root-missing");
+}
+
+#[test]
+fn inspect_space_json_diagnostic_limit_zero_keeps_summary_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let missing = temp.path().join("missing");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "space",
+            "--format",
+            "json",
+            "--root",
+            root.to_str().unwrap(),
+            "--root",
+            missing.to_str().unwrap(),
+            "--diagnostic-limit",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert_eq!(value["diagnostic_summary"]["total"], 1);
+    assert_eq!(value["diagnostic_summary"]["retained"], 0);
+    assert_eq!(value["diagnostic_summary"]["truncated"], 1);
+    assert_eq!(
+        value["diagnostic_summary"]["by_kind"][0]["kind"],
+        "root-missing"
+    );
+    assert!(value["diagnostics"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn inspect_space_human_diagnostic_limit_zero_keeps_summary_count() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let missing = temp.path().join("missing");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "space",
+            "--root",
+            root.to_str().unwrap(),
+            "--root",
+            missing.to_str().unwrap(),
+            "--diagnostic-limit",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Diagnostics: 1"));
+    assert!(stdout.contains("Space diagnostics: 1 observation"));
+    assert!(stdout.contains("  - root-missing: 1 observation"));
+    assert!(stdout.contains("  - truncated: 1 observation not shown"));
+    assert!(!stdout.contains("Space diagnostic samples:"));
 }
 
 #[test]
@@ -444,6 +528,9 @@ fn inspect_space_ndjson_uses_v1_completed_event() {
     assert_eq!(completed["command"], "inspect space");
     assert_eq!(completed["payload_kind"], "inspect-space");
     assert_eq!(completed["data"]["totals"]["estimated_bytes"], 3);
+    assert_eq!(completed["data"]["diagnostic_summary"]["total"], 0);
+    assert_eq!(completed["data"]["diagnostic_summary"]["retained"], 0);
+    assert_eq!(completed["data"]["diagnostic_summary"]["truncated"], 0);
 }
 
 #[test]

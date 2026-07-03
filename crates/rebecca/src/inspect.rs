@@ -33,6 +33,7 @@ pub struct InspectSpaceOptions {
     pub scan_backend: ScanBackendArg,
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+    pub diagnostic_limit: usize,
 }
 
 #[derive(Debug)]
@@ -76,6 +77,7 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
     let roots = resolve_space_roots(options.roots)?;
     let mut request = SpaceInsightRequest::new(roots)
         .with_top_limit(options.top_limit.max(1))
+        .with_diagnostic_limit(options.diagnostic_limit)
         .with_scan_backend(options.scan_backend.into());
     if options.scan_cache {
         request = request.with_scan_cache(SpaceInsightScanCache::new(

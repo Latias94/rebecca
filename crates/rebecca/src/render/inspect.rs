@@ -16,7 +16,7 @@ pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
     );
     println!("Files: {}", report.totals.files);
     println!("Directories: {}", report.totals.directories);
-    println!("Diagnostics: {}", report.diagnostics.len());
+    println!("Diagnostics: {}", report.diagnostic_summary.total);
 
     if !report.top_entries.is_empty() {
         println!();
@@ -35,9 +35,45 @@ pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
         }
     }
 
+    if report.diagnostic_summary.total > 0 {
+        println!();
+        println!(
+            "Space diagnostics: {}",
+            format_count(
+                report.diagnostic_summary.total,
+                "observation",
+                "observations"
+            )
+        );
+        for summary in &report.diagnostic_summary.by_kind {
+            println!(
+                "  - {}: {}",
+                summary.kind.label(),
+                format_count(summary.count, "observation", "observations")
+            );
+        }
+        if report.diagnostic_summary.truncated > 0 {
+            println!(
+                "  - truncated: {} not shown",
+                format_count(
+                    report.diagnostic_summary.truncated,
+                    "observation",
+                    "observations"
+                )
+            );
+        }
+    }
+
     if !report.diagnostics.is_empty() {
         println!();
-        println!("Inspection diagnostics:");
+        println!(
+            "Space diagnostic samples: {}",
+            format_count(
+                report.diagnostic_summary.retained,
+                "observation",
+                "observations"
+            )
+        );
         for diagnostic in &report.diagnostics {
             println!(
                 "  - {} {} - {}",

@@ -148,6 +148,7 @@ fn run_inspect(
                 scan_backend: args.scan_backend,
                 roots: args.roots,
                 top_limit: args.top_limit,
+                diagnostic_limit: args.diagnostic_limit,
             },
             runtime,
         ),

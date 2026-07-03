@@ -1,6 +1,7 @@
 # Engineering Memory Update Log
 
 ## 2026-07-03
+* **Inspect-space bounded diagnostics**: Aligned `inspect space` with disk-map diagnostics by adding complete `diagnostic_summary` counts, bounded raw samples, and `--diagnostic-limit`. Human, JSON, and NDJSON outputs now use the same summary-first contract as `inspect map`, so root-level and scan-failure diagnostics cannot flood machine output while authoritative counts remain visible.
 * **Disk-map bounded diagnostics**: Added a bounded `inspect map` diagnostic collector with complete `diagnostic_summary` counts and raw diagnostic samples capped by `--diagnostic-limit`. Root and fallback diagnostics are priority samples, while child-level diagnostic storms retain grouped counts without flooding human, JSON, or NDJSON output. Human disk-map output now prints grouped diagnostic counts before bounded samples.
 
 ## 2026-07-02
