@@ -3289,6 +3289,115 @@ mod tests {
     }
 
     #[test]
+    fn targeted_disk_map_stale_child_does_not_poison_later_valid_child() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 5, "large.bin", 10));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_entry(
+                        file_reference(6, 99),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let map = traversal
+            .collect_disk_map(
+                NtfsFileReference::known(5, 5),
+                std::path::Path::new("C:\\root"),
+                10,
+                usize::MAX,
+                &EstimateProvenance::default(),
+            )
+            .unwrap();
+
+        assert_eq!(map.metrics.logical_bytes, 10);
+        assert_eq!(map.metrics.files, 1);
+        assert_eq!(map.top_entries.len(), 1);
+        assert_eq!(
+            map.top_entries[0].path,
+            std::path::PathBuf::from("C:\\root\\large.bin")
+        );
+        assert!(map.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-child-sequence-mismatch"
+                && caveat.message.contains("record 6")
+        }));
+    }
+
+    #[test]
+    fn targeted_disk_map_caveats_i30_parent_map_fallback() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 99, "large.bin", 10));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let map = traversal
+            .collect_disk_map(
+                NtfsFileReference::known(5, 5),
+                std::path::Path::new("C:\\root"),
+                10,
+                usize::MAX,
+                &EstimateProvenance::default(),
+            )
+            .unwrap();
+
+        assert_eq!(map.metrics.logical_bytes, 10);
+        assert_eq!(map.metrics.files, 1);
+        assert!(map.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-parent-map-fallback"
+                && caveat.message.contains("large.bin")
+        }));
+    }
+
+    #[test]
     fn mft_build_budget_timeout_is_fallback_capable_platform_error() {
         let monitor = NtfsMftBuildMonitor::expired_for_test(Duration::from_secs(1));
 
