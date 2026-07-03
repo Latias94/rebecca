@@ -531,7 +531,7 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
     let entries = envelope["data"]["top_entries"].as_array().unwrap();
     let entry = entries
         .iter()
-        .find(|entry| PathBuf::from(entry["path"].as_str().unwrap()) == target)
+        .find(|entry| Path::new(entry["path"].as_str().unwrap()) == target.as_path())
         .expect("node_modules entry should be present");
     let advice = &entry["cleanup_advice"];
     assert_eq!(advice["status"], "maybe-cleanable");
@@ -587,7 +587,7 @@ fn inspect_map_json_reports_project_artifact_cleanup_advice() {
     let entries = envelope["data"]["top_entries"].as_array().unwrap();
     let entry = entries
         .iter()
-        .find(|entry| PathBuf::from(entry["path"].as_str().unwrap()) == target)
+        .find(|entry| Path::new(entry["path"].as_str().unwrap()) == target.as_path())
         .expect("node_modules entry should be present");
     let advice = &entry["cleanup_advice"];
     assert_eq!(advice["status"], "maybe-cleanable");
