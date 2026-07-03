@@ -46,6 +46,18 @@ pwsh -File scripts/ntfs/run-live-mft-dogfood.ps1 -Root docs/plans -Mode inspect-
 ```
 
 The dogfood report is written under `target/ntfs-dogfood/` and includes raw CLI output, requested versus actual backend, diagnostic summary totals, per-run portable baseline deltas, and a top-level `comparisons` section with match status, fastest run id, fastest requested/actual backend identity, duration ratios, and metric deltas. A timeout from the experimental backend is a valid local finding because live metadata traversal can depend on target size, privilege, and disk health; keep it out of Criterion thresholds until the backend has deterministic fixture coverage for the suspected bottleneck.
+For map-specific backend evidence, prefer the inspect-map report script. It runs
+one `inspect map --format json` scan per backend/repetition, then derives JSON,
+CSV, and Markdown artifacts without re-running table mode:
+
+```powershell
+pwsh -File scripts/dogfood/run-inspect-map-report.ps1 -Root docs -Backend portable-recursive,windows-native,windows-ntfs-mft-experimental -Repeat 1 -Top 20 -GroupBy extension,depth,age -DiagnosticLimit 0
+```
+
+The report is written under `target/inspect-map-dogfood/` and includes raw JSON
+stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested
+versus actual backend fields, diagnostic summary totals, fallback reasons,
+caveats, and portable-baseline comparison status.
 The experimental backend has its own 20 second live metadata budget before
 falling back to a directory scanner; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`
 higher for deep profiling or `0` to disable that guard for one process.
