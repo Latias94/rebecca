@@ -1,5 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -8,7 +10,8 @@ use crate::error::{RebeccaError, Result, ScanFailureKind};
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
 use crate::scan::{
-    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanEstimateConfidence, ScanReport,
+    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanEstimateCaveat, ScanEstimateConfidence,
+    ScanReport,
 };
 
 pub const DEFAULT_DISK_MAP_TOP_LIMIT: usize = 20;
@@ -427,12 +430,20 @@ where
             return Ok(());
         }
 
+        let mut semantic_caveats = DiskMapSemanticCaveats::default();
         let max_depth = self.request.max_depth.unwrap_or(usize::MAX);
         let root_metrics = match self.walker.metadata_kind(&metadata) {
             DiskMapMetadataKind::File => {
+                let semantics = self.walker.metadata_semantics(&metadata);
+                semantic_caveats.record(semantics);
                 let metrics = file_metrics(
                     self.walker.metadata_len(&metadata),
                     self.walker.metadata_allocated_len(&metadata),
+                );
+                let entry_provenance = estimate_provenance_with_entry_semantics(
+                    &provenance,
+                    semantics,
+                    DiskMapEntryKind::File,
                 );
                 push_portable_entry(
                     root,
@@ -440,7 +451,7 @@ where
                     DiskMapEntryKind::File,
                     0,
                     metrics,
-                    &provenance,
+                    &entry_provenance,
                     self.top_entries,
                 );
                 metrics
@@ -453,6 +464,7 @@ where
                 top_entries: self.top_entries,
                 diagnostics: self.diagnostics,
                 walker: self.walker,
+                semantic_caveats: &mut semantic_caveats,
             })
             .inspect_root_directory()
             {
@@ -473,6 +485,7 @@ where
             DiskMapMetadataKind::Other => DiskMapMetrics::from_scan_report(ScanReport::default()),
         };
 
+        let provenance = semantic_caveats.apply_to_root_provenance(provenance);
         self.report.totals.add(root_metrics);
         self.report.roots.push(DiskMapRoot {
             path: root.to_path_buf(),
@@ -491,6 +504,135 @@ enum DiskMapMetadataKind {
     File,
     Directory,
     Other,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct DiskMapMetadataSemantics {
+    compressed: bool,
+    sparse: bool,
+    hardlink_count: Option<u32>,
+    reparse_like: bool,
+}
+
+impl DiskMapMetadataSemantics {
+    fn with_reparse_like(mut self) -> Self {
+        self.reparse_like = true;
+        self
+    }
+
+    fn is_hardlinked(self) -> bool {
+        self.hardlink_count.is_some_and(|count| count > 1)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct DiskMapSemanticCaveats {
+    compressed_files: u64,
+    sparse_files: u64,
+    hardlinked_files: u64,
+    reparse_entries: u64,
+}
+
+impl DiskMapSemanticCaveats {
+    fn record(&mut self, semantics: DiskMapMetadataSemantics) {
+        if semantics.compressed {
+            self.compressed_files = self.compressed_files.saturating_add(1);
+        }
+        if semantics.sparse {
+            self.sparse_files = self.sparse_files.saturating_add(1);
+        }
+        if semantics.is_hardlinked() {
+            self.hardlinked_files = self.hardlinked_files.saturating_add(1);
+        }
+        if semantics.reparse_like {
+            self.reparse_entries = self.reparse_entries.saturating_add(1);
+        }
+    }
+
+    fn apply_to_root_provenance(&self, mut provenance: EstimateProvenance) -> EstimateProvenance {
+        if self.compressed_files > 0 {
+            provenance.estimate_caveats.push(disk_map_caveat(
+                "windows-native-compressed-file",
+                format!(
+                    "{} compressed file(s) were seen; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+                    self.compressed_files
+                ),
+            ));
+        }
+        if self.sparse_files > 0 {
+            provenance.estimate_caveats.push(disk_map_caveat(
+                "windows-native-sparse-file",
+                format!(
+                    "{} sparse file(s) were seen; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+                    self.sparse_files
+                ),
+            ));
+        }
+        if self.hardlinked_files > 0 {
+            provenance.estimate_caveats.push(disk_map_caveat(
+                "windows-native-hardlink-file",
+                format!(
+                    "{} file path(s) reported multiple hard links; path-ranked bytes may overstate unique physical bytes when another link points to the same file",
+                    self.hardlinked_files
+                ),
+            ));
+        }
+        if self.reparse_entries > 0 {
+            provenance.estimate_caveats.push(disk_map_caveat(
+                "windows-native-reparse-skipped",
+                format!(
+                    "{} reparse point(s) were skipped; target allocation is not included",
+                    self.reparse_entries
+                ),
+            ));
+        }
+
+        provenance
+    }
+}
+
+fn estimate_provenance_with_entry_semantics(
+    provenance: &EstimateProvenance,
+    semantics: DiskMapMetadataSemantics,
+    kind: DiskMapEntryKind,
+) -> EstimateProvenance {
+    let mut provenance = provenance.clone();
+    if kind == DiskMapEntryKind::File && semantics.compressed {
+        provenance.estimate_caveats.push(disk_map_caveat(
+            "windows-native-compressed-file",
+            "file is compressed; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+        ));
+    }
+    if kind == DiskMapEntryKind::File && semantics.sparse {
+        provenance.estimate_caveats.push(disk_map_caveat(
+            "windows-native-sparse-file",
+            "file is sparse; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+        ));
+    }
+    if kind == DiskMapEntryKind::File && semantics.is_hardlinked() {
+        let link_count = semantics.hardlink_count.unwrap_or(0);
+        provenance.estimate_caveats.push(disk_map_caveat(
+            "windows-native-hardlink-file",
+            format!(
+                "file reports {link_count} hard links; path-ranked bytes may overstate unique physical bytes when another link points to the same file"
+            ),
+        ));
+    }
+    if semantics.reparse_like {
+        provenance.estimate_caveats.push(disk_map_caveat(
+            "windows-native-reparse-skipped",
+            "reparse point was skipped; target allocation is not included",
+        ));
+    }
+
+    provenance
+}
+
+fn disk_map_caveat(code: impl Into<String>, message: impl Into<String>) -> ScanEstimateCaveat {
+    ScanEstimateCaveat {
+        code: code.into(),
+        message: message.into(),
+    }
 }
 
 #[derive(Debug)]
@@ -523,6 +665,7 @@ trait DiskMapWalker {
     fn is_reparse_like(&self, path: &Path, metadata: &Self::Metadata) -> bool;
     fn metadata_len(&self, metadata: &Self::Metadata) -> u64;
     fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64>;
+    fn metadata_semantics(&self, metadata: &Self::Metadata) -> DiskMapMetadataSemantics;
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind;
     fn read_dir(&self, path: &Path, cancellation: &ScanCancellationToken) -> Result<Self::ReadDir>;
     fn next_entry(
@@ -558,6 +701,10 @@ impl DiskMapWalker for FsPortableDiskMapWalker {
 
     fn metadata_allocated_len(&self, _metadata: &Self::Metadata) -> Option<u64> {
         None
+    }
+
+    fn metadata_semantics(&self, _metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
+        DiskMapMetadataSemantics::default()
     }
 
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
@@ -612,6 +759,7 @@ struct WindowsNativeDiskMapMetadata {
     kind: DiskMapMetadataKind,
     len: u64,
     allocated_len: Option<u64>,
+    semantics: DiskMapMetadataSemantics,
     reparse_like: bool,
 }
 
@@ -625,6 +773,21 @@ impl WindowsNativeDiskMapMetadata {
         } else {
             DiskMapMetadataKind::Other
         };
+        let reparse_like = is_reparse_like(metadata);
+        let native_semantics =
+            crate::scan::windows_native::WindowsNativeFileSemantics::from_path_and_attributes(
+                path,
+                match kind {
+                    DiskMapMetadataKind::File => {
+                        crate::scan::windows_native::WindowsNativeEntryKind::File
+                    }
+                    DiskMapMetadataKind::Directory | DiskMapMetadataKind::Other => {
+                        crate::scan::windows_native::WindowsNativeEntryKind::Directory
+                    }
+                },
+                metadata.file_attributes(),
+                reparse_like,
+            );
         Self {
             allocated_len: match kind {
                 DiskMapMetadataKind::File => crate::scan::windows_native::file_allocated_size(path),
@@ -632,7 +795,8 @@ impl WindowsNativeDiskMapMetadata {
             },
             kind,
             len: metadata.len(),
-            reparse_like: is_reparse_like(metadata),
+            semantics: DiskMapMetadataSemantics::from(native_semantics),
+            reparse_like,
         }
     }
 
@@ -648,7 +812,20 @@ impl WindowsNativeDiskMapMetadata {
             },
             len: entry.file_size(),
             allocated_len: entry.allocated_size(),
+            semantics: DiskMapMetadataSemantics::from(entry.semantics()),
             reparse_like: entry.is_reparse_like(),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl From<crate::scan::windows_native::WindowsNativeFileSemantics> for DiskMapMetadataSemantics {
+    fn from(value: crate::scan::windows_native::WindowsNativeFileSemantics) -> Self {
+        Self {
+            compressed: value.compressed,
+            sparse: value.sparse,
+            hardlink_count: value.hardlink_count,
+            reparse_like: false,
         }
     }
 }
@@ -680,6 +857,14 @@ impl DiskMapWalker for WindowsNativeDiskMapWalker {
 
     fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64> {
         metadata.allocated_len
+    }
+
+    fn metadata_semantics(&self, metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
+        if metadata.reparse_like {
+            metadata.semantics.with_reparse_like()
+        } else {
+            metadata.semantics
+        }
     }
 
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
@@ -714,6 +899,7 @@ where
     top_entries: &'a mut DiskMapTopEntries,
     diagnostics: &'a mut DiskMapDiagnostics,
     walker: &'a W,
+    semantic_caveats: &'a mut DiskMapSemanticCaveats,
 }
 
 impl<'a, W> DiskMapTraversal<'a, W>
@@ -752,30 +938,62 @@ where
                 }
             },
         };
+        let semantics = self.walker.metadata_semantics(&metadata);
         if self.walker.is_reparse_like(&path, &metadata) {
+            let semantics = semantics.with_reparse_like();
+            self.semantic_caveats.record(semantics);
             self.diagnostics.push(DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::ReparsePointSkipped,
                 path.clone(),
                 "disk map entry is a symlink or reparse point",
             ));
             let metrics = DiskMapMetrics::default();
-            self.push_entry_if_visible(&path, DiskMapEntryKind::Other, depth, metrics);
+            let entry_provenance = estimate_provenance_with_entry_semantics(
+                self.estimate_provenance,
+                semantics,
+                DiskMapEntryKind::Other,
+            );
+            self.push_entry_if_visible(
+                &path,
+                DiskMapEntryKind::Other,
+                depth,
+                metrics,
+                &entry_provenance,
+            );
             return Ok(metrics);
         }
 
         match self.walker.metadata_kind(&metadata) {
             DiskMapMetadataKind::File => {
+                self.semantic_caveats.record(semantics);
                 let metrics = file_metrics(
                     self.walker.metadata_len(&metadata),
                     self.walker.metadata_allocated_len(&metadata),
                 );
-                self.push_entry_if_visible(&path, DiskMapEntryKind::File, depth, metrics);
+                let entry_provenance = estimate_provenance_with_entry_semantics(
+                    self.estimate_provenance,
+                    semantics,
+                    DiskMapEntryKind::File,
+                );
+                self.push_entry_if_visible(
+                    &path,
+                    DiskMapEntryKind::File,
+                    depth,
+                    metrics,
+                    &entry_provenance,
+                );
                 Ok(metrics)
             }
             DiskMapMetadataKind::Directory => self.inspect_directory_node(&path, depth),
             DiskMapMetadataKind::Other => {
                 let metrics = DiskMapMetrics::default();
-                self.push_entry_if_visible(&path, DiskMapEntryKind::Other, depth, metrics);
+                self.push_entry_if_visible(
+                    &path,
+                    DiskMapEntryKind::Other,
+                    depth,
+                    metrics,
+                    self.estimate_provenance,
+                );
                 Ok(metrics)
             }
         }
@@ -807,7 +1025,13 @@ where
             metrics.add(child_metrics);
         }
 
-        self.push_entry_if_visible(path, DiskMapEntryKind::Directory, depth, metrics);
+        self.push_entry_if_visible(
+            path,
+            DiskMapEntryKind::Directory,
+            depth,
+            metrics,
+            self.estimate_provenance,
+        );
         Ok(metrics)
     }
 
@@ -841,6 +1065,7 @@ where
         kind: DiskMapEntryKind,
         depth: usize,
         metrics: DiskMapMetrics,
+        estimate_provenance: &EstimateProvenance,
     ) {
         push_portable_entry_if_visible(
             self.root,
@@ -849,7 +1074,7 @@ where
             depth,
             metrics,
             self.max_depth,
-            self.estimate_provenance,
+            estimate_provenance,
             self.top_entries,
         );
     }
@@ -1408,6 +1633,10 @@ mod tests {
             None
         }
 
+        fn metadata_semantics(&self, _metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
+            DiskMapMetadataSemantics::default()
+        }
+
         fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
             match metadata.kind {
                 FakeMetadataKind::File => DiskMapMetadataKind::File,
@@ -1659,5 +1888,52 @@ mod tests {
         assert_eq!(report.diagnostic_summary.total, 1);
         assert_eq!(report.diagnostic_summary.retained, 0);
         assert_eq!(report.diagnostic_summary.truncated, 1);
+    }
+
+    #[test]
+    fn disk_map_semantic_caveats_are_reported_once_per_code() {
+        let mut semantic_caveats = DiskMapSemanticCaveats::default();
+        semantic_caveats.record(DiskMapMetadataSemantics {
+            compressed: true,
+            sparse: true,
+            hardlink_count: Some(2),
+            reparse_like: true,
+        });
+
+        let provenance =
+            semantic_caveats.apply_to_root_provenance(EstimateProvenance::from_backend_confidence(
+                ScanBackendKind::WindowsNative,
+                ScanEstimateConfidence::Exact,
+            ));
+        let codes = provenance
+            .estimate_caveats
+            .iter()
+            .map(|caveat| caveat.code.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            codes,
+            vec![
+                "windows-native-compressed-file",
+                "windows-native-sparse-file",
+                "windows-native-hardlink-file",
+                "windows-native-reparse-skipped",
+            ]
+        );
+
+        let entry_provenance = estimate_provenance_with_entry_semantics(
+            &EstimateProvenance::from_backend_confidence(
+                ScanBackendKind::WindowsNative,
+                ScanEstimateConfidence::Exact,
+            ),
+            DiskMapMetadataSemantics {
+                compressed: true,
+                sparse: true,
+                hardlink_count: Some(3),
+                reparse_like: false,
+            },
+            DiskMapEntryKind::File,
+        );
+        assert_eq!(entry_provenance.estimate_caveats.len(), 3);
     }
 }

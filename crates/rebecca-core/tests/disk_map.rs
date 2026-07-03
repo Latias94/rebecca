@@ -232,3 +232,35 @@ fn disk_map_windows_native_backend_reports_native_provenance() {
     );
     assert_eq!(report.top_entries[0].path, root.join("alpha"));
 }
+
+#[cfg(windows)]
+#[test]
+fn disk_map_windows_native_reports_hardlink_caveats() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let original = root.join("original.bin");
+    let linked = root.join("linked.bin");
+    write_file(&original, b"abcd");
+    std::fs::hard_link(&original, &linked).unwrap();
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::WindowsNative)
+        .with_top_limit(10);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.logical_bytes, 8);
+    assert!(
+        report.roots[0]
+            .estimate_provenance
+            .estimate_caveats
+            .iter()
+            .any(|caveat| caveat.code == "windows-native-hardlink-file")
+    );
+    assert!(report.top_entries.iter().any(|entry| {
+        entry
+            .estimate_provenance
+            .estimate_caveats
+            .iter()
+            .any(|caveat| caveat.code == "windows-native-hardlink-file")
+    }));
+}

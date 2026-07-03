@@ -4,12 +4,15 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Component, Path, PathBuf, Prefix};
 
 use windows::Win32::Foundation::{
-    ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_FILES, ERROR_SUCCESS, GetLastError, HANDLE, SetLastError,
-    WIN32_ERROR,
+    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_FILES, ERROR_SUCCESS, GetLastError, HANDLE,
+    SetLastError, WIN32_ERROR,
 };
 use windows::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW,
-    FindNextFileW, GetCompressedFileSizeW, INVALID_FILE_SIZE, WIN32_FIND_DATAW,
+    BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DIRECTORY,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FindClose,
+    FindFirstFileW, FindNextFileW, GetCompressedFileSizeW, GetFileInformationByHandle,
+    INVALID_FILE_SIZE, OPEN_EXISTING, WIN32_FIND_DATAW,
 };
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
@@ -35,6 +38,7 @@ pub(crate) struct WindowsNativeDirectoryEntry {
     kind: WindowsNativeEntryKind,
     file_size: u64,
     allocated_size: Option<u64>,
+    semantics: WindowsNativeFileSemantics,
     reparse_like: bool,
 }
 
@@ -55,8 +59,38 @@ impl WindowsNativeDirectoryEntry {
         self.allocated_size
     }
 
+    pub(crate) fn semantics(&self) -> WindowsNativeFileSemantics {
+        self.semantics
+    }
+
     pub(crate) fn is_reparse_like(&self) -> bool {
         self.reparse_like
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct WindowsNativeFileSemantics {
+    pub(crate) compressed: bool,
+    pub(crate) sparse: bool,
+    pub(crate) hardlink_count: Option<u32>,
+}
+
+impl WindowsNativeFileSemantics {
+    pub(crate) fn from_path_and_attributes(
+        path: &Path,
+        kind: WindowsNativeEntryKind,
+        attributes: u32,
+        reparse_like: bool,
+    ) -> Self {
+        if kind != WindowsNativeEntryKind::File || reparse_like {
+            return Self::default();
+        }
+
+        Self {
+            compressed: has_attribute(attributes, FILE_ATTRIBUTE_COMPRESSED.0),
+            sparse: has_attribute(attributes, FILE_ATTRIBUTE_SPARSE_FILE.0),
+            hardlink_count: file_hardlink_count(path),
+        }
     }
 }
 
@@ -134,7 +168,7 @@ fn enumerate_directory<F>(
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
-    for_each_directory_entry(directory, cancellation, |entry| {
+    for_each_directory_entry(directory, cancellation, false, |entry| {
         record_native_entry(entry, report, stack, progress);
         Ok(())
     })
@@ -145,7 +179,7 @@ pub(crate) fn read_directory_entries(
     cancellation: &ScanCancellationToken,
 ) -> Result<Vec<WindowsNativeDirectoryEntry>> {
     let mut entries = Vec::new();
-    for_each_directory_entry(directory, cancellation, |entry| {
+    for_each_directory_entry(directory, cancellation, true, |entry| {
         entries.push(entry);
         Ok(())
     })?;
@@ -155,6 +189,7 @@ pub(crate) fn read_directory_entries(
 fn for_each_directory_entry<F>(
     directory: &Path,
     cancellation: &ScanCancellationToken,
+    include_disk_map_metadata: bool,
     mut visitor: F,
 ) -> Result<()>
 where
@@ -167,7 +202,9 @@ where
 
     loop {
         check_not_cancelled(cancellation)?;
-        if let Some(entry) = directory_entry_from_find_data(directory, &data) {
+        if let Some(entry) =
+            directory_entry_from_find_data(directory, &data, include_disk_map_metadata)
+        {
             visitor(entry)?;
         }
 
@@ -237,6 +274,7 @@ fn record_native_entry<F>(
 fn directory_entry_from_find_data(
     directory: &Path,
     data: &WIN32_FIND_DATAW,
+    include_disk_map_metadata: bool,
 ) -> Option<WindowsNativeDirectoryEntry> {
     let file_name = find_data_file_name(data)?;
     if file_name == OsStr::new(".") || file_name == OsStr::new("..") {
@@ -246,11 +284,24 @@ fn directory_entry_from_find_data(
     let path = directory.join(file_name);
     let kind = find_data_entry_kind(data);
     let reparse_like = is_reparse_entry(data);
+    let semantics = if include_disk_map_metadata {
+        WindowsNativeFileSemantics::from_path_and_attributes(
+            &path,
+            kind,
+            data.dwFileAttributes,
+            reparse_like,
+        )
+    } else {
+        WindowsNativeFileSemantics::default()
+    };
     Some(WindowsNativeDirectoryEntry {
-        allocated_size: find_data_allocated_size(&path, kind, reparse_like),
+        allocated_size: include_disk_map_metadata
+            .then(|| find_data_allocated_size(&path, kind, reparse_like))
+            .flatten(),
         path,
         kind,
         file_size: find_data_file_size(data),
+        semantics,
         reparse_like,
     })
 }
@@ -313,7 +364,7 @@ fn find_data_entry_kind(data: &WIN32_FIND_DATAW) -> WindowsNativeEntryKind {
 }
 
 fn is_reparse_entry(data: &WIN32_FIND_DATAW) -> bool {
-    (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0) != 0
+    has_attribute(data.dwFileAttributes, FILE_ATTRIBUTE_REPARSE_POINT.0)
 }
 
 fn find_data_file_size(data: &WIN32_FIND_DATAW) -> u64 {
@@ -346,6 +397,20 @@ pub(crate) fn file_allocated_size(path: &Path) -> Option<u64> {
 
         Some((u64::from(high) << 32) | u64::from(low))
     }
+}
+
+fn file_hardlink_count(path: &Path) -> Option<u32> {
+    let handle = FileHandle::open_read_attributes(path)?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe {
+        GetFileInformationByHandle(handle.raw(), &mut info).ok()?;
+    }
+
+    Some(info.nNumberOfLinks)
+}
+
+fn has_attribute(attributes: u32, attribute: u32) -> bool {
+    (attributes & attribute) != 0
 }
 
 fn find_data_file_name(data: &WIN32_FIND_DATAW) -> Option<OsString> {
@@ -384,6 +449,40 @@ fn hresult_win32_code(hresult: HRESULT) -> Option<u32> {
     }
 
     (value <= 0x0000_FFFF).then_some(value)
+}
+
+struct FileHandle(HANDLE);
+
+impl FileHandle {
+    fn open_read_attributes(path: &Path) -> Option<Self> {
+        let wide_path = wide_null(path.as_os_str());
+        let share_mode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+        unsafe {
+            CreateFileW(
+                PCWSTR(wide_path.as_ptr()),
+                FILE_READ_ATTRIBUTES.0,
+                share_mode,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                None,
+            )
+            .ok()
+            .map(Self)
+        }
+    }
+
+    fn raw(&self) -> HANDLE {
+        self.0
+    }
+}
+
+impl Drop for FileHandle {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
 }
 
 struct FindHandle(HANDLE);

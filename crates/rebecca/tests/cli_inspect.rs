@@ -356,6 +356,61 @@ fn inspect_map_json_windows_native_reports_native_provenance() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn inspect_map_json_windows_native_reports_hardlink_caveat() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let original = root.join("original.bin");
+    let linked = root.join("linked.bin");
+    write_fixture_file(&original, b"abcd");
+    fs::hard_link(&original, &linked).unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "windows-native",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert_eq!(value["totals"]["logical_bytes"], 8);
+    assert!(
+        value["roots"][0]["estimate_caveats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|caveat| caveat["code"] == "windows-native-hardlink-file")
+    );
+    assert!(
+        value["top_entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["estimate_caveats"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|caveat| caveat["code"] == "windows-native-hardlink-file"))
+    );
+}
+
 #[test]
 fn inspect_map_json_top_zero_preserves_totals_without_entries() {
     let temp = tempfile::tempdir().unwrap();

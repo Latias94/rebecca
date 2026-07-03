@@ -211,10 +211,13 @@ The v1 cleanup estimate remains logical bytes from the unnamed `$DATA` stream.
 `inspect map` reports `logical_bytes` and nullable `allocated_bytes`; portable
 inventory leaves allocation unknown, Windows native inventory fills file
 allocation bytes through the host API when available, and NTFS/MFT inventory can
-fill allocated bytes when the unnamed `$DATA` stream exposes them. Unsupported
-metadata, such as nonresident attribute lists that cannot be expanded directly,
-stale sequence references, or unreadable `$I30` child nodes, must produce
-caveats or fallback instead of silent success.
+fill allocated bytes when the unnamed `$DATA` stream exposes them. Windows
+native inventory caveats compressed, sparse, hardlinked, and skipped reparse
+entries; hardlink caveats mean path-ranked bytes may overstate unique physical
+usage until a unique-file-id accounting mode is explicitly selected.
+Unsupported metadata, such as nonresident attribute lists that cannot be
+expanded directly, stale sequence references, or unreadable `$I30` child nodes,
+must produce caveats or fallback instead of silent success.
 
 ## Cache Purge Boundary
 

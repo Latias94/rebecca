@@ -143,7 +143,11 @@ Record JSON `estimate_source`, `estimate_backend`, `estimate_backend_source`,
 for the backend dogfood runs. Also record any `diagnostic_summary` totals and
 the dogfood report's `comparisons.status` value. The Windows native map run
 should show `estimate_backend: "windows-native"` and non-null `allocated_bytes`
-on supported local roots. The experimental NTFS/MFT run should either show
+on supported local roots. Windows native runs may also report
+`windows-native-compressed-file`, `windows-native-sparse-file`,
+`windows-native-hardlink-file`, or `windows-native-reparse-skipped` caveats when
+those filesystem semantics are present. The experimental NTFS/MFT run should
+either show
 `estimate_backend: "windows-ntfs-mft-experimental"` with
 `estimate_backend_source: "windows-ntfs-mft-experimental-targeted-fsctl"` on a
 supported elevated local NTFS volume, including scoped `inspect map` roots.

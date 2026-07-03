@@ -108,6 +108,12 @@ summaries. Valid nonresident `$INDEX_ALLOCATION:$I30` metadata can supplement
 subtree edges, but these fields are still explainability data; they do not
 authorize deletion or change v1 byte semantics.
 
+`inspect-map` can also emit Windows-native disk inventory caveats such as
+`windows-native-compressed-file`, `windows-native-sparse-file`,
+`windows-native-hardlink-file`, and `windows-native-reparse-skipped`.
+Hardlink caveats mean path-ranked logical and allocated bytes may overstate
+unique physical bytes until a future unique-file-id accounting mode is selected.
+
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
 `warnings`. A target with `reason_code: "warning-gate-required"` was excluded
 until the user selects the named gate with `--allow-warning <warning>`.
