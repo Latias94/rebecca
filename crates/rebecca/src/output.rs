@@ -599,6 +599,38 @@ impl NdjsonEventWriter {
         Ok(())
     }
 
+    pub(crate) fn emit_payload<T: Serialize + ?Sized>(
+        &mut self,
+        event_kind: &'static str,
+        payload_kind: &str,
+        data: &T,
+    ) -> Result<()> {
+        #[derive(Serialize)]
+        struct PayloadEvent<'a, T: Serialize + ?Sized> {
+            api_version: &'static str,
+            kind: &'static str,
+            command: &'a str,
+            sequence: u64,
+            event_kind: &'static str,
+            generated_at_unix_seconds: u64,
+            payload_kind: &'a str,
+            data: &'a T,
+        }
+
+        let event = PayloadEvent {
+            api_version: self.api_version,
+            kind: "event",
+            command: self.command,
+            sequence: self.take_sequence(),
+            event_kind,
+            generated_at_unix_seconds: unix_now(),
+            payload_kind,
+            data,
+        };
+        println!("{}", serde_json::to_string(&event)?);
+        Ok(())
+    }
+
     pub(crate) fn emit_cancelled(&mut self, detail: &str) -> Result<()> {
         self.emit_data("cancelled", json!({ "detail": detail }))
     }

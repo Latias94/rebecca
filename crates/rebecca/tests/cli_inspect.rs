@@ -699,6 +699,12 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
             "windows-ntfs-mft-experimental",
             "--root",
             root.to_str().unwrap(),
+            "--top",
+            "1",
+            "--group-by",
+            "extension",
+            "--group-limit",
+            "1",
             "--diagnostic-limit",
             "0",
         ])
@@ -716,12 +722,38 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(events.len(), 1);
-    let completed = events.first().unwrap();
+    assert_eq!(events.len(), 3);
+
+    let entry = &events[0];
+    assert_eq!(entry["api_version"], "rebecca.cli.v1");
+    assert_eq!(entry["event_kind"], "map-entry");
+    assert_eq!(entry["command"], "inspect map");
+    assert_eq!(entry["payload_kind"], "inspect-map-entry");
+    assert_eq!(entry["sequence"], 0);
+    assert_eq!(entry["data"]["rank"], 1);
+    assert_eq!(entry["data"]["entry"]["logical_bytes"], 3);
+    assert_eq!(
+        entry["data"]["entry"]["estimate_backend"],
+        "portable-recursive"
+    );
+
+    let group = &events[1];
+    assert_eq!(group["api_version"], "rebecca.cli.v1");
+    assert_eq!(group["event_kind"], "map-group");
+    assert_eq!(group["command"], "inspect map");
+    assert_eq!(group["payload_kind"], "inspect-map-group");
+    assert_eq!(group["sequence"], 1);
+    assert_eq!(group["data"]["rank"], 1);
+    assert_eq!(group["data"]["group"]["kind"], "extension");
+    assert_eq!(group["data"]["group"]["key"], ".bin");
+    assert_eq!(group["data"]["group"]["metrics"]["logical_bytes"], 3);
+
+    let completed = events.last().unwrap();
     assert_eq!(completed["api_version"], "rebecca.cli.v1");
     assert_eq!(completed["event_kind"], "completed");
     assert_eq!(completed["command"], "inspect map");
     assert_eq!(completed["payload_kind"], "inspect-map");
+    assert_eq!(completed["sequence"], 2);
     assert_eq!(completed["data"]["totals"]["logical_bytes"], 3);
     assert_eq!(completed["data"]["diagnostic_summary"]["total"], 1);
     assert_eq!(completed["data"]["diagnostic_summary"]["retained"], 0);

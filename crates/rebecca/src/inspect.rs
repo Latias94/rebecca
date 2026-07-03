@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::disk_map::{
-    DiskMapGroupKind, DiskMapRequest, DiskMapSortField, inspect_map as inspect_map_core,
+    DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapReport, DiskMapRequest, DiskMapSortField,
+    inspect_map as inspect_map_core,
 };
 use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
@@ -12,6 +13,7 @@ use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
+use serde::Serialize;
 
 use crate::clean::{
     ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
@@ -114,12 +116,16 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
         .with_scan_backend(options.scan_backend.into());
 
     let report = inspect_map_core(&request, runtime.cancellation())?;
-    print_command_success_with_contract(
-        CliApiContract::v1("inspect map", "inspect-map"),
-        options.output_mode,
-        || &report,
-        || render::inspect::print_map_report(&report),
-    )
+    let contract = CliApiContract::v1("inspect map", "inspect-map");
+    match options.output_mode {
+        OutputMode::Ndjson => print_map_report_ndjson(contract, &report),
+        _ => print_command_success_with_contract(
+            contract,
+            options.output_mode,
+            || &report,
+            || render::inspect::print_map_report(&report),
+        ),
+    }
 }
 
 pub(crate) fn artifacts_with_runtime(
@@ -228,6 +234,46 @@ fn print_project_artifact_insight_with_events(
             event_writer,
         ),
     }
+}
+
+#[derive(Debug, Serialize)]
+struct InspectMapEntryEvent<'a> {
+    rank: usize,
+    entry: &'a DiskMapEntry,
+}
+
+#[derive(Debug, Serialize)]
+struct InspectMapGroupEvent<'a> {
+    rank: usize,
+    group: &'a DiskMapGroup,
+}
+
+fn print_map_report_ndjson(contract: CliApiContract, report: &DiskMapReport) -> Result<()> {
+    let mut writer = NdjsonEventWriter::with_contract(contract);
+
+    for (index, entry) in report.top_entries.iter().enumerate() {
+        writer.emit_payload(
+            "map-entry",
+            "inspect-map-entry",
+            &InspectMapEntryEvent {
+                rank: index + 1,
+                entry,
+            },
+        )?;
+    }
+
+    for (index, group) in report.groups.iter().enumerate() {
+        writer.emit_payload(
+            "map-group",
+            "inspect-map-group",
+            &InspectMapGroupEvent {
+                rank: index + 1,
+                group,
+            },
+        )?;
+    }
+
+    writer.emit_completed(contract.payload_kind, report)
 }
 
 fn resolve_space_roots(cli_roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {

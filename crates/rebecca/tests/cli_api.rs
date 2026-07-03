@@ -547,6 +547,8 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"inspect-artifacts"));
     assert!(payload_kinds.contains(&"inspect-lint"));
     assert!(payload_kinds.contains(&"inspect-map"));
+    assert!(payload_kinds.contains(&"inspect-map-entry"));
+    assert!(payload_kinds.contains(&"inspect-map-group"));
     assert!(payload_kinds.contains(&"inspect-space"));
 
     let catalog_item = &payloads["$defs"]["catalogItem"];
@@ -555,6 +557,8 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert_eq!(payloads["$defs"]["inspectArtifacts"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectLint"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectMap"]["type"], "object");
+    assert_eq!(payloads["$defs"]["inspectMapEntryEvent"]["type"], "object");
+    assert_eq!(payloads["$defs"]["inspectMapGroupEvent"]["type"], "object");
 
     let event = read_doc_json("event.schema.json");
     assert_eq!(

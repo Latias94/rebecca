@@ -18,6 +18,8 @@
         "inspect-artifacts",
         "inspect-lint",
         "inspect-map",
+        "inspect-map-entry",
+        "inspect-map-group",
         "inspect-space",
         "permissions-diagnostic",
         "project-artifact-catalog",
@@ -1035,6 +1037,40 @@
         },
         "metrics": {
           "$ref": "#/$defs/diskMapMetrics"
+        }
+      }
+    },
+    "inspectMapEntryEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rank",
+        "entry"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "entry": {
+          "$ref": "#/$defs/diskMapEntry"
+        }
+      }
+    },
+    "inspectMapGroupEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rank",
+        "group"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group": {
+          "$ref": "#/$defs/diskMapGroup"
         }
       }
     },

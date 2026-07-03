@@ -48,6 +48,14 @@ default to avoid turning large scans into one JSON line per file. Ordinary
 cleanup scans can opt into file-level scan details with
 `--progress-detail file` when a debugger or GUI explicitly needs them.
 
+`inspect map --format ndjson` emits bounded report events before the terminal
+`completed` event: one `map-entry` event per `top_entries` item with
+`payload_kind = "inspect-map-entry"`, then one `map-group` event per requested
+`groups` item with `payload_kind = "inspect-map-group"`. The final
+`completed` event still carries the full `inspect-map` report, so consumers can
+either stream ranked rows as they arrive or keep reading the last completed
+payload as the authoritative whole-report snapshot.
+
 ## Payload Kinds
 
 The `payload_kind` field identifies the shape under `data`:
@@ -61,6 +69,8 @@ The `payload_kind` field identifies the shape under `data`:
 - `catalog-validation`
 - `inspect-space`
 - `inspect-map`
+- `inspect-map-entry`
+- `inspect-map-group`
 - `inspect-artifacts`
 - `inspect-lint`
 - `cache-purge-report`
@@ -153,6 +163,9 @@ fallback is reserved for ordinary backend unavailability.
 `--group-sort logical|allocated|files|unique` changes the order of `groups`.
 Unavailable allocated or unique metrics fall back to logical-byte ordering for
 that rank value so portable reports remain deterministic and useful.
+In NDJSON mode, those already-bounded `top_entries` and `groups` are also
+emitted as ranked `map-entry` and `map-group` events before the final full
+report.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -192,6 +205,7 @@ rebecca purge --format json --root . --min-age-days 0
 rebecca catalog --format json --kind warning
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
+rebecca inspect map --format ndjson --root . --top 20 --group-by extension
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0
 rebecca inspect lint --format json --root .
