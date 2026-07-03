@@ -149,6 +149,10 @@ and entries. `--group-limit` bounds the combined group list across all requested
 group kinds. Windows native and experimental NTFS/MFT disk-map inventory both
 feed these groups from the same traversal that produces ranked entries; backend
 fallback is reserved for ordinary backend unavailability.
+`--sort logical|allocated|files|unique` changes the order of `top_entries`, and
+`--group-sort logical|allocated|files|unique` changes the order of `groups`.
+Unavailable allocated or unique metrics fall back to logical-byte ordering for
+that rank value so portable reports remain deterministic and useful.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -187,7 +191,7 @@ rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
 rebecca catalog --format json --kind warning
 rebecca inspect space --format json --root . --diagnostic-limit 100
-rebecca inspect map --format json --root . --top 20 --max-depth 3 --diagnostic-limit 100
+rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0
 rebecca inspect lint --format json --root .

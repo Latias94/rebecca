@@ -606,7 +606,7 @@ pub(super) fn inspect_disk_map(
         })?;
 
     let summary = index.mft_index.aggregate_subtree(target_record_id);
-    let mut top_entries = DiskMapTopEntries::new(options.top_limit);
+    let mut top_entries = DiskMapTopEntries::new(options.top_limit, options.top_sort);
     let mut groups = options.group_collector();
     let mut visited = BTreeSet::new();
     let max_depth = options.max_depth.unwrap_or(usize::MAX);
@@ -1574,7 +1574,7 @@ where
         volume_serial_number: u64,
         entry_provenance: &EstimateProvenance,
     ) -> Result<TargetedDiskMap> {
-        let mut state = TargetedDiskMapState::new(options.top_limit, options.group_collector());
+        let mut state = TargetedDiskMapState::new(options);
         let root_node = TargetedDiskMapNode {
             reference: root,
             path: root_path.to_path_buf(),
@@ -1925,12 +1925,12 @@ struct TargetedDiskMapState {
 }
 
 impl TargetedDiskMapState {
-    fn new(top_limit: usize, groups: DiskMapGroupCollector) -> Self {
+    fn new(options: &DiskMapBackendOptions) -> Self {
         Self {
             visited: BTreeSet::new(),
             traversal_attempts: 0,
-            top_entries: DiskMapTopEntries::new(top_limit),
-            groups,
+            top_entries: DiskMapTopEntries::new(options.top_limit, options.top_sort),
+            groups: options.group_collector(),
             caveats: Vec::new(),
         }
     }
@@ -2767,7 +2767,7 @@ mod tests {
         parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
     use crate::disk_map::{
-        DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind,
+        DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapSortField,
     };
     use crate::error::{RebeccaError, Result};
     use crate::plan::EstimateProvenance;
@@ -3916,10 +3916,12 @@ mod tests {
     ) -> DiskMapBackendOptions {
         DiskMapBackendOptions {
             top_limit,
+            top_sort: DiskMapSortField::Logical,
             max_depth,
             group_kinds,
             group_limit: 20,
             group_now: UNIX_EPOCH,
+            group_sort: DiskMapSortField::Logical,
         }
     }
 

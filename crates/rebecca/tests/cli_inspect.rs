@@ -343,6 +343,57 @@ fn inspect_map_json_reports_requested_groups() {
     assert_json_group(value, "age", "modified-7d", 6, 2);
 }
 
+#[test]
+fn inspect_map_json_respects_requested_sort_fields() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("many").join("a.txt"), b"x");
+    write_fixture_file(root.join("many").join("b.txt"), b"x");
+    write_fixture_file(root.join("large.bin"), b"abcdefghij");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "2",
+            "--sort",
+            "files",
+            "--group-by",
+            "extension",
+            "--group-limit",
+            "2",
+            "--group-sort",
+            "files",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert_eq!(
+        PathBuf::from(value["top_entries"][0]["path"].as_str().unwrap()),
+        root.join("many")
+    );
+    assert_eq!(value["top_entries"][0]["files"], 2);
+    assert_eq!(value["groups"][0]["key"], ".txt");
+    assert_eq!(value["groups"][0]["metrics"]["files"], 2);
+    assert_eq!(value["groups"][1]["key"], ".bin");
+    assert_eq!(value["groups"][1]["metrics"]["logical_bytes"], 10);
+}
+
 fn assert_json_group(
     value: &serde_json::Value,
     kind: &str,

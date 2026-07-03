@@ -79,6 +79,26 @@ impl From<DiskMapGroupKindArg> for rebecca::core::disk_map::DiskMapGroupKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum DiskMapSortArg {
+    #[default]
+    Logical,
+    Allocated,
+    Files,
+    Unique,
+}
+
+impl From<DiskMapSortArg> for rebecca::core::disk_map::DiskMapSortField {
+    fn from(value: DiskMapSortArg) -> Self {
+        match value {
+            DiskMapSortArg::Logical => Self::Logical,
+            DiskMapSortArg::Allocated => Self::Allocated,
+            DiskMapSortArg::Files => Self::Files,
+            DiskMapSortArg::Unique => Self::Unique,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CatalogKindArg {
     CleanupRule,
@@ -232,12 +252,18 @@ pub struct InspectMapArgs {
     /// Maximum number of largest entries to include. Use 0 for totals only.
     #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_TOP_LIMIT)]
     pub top_limit: usize,
+    /// Sort top entries by logical bytes, allocated bytes, file count, or unique logical bytes.
+    #[arg(long = "sort", value_enum, default_value_t = DiskMapSortArg::Logical)]
+    pub sort: DiskMapSortArg,
     /// Add a file grouping section. Can be repeated: extension, depth, age.
     #[arg(long = "group-by", value_enum)]
     pub group_kinds: Vec<DiskMapGroupKindArg>,
     /// Maximum number of groups to include across all requested group kinds.
     #[arg(long = "group-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_GROUP_LIMIT)]
     pub group_limit: usize,
+    /// Sort groups by logical bytes, allocated bytes, file count, or unique logical bytes.
+    #[arg(long = "group-sort", value_enum, default_value_t = DiskMapSortArg::Logical)]
+    pub group_sort: DiskMapSortArg,
     /// Maximum number of raw diagnostics to include. Use 0 for summary only.
     #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
     pub diagnostic_limit: usize,

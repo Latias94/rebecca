@@ -222,6 +222,10 @@ groups from the same traversal; `--group-limit` caps the combined group list.
 Windows native and experimental NTFS/MFT inventory feed these groups directly
 from their own traversal paths; fallback should only occur when a requested
 backend is unavailable or unsafe for the target.
+`--sort logical|allocated|files|unique` changes the bounded top-entry rank, and
+`--group-sort logical|allocated|files|unique` changes the bounded group rank.
+When allocation or unique usage is unavailable, the rank value falls back to
+logical bytes instead of treating unknown metadata as zero.
 Unsupported metadata, such as nonresident attribute lists that cannot be
 expanded directly, stale sequence references, or unreadable `$I30` child nodes,
 must produce caveats or fallback instead of silent success.

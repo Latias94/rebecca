@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::disk_map::{DiskMapGroupKind, DiskMapRequest, inspect_map as inspect_map_core};
+use rebecca::core::disk_map::{
+    DiskMapGroupKind, DiskMapRequest, DiskMapSortField, inspect_map as inspect_map_core,
+};
 use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
 };
@@ -42,8 +44,10 @@ pub struct InspectMapOptions {
     pub scan_backend: ScanBackendArg,
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+    pub sort: DiskMapSortField,
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
+    pub group_sort: DiskMapSortField,
     pub diagnostic_limit: usize,
     pub max_depth: Option<usize>,
 }
@@ -101,8 +105,10 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
     let roots = resolve_space_roots(options.roots)?;
     let request = DiskMapRequest::new(roots)
         .with_top_limit(options.top_limit)
+        .with_top_sort(options.sort)
         .with_group_kinds(options.group_kinds)
         .with_group_limit(options.group_limit)
+        .with_group_sort(options.group_sort)
         .with_diagnostic_limit(options.diagnostic_limit)
         .with_max_depth(options.max_depth)
         .with_scan_backend(options.scan_backend.into());

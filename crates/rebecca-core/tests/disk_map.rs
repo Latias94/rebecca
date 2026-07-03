@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use rebecca_core::disk_map::{
-    DiskMapDiagnosticKind, DiskMapGroupKind, DiskMapRequest, inspect_map,
+    DiskMapDiagnosticKind, DiskMapGroupKind, DiskMapRequest, DiskMapSortField, inspect_map,
 };
 use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence};
 
@@ -88,6 +88,27 @@ fn disk_map_reports_ranked_entries_in_deterministic_order() {
 }
 
 #[test]
+fn disk_map_sorts_top_entries_by_requested_field() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("many").join("a.txt"), b"x");
+    write_file(root.join("many").join("b.txt"), b"x");
+    write_file(root.join("large.bin"), b"abcdefghij");
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(2)
+        .with_top_sort(DiskMapSortField::Files);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.top_entries.len(), 2);
+    assert_eq!(report.top_entries[0].path, root.join("many"));
+    assert_eq!(report.top_entries[0].files, 2);
+    assert_eq!(report.top_entries[1].path, root.join("large.bin"));
+    assert_eq!(report.top_entries[1].logical_bytes, 10);
+}
+
+#[test]
 fn disk_map_groups_files_by_extension_depth_and_age() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
@@ -115,6 +136,29 @@ fn disk_map_groups_files_by_extension_depth_and_age() {
     assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-2", 5, 1);
     assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-3", 3, 1);
     assert_group_metrics(&report, DiskMapGroupKind::Age, "modified-7d", 10, 3);
+}
+
+#[test]
+fn disk_map_sorts_groups_by_requested_field() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("a.txt"), b"x");
+    write_file(root.join("b.txt"), b"x");
+    write_file(root.join("large.bin"), b"abcdefghij");
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(0)
+        .with_group_kinds(vec![DiskMapGroupKind::Extension])
+        .with_group_limit(2)
+        .with_group_sort(DiskMapSortField::Files);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.groups.len(), 2);
+    assert_eq!(report.groups[0].key, ".txt");
+    assert_eq!(report.groups[0].metrics.files, 2);
+    assert_eq!(report.groups[1].key, ".bin");
+    assert_eq!(report.groups[1].metrics.logical_bytes, 10);
 }
 
 fn assert_group_metrics(

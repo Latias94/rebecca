@@ -22,9 +22,11 @@ pub const DEFAULT_DISK_MAP_GROUP_LIMIT: usize = 20;
 pub struct DiskMapRequest {
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+    pub top_sort: DiskMapSortField,
     pub diagnostic_limit: usize,
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
+    pub group_sort: DiskMapSortField,
     pub max_depth: Option<usize>,
     pub scan_backend: ScanBackendKind,
 }
@@ -34,9 +36,11 @@ impl DiskMapRequest {
         Self {
             roots,
             top_limit: DEFAULT_DISK_MAP_TOP_LIMIT,
+            top_sort: DiskMapSortField::Logical,
             diagnostic_limit: DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT,
             group_kinds: Vec::new(),
             group_limit: DEFAULT_DISK_MAP_GROUP_LIMIT,
+            group_sort: DiskMapSortField::Logical,
             max_depth: None,
             scan_backend: ScanBackendKind::PortableRecursive,
         }
@@ -44,6 +48,11 @@ impl DiskMapRequest {
 
     pub fn with_top_limit(mut self, top_limit: usize) -> Self {
         self.top_limit = top_limit;
+        self
+    }
+
+    pub fn with_top_sort(mut self, top_sort: DiskMapSortField) -> Self {
+        self.top_sort = top_sort;
         self
     }
 
@@ -59,6 +68,11 @@ impl DiskMapRequest {
 
     pub fn with_group_limit(mut self, group_limit: usize) -> Self {
         self.group_limit = group_limit;
+        self
+    }
+
+    pub fn with_group_sort(mut self, group_sort: DiskMapSortField) -> Self {
+        self.group_sort = group_sort;
         self
     }
 
@@ -144,6 +158,60 @@ impl DiskMapMetrics {
         );
         self.files = self.files.saturating_add(other.files);
         self.directories = self.directories.saturating_add(other.directories);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskMapSortField {
+    #[default]
+    Logical,
+    Allocated,
+    Files,
+    Unique,
+}
+
+impl DiskMapSortField {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Logical => "logical",
+            Self::Allocated => "allocated",
+            Self::Files => "files",
+            Self::Unique => "unique",
+        }
+    }
+
+    fn entry_value(self, entry: &DiskMapEntry) -> u64 {
+        self.value(
+            entry.logical_bytes,
+            entry.allocated_bytes,
+            entry.unique_logical_bytes,
+            entry.files,
+        )
+    }
+
+    fn metrics_value(self, metrics: &DiskMapMetrics) -> u64 {
+        self.value(
+            metrics.logical_bytes,
+            metrics.allocated_bytes,
+            metrics.unique_logical_bytes,
+            metrics.files,
+        )
+    }
+
+    fn value(
+        self,
+        logical_bytes: u64,
+        allocated_bytes: Option<u64>,
+        unique_logical_bytes: Option<u64>,
+        files: u64,
+    ) -> u64 {
+        match self {
+            Self::Logical => logical_bytes,
+            Self::Allocated => allocated_bytes.unwrap_or(logical_bytes),
+            Self::Files => files,
+            Self::Unique => unique_logical_bytes.unwrap_or(logical_bytes),
+        }
     }
 }
 
@@ -327,11 +395,12 @@ impl DiskMapInspectionState {
     fn new(request: &DiskMapRequest) -> Self {
         Self {
             report: DiskMapReport::default(),
-            top_entries: DiskMapTopEntries::new(request.top_limit),
+            top_entries: DiskMapTopEntries::new(request.top_limit, request.top_sort),
             groups: DiskMapGroupCollector::new(
                 request.group_kinds.clone(),
                 request.group_limit,
                 SystemTime::now(),
+                request.group_sort,
             ),
             diagnostics: DiskMapDiagnostics::new(request.diagnostic_limit),
         }
@@ -348,10 +417,12 @@ impl DiskMapInspectionState {
     fn backend_options(&self, request: &DiskMapRequest) -> DiskMapBackendOptions {
         DiskMapBackendOptions {
             top_limit: request.top_limit,
+            top_sort: request.top_sort,
             max_depth: request.max_depth,
             group_kinds: request.group_kinds.clone(),
             group_limit: request.group_limit,
             group_now: self.groups.now(),
+            group_sort: request.group_sort,
         }
     }
 }
@@ -814,17 +885,24 @@ pub(crate) struct DiskMapGroupCollector {
     kinds: Vec<DiskMapGroupKind>,
     limit: usize,
     now: SystemTime,
+    sort: DiskMapSortField,
     groups: BTreeMap<DiskMapGroupMapKey, DiskMapGroupAccumulator>,
 }
 
 impl DiskMapGroupCollector {
-    pub(crate) fn new(mut kinds: Vec<DiskMapGroupKind>, limit: usize, now: SystemTime) -> Self {
+    pub(crate) fn new(
+        mut kinds: Vec<DiskMapGroupKind>,
+        limit: usize,
+        now: SystemTime,
+        sort: DiskMapSortField,
+    ) -> Self {
         kinds.sort();
         kinds.dedup();
         Self {
             kinds,
             limit,
             now,
+            sort,
             groups: BTreeMap::new(),
         }
     }
@@ -877,16 +955,16 @@ impl DiskMapGroupCollector {
     }
 
     pub(crate) fn finish(self) -> Vec<DiskMapGroup> {
+        let sort = self.sort;
         let mut groups = self
             .groups
             .into_values()
             .map(DiskMapGroupAccumulator::into_group)
             .collect::<Vec<_>>();
         groups.sort_by(|left, right| {
-            right
-                .metrics
-                .logical_bytes
-                .cmp(&left.metrics.logical_bytes)
+            sort.metrics_value(&right.metrics)
+                .cmp(&sort.metrics_value(&left.metrics))
+                .then_with(|| right.metrics.logical_bytes.cmp(&left.metrics.logical_bytes))
                 .then_with(|| right.metrics.files.cmp(&left.metrics.files))
                 .then_with(|| left.kind.cmp(&right.kind))
                 .then_with(|| left.key.cmp(&right.key))
@@ -1741,14 +1819,16 @@ fn push_portable_entry(
 #[derive(Debug, Default)]
 pub(crate) struct DiskMapTopEntries {
     limit: usize,
+    sort: DiskMapSortField,
     heap: BinaryHeap<Reverse<DiskMapTopCandidate>>,
     sequence: u64,
 }
 
 impl DiskMapTopEntries {
-    pub(crate) fn new(limit: usize) -> Self {
+    pub(crate) fn new(limit: usize, sort: DiskMapSortField) -> Self {
         Self {
             limit,
+            sort,
             heap: BinaryHeap::with_capacity(limit),
             sequence: 0,
         }
@@ -1760,7 +1840,7 @@ impl DiskMapTopEntries {
         }
 
         let candidate = DiskMapTopCandidate {
-            rank: DiskMapTopRank::from_entry(&entry),
+            rank: DiskMapTopRank::from_entry(&entry, self.sort),
             sequence: self.sequence,
             entry,
         };
@@ -1818,6 +1898,7 @@ impl PartialOrd for DiskMapTopCandidate {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct DiskMapTopRank {
+    sort_value: u64,
     logical_bytes: u64,
     files: u64,
     directories: u64,
@@ -1825,8 +1906,9 @@ struct DiskMapTopRank {
 }
 
 impl DiskMapTopRank {
-    fn from_entry(entry: &DiskMapEntry) -> Self {
+    fn from_entry(entry: &DiskMapEntry, sort: DiskMapSortField) -> Self {
         Self {
+            sort_value: sort.entry_value(entry),
             logical_bytes: entry.logical_bytes,
             files: entry.files,
             directories: entry.directories,
@@ -1866,15 +1948,22 @@ pub(crate) struct DiskMapBackendRoot {
 #[derive(Debug, Clone)]
 pub(crate) struct DiskMapBackendOptions {
     pub(crate) top_limit: usize,
+    pub(crate) top_sort: DiskMapSortField,
     pub(crate) max_depth: Option<usize>,
     pub(crate) group_kinds: Vec<DiskMapGroupKind>,
     pub(crate) group_limit: usize,
     pub(crate) group_now: SystemTime,
+    pub(crate) group_sort: DiskMapSortField,
 }
 
 impl DiskMapBackendOptions {
     pub(crate) fn group_collector(&self) -> DiskMapGroupCollector {
-        DiskMapGroupCollector::new(self.group_kinds.clone(), self.group_limit, self.group_now)
+        DiskMapGroupCollector::new(
+            self.group_kinds.clone(),
+            self.group_limit,
+            self.group_now,
+            self.group_sort,
+        )
     }
 }
 
