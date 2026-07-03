@@ -237,7 +237,9 @@ fn disk_map_experimental_backend_records_portable_fallback() {
 }
 
 #[test]
-fn disk_map_experimental_backend_uses_portable_inventory_for_groups() {
+fn disk_map_experimental_backend_fallback_preserves_groups() {
+    let _env = EnvVarGuard::set(TEST_DISABLE_LIVE_NTFS_MFT_ENV, "1");
+
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_file(root.join("target").join("app.bin"), b"abcd");
@@ -257,7 +259,7 @@ fn disk_map_experimental_backend_uses_portable_inventory_for_groups() {
             .estimate_provenance
             .estimate_fallback_reason
             .as_deref()
-            .is_some_and(|reason| reason.contains("grouping is not available"))
+            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
     );
     assert_eq!(report.diagnostics[0].kind, DiskMapDiagnosticKind::Fallback);
 }

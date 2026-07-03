@@ -146,10 +146,9 @@ When callers pass one or more `--group-by extension|depth|age` flags,
 `inspect-map` includes `groups`: bounded file-only distribution summaries with
 `kind`, stable `key`, human `label`, and the same `metrics` object used by roots
 and entries. `--group-limit` bounds the combined group list across all requested
-group kinds. Grouped requests through `windows-ntfs-mft-experimental` currently
-fall back to portable inventory with explicit provenance because the
-experimental backend does not yet stream per-file group records into this
-contract.
+group kinds. Windows native and experimental NTFS/MFT disk-map inventory both
+feed these groups from the same traversal that produces ranked entries; backend
+fallback is reserved for ordinary backend unavailability.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was

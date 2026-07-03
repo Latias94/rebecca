@@ -219,9 +219,9 @@ caveats mean path-ranked bytes may overstate unique physical usage, while
 non-null unique fields deduplicate stable Windows file ids.
 `inspect map --group-by extension|depth|age` adds bounded file-only distribution
 groups from the same traversal; `--group-limit` caps the combined group list.
-Grouped requests through `windows-ntfs-mft-experimental` must fall back with
-provenance until the experimental backend exposes per-file group records through
-the common disk-map contract.
+Windows native and experimental NTFS/MFT inventory feed these groups directly
+from their own traversal paths; fallback should only occur when a requested
+backend is unavailable or unsafe for the target.
 Unsupported metadata, such as nonresident attribute lists that cannot be
 expanded directly, stale sequence references, or unreadable `$I30` child nodes,
 must produce caveats or fallback instead of silent success.

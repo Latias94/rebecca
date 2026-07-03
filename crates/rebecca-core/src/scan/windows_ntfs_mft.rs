@@ -9,7 +9,7 @@ use std::os::windows::io::AsRawHandle;
 use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rayon::{ThreadPool, prelude::*};
 use rebecca_ntfs::{
@@ -37,7 +37,8 @@ use windows::Win32::System::Ioctl::{
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
 use crate::disk_map::{
-    DiskMapBackendRoot, DiskMapEntry, DiskMapEntryKind, DiskMapMetrics, DiskMapTopEntries,
+    DiskMapBackendOptions, DiskMapBackendRoot, DiskMapEntry, DiskMapEntryKind, DiskMapFileIdentity,
+    DiskMapGroupCollector, DiskMapMetadataSemantics, DiskMapMetrics, DiskMapTopEntries,
 };
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
@@ -558,8 +559,7 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
 pub(super) fn inspect_disk_map(
     cache: &WindowsNtfsMftIndexCache,
     path: &Path,
-    top_limit: usize,
-    max_depth: Option<usize>,
+    options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
 ) -> Result<DiskMapBackendRoot> {
     check_not_cancelled(cancellation)?;
@@ -587,8 +587,7 @@ pub(super) fn inspect_disk_map(
             &capabilities,
             target_identity.file_reference,
             path,
-            top_limit,
-            max_depth,
+            options,
             cancellation,
         );
     }
@@ -607,9 +606,10 @@ pub(super) fn inspect_disk_map(
         })?;
 
     let summary = index.mft_index.aggregate_subtree(target_record_id);
-    let mut top_entries = DiskMapTopEntries::new(top_limit);
+    let mut top_entries = DiskMapTopEntries::new(options.top_limit);
+    let mut groups = options.group_collector();
     let mut visited = BTreeSet::new();
-    let max_depth = max_depth.unwrap_or(usize::MAX);
+    let max_depth = options.max_depth.unwrap_or(usize::MAX);
     let backend_source = mft_backend_source_label(index.source_label);
     let entry_provenance = EstimateProvenance::from_backend_confidence_and_source(
         ScanBackendKind::WindowsNtfsMftExperimental,
@@ -636,6 +636,8 @@ pub(super) fn inspect_disk_map(
                 &entry_provenance,
                 &mut visited,
                 &mut top_entries,
+                &mut groups,
+                capabilities.volume_serial,
                 cancellation,
             )?;
             metrics.add(child_metrics);
@@ -652,6 +654,8 @@ pub(super) fn inspect_disk_map(
             &entry_provenance,
             &mut visited,
             &mut top_entries,
+            &mut groups,
+            capabilities.volume_serial,
             cancellation,
         )?
     };
@@ -673,6 +677,7 @@ pub(super) fn inspect_disk_map(
     Ok(DiskMapBackendRoot {
         metrics,
         top_entries: top_entries.into_sorted_entries(),
+        groups,
         diagnostics: Vec::new(),
         estimate_provenance: EstimateProvenance::from_measured_scan(&measured),
     })
@@ -692,6 +697,8 @@ fn collect_mft_disk_map_entry(
     estimate_provenance: &EstimateProvenance,
     visited: &mut BTreeSet<u64>,
     top_entries: &mut DiskMapTopEntries,
+    groups: &mut DiskMapGroupCollector,
+    volume_serial_number: u64,
     cancellation: &ScanCancellationToken,
 ) -> Result<DiskMapMetrics> {
     check_not_cancelled(cancellation)?;
@@ -739,10 +746,26 @@ fn collect_mft_disk_map_entry(
                 estimate_provenance,
                 visited,
                 top_entries,
+                groups,
+                volume_serial_number,
                 cancellation,
             )?;
             metrics.add(child_metrics);
         }
+    }
+
+    if !entry.is_directory {
+        groups.record_file(
+            &path,
+            depth,
+            entry.logical_size,
+            entry.allocated_size,
+            ntfs_filetime_to_system_time(Some(entry.modified_windows_filetime)),
+            DiskMapMetadataSemantics::with_file_identity(DiskMapFileIdentity::new(
+                volume_serial_number,
+                entry.reference.record_id,
+            )),
+        );
     }
 
     if depth <= max_depth {
@@ -1245,8 +1268,7 @@ fn build_targeted_mft_disk_map(
     capabilities: &NtfsVolumeCapabilities,
     target_reference: NtfsFileReference,
     root_path: &Path,
-    top_limit: usize,
-    max_depth: Option<usize>,
+    options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
 ) -> Result<DiskMapBackendRoot> {
     let monitor = NtfsMftBuildMonitor::from_environment();
@@ -1285,8 +1307,8 @@ fn build_targeted_mft_disk_map(
             traversal.collect_disk_map(
                 target_reference,
                 root_path,
-                top_limit,
-                max_depth.unwrap_or(usize::MAX),
+                &options,
+                capabilities.volume_serial,
                 &entry_provenance,
             )
         },
@@ -1311,6 +1333,7 @@ fn build_targeted_mft_disk_map(
     Ok(DiskMapBackendRoot {
         metrics: targeted_map.metrics,
         top_entries: targeted_map.top_entries,
+        groups: targeted_map.groups,
         diagnostics: Vec::new(),
         estimate_provenance: EstimateProvenance::from_measured_scan(&measured),
     })
@@ -1547,29 +1570,29 @@ where
         &mut self,
         root: NtfsFileReference,
         root_path: &Path,
-        top_limit: usize,
-        max_visible_depth: usize,
+        options: &DiskMapBackendOptions,
+        volume_serial_number: u64,
         entry_provenance: &EstimateProvenance,
     ) -> Result<TargetedDiskMap> {
-        let mut state = TargetedDiskMapState::new(top_limit);
+        let mut state = TargetedDiskMapState::new(options.top_limit, options.group_collector());
         let root_node = TargetedDiskMapNode {
             reference: root,
             path: root_path.to_path_buf(),
             depth: 0,
             directory_entry: None,
         };
-        let metrics = self.collect_disk_map_record(
-            root_node,
+        let context = TargetedDiskMapContext {
             root_path,
-            false,
-            max_visible_depth,
+            max_visible_depth: options.max_depth.unwrap_or(usize::MAX),
+            volume_serial_number,
             entry_provenance,
-            &mut state,
-        )?;
+        };
+        let metrics = self.collect_disk_map_record(root_node, false, &context, &mut state)?;
 
         Ok(TargetedDiskMap {
             metrics,
             top_entries: state.top_entries.into_sorted_entries(),
+            groups: state.groups,
             caveats: state.caveats,
         })
     }
@@ -1577,10 +1600,8 @@ where
     fn collect_disk_map_record(
         &mut self,
         node: TargetedDiskMapNode,
-        root_path: &Path,
         include_root_directory: bool,
-        max_visible_depth: usize,
-        entry_provenance: &EstimateProvenance,
+        context: &TargetedDiskMapContext<'_>,
         state: &mut TargetedDiskMapState,
     ) -> Result<DiskMapMetrics> {
         check_mft_build_progress(self.cancellation, self.monitor)?;
@@ -1677,9 +1698,7 @@ where
                 &record,
                 &node.path,
                 node.depth,
-                root_path,
-                max_visible_depth,
-                entry_provenance,
+                context,
                 state,
                 &mut metrics,
             )?;
@@ -1695,12 +1714,30 @@ where
             }
         };
 
+        if !record.is_directory {
+            state.groups.record_file(
+                &node.path,
+                node.depth,
+                metrics.logical_bytes,
+                metrics.allocated_bytes,
+                ntfs_filetime_to_system_time(
+                    record
+                        .primary_file_name()
+                        .map(|file_name| file_name.modified_windows_filetime),
+                ),
+                DiskMapMetadataSemantics::with_file_identity(DiskMapFileIdentity::new(
+                    context.volume_serial_number,
+                    record.reference.record_id,
+                )),
+            );
+        }
+
         let should_push_entry =
             !record.is_directory || include_root_directory || node.directory_entry.is_some();
-        if should_push_entry && node.depth <= max_visible_depth {
+        if should_push_entry && node.depth <= context.max_visible_depth {
             state.top_entries.push(DiskMapEntry {
                 path: node.path,
-                root: root_path.to_path_buf(),
+                root: context.root_path.to_path_buf(),
                 kind: if record.is_directory {
                     DiskMapEntryKind::Directory
                 } else {
@@ -1714,25 +1751,19 @@ where
                 files: metrics.files,
                 directories: metrics.directories,
                 estimate_source: EstimateSource::FreshScan,
-                estimate_provenance: entry_provenance.clone(),
+                estimate_provenance: context.entry_provenance.clone(),
             });
         }
 
         Ok(metrics)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "targeted disk-map traversal carries bounded report state"
-    )]
     fn collect_disk_map_children(
         &mut self,
         record: &NtfsParsedRecord,
         parent_path: &Path,
         parent_depth: usize,
-        root_path: &Path,
-        max_visible_depth: usize,
-        entry_provenance: &EstimateProvenance,
+        context: &TargetedDiskMapContext<'_>,
         state: &mut TargetedDiskMapState,
         metrics: &mut DiskMapMetrics,
     ) -> Result<()> {
@@ -1767,14 +1798,7 @@ where
                 depth: parent_depth.saturating_add(1),
                 directory_entry: Some(entry.clone()),
             };
-            let child_metrics = self.collect_disk_map_record(
-                child,
-                root_path,
-                true,
-                max_visible_depth,
-                entry_provenance,
-                state,
-            )?;
+            let child_metrics = self.collect_disk_map_record(child, true, context, state)?;
             metrics.add(child_metrics);
         }
 
@@ -1879,7 +1903,16 @@ struct TargetedTraversalNode {
 struct TargetedDiskMap {
     metrics: DiskMapMetrics,
     top_entries: Vec<DiskMapEntry>,
+    groups: DiskMapGroupCollector,
     caveats: Vec<ParseCaveat>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TargetedDiskMapContext<'a> {
+    root_path: &'a Path,
+    max_visible_depth: usize,
+    volume_serial_number: u64,
+    entry_provenance: &'a EstimateProvenance,
 }
 
 #[derive(Debug)]
@@ -1887,15 +1920,17 @@ struct TargetedDiskMapState {
     visited: BTreeSet<u64>,
     traversal_attempts: usize,
     top_entries: DiskMapTopEntries,
+    groups: DiskMapGroupCollector,
     caveats: Vec<ParseCaveat>,
 }
 
 impl TargetedDiskMapState {
-    fn new(top_limit: usize) -> Self {
+    fn new(top_limit: usize, groups: DiskMapGroupCollector) -> Self {
         Self {
             visited: BTreeSet::new(),
             traversal_attempts: 0,
             top_entries: DiskMapTopEntries::new(top_limit),
+            groups,
             caveats: Vec::new(),
         }
     }
@@ -1945,6 +1980,28 @@ fn add_file_allocated_bytes(
         (Some(left), Some(right)) => Some(left.saturating_add(right)),
         _ => None,
     }
+}
+
+const WINDOWS_TICK_SECONDS: u64 = 10_000_000;
+const WINDOWS_TO_UNIX_EPOCH_SECONDS: u64 = 11_644_473_600;
+
+fn ntfs_filetime_to_system_time(filetime: Option<u64>) -> Option<SystemTime> {
+    let filetime = filetime?;
+    if filetime == 0 {
+        return None;
+    }
+
+    let seconds = filetime / WINDOWS_TICK_SECONDS;
+    let ticks = filetime % WINDOWS_TICK_SECONDS;
+    if seconds < WINDOWS_TO_UNIX_EPOCH_SECONDS {
+        return None;
+    }
+
+    Some(
+        UNIX_EPOCH
+            + Duration::from_secs(seconds - WINDOWS_TO_UNIX_EPOCH_SECONDS)
+            + Duration::from_nanos(ticks.saturating_mul(100)),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2689,7 +2746,7 @@ fn windows_error_matches(err: &WindowsError, code: WIN32_ERROR) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::time::Duration;
+    use std::time::{Duration, UNIX_EPOCH};
 
     use rebecca_ntfs::{
         AttributeType, FileNameNamespace, MftRecordReader, NtfsAttributeStream, NtfsDataRun,
@@ -2709,7 +2766,9 @@ mod tests {
         low_file_reference_number, next_mft_chunk_len, parse_retrieval_pointer_extents,
         parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
-    use crate::disk_map::DiskMapEntryKind;
+    use crate::disk_map::{
+        DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind,
+    };
     use crate::error::{RebeccaError, Result};
     use crate::plan::EstimateProvenance;
     use crate::scan::ScanReport;
@@ -3174,8 +3233,8 @@ mod tests {
             .collect_disk_map(
                 NtfsFileReference::known(5, 5),
                 std::path::Path::new("C:\\root"),
-                2,
-                usize::MAX,
+                &disk_map_options(2, None, Vec::new()),
+                100,
                 &EstimateProvenance::default(),
             )
             .unwrap();
@@ -3196,6 +3255,69 @@ mod tests {
             std::path::PathBuf::from("C:\\root\\small.bin")
         );
         assert!(map.caveats.is_empty());
+    }
+
+    #[test]
+    fn targeted_disk_map_collects_requested_groups_without_full_index() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 5, "large.bin", 10))
+            .with_record(parsed_file(7, 5, "small.txt", 3));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "large.bin",
+                        0,
+                    ),
+                    index_allocation_entry(
+                        file_reference(7, 7),
+                        file_reference(5, 5),
+                        "small.txt",
+                        0,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let map = traversal
+            .collect_disk_map(
+                NtfsFileReference::known(5, 5),
+                std::path::Path::new("C:\\root"),
+                &disk_map_options(
+                    0,
+                    None,
+                    vec![
+                        DiskMapGroupKind::Extension,
+                        DiskMapGroupKind::Depth,
+                        DiskMapGroupKind::Age,
+                    ],
+                ),
+                100,
+                &EstimateProvenance::default(),
+            )
+            .unwrap();
+        let groups = map.groups.finish();
+
+        assert_group_metrics(&groups, DiskMapGroupKind::Extension, ".bin", 10, 1);
+        assert_group_metrics(&groups, DiskMapGroupKind::Extension, ".txt", 3, 1);
+        assert_group_metrics(&groups, DiskMapGroupKind::Depth, "depth-1", 13, 2);
+        assert_group_metrics(&groups, DiskMapGroupKind::Age, "modified-unknown", 13, 2);
     }
 
     #[test]
@@ -3233,8 +3355,8 @@ mod tests {
             .collect_disk_map(
                 NtfsFileReference::known(5, 5),
                 std::path::Path::new("C:\\root"),
-                10,
-                0,
+                &disk_map_options(10, Some(0), Vec::new()),
+                100,
                 &EstimateProvenance::default(),
             )
             .unwrap();
@@ -3285,8 +3407,8 @@ mod tests {
             .collect_disk_map(
                 NtfsFileReference::known(5, 5),
                 std::path::Path::new("C:\\root"),
-                10,
-                usize::MAX,
+                &disk_map_options(10, None, Vec::new()),
+                100,
                 &EstimateProvenance::default(),
             )
             .unwrap();
@@ -3341,8 +3463,8 @@ mod tests {
             .collect_disk_map(
                 NtfsFileReference::known(5, 5),
                 std::path::Path::new("C:\\root"),
-                10,
-                usize::MAX,
+                &disk_map_options(10, None, Vec::new()),
+                100,
                 &EstimateProvenance::default(),
             )
             .unwrap();
@@ -3395,8 +3517,8 @@ mod tests {
             .collect_disk_map(
                 NtfsFileReference::known(5, 5),
                 std::path::Path::new("C:\\root"),
-                10,
-                usize::MAX,
+                &disk_map_options(10, None, Vec::new()),
+                100,
                 &EstimateProvenance::default(),
             )
             .unwrap();
@@ -3787,6 +3909,35 @@ mod tests {
         NtfsMftBuildMonitor::new(None, false)
     }
 
+    fn disk_map_options(
+        top_limit: usize,
+        max_depth: Option<usize>,
+        group_kinds: Vec<DiskMapGroupKind>,
+    ) -> DiskMapBackendOptions {
+        DiskMapBackendOptions {
+            top_limit,
+            max_depth,
+            group_kinds,
+            group_limit: 20,
+            group_now: UNIX_EPOCH,
+        }
+    }
+
+    fn assert_group_metrics(
+        groups: &[DiskMapGroup],
+        kind: DiskMapGroupKind,
+        key: &str,
+        logical_bytes: u64,
+        files: u64,
+    ) {
+        let group = groups
+            .iter()
+            .find(|group| group.kind == kind && group.key == key)
+            .unwrap_or_else(|| panic!("missing group {}:{key}", kind.label()));
+        assert_eq!(group.metrics.logical_bytes, logical_bytes);
+        assert_eq!(group.metrics.files, files);
+    }
+
     fn parsed_directory_with_index_allocation(record_id: u64, name: &str) -> NtfsParsedRecord {
         NtfsParsedRecord {
             reference: NtfsFileReference::known(record_id, record_id as u16),
@@ -3864,6 +4015,7 @@ mod tests {
             parent: NtfsFileReference::known(parent_id, parent_id as u16),
             namespace: FileNameNamespace::Win32,
             name: name.to_string(),
+            modified_windows_filetime: 0,
             allocated_size: 0,
             real_size: 0,
             file_attributes,

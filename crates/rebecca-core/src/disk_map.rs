@@ -344,6 +344,16 @@ impl DiskMapInspectionState {
         self.diagnostics.finish(&mut self.report);
         self.report
     }
+
+    fn backend_options(&self, request: &DiskMapRequest) -> DiskMapBackendOptions {
+        DiskMapBackendOptions {
+            top_limit: request.top_limit,
+            max_depth: request.max_depth,
+            group_kinds: request.group_kinds.clone(),
+            group_limit: request.group_limit,
+            group_now: self.groups.now(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -592,13 +602,22 @@ enum DiskMapMetadataKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct DiskMapFileIdentity {
-    volume_serial_number: u32,
+pub(crate) struct DiskMapFileIdentity {
+    volume_serial_number: u64,
     file_index: u64,
 }
 
+impl DiskMapFileIdentity {
+    pub(crate) const fn new(volume_serial_number: u64, file_index: u64) -> Self {
+        Self {
+            volume_serial_number,
+            file_index,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct DiskMapMetadataSemantics {
+pub(crate) struct DiskMapMetadataSemantics {
     compressed: bool,
     sparse: bool,
     hardlink_count: Option<u32>,
@@ -607,6 +626,13 @@ struct DiskMapMetadataSemantics {
 }
 
 impl DiskMapMetadataSemantics {
+    pub(crate) fn with_file_identity(file_identity: DiskMapFileIdentity) -> Self {
+        Self {
+            file_identity: Some(file_identity),
+            ..Self::default()
+        }
+    }
+
     fn with_reparse_like(mut self) -> Self {
         self.reparse_like = true;
         self
@@ -767,6 +793,12 @@ impl DiskMapGroupAccumulator {
         self.unique_files.apply_to_metrics(&mut self.metrics);
     }
 
+    fn merge(&mut self, other: Self) {
+        self.metrics.add(other.metrics);
+        self.unique_files.merge(other.unique_files);
+        self.unique_files.apply_to_metrics(&mut self.metrics);
+    }
+
     fn into_group(self) -> DiskMapGroup {
         DiskMapGroup {
             kind: self.kind,
@@ -778,7 +810,7 @@ impl DiskMapGroupAccumulator {
 }
 
 #[derive(Debug, Clone)]
-struct DiskMapGroupCollector {
+pub(crate) struct DiskMapGroupCollector {
     kinds: Vec<DiskMapGroupKind>,
     limit: usize,
     now: SystemTime,
@@ -786,7 +818,7 @@ struct DiskMapGroupCollector {
 }
 
 impl DiskMapGroupCollector {
-    fn new(mut kinds: Vec<DiskMapGroupKind>, limit: usize, now: SystemTime) -> Self {
+    pub(crate) fn new(mut kinds: Vec<DiskMapGroupKind>, limit: usize, now: SystemTime) -> Self {
         kinds.sort();
         kinds.dedup();
         Self {
@@ -797,7 +829,11 @@ impl DiskMapGroupCollector {
         }
     }
 
-    fn record_file(
+    pub(crate) fn now(&self) -> SystemTime {
+        self.now
+    }
+
+    pub(crate) fn record_file(
         &mut self,
         path: &Path,
         depth: usize,
@@ -827,7 +863,20 @@ impl DiskMapGroupCollector {
         }
     }
 
-    fn finish(self) -> Vec<DiskMapGroup> {
+    pub(crate) fn merge(&mut self, other: Self) {
+        for (map_key, accumulator) in other.groups {
+            match self.groups.entry(map_key) {
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().merge(accumulator);
+                }
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(accumulator);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn finish(self) -> Vec<DiskMapGroup> {
         let mut groups = self
             .groups
             .into_values()
@@ -1206,7 +1255,7 @@ impl From<crate::scan::windows_native::WindowsNativeFileSemantics> for DiskMapMe
             sparse: value.sparse,
             hardlink_count: value.hardlink_count,
             file_identity: value.file_id.map(|file_id| DiskMapFileIdentity {
-                volume_serial_number: file_id.volume_serial_number,
+                volume_serial_number: file_id.volume_serial_number as u64,
                 file_index: file_id.file_index,
             }),
             reparse_like: false,
@@ -1520,26 +1569,9 @@ fn inspect_root(
     }
 
     if request.scan_backend == ScanBackendKind::WindowsNtfsMftExperimental {
-        if !request.group_kinds.is_empty() {
-            let fallback_reason =
-                "windows-ntfs-mft-experimental disk-map grouping is not available; portable recursive inventory was used".to_string();
-            return DiskMapRootInspection {
-                request,
-                cancellation,
-                state,
-                walker: &walker,
-            }
-            .inspect(
-                root,
-                portable_estimate_provenance(Some(fallback_reason.clone())),
-                Some(fallback_reason),
-            );
-        }
-
         match scan_engine.inspect_windows_ntfs_mft_disk_map(
             root,
-            request.top_limit,
-            request.max_depth,
+            state.backend_options(request),
             cancellation,
         ) {
             Ok(root_map) => {
@@ -1637,6 +1669,7 @@ fn push_backend_root(
     for entry in root_map.top_entries {
         state.top_entries.push(entry);
     }
+    state.groups.merge(root_map.groups);
     state.diagnostics.extend(root_map.diagnostics);
     state.report.roots.push(DiskMapRoot {
         path: root.to_path_buf(),
@@ -1825,8 +1858,24 @@ fn push_root_skip(
 pub(crate) struct DiskMapBackendRoot {
     pub(crate) metrics: DiskMapMetrics,
     pub(crate) top_entries: Vec<DiskMapEntry>,
+    pub(crate) groups: DiskMapGroupCollector,
     pub(crate) diagnostics: Vec<DiskMapDiagnostic>,
     pub(crate) estimate_provenance: EstimateProvenance,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DiskMapBackendOptions {
+    pub(crate) top_limit: usize,
+    pub(crate) max_depth: Option<usize>,
+    pub(crate) group_kinds: Vec<DiskMapGroupKind>,
+    pub(crate) group_limit: usize,
+    pub(crate) group_now: SystemTime,
+}
+
+impl DiskMapBackendOptions {
+    pub(crate) fn group_collector(&self) -> DiskMapGroupCollector {
+        DiskMapGroupCollector::new(self.group_kinds.clone(), self.group_limit, self.group_now)
+    }
 }
 
 fn portable_estimate_provenance(fallback_reason: Option<String>) -> EstimateProvenance {

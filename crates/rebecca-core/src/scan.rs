@@ -22,7 +22,7 @@ pub use progress::{ScanCancellationToken, ScanProgressEvent};
 #[cfg(windows)]
 pub use windows_native::WindowsNativeDirectoryScanBackend;
 
-use crate::disk_map::DiskMapBackendRoot;
+use crate::disk_map::{DiskMapBackendOptions, DiskMapBackendRoot};
 use crate::error::Result;
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
@@ -86,11 +86,10 @@ impl ScanEngine {
     pub(crate) fn inspect_windows_ntfs_mft_disk_map(
         &self,
         path: &Path,
-        top_limit: usize,
-        max_depth: Option<usize>,
+        options: DiskMapBackendOptions,
         cancellation: &ScanCancellationToken,
     ) -> Result<DiskMapBackendRoot> {
-        inspect_windows_ntfs_mft_disk_map(self, path, top_limit, max_depth, cancellation)
+        inspect_windows_ntfs_mft_disk_map(self, path, options, cancellation)
     }
 
     pub fn measure_path_with_progress<F>(
@@ -326,8 +325,7 @@ where
 fn inspect_windows_ntfs_mft_disk_map(
     engine: &ScanEngine,
     path: &Path,
-    top_limit: usize,
-    max_depth: Option<usize>,
+    options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
 ) -> Result<DiskMapBackendRoot> {
     #[cfg(debug_assertions)]
@@ -339,13 +337,7 @@ fn inspect_windows_ntfs_mft_disk_map(
         )));
     }
 
-    windows_ntfs_mft::inspect_disk_map(
-        &engine.context.ntfs_mft_cache,
-        path,
-        top_limit,
-        max_depth,
-        cancellation,
-    )
+    windows_ntfs_mft::inspect_disk_map(&engine.context.ntfs_mft_cache, path, options, cancellation)
 }
 
 #[cfg(not(windows))]
@@ -366,8 +358,7 @@ where
 fn inspect_windows_ntfs_mft_disk_map(
     _engine: &ScanEngine,
     _path: &Path,
-    _top_limit: usize,
-    _max_depth: Option<usize>,
+    _options: DiskMapBackendOptions,
     _cancellation: &ScanCancellationToken,
 ) -> Result<DiskMapBackendRoot> {
     Err(crate::error::RebeccaError::PlatformUnavailable(

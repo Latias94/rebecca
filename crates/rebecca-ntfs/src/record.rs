@@ -339,6 +339,7 @@ pub(crate) fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
         ),
         namespace: FileNameNamespace::from_raw(value[65]),
         name: utf16_lossy(&value[66..66 + name_bytes]),
+        modified_windows_filetime: read_u64(value, 16)?,
         allocated_size: read_u64(value, 40)?,
         real_size: read_u64(value, 48)?,
         file_attributes: read_u32(value, 56)?,

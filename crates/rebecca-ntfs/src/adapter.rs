@@ -116,6 +116,7 @@ pub struct NtfsFileName {
     pub parent: NtfsFileReference,
     pub namespace: FileNameNamespace,
     pub name: String,
+    pub modified_windows_filetime: u64,
     pub allocated_size: u64,
     pub real_size: u64,
     pub file_attributes: u32,
