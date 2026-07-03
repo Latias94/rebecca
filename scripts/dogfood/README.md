@@ -31,6 +31,11 @@ default:
 
 Drive roots are refused unless `-AllowDriveRoot` is passed. The script isolates
 Rebecca config, state, cache, and history paths under the report directory.
+Report directories inside the scanned root are refused unless
+`-AllowOutputInsideRoot` is passed, because generated raw output can pollute
+later backend comparisons. Backend mismatches or missing portable baselines make
+the script exit non-zero unless `-AllowMismatch` is passed; run failures and
+timeouts remain failures.
 
 Run the pure parser/report tests without invoking Cargo:
 

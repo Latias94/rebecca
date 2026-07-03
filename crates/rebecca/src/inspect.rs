@@ -606,12 +606,29 @@ fn format_advice_command(advice: &CleanupAdvice) -> String {
         .suggested_command
         .as_ref()
         .map(|command| {
-            std::iter::once(command.command.as_str())
-                .chain(command.args.iter().map(String::as_str))
+            std::iter::once(format_powershell_argument(&command.command))
+                .chain(
+                    command
+                        .args
+                        .iter()
+                        .map(|arg| format_powershell_argument(arg)),
+                )
                 .collect::<Vec<_>>()
                 .join(" ")
         })
         .unwrap_or_default()
+}
+
+fn format_powershell_argument(value: &str) -> String {
+    if !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '\\')
+        })
+    {
+        return value.to_string();
+    }
+
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn includes_table_row(

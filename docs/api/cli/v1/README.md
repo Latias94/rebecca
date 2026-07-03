@@ -66,7 +66,7 @@ flags can limit the export to selected row kinds; omitting them preserves the
 full table. When `--cleanup-advice` or `--advice-status` is enabled, the table
 appends cleanup columns for entry rows: status, relation, source, rule id,
 category, safety level, required flags, required warnings, protection kind,
-matched path, reason, and a dry-run command hint.
+matched path, reason, and a PowerShell-quoted dry-run command hint.
 
 ## Payload Kinds
 
@@ -191,7 +191,9 @@ project-artifact-backed advice can include `rule_id`, `category`,
 `safety_level`, `required_flags`, `required_warnings`, `matched_path`, `reason`,
 and a structured `suggested_command`. `--advice-status <status>` implies
 `--cleanup-advice` and filters only the ranked entries, not root totals or
-diagnostic summaries.
+diagnostic summaries. CSV/TSV `cleanup_command` cells are PowerShell-quoted
+human hints derived from the structured command; machine consumers should use
+JSON or NDJSON `suggested_command` fields instead of reparsing the table cell.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was

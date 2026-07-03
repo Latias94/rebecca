@@ -649,6 +649,53 @@ fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
 }
 
 #[test]
+fn inspect_map_table_quotes_cleanup_command_arguments_with_spaces_and_quotes() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace with 'quote'");
+    write_fixture_file(root.join("package.json"), b"{}");
+    write_fixture_file(root.join("node_modules").join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--table",
+            "csv",
+            "--table-row",
+            "entry",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "node_modules",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV);
+    let quoted_root = root.display().to_string().replace('\'', "''");
+    assert!(lines[1].contains(&format!(
+        "rebecca purge --dry-run --root '{}' --artifact node_modules",
+        quoted_root
+    )));
+}
+
+#[test]
 fn inspect_map_table_csv_exports_flat_rows() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace,with-comma");

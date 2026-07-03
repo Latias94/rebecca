@@ -58,6 +58,11 @@ The report is written under `target/inspect-map-dogfood/` and includes raw JSON
 stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested
 versus actual backend fields, diagnostic summary totals, fallback reasons,
 caveats, and portable-baseline comparison status.
+When scanning a root that contains the default report directory, pass an
+external `-OutputDirectory` or explicitly opt into `-AllowOutputInsideRoot`.
+Backend mismatches or missing portable baselines are non-zero by default; pass
+`-AllowMismatch` only for exploratory profiling runs where the report itself is
+the artifact being collected.
 The experimental backend has its own 20 second live metadata budget before
 falling back to a directory scanner; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`
 higher for deep profiling or `0` to disable that guard for one process.

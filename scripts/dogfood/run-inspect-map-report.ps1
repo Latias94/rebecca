@@ -9,6 +9,8 @@ param(
     [string]$OutputDirectory = "",
     [switch]$CleanupAdvice,
     [switch]$AllowDriveRoot,
+    [switch]$AllowOutputInsideRoot,
+    [switch]$AllowMismatch,
     [switch]$SelfTest
 )
 
@@ -59,6 +61,50 @@ function Resolve-ReportOutputDirectory {
     }
 
     return Join-Path (Get-RepoRoot) (Join-Path "target\inspect-map-dogfood" (Get-TimestampId))
+}
+
+function Get-NormalizedPathForComparison {
+    param([string]$Path)
+
+    $full = [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    if ([string]::IsNullOrWhiteSpace($full)) {
+        return $full
+    }
+    $root = [System.IO.Path]::GetPathRoot($full)
+    if ($null -ne $root -and $full -eq $root.TrimEnd('\', '/')) {
+        return $full
+    }
+    return $full
+}
+
+function Test-PathSameOrChild {
+    param(
+        [string]$Parent,
+        [string]$Child
+    )
+
+    $parentFull = Get-NormalizedPathForComparison -Path $Parent
+    $childFull = Get-NormalizedPathForComparison -Path $Child
+    if ($childFull.Equals($parentFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+    $parentWithSeparator = $parentFull.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    return $childFull.StartsWith($parentWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-OutputDirectoryOutsideRoot {
+    param(
+        [string]$RootPath,
+        [string]$OutputRoot,
+        [bool]$AllowInside
+    )
+
+    if ($AllowInside) {
+        return
+    }
+    if (Test-PathSameOrChild -Parent $RootPath -Child $OutputRoot) {
+        throw "Refusing to place dogfood output inside the scanned root because it can pollute backend comparisons. Pass -OutputDirectory outside '$RootPath' or add -AllowOutputInsideRoot: $OutputRoot"
+    }
 }
 
 function Resolve-RequiredRoot {
@@ -141,6 +187,32 @@ function Add-JsonValues {
         }
         Add-JsonValues -Node $property.Value -Names $Names -Values $Values
     }
+}
+
+function Get-ReportFailureMessages {
+    param(
+        [object[]]$Runs,
+        [bool]$AllowMismatchValue
+    )
+
+    $messages = [System.Collections.Generic.List[string]]::new()
+    $failedRuns = @($Runs | Where-Object { $_.status -ne "passed" })
+    if ($failedRuns.Count -gt 0) {
+        $messages.Add("run failures: " + (($failedRuns | ForEach-Object { "$($_.run_id)=$($_.status)" }) -join ", "))
+    }
+
+    if (-not $AllowMismatchValue) {
+        $comparisonFailures = @(
+            $Runs | Where-Object {
+                $_.comparison_status -in @("mismatched", "baseline-missing", "run-not-passed")
+            }
+        )
+        if ($comparisonFailures.Count -gt 0) {
+            $messages.Add("comparison failures: " + (($comparisonFailures | ForEach-Object { "$($_.run_id)=$($_.comparison_status)" }) -join ", ") + " (pass -AllowMismatch to keep the report exit code at 0)")
+        }
+    }
+
+    return @($messages)
 }
 
 function Join-ReportValues {
@@ -577,10 +649,36 @@ function Invoke-SelfTest {
     if (($runs | Where-Object { $_.requested_backend -eq "windows-native" }).comparison_status -ne "matched") {
         throw "self-test comparison failed"
     }
+    $mismatch = [pscustomobject]@{
+        run_id = "r1-native-mismatch"
+        status = "passed"
+        comparison_status = "mismatched"
+    }
+    if (@(Get-ReportFailureMessages -Runs @($mismatch) -AllowMismatchValue $false).Count -ne 1) {
+        throw "self-test mismatch failure detection failed"
+    }
+    if (@(Get-ReportFailureMessages -Runs @($mismatch) -AllowMismatchValue $true).Count -ne 0) {
+        throw "self-test mismatch opt-in failed"
+    }
 
     $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("rebecca-inspect-map-dogfood-selftest-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $temp | Out-Null
     try {
+        $rootForOverlap = Join-Path $temp "root"
+        $insideOutput = Join-Path $rootForOverlap "target\inspect-map-dogfood\run"
+        $outsideOutput = Join-Path $temp "outside"
+        New-Item -ItemType Directory -Force -Path $rootForOverlap | Out-Null
+        try {
+            Assert-OutputDirectoryOutsideRoot -RootPath $rootForOverlap -OutputRoot $insideOutput -AllowInside $false
+            throw "self-test output overlap rejection failed"
+        }
+        catch {
+            if ($_.Exception.Message -notlike "Refusing to place dogfood output inside*") {
+                throw
+            }
+        }
+        Assert-OutputDirectoryOutsideRoot -RootPath $rootForOverlap -OutputRoot $insideOutput -AllowInside $true
+        Assert-OutputDirectoryOutsideRoot -RootPath $rootForOverlap -OutputRoot $outsideOutput -AllowInside $false
         Convert-RunsForCsv -Runs $runs | Export-Csv -LiteralPath (Join-Path $temp "runs.csv") -NoTypeInformation
         $rows | Export-Csv -LiteralPath (Join-Path $temp "rows.csv") -NoTypeInformation
         if (-not (Test-Path -LiteralPath (Join-Path $temp "runs.csv"))) { throw "self-test csv failed" }
@@ -604,6 +702,7 @@ $GroupBy = Normalize-ValidatedList -Values $GroupBy -Allowed @("extension", "dep
 $repoRoot = Get-RepoRoot
 $resolvedRoot = Resolve-RequiredRoot -Path $Root -AllowDriveRootValue ([bool]$AllowDriveRoot)
 $outputRoot = Resolve-ReportOutputDirectory -Path $OutputDirectory
+Assert-OutputDirectoryOutsideRoot -RootPath $resolvedRoot -OutputRoot $outputRoot -AllowInside ([bool]$AllowOutputInsideRoot)
 $rawDirectory = Join-Path $outputRoot "raw"
 New-Item -ItemType Directory -Force -Path $rawDirectory | Out-Null
 
@@ -664,3 +763,11 @@ Write-Host "  JSON: $reportPath"
 Write-Host "  Runs: $runsCsvPath"
 Write-Host "  Rows: $rowsCsvPath"
 Write-Host "  Summary: $summaryPath"
+
+$failureMessages = @(Get-ReportFailureMessages -Runs $runs -AllowMismatchValue ([bool]$AllowMismatch))
+if ($failureMessages.Count -gt 0) {
+    foreach ($message in $failureMessages) {
+        [Console]::Error.WriteLine("ERROR: $message")
+    }
+    exit 1
+}
