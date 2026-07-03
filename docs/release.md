@@ -86,8 +86,8 @@ Collect live NTFS/MFT evidence with the local dogfood script. It isolates
 Rebecca config, state, cache, and history under `target\ntfs-dogfood\<run-id>\`
 and writes a JSON report plus raw command output for each backend run. Use the
 top-level `comparisons` section first: it records portable-baseline match
-status, fastest backend, duration ratios, and byte/file/directory deltas for
-each mode/root group.
+status, fastest run id, fastest requested and actual backend identity, duration
+ratios, and byte/file/directory deltas for each mode/root group.
 
 ```powershell
 pwsh -File scripts\ntfs\run-live-mft-dogfood.ps1 -Root . -Mode inspect-space -Top 10 -TimeoutSeconds 180

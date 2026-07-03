@@ -432,7 +432,10 @@ function Add-Comparisons {
                     baseline_backend = "portable-recursive"
                     baseline_run_id = $null
                     status = "baseline-missing"
-                    fastest_backend = $null
+                    fastest_run_id = $null
+                    fastest_requested_backend = $null
+                    fastest_actual_backend = $null
+                    fastest_backend_sources = @()
                     fastest_duration_ms = $null
                     runs = @()
                 }
@@ -556,6 +559,18 @@ function Add-Comparisons {
             else {
                 "matched"
             }
+            $fastestRunId = $null
+            $fastestRequestedBackend = $null
+            $fastestActualBackend = $null
+            $fastestBackendSources = @()
+            $fastestDurationMs = $null
+            if ($null -ne $fastest) {
+                $fastestRunId = $fastest.run_id
+                $fastestRequestedBackend = $fastest.requested_backend
+                $fastestActualBackend = $fastest.actual_backend
+                $fastestBackendSources = @($fastest.backend_sources)
+                $fastestDurationMs = $fastest.duration_ms
+            }
             $summaries += [pscustomobject]@{
                 mode = $modeGroup.Name
                 root = $rootGroup.Name
@@ -563,8 +578,11 @@ function Add-Comparisons {
                 baseline_run_id = $portable.run_id
                 baseline_metric = $portable.metric
                 status = $summaryStatus
-                fastest_backend = if ($null -eq $fastest) { $null } else { $fastest.requested_backend }
-                fastest_duration_ms = if ($null -eq $fastest) { $null } else { $fastest.duration_ms }
+                fastest_run_id = $fastestRunId
+                fastest_requested_backend = $fastestRequestedBackend
+                fastest_actual_backend = $fastestActualBackend
+                fastest_backend_sources = @($fastestBackendSources)
+                fastest_duration_ms = $fastestDurationMs
                 runs = @($runComparisons)
             }
         }
@@ -678,7 +696,7 @@ function Test-Self {
             exit_code = 0
             timed_out = $false
             timeout_seconds = 0
-            duration_ms = 100
+            duration_ms = 50
             command = @()
             raw_output_path = $null
             raw_stderr_path = $null
@@ -711,7 +729,7 @@ function Test-Self {
             exit_code = 0
             timed_out = $false
             timeout_seconds = 0
-            duration_ms = 50
+            duration_ms = 100
             command = @()
             raw_output_path = $null
             raw_stderr_path = $null
@@ -729,7 +747,22 @@ function Test-Self {
     if ($comparisonSummaries.Count -ne 1 -or $comparisonSummaries[0].status -ne "matched") {
         throw "SelfTest failed: comparison summary did not report a matched backend comparison."
     }
-    if ($selfTestRuns[1].comparison.duration_ratio -ne 0.5) {
+    if ($comparisonSummaries[0].fastest_run_id -ne "self-test-portable") {
+        throw "SelfTest failed: fastest run id was $($comparisonSummaries[0].fastest_run_id)."
+    }
+    if ($comparisonSummaries[0].fastest_requested_backend -ne "portable-recursive") {
+        throw "SelfTest failed: fastest requested backend was $($comparisonSummaries[0].fastest_requested_backend)."
+    }
+    if ($comparisonSummaries[0].fastest_actual_backend -ne "portable-recursive") {
+        throw "SelfTest failed: fastest actual backend was $($comparisonSummaries[0].fastest_actual_backend)."
+    }
+    if ($null -eq $comparisonSummaries[0].fastest_backend_sources) {
+        throw "SelfTest failed: fastest backend sources should be an empty array, not null."
+    }
+    if (@($comparisonSummaries[0].fastest_backend_sources).Count -ne 0) {
+        throw "SelfTest failed: fastest backend sources should be empty for portable-recursive."
+    }
+    if ($selfTestRuns[1].comparison.duration_ratio -ne 2.0) {
         throw "SelfTest failed: comparison duration ratio was $($selfTestRuns[1].comparison.duration_ratio)."
     }
 
