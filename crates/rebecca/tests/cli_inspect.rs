@@ -489,6 +489,108 @@ fn inspect_map_table_uses_ranked_entry_filters() {
 }
 
 #[test]
+fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
+    let root = local.join("npm-cache");
+    let target = root.join("_cacache");
+    write_fixture_file(target.join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "_cacache",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let entries = envelope["data"]["top_entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(PathBuf::from(entries[0]["path"].as_str().unwrap()), target);
+    let advice = &entries[0]["cleanup_advice"];
+    assert_eq!(advice["status"], "maybe-cleanable");
+    assert_eq!(advice["source"], "cleanup-rule");
+    assert_eq!(advice["relation"], "exact");
+    assert_eq!(advice["rule_id"], "windows.npm-cache");
+    assert_eq!(advice["category"], "development");
+    assert_eq!(advice["safety_level"], "moderate");
+    assert_eq!(advice["required_flags"][0], "--allow-moderate");
+    assert_eq!(advice["suggested_command"]["command"], "rebecca");
+    assert_eq!(
+        advice["suggested_command"]["args"],
+        serde_json::json!(["clean", "--dry-run", "--rule", "windows.npm-cache"])
+    );
+}
+
+#[test]
+fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
+    let root = local.join("npm-cache");
+    let target = root.join("_cacache");
+    write_fixture_file(target.join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--table",
+            "csv",
+            "--table-row",
+            "entry",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "_cacache",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV);
+    assert!(lines[1].contains("maybe-cleanable"));
+    assert!(lines[1].contains("cleanup-rule"));
+    assert!(lines[1].contains("windows.npm-cache"));
+    assert!(lines[1].contains("--allow-moderate"));
+    assert!(lines[1].contains("rebecca clean --dry-run --rule windows.npm-cache"));
+}
+
+#[test]
 fn inspect_map_table_csv_exports_flat_rows() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace,with-comma");
@@ -697,6 +799,7 @@ fn assert_json_group(
 }
 
 const INSPECT_MAP_TABLE_HEADER_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason";
+const INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason,cleanup_status,cleanup_relation,cleanup_source,cleanup_rule_id,cleanup_category,cleanup_safety_level,cleanup_required_flags,cleanup_required_warnings,cleanup_protection_kind,cleanup_matched_path,cleanup_reason,cleanup_command";
 const INSPECT_MAP_TABLE_HEADER_TSV: &str = "row_kind\trank\tpath\troot\tstatus\tentry_kind\tgroup_kind\tgroup_key\tgroup_label\tdepth\tlogical_bytes\tallocated_bytes\tunique_logical_bytes\tunique_allocated_bytes\tfiles\tdirectories\testimate_source\testimate_backend\testimate_backend_source\testimate_confidence\testimate_fallback_reason\testimate_caveats\treason";
 
 #[cfg(windows)]
@@ -1051,6 +1154,74 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
             .as_array()
             .unwrap()
             .is_empty()
+    );
+}
+
+#[test]
+fn inspect_map_ndjson_advice_status_filter_implies_cleanup_advice() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
+    let root = local.join("npm-cache");
+    let target = root.join("_cacache");
+    write_fixture_file(target.join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "ndjson",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "_cacache",
+            "--advice-status",
+            "maybe-cleanable",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0]["event_kind"], "map-entry");
+    assert_eq!(
+        PathBuf::from(
+            events[0]["data"]["entry"]["path"]
+                .as_str()
+                .expect("entry path")
+        ),
+        target
+    );
+    assert_eq!(
+        events[0]["data"]["entry"]["cleanup_advice"]["status"],
+        "maybe-cleanable"
+    );
+
+    let completed = events.last().unwrap();
+    assert_eq!(completed["event_kind"], "completed");
+    assert_eq!(
+        completed["data"]["top_entries"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        completed["data"]["top_entries"][0]["cleanup_advice"],
+        events[0]["data"]["entry"]["cleanup_advice"]
     );
 }
 

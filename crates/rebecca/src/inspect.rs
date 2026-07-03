@@ -3,6 +3,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, ensure};
+use rebecca::core::cleanup_advice::{
+    CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceStatus,
+};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::disk_map::{
     DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics, DiskMapReport, DiskMapRequest,
@@ -12,6 +15,7 @@ use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
 };
 use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
+use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{CleanupWorkflow, DeleteMode, EstimateProvenance, PlanRequest, Platform};
@@ -52,6 +56,8 @@ pub struct InspectMapOptions {
     pub min_logical_bytes: Option<u64>,
     pub entry_kind: Option<rebecca::core::disk_map::DiskMapEntryKind>,
     pub path_contains: Option<String>,
+    pub cleanup_advice: bool,
+    pub advice_status: Option<CleanupAdviceStatus>,
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
     pub group_sort: DiskMapSortField,
@@ -154,9 +160,23 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
         .with_max_depth(options.max_depth)
         .with_scan_backend(options.scan_backend.into());
 
-    let report = inspect_map_core(&request, runtime.cancellation())?;
+    let cleanup_advice_enabled = options.cleanup_advice || options.advice_status.is_some();
+    let mut report = inspect_map_core(&request, runtime.cancellation())?;
+    if cleanup_advice_enabled {
+        let runtime_config = load_runtime_config()?;
+        annotate_map_report_with_cleanup_advice(
+            &mut report,
+            &runtime_config,
+            options.advice_status,
+        )?;
+    }
     if let Some(table_format) = options.table_format {
-        return print_map_report_table(table_format, &options.table_row_kinds, &report);
+        return print_map_report_table(
+            table_format,
+            &options.table_row_kinds,
+            &report,
+            cleanup_advice_enabled,
+        );
     }
 
     let contract = CliApiContract::v1("inspect map", "inspect-map");
@@ -169,6 +189,43 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
             || render::inspect::print_map_report(&report),
         ),
     }
+}
+
+fn annotate_map_report_with_cleanup_advice(
+    report: &mut DiskMapReport,
+    runtime_config: &AppRuntimeConfig,
+    advice_status: Option<CleanupAdviceStatus>,
+) -> Result<()> {
+    let rules = rebecca::rules::builtin_rules()?;
+    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let applications = crate::info::application_discovery();
+    let protected_storage = runtime_config.app_paths.storage_entries();
+    let protected_paths = runtime_config.protected_paths.clone();
+    let mut protection_policy = ProtectionPolicy::new()
+        .with_safety_knowledge(&safety_knowledge)
+        .with_protected_storage(&protected_storage);
+    if !protected_paths.is_empty() {
+        protection_policy = protection_policy.with_protected_paths(&protected_paths);
+    }
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let index = CleanupAdviceIndex::build(
+        CleanupAdviceBuildRequest::new(request, protection_policy),
+        &rules,
+        &rebecca::core::environment::SystemEnvironment,
+        applications.as_ref(),
+    )?;
+    index.annotate_disk_map_report(report);
+
+    if let Some(status) = advice_status {
+        report.top_entries.retain(|entry| {
+            entry
+                .cleanup_advice
+                .as_ref()
+                .is_some_and(|advice| advice.status == status)
+        });
+    }
+
+    Ok(())
 }
 
 pub(crate) fn artifacts_with_runtime(
@@ -345,17 +402,41 @@ const INSPECT_MAP_TABLE_HEADER: [&str; 23] = [
     "reason",
 ];
 
+const INSPECT_MAP_ADVICE_TABLE_HEADER: [&str; 12] = [
+    "cleanup_status",
+    "cleanup_relation",
+    "cleanup_source",
+    "cleanup_rule_id",
+    "cleanup_category",
+    "cleanup_safety_level",
+    "cleanup_required_flags",
+    "cleanup_required_warnings",
+    "cleanup_protection_kind",
+    "cleanup_matched_path",
+    "cleanup_reason",
+    "cleanup_command",
+];
+
 fn print_map_report_table(
     format: InspectMapTableFormat,
     row_kinds: &[InspectMapTableRowKind],
     report: &DiskMapReport,
+    include_cleanup_advice: bool,
 ) -> Result<()> {
     let stdout = io::stdout();
     let mut writer = stdout.lock();
 
-    write_table_row(&mut writer, format, INSPECT_MAP_TABLE_HEADER)?;
+    write_table_row(
+        &mut writer,
+        format,
+        map_table_header(include_cleanup_advice),
+    )?;
     if includes_table_row(row_kinds, InspectMapTableRowKind::Total) {
-        write_table_row(&mut writer, format, total_table_row(report))?;
+        write_table_row(
+            &mut writer,
+            format,
+            with_optional_advice_cells(total_table_row(report), include_cleanup_advice, None),
+        )?;
     }
 
     if includes_table_row(row_kinds, InspectMapTableRowKind::Root) {
@@ -374,7 +455,11 @@ fn print_map_report_table(
                 &root.estimate_provenance,
             );
             row.push(root.reason.clone().unwrap_or_default());
-            write_table_row(&mut writer, format, row)?;
+            write_table_row(
+                &mut writer,
+                format,
+                with_optional_advice_cells(row, include_cleanup_advice, None),
+            )?;
         }
     }
 
@@ -396,7 +481,15 @@ fn print_map_report_table(
                 &entry.estimate_provenance,
             );
             row.push(String::new());
-            write_table_row(&mut writer, format, row)?;
+            write_table_row(
+                &mut writer,
+                format,
+                with_optional_advice_cells(
+                    row,
+                    include_cleanup_advice,
+                    entry.cleanup_advice.as_ref(),
+                ),
+            )?;
         }
     }
 
@@ -413,12 +506,86 @@ fn print_map_report_table(
             push_metrics(&mut row, &group.metrics);
             push_empty_provenance(&mut row);
             row.push(String::new());
-            write_table_row(&mut writer, format, row)?;
+            write_table_row(
+                &mut writer,
+                format,
+                with_optional_advice_cells(row, include_cleanup_advice, None),
+            )?;
         }
     }
 
     writer.flush()?;
     Ok(())
+}
+
+fn map_table_header(include_cleanup_advice: bool) -> Vec<&'static str> {
+    let mut header = INSPECT_MAP_TABLE_HEADER.to_vec();
+    if include_cleanup_advice {
+        header.extend(INSPECT_MAP_ADVICE_TABLE_HEADER);
+    }
+    header
+}
+
+fn with_optional_advice_cells(
+    mut row: Vec<String>,
+    include_cleanup_advice: bool,
+    advice: Option<&CleanupAdvice>,
+) -> Vec<String> {
+    if include_cleanup_advice {
+        push_advice_cells(&mut row, advice);
+    }
+    row
+}
+
+fn push_advice_cells(row: &mut Vec<String>, advice: Option<&CleanupAdvice>) {
+    let Some(advice) = advice else {
+        row.extend(std::iter::repeat_n(
+            String::new(),
+            INSPECT_MAP_ADVICE_TABLE_HEADER.len(),
+        ));
+        return;
+    };
+
+    row.extend([
+        advice.status.label().to_string(),
+        advice
+            .relation
+            .map(|relation| relation.label().to_string())
+            .unwrap_or_default(),
+        advice
+            .source
+            .map(|source| source.label().to_string())
+            .unwrap_or_default(),
+        advice.rule_id.clone().unwrap_or_default(),
+        advice.category.clone().unwrap_or_default(),
+        advice
+            .safety_level
+            .map(|level| level.label().to_string())
+            .unwrap_or_default(),
+        advice.required_flags.join(";"),
+        advice.required_warnings.join(";"),
+        advice.protection_kind.clone().unwrap_or_default(),
+        advice
+            .matched_path
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default(),
+        advice.reason.clone(),
+        format_advice_command(advice),
+    ]);
+}
+
+fn format_advice_command(advice: &CleanupAdvice) -> String {
+    advice
+        .suggested_command
+        .as_ref()
+        .map(|command| {
+            std::iter::once(command.command.as_str())
+                .chain(command.args.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default()
 }
 
 fn includes_table_row(

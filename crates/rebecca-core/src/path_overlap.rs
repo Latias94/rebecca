@@ -1,13 +1,45 @@
 use std::path::{Component, Path};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PathRelation {
+    Same,
+    Ancestor,
+    Descendant,
+    Unrelated,
+}
+
 pub(crate) fn paths_overlap(left: &Path, right: &Path) -> bool {
-    path_is_same_or_child(left, right) || path_is_same_or_child(right, left)
+    !matches!(path_relation(left, right), PathRelation::Unrelated)
 }
 
 pub(crate) fn path_is_same_or_child(parent: &Path, child: &Path) -> bool {
-    let parent = comparable_components(parent);
-    let child = comparable_components(child);
-    !parent.is_empty() && child.len() >= parent.len() && child.starts_with(&parent)
+    matches!(
+        path_relation(child, parent),
+        PathRelation::Same | PathRelation::Descendant
+    )
+}
+
+pub(crate) fn path_relation(left: &Path, right: &Path) -> PathRelation {
+    let left = comparable_components(left);
+    let right = comparable_components(right);
+
+    if left.is_empty() || right.is_empty() {
+        return PathRelation::Unrelated;
+    }
+
+    if left == right {
+        return PathRelation::Same;
+    }
+
+    if right.len() > left.len() && right.starts_with(&left) {
+        return PathRelation::Ancestor;
+    }
+
+    if left.len() > right.len() && left.starts_with(&right) {
+        return PathRelation::Descendant;
+    }
+
+    PathRelation::Unrelated
 }
 
 fn comparable_components(path: &Path) -> Vec<String> {
@@ -33,7 +65,7 @@ fn comparable_components(path: &Path) -> Vec<String> {
 mod tests {
     use std::path::Path;
 
-    use super::paths_overlap;
+    use super::{PathRelation, path_relation, paths_overlap};
 
     #[test]
     fn detects_same_child_and_parent_paths() {
@@ -45,6 +77,21 @@ mod tests {
         assert!(paths_overlap(&root, &child));
         assert!(paths_overlap(&child, &root));
         assert!(!paths_overlap(&root, &temp.path().join("Other")));
+    }
+
+    #[test]
+    fn reports_directional_path_relation() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let child = root.join("cache");
+
+        assert_eq!(path_relation(&root, &root), PathRelation::Same);
+        assert_eq!(path_relation(&root, &child), PathRelation::Ancestor);
+        assert_eq!(path_relation(&child, &root), PathRelation::Descendant);
+        assert_eq!(
+            path_relation(&root, &temp.path().join("other")),
+            PathRelation::Unrelated
+        );
     }
 
     #[cfg(windows)]

@@ -96,6 +96,27 @@ impl From<DiskMapEntryKindArg> for rebecca::core::disk_map::DiskMapEntryKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CleanupAdviceStatusArg {
+    Cleanable,
+    MaybeCleanable,
+    ContainsCleanable,
+    Protected,
+    Unknown,
+}
+
+impl From<CleanupAdviceStatusArg> for rebecca::core::cleanup_advice::CleanupAdviceStatus {
+    fn from(value: CleanupAdviceStatusArg) -> Self {
+        match value {
+            CleanupAdviceStatusArg::Cleanable => Self::Cleanable,
+            CleanupAdviceStatusArg::MaybeCleanable => Self::MaybeCleanable,
+            CleanupAdviceStatusArg::ContainsCleanable => Self::ContainsCleanable,
+            CleanupAdviceStatusArg::Protected => Self::Protected,
+            CleanupAdviceStatusArg::Unknown => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum DiskMapSortArg {
     #[default]
@@ -295,6 +316,12 @@ pub struct InspectMapArgs {
     /// Keep only ranked entries whose path contains this text, case-insensitively.
     #[arg(long = "path-contains", value_name = "TEXT")]
     pub path_contains: Option<String>,
+    /// Add read-only cleanup advice to ranked entries.
+    #[arg(long = "cleanup-advice")]
+    pub cleanup_advice: bool,
+    /// Keep only ranked entries with this cleanup advice status. Implies --cleanup-advice.
+    #[arg(long = "advice-status", value_enum, value_name = "STATUS")]
+    pub advice_status: Option<CleanupAdviceStatusArg>,
     /// Add a file grouping section. Can be repeated: extension, depth, age.
     #[arg(long = "group-by", value_enum)]
     pub group_kinds: Vec<DiskMapGroupKindArg>,

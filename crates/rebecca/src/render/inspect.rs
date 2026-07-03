@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rebecca::core::cleanup_advice::CleanupAdvice;
 use rebecca::core::disk_map::DiskMapReport;
 use rebecca::core::inspect::SpaceInsightReport;
 use rebecca::core::lint::LintReport;
@@ -137,7 +138,7 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
                 .map(|bytes| format!(", unique allocated {} ({})", bytes, format_bytes(bytes)))
                 .unwrap_or_default();
             println!(
-                "  - {} [{} depth={}] {} bytes ({}){}{}{}{} - {} files, {} dirs",
+                "  - {} [{} depth={}] {} bytes ({}){}{}{}{} - {} files, {} dirs{}",
                 entry.path.display(),
                 entry.kind.label(),
                 entry.depth,
@@ -148,7 +149,8 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
                 unique_allocated,
                 estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance),
                 entry.files,
-                entry.directories
+                entry.directories,
+                cleanup_advice_suffix(entry.cleanup_advice.as_ref())
             );
         }
     }
@@ -236,6 +238,23 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn cleanup_advice_suffix(advice: Option<&CleanupAdvice>) -> String {
+    let Some(advice) = advice else {
+        return String::new();
+    };
+
+    let source = advice
+        .source
+        .map(|source| format!(" {}", source.label()))
+        .unwrap_or_default();
+    let rule = advice
+        .rule_id
+        .as_ref()
+        .map(|rule_id| format!(" {rule_id}"))
+        .unwrap_or_default();
+    format!(" - cleanup: {}{}{}", advice.status.label(), source, rule)
 }
 
 pub(crate) fn print_lint_report(report: &LintReport) -> Result<()> {

@@ -162,6 +162,8 @@ fn run_inspect(
                 min_logical_bytes: args.min_logical_bytes,
                 entry_kind: args.entry_kind.map(Into::into),
                 path_contains: args.path_contains,
+                cleanup_advice: args.cleanup_advice,
+                advice_status: args.advice_status.map(Into::into),
                 group_kinds: args.group_kinds.into_iter().map(Into::into).collect(),
                 group_limit: args.group_limit,
                 group_sort: args.group_sort.into(),

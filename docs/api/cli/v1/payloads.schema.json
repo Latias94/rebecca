@@ -866,6 +866,112 @@
         "other"
       ]
     },
+    "cleanupAdviceStatus": {
+      "type": "string",
+      "enum": [
+        "cleanable",
+        "maybe-cleanable",
+        "contains-cleanable",
+        "protected",
+        "unknown"
+      ]
+    },
+    "cleanupAdviceSource": {
+      "type": "string",
+      "enum": [
+        "cleanup-rule",
+        "project-artifact",
+        "app-leftover",
+        "protection"
+      ]
+    },
+    "cleanupAdviceRelation": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "descendant",
+        "ancestor"
+      ]
+    },
+    "cleanupAdviceCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "args"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cleanupAdvice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/cleanupAdviceStatus"
+        },
+        "source": {
+          "$ref": "#/$defs/cleanupAdviceSource"
+        },
+        "relation": {
+          "$ref": "#/$defs/cleanupAdviceRelation"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "required_flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "protection_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "matched_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suggested_command": {
+          "$ref": "#/$defs/cleanupAdviceCommand"
+        }
+      }
+    },
     "diskMapDiagnosticKind": {
       "type": "string",
       "enum": [
@@ -1013,6 +1119,9 @@
           "items": {
             "$ref": "#/$defs/estimateCaveat"
           }
+        },
+        "cleanup_advice": {
+          "$ref": "#/$defs/cleanupAdvice"
         }
       }
     },

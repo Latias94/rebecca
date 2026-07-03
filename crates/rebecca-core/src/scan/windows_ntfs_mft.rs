@@ -786,6 +786,7 @@ fn collect_mft_disk_map_entry(
             directories: metrics.directories,
             estimate_source: EstimateSource::FreshScan,
             estimate_provenance: estimate_provenance.clone(),
+            cleanup_advice: None,
         });
     }
 
@@ -1756,6 +1757,7 @@ where
                 directories: metrics.directories,
                 estimate_source: EstimateSource::FreshScan,
                 estimate_provenance: context.entry_provenance.clone(),
+                cleanup_advice: None,
             });
         }
 

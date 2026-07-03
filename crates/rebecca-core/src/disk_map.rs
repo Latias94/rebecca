@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
+use crate::cleanup_advice::CleanupAdvice;
 use crate::error::{RebeccaError, Result, ScanFailureKind};
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
@@ -280,6 +281,8 @@ pub struct DiskMapEntry {
     pub estimate_source: EstimateSource,
     #[serde(default, flatten)]
     pub estimate_provenance: EstimateProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_advice: Option<CleanupAdvice>,
 }
 
 impl DiskMapEntry {
@@ -304,6 +307,7 @@ impl DiskMapEntry {
             directories: metrics.directories,
             estimate_source: EstimateSource::FreshScan,
             estimate_provenance: estimate_provenance.clone(),
+            cleanup_advice: None,
         }
     }
 }

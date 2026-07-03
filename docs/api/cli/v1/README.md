@@ -63,7 +63,10 @@ and `group` rows using the same bounded `top_entries` and requested `groups` as
 the report payload; empty cells mean the column is not applicable to that row
 type or the metric is unknown. Repeated `--table-row total|root|entry|group`
 flags can limit the export to selected row kinds; omitting them preserves the
-full table.
+full table. When `--cleanup-advice` or `--advice-status` is enabled, the table
+appends cleanup columns for entry rows: status, relation, source, rule id,
+category, safety level, required flags, required warnings, protection kind,
+matched path, reason, and a dry-run command hint.
 
 ## Payload Kinds
 
@@ -179,6 +182,15 @@ For table-first tools, `--table csv|tsv` exports the same totals, roots, ranked
 entries, and requested groups as a flat row set outside the JSON API envelope.
 Repeated `--table-row` flags can narrow that row set when a caller only needs
 entries, groups, or root summaries.
+When callers pass `--cleanup-advice`, each ranked entry may include
+`cleanup_advice`. Advice is read-only guidance derived from Rebecca's cleanup
+rule catalog and protection policy; it is not deletion authority. Status values
+are `cleanable`, `maybe-cleanable`, `contains-cleanable`, `protected`, and
+`unknown`. Rule-backed advice can include `rule_id`, `category`, `safety_level`,
+`required_flags`, `required_warnings`, `matched_path`, `reason`, and a
+structured `suggested_command`. `--advice-status <status>` implies
+`--cleanup-advice` and filters only the ranked entries, not root totals or
+diagnostic summaries.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was

@@ -2,6 +2,7 @@ pub mod app_leftovers;
 pub mod applications;
 pub mod cache;
 pub mod catalog;
+pub mod cleanup_advice;
 pub mod config;
 pub mod discovery;
 pub mod disk_map;
@@ -27,6 +28,10 @@ pub mod scan;
 pub mod scan_cache;
 pub mod warnings;
 
+pub use cleanup_advice::{
+    CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceCommand, CleanupAdviceIndex,
+    CleanupAdviceRelation, CleanupAdviceSource, CleanupAdviceStatus,
+};
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use model::{
     CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
