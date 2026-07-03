@@ -49,6 +49,9 @@ pub struct InspectMapOptions {
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
     pub sort: DiskMapSortField,
+    pub min_logical_bytes: Option<u64>,
+    pub entry_kind: Option<rebecca::core::disk_map::DiskMapEntryKind>,
+    pub path_contains: Option<String>,
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
     pub group_sort: DiskMapSortField,
@@ -141,6 +144,9 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
     let request = DiskMapRequest::new(roots)
         .with_top_limit(options.top_limit)
         .with_top_sort(options.sort)
+        .with_min_logical_bytes(options.min_logical_bytes)
+        .with_entry_kind(options.entry_kind)
+        .with_path_contains(options.path_contains)
         .with_group_kinds(options.group_kinds)
         .with_group_limit(options.group_limit)
         .with_group_sort(options.group_sort)

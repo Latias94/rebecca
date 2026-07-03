@@ -79,6 +79,23 @@ impl From<DiskMapGroupKindArg> for rebecca::core::disk_map::DiskMapGroupKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum DiskMapEntryKindArg {
+    File,
+    Directory,
+    Other,
+}
+
+impl From<DiskMapEntryKindArg> for rebecca::core::disk_map::DiskMapEntryKind {
+    fn from(value: DiskMapEntryKindArg) -> Self {
+        match value {
+            DiskMapEntryKindArg::File => Self::File,
+            DiskMapEntryKindArg::Directory => Self::Directory,
+            DiskMapEntryKindArg::Other => Self::Other,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum DiskMapSortArg {
     #[default]
@@ -269,6 +286,15 @@ pub struct InspectMapArgs {
     /// Sort top entries by logical bytes, allocated bytes, file count, or unique logical bytes.
     #[arg(long = "sort", value_enum, default_value_t = DiskMapSortArg::Logical)]
     pub sort: DiskMapSortArg,
+    /// Keep only ranked entries with at least this many logical bytes. Totals are unchanged.
+    #[arg(long = "min-logical-bytes", value_name = "BYTES")]
+    pub min_logical_bytes: Option<u64>,
+    /// Keep only ranked entries of this kind: file, directory, or other. Totals are unchanged.
+    #[arg(long = "entry-kind", value_enum, value_name = "KIND")]
+    pub entry_kind: Option<DiskMapEntryKindArg>,
+    /// Keep only ranked entries whose path contains this text, case-insensitively.
+    #[arg(long = "path-contains", value_name = "TEXT")]
+    pub path_contains: Option<String>,
     /// Add a file grouping section. Can be repeated: extension, depth, age.
     #[arg(long = "group-by", value_enum)]
     pub group_kinds: Vec<DiskMapGroupKindArg>,

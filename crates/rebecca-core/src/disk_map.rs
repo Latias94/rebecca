@@ -23,6 +23,7 @@ pub struct DiskMapRequest {
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
     pub top_sort: DiskMapSortField,
+    pub entry_filter: DiskMapEntryFilter,
     pub diagnostic_limit: usize,
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
@@ -37,6 +38,7 @@ impl DiskMapRequest {
             roots,
             top_limit: DEFAULT_DISK_MAP_TOP_LIMIT,
             top_sort: DiskMapSortField::Logical,
+            entry_filter: DiskMapEntryFilter::default(),
             diagnostic_limit: DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT,
             group_kinds: Vec::new(),
             group_limit: DEFAULT_DISK_MAP_GROUP_LIMIT,
@@ -53,6 +55,23 @@ impl DiskMapRequest {
 
     pub fn with_top_sort(mut self, top_sort: DiskMapSortField) -> Self {
         self.top_sort = top_sort;
+        self
+    }
+
+    pub fn with_min_logical_bytes(mut self, min_logical_bytes: Option<u64>) -> Self {
+        self.entry_filter.min_logical_bytes = min_logical_bytes;
+        self
+    }
+
+    pub fn with_entry_kind(mut self, kind: Option<DiskMapEntryKind>) -> Self {
+        self.entry_filter.kind = kind;
+        self
+    }
+
+    pub fn with_path_contains(mut self, path_contains: Option<String>) -> Self {
+        self.entry_filter.path_contains = path_contains
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty());
         self
     }
 
@@ -84,6 +103,37 @@ impl DiskMapRequest {
     pub fn with_scan_backend(mut self, scan_backend: ScanBackendKind) -> Self {
         self.scan_backend = scan_backend;
         self
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiskMapEntryFilter {
+    pub min_logical_bytes: Option<u64>,
+    pub kind: Option<DiskMapEntryKind>,
+    pub path_contains: Option<String>,
+}
+
+impl DiskMapEntryFilter {
+    fn matches(&self, entry: &DiskMapEntry) -> bool {
+        if self
+            .min_logical_bytes
+            .is_some_and(|minimum| entry.logical_bytes < minimum)
+        {
+            return false;
+        }
+
+        if self.kind.is_some_and(|kind| entry.kind != kind) {
+            return false;
+        }
+
+        if let Some(needle) = &self.path_contains {
+            let haystack = entry.path.to_string_lossy().to_ascii_lowercase();
+            if !haystack.contains(needle) {
+                return false;
+            }
+        }
+
+        true
     }
 }
 
@@ -395,7 +445,11 @@ impl DiskMapInspectionState {
     fn new(request: &DiskMapRequest) -> Self {
         Self {
             report: DiskMapReport::default(),
-            top_entries: DiskMapTopEntries::new(request.top_limit, request.top_sort),
+            top_entries: DiskMapTopEntries::new(
+                request.top_limit,
+                request.top_sort,
+                request.entry_filter.clone(),
+            ),
             groups: DiskMapGroupCollector::new(
                 request.group_kinds.clone(),
                 request.group_limit,
@@ -418,6 +472,7 @@ impl DiskMapInspectionState {
         DiskMapBackendOptions {
             top_limit: request.top_limit,
             top_sort: request.top_sort,
+            entry_filter: request.entry_filter.clone(),
             max_depth: request.max_depth,
             group_kinds: request.group_kinds.clone(),
             group_limit: request.group_limit,
@@ -1820,22 +1875,24 @@ fn push_portable_entry(
 pub(crate) struct DiskMapTopEntries {
     limit: usize,
     sort: DiskMapSortField,
+    filter: DiskMapEntryFilter,
     heap: BinaryHeap<Reverse<DiskMapTopCandidate>>,
     sequence: u64,
 }
 
 impl DiskMapTopEntries {
-    pub(crate) fn new(limit: usize, sort: DiskMapSortField) -> Self {
+    pub(crate) fn new(limit: usize, sort: DiskMapSortField, filter: DiskMapEntryFilter) -> Self {
         Self {
             limit,
             sort,
+            filter,
             heap: BinaryHeap::with_capacity(limit),
             sequence: 0,
         }
     }
 
     pub(crate) fn push(&mut self, entry: DiskMapEntry) {
-        if self.limit == 0 {
+        if self.limit == 0 || !self.filter.matches(&entry) {
             return;
         }
 
@@ -1949,6 +2006,7 @@ pub(crate) struct DiskMapBackendRoot {
 pub(crate) struct DiskMapBackendOptions {
     pub(crate) top_limit: usize,
     pub(crate) top_sort: DiskMapSortField,
+    pub(crate) entry_filter: DiskMapEntryFilter,
     pub(crate) max_depth: Option<usize>,
     pub(crate) group_kinds: Vec<DiskMapGroupKind>,
     pub(crate) group_limit: usize,

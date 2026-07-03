@@ -2,7 +2,8 @@ use std::ffi::OsString;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use rebecca_core::disk_map::{
-    DiskMapDiagnosticKind, DiskMapGroupKind, DiskMapRequest, DiskMapSortField, inspect_map,
+    DiskMapDiagnosticKind, DiskMapEntryKind, DiskMapGroupKind, DiskMapRequest, DiskMapSortField,
+    inspect_map,
 };
 use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence};
 
@@ -232,6 +233,72 @@ fn disk_map_max_depth_limits_entries_but_not_totals() {
     assert_eq!(report.top_entries.len(), 1);
     assert_eq!(report.top_entries[0].path, root.join("alpha"));
     assert_eq!(report.top_entries[0].logical_bytes, 4);
+}
+
+#[test]
+fn disk_map_filters_ranked_entries_by_min_logical_bytes_without_changing_totals() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("large.bin"), b"abcdef");
+    write_file(root.join("small.bin"), b"x");
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(10)
+        .with_min_logical_bytes(Some(2));
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.logical_bytes, 7);
+    assert_eq!(report.totals.files, 2);
+    assert_eq!(report.top_entries.len(), 1);
+    assert_eq!(report.top_entries[0].path, root.join("large.bin"));
+}
+
+#[test]
+fn disk_map_filters_ranked_entries_by_kind_without_changing_totals() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("node_modules").join("cache.bin"), b"abcd");
+    write_file(root.join("plain.bin"), b"xy");
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(10)
+        .with_entry_kind(Some(DiskMapEntryKind::Directory));
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.logical_bytes, 6);
+    assert_eq!(report.totals.files, 2);
+    assert_eq!(report.totals.directories, 1);
+    assert_eq!(report.top_entries.len(), 1);
+    assert_eq!(report.top_entries[0].kind, DiskMapEntryKind::Directory);
+    assert_eq!(report.top_entries[0].path, root.join("node_modules"));
+}
+
+#[test]
+fn disk_map_filters_ranked_entries_by_case_insensitive_path_substring() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("AlphaCache").join("data.bin"), b"abcd");
+    write_file(root.join("beta").join("data.bin"), b"xyz");
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(10)
+        .with_path_contains(Some("alpha".to_string()));
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.logical_bytes, 7);
+    assert_eq!(report.top_entries.len(), 2);
+    assert!(
+        report
+            .top_entries
+            .iter()
+            .all(|entry| entry.path.to_string_lossy().contains("AlphaCache"))
+    );
+    assert!(report.top_entries.iter().any(|entry| {
+        entry.kind == DiskMapEntryKind::Directory && entry.path == root.join("AlphaCache")
+    }));
 }
 
 #[test]

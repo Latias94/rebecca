@@ -606,7 +606,11 @@ pub(super) fn inspect_disk_map(
         })?;
 
     let summary = index.mft_index.aggregate_subtree(target_record_id);
-    let mut top_entries = DiskMapTopEntries::new(options.top_limit, options.top_sort);
+    let mut top_entries = DiskMapTopEntries::new(
+        options.top_limit,
+        options.top_sort,
+        options.entry_filter.clone(),
+    );
     let mut groups = options.group_collector();
     let mut visited = BTreeSet::new();
     let max_depth = options.max_depth.unwrap_or(usize::MAX);
@@ -1929,7 +1933,11 @@ impl TargetedDiskMapState {
         Self {
             visited: BTreeSet::new(),
             traversal_attempts: 0,
-            top_entries: DiskMapTopEntries::new(options.top_limit, options.top_sort),
+            top_entries: DiskMapTopEntries::new(
+                options.top_limit,
+                options.top_sort,
+                options.entry_filter.clone(),
+            ),
             groups: options.group_collector(),
             caveats: Vec::new(),
         }
@@ -3917,6 +3925,7 @@ mod tests {
         DiskMapBackendOptions {
             top_limit,
             top_sort: DiskMapSortField::Logical,
+            entry_filter: Default::default(),
             max_depth,
             group_kinds,
             group_limit: 20,

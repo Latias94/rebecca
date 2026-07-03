@@ -395,6 +395,100 @@ fn inspect_map_json_respects_requested_sort_fields() {
 }
 
 #[test]
+fn inspect_map_json_filters_ranked_entries_without_changing_totals() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("LargeCache.bin"), b"abcdef");
+    write_fixture_file(root.join("small-cache.bin"), b"x");
+    write_fixture_file(root.join("LargeCache").join("nested.bin"), b"xyz");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--min-logical-bytes",
+            "4",
+            "--entry-kind",
+            "file",
+            "--path-contains",
+            "largecache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert_eq!(value["totals"]["logical_bytes"], 10);
+    assert_eq!(value["totals"]["files"], 3);
+    let entries = value["top_entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        PathBuf::from(entries[0]["path"].as_str().unwrap()),
+        root.join("LargeCache.bin")
+    );
+    assert_eq!(entries[0]["kind"], "file");
+    assert_eq!(entries[0]["logical_bytes"], 6);
+}
+
+#[test]
+fn inspect_map_table_uses_ranked_entry_filters() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("LargeCache").join("nested.bin"), b"abcdef");
+    write_fixture_file(root.join("other").join("nested.bin"), b"xyz");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--table",
+            "csv",
+            "--table-row",
+            "entry",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "largecache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_CSV);
+    assert!(lines[1].starts_with("entry,1,"));
+    assert!(lines[1].contains(&root.join("LargeCache").display().to_string()));
+    assert!(!lines[1].contains("other"));
+}
+
+#[test]
 fn inspect_map_table_csv_exports_flat_rows() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace,with-comma");
