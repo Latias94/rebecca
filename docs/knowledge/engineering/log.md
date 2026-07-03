@@ -1,5 +1,8 @@
 # Engineering Memory Update Log
 
+## 2026-07-03
+* **Disk-map bounded diagnostics**: Added a bounded `inspect map` diagnostic collector with complete `diagnostic_summary` counts and raw diagnostic samples capped by `--diagnostic-limit`. Root and fallback diagnostics are priority samples, while child-level diagnostic storms retain grouped counts without flooding human, JSON, or NDJSON output. Human disk-map output now prints grouped diagnostic counts before bounded samples.
+
 ## 2026-07-02
 * **Disk-map partial diagnostics**: Hardened portable `inspect map` so child-level metadata failures, unreadable child directories, directory-entry iteration errors, and child reparse points produce explicit diagnostics while the report continues with conservative zero-byte skipped subtrees. Root-level missing or unreadable roots remain skipped roots, and cancellation still propagates as cancellation. Added a small internal filesystem walker seam for deterministic tests without relying on Windows ACLs or timing races.
 * **Portable disk-map streaming traversal**: Refactored the default portable `inspect map` path from full `PortableDiskMapNode` tree materialization to streaming post-order aggregation. Directory metrics are computed after children and pushed directly into the bounded `DiskMapTopEntries` heap, so memory stays tied to traversal depth and `--top` rather than the full rendered tree. Added root-file coverage to keep depth-0 file roots stable while existing ranking, top-zero, max-depth, missing-root, and fallback tests continue to cover the public contract.

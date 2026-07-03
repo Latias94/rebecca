@@ -947,6 +947,49 @@
         }
       }
     },
+    "diskMapDiagnosticKindSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "count"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/diskMapDiagnosticKind"
+        },
+        "count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "diskMapDiagnosticSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "retained",
+        "truncated",
+        "by_kind"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "retained": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "truncated": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "by_kind": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapDiagnosticKindSummary"
+          }
+        }
+      }
+    },
     "inspectMap": {
       "type": "object",
       "additionalProperties": false,
@@ -954,6 +997,7 @@
         "roots",
         "totals",
         "top_entries",
+        "diagnostic_summary",
         "diagnostics"
       ],
       "properties": {
@@ -971,6 +1015,9 @@
           "items": {
             "$ref": "#/$defs/diskMapEntry"
           }
+        },
+        "diagnostic_summary": {
+          "$ref": "#/$defs/diskMapDiagnosticSummary"
         },
         "diagnostics": {
           "type": "array",

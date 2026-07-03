@@ -41,6 +41,7 @@ pub struct InspectMapOptions {
     pub scan_backend: ScanBackendArg,
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+    pub diagnostic_limit: usize,
     pub max_depth: Option<usize>,
 }
 
@@ -96,6 +97,7 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
     let roots = resolve_space_roots(options.roots)?;
     let request = DiskMapRequest::new(roots)
         .with_top_limit(options.top_limit)
+        .with_diagnostic_limit(options.diagnostic_limit)
         .with_max_depth(options.max_depth)
         .with_scan_backend(options.scan_backend.into());
 

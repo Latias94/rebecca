@@ -83,6 +83,9 @@ Child-level metadata, directory-read, directory-entry, and reparse failures are
 reported as diagnostics with zero bytes for skipped subtrees, so active cache
 trees can still produce useful conservative maps instead of failing the entire
 command.
+Raw diagnostic samples are bounded by `--diagnostic-limit`; the
+`diagnostic_summary` counts remain complete so noisy trees cannot turn
+diagnostic output into an unbounded memory or JSON payload.
 
 To include an explicit live NTFS source benchmark on a representative Windows machine, opt in for that run:
 

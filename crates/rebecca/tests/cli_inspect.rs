@@ -201,6 +201,14 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
             .as_str()
             .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
     );
+    assert_eq!(value["diagnostic_summary"]["total"], 1);
+    assert_eq!(value["diagnostic_summary"]["retained"], 1);
+    assert_eq!(value["diagnostic_summary"]["truncated"], 0);
+    assert_eq!(
+        value["diagnostic_summary"]["by_kind"][0]["kind"],
+        "fallback"
+    );
+    assert_eq!(value["diagnostic_summary"]["by_kind"][0]["count"], 1);
     assert_eq!(value["diagnostics"][0]["kind"], "fallback");
 }
 
@@ -245,21 +253,128 @@ fn inspect_map_json_top_zero_preserves_totals_without_entries() {
 }
 
 #[test]
+fn inspect_map_json_diagnostic_limit_zero_keeps_summary_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "windows-ntfs-mft-experimental",
+            "--root",
+            root.to_str().unwrap(),
+            "--diagnostic-limit",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert_eq!(value["diagnostic_summary"]["total"], 1);
+    assert_eq!(value["diagnostic_summary"]["retained"], 0);
+    assert_eq!(value["diagnostic_summary"]["truncated"], 1);
+    assert!(value["diagnostics"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn inspect_map_human_reports_diagnostic_summary_and_samples() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
+        .args([
+            "inspect",
+            "map",
+            "--scan-backend",
+            "windows-ntfs-mft-experimental",
+            "--root",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Diagnostics: 1"));
+    assert!(stdout.contains("Disk map diagnostics: 1 observation"));
+    assert!(stdout.contains("  - fallback: 1 observation"));
+    assert!(stdout.contains("Disk map diagnostic samples: 1 observation"));
+}
+
+#[test]
+fn inspect_map_human_diagnostic_limit_zero_keeps_summary_count() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
+        .args([
+            "inspect",
+            "map",
+            "--scan-backend",
+            "windows-ntfs-mft-experimental",
+            "--root",
+            root.to_str().unwrap(),
+            "--diagnostic-limit",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Diagnostics: 1"));
+    assert!(stdout.contains("Disk map diagnostics: 1 observation"));
+    assert!(stdout.contains("  - fallback: 1 observation"));
+    assert!(stdout.contains("  - truncated: 1 observation not shown"));
+    assert!(!stdout.contains("Disk map diagnostic samples:"));
+}
+
+#[test]
 fn inspect_map_ndjson_uses_v1_completed_event() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
     let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .args([
             "inspect",
             "map",
             "--format",
             "ndjson",
             "--scan-backend",
-            "portable-recursive",
+            "windows-ntfs-mft-experimental",
             "--root",
             root.to_str().unwrap(),
+            "--diagnostic-limit",
+            "0",
         ])
         .output()
         .unwrap();
@@ -282,6 +397,15 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
     assert_eq!(completed["command"], "inspect map");
     assert_eq!(completed["payload_kind"], "inspect-map");
     assert_eq!(completed["data"]["totals"]["logical_bytes"], 3);
+    assert_eq!(completed["data"]["diagnostic_summary"]["total"], 1);
+    assert_eq!(completed["data"]["diagnostic_summary"]["retained"], 0);
+    assert_eq!(completed["data"]["diagnostic_summary"]["truncated"], 1);
+    assert!(
+        completed["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

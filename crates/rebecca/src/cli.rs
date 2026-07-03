@@ -212,6 +212,9 @@ pub struct InspectMapArgs {
     /// Maximum number of largest entries to include. Use 0 for totals only.
     #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_TOP_LIMIT)]
     pub top_limit: usize,
+    /// Maximum number of raw diagnostics to include. Use 0 for summary only.
+    #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
+    pub diagnostic_limit: usize,
     /// Maximum rendered depth below each root. Direct children are depth 1.
     #[arg(long = "max-depth", value_name = "N")]
     pub max_depth: Option<usize>,

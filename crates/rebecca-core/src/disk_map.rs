@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BTreeMap, BinaryHeap};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -13,11 +13,13 @@ use crate::scan::{
 };
 
 pub const DEFAULT_DISK_MAP_TOP_LIMIT: usize = 20;
+pub const DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct DiskMapRequest {
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
+    pub diagnostic_limit: usize,
     pub max_depth: Option<usize>,
     pub scan_backend: ScanBackendKind,
 }
@@ -27,6 +29,7 @@ impl DiskMapRequest {
         Self {
             roots,
             top_limit: DEFAULT_DISK_MAP_TOP_LIMIT,
+            diagnostic_limit: DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT,
             max_depth: None,
             scan_backend: ScanBackendKind::PortableRecursive,
         }
@@ -34,6 +37,11 @@ impl DiskMapRequest {
 
     pub fn with_top_limit(mut self, top_limit: usize) -> Self {
         self.top_limit = top_limit;
+        self
+    }
+
+    pub fn with_diagnostic_limit(mut self, diagnostic_limit: usize) -> Self {
+        self.diagnostic_limit = diagnostic_limit;
         self
     }
 
@@ -53,6 +61,7 @@ pub struct DiskMapReport {
     pub roots: Vec<DiskMapRoot>,
     pub totals: DiskMapMetrics,
     pub top_entries: Vec<DiskMapEntry>,
+    pub diagnostic_summary: DiskMapDiagnosticSummary,
     pub diagnostics: Vec<DiskMapDiagnostic>,
 }
 
@@ -189,6 +198,20 @@ impl DiskMapDiagnostic {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskMapDiagnosticSummary {
+    pub total: u64,
+    pub retained: u64,
+    pub truncated: u64,
+    pub by_kind: Vec<DiskMapDiagnosticKindSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskMapDiagnosticKindSummary {
+    pub kind: DiskMapDiagnosticKind,
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiskMapDiagnosticKind {
@@ -223,6 +246,7 @@ pub fn inspect_map(
 ) -> Result<DiskMapReport> {
     let mut report = DiskMapReport::default();
     let mut top_entries = DiskMapTopEntries::new(request.top_limit);
+    let mut diagnostics = DiskMapDiagnostics::new(request.diagnostic_limit);
     let scan_engine = ScanEngine::new();
 
     for root in &request.roots {
@@ -234,12 +258,226 @@ pub fn inspect_map(
             &scan_engine,
             &mut report,
             &mut top_entries,
+            &mut diagnostics,
         )?;
     }
 
     report.top_entries = top_entries.into_sorted_entries();
-    report.diagnostics.sort();
+    diagnostics.finish(&mut report);
     Ok(report)
+}
+
+#[derive(Debug)]
+struct DiskMapDiagnostics {
+    limit: usize,
+    total: u64,
+    counts_by_kind: BTreeMap<DiskMapDiagnosticKind, u64>,
+    samples: Vec<DiskMapDiagnosticSample>,
+    sequence: u64,
+}
+
+impl DiskMapDiagnostics {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            total: 0,
+            counts_by_kind: BTreeMap::new(),
+            samples: Vec::new(),
+            sequence: 0,
+        }
+    }
+
+    fn push(&mut self, diagnostic: DiskMapDiagnostic) {
+        self.push_with_priority(diagnostic, false);
+    }
+
+    fn push_priority(&mut self, diagnostic: DiskMapDiagnostic) {
+        self.push_with_priority(diagnostic, true);
+    }
+
+    fn extend(&mut self, diagnostics: Vec<DiskMapDiagnostic>) {
+        for diagnostic in diagnostics {
+            self.push(diagnostic);
+        }
+    }
+
+    fn push_with_priority(&mut self, diagnostic: DiskMapDiagnostic, priority: bool) {
+        self.total = self.total.saturating_add(1);
+        *self.counts_by_kind.entry(diagnostic.kind).or_default() += 1;
+
+        if self.limit == 0 {
+            return;
+        }
+
+        let sample = DiskMapDiagnosticSample {
+            priority,
+            sequence: self.sequence,
+            diagnostic,
+        };
+        self.sequence = self.sequence.saturating_add(1);
+
+        if self.samples.len() < self.limit {
+            self.samples.push(sample);
+            return;
+        }
+
+        if priority && let Some(index) = self.samples.iter().rposition(|sample| !sample.priority) {
+            self.samples[index] = sample;
+        }
+    }
+
+    fn finish(self, report: &mut DiskMapReport) {
+        let mut samples = self.samples;
+        samples.sort_by(|left, right| {
+            right
+                .priority
+                .cmp(&left.priority)
+                .then_with(|| left.diagnostic.cmp(&right.diagnostic))
+                .then_with(|| left.sequence.cmp(&right.sequence))
+        });
+        report.diagnostics = samples
+            .into_iter()
+            .map(|sample| sample.diagnostic)
+            .collect();
+        let retained = report.diagnostics.len() as u64;
+        report.diagnostic_summary = DiskMapDiagnosticSummary {
+            total: self.total,
+            retained,
+            truncated: self.total.saturating_sub(retained),
+            by_kind: self
+                .counts_by_kind
+                .into_iter()
+                .map(|(kind, count)| DiskMapDiagnosticKindSummary { kind, count })
+                .collect(),
+        };
+    }
+}
+
+#[derive(Debug)]
+struct DiskMapDiagnosticSample {
+    priority: bool,
+    sequence: u64,
+    diagnostic: DiskMapDiagnostic,
+}
+
+struct PortableDiskMapRootInspection<'a, W>
+where
+    W: PortableDiskMapWalker,
+{
+    request: &'a DiskMapRequest,
+    cancellation: &'a ScanCancellationToken,
+    report: &'a mut DiskMapReport,
+    top_entries: &'a mut DiskMapTopEntries,
+    diagnostics: &'a mut DiskMapDiagnostics,
+    walker: &'a W,
+}
+
+impl<'a, W> PortableDiskMapRootInspection<'a, W>
+where
+    W: PortableDiskMapWalker,
+{
+    fn inspect(&mut self, root: &Path, fallback_reason: Option<String>) -> Result<()> {
+        let provenance = portable_estimate_provenance(fallback_reason.clone());
+        if let Some(reason) = &fallback_reason {
+            self.diagnostics.push_priority(DiskMapDiagnostic::new(
+                DiskMapDiagnosticKind::Fallback,
+                root.to_path_buf(),
+                reason.clone(),
+            ));
+        }
+
+        let metadata = match self.walker.symlink_metadata(root) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                push_root_skip(
+                    self.report,
+                    root,
+                    DiskMapDiagnosticKind::RootMissing,
+                    "disk map root does not exist",
+                    provenance,
+                    self.diagnostics,
+                );
+                return Ok(());
+            }
+            Err(err) => {
+                push_root_skip(
+                    self.report,
+                    root,
+                    DiskMapDiagnosticKind::RootMetadataReadSkipped,
+                    format!("disk map root metadata could not be read: {err}"),
+                    provenance,
+                    self.diagnostics,
+                );
+                return Ok(());
+            }
+        };
+
+        if self.walker.is_reparse_like(root, &metadata) {
+            push_root_skip(
+                self.report,
+                root,
+                DiskMapDiagnosticKind::ReparsePointSkipped,
+                "disk map root is a symlink or reparse point",
+                provenance,
+                self.diagnostics,
+            );
+            return Ok(());
+        }
+
+        let max_depth = self.request.max_depth.unwrap_or(usize::MAX);
+        let root_metrics = match self.walker.metadata_kind(&metadata) {
+            PortableMetadataKind::File => {
+                let metrics = portable_file_metrics(self.walker.metadata_len(&metadata));
+                push_portable_entry(
+                    root,
+                    root.to_path_buf(),
+                    DiskMapEntryKind::File,
+                    0,
+                    metrics,
+                    &provenance,
+                    self.top_entries,
+                );
+                metrics
+            }
+            PortableMetadataKind::Directory => match (PortableDiskMapTraversal {
+                root,
+                cancellation: self.cancellation,
+                max_depth,
+                estimate_provenance: &provenance,
+                top_entries: self.top_entries,
+                diagnostics: self.diagnostics,
+                walker: self.walker,
+            })
+            .inspect_root_directory()
+            {
+                Ok(metrics) => metrics,
+                Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
+                Err(err) => {
+                    push_root_skip(
+                        self.report,
+                        root,
+                        DiskMapDiagnosticKind::DirectoryReadSkipped,
+                        format!("disk map root directory could not be read: {err}"),
+                        provenance,
+                        self.diagnostics,
+                    );
+                    return Ok(());
+                }
+            },
+            PortableMetadataKind::Other => DiskMapMetrics::from_scan_report(ScanReport::default()),
+        };
+
+        self.report.totals.add(root_metrics);
+        self.report.roots.push(DiskMapRoot {
+            path: root.to_path_buf(),
+            status: DiskMapRootStatus::Scanned,
+            metrics: root_metrics,
+            estimate_source: EstimateSource::FreshScan,
+            estimate_provenance: provenance,
+            reason: None,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -308,7 +546,7 @@ where
     max_depth: usize,
     estimate_provenance: &'a EstimateProvenance,
     top_entries: &'a mut DiskMapTopEntries,
-    diagnostics: &'a mut Vec<DiskMapDiagnostic>,
+    diagnostics: &'a mut DiskMapDiagnostics,
     walker: &'a W,
 }
 
@@ -447,6 +685,7 @@ fn inspect_root(
     scan_engine: &ScanEngine,
     report: &mut DiskMapReport,
     top_entries: &mut DiskMapTopEntries,
+    diagnostics: &mut DiskMapDiagnostics,
 ) -> Result<()> {
     let walker = FsPortableDiskMapWalker;
     if request.scan_backend == ScanBackendKind::WindowsNtfsMftExperimental {
@@ -457,20 +696,23 @@ fn inspect_root(
             cancellation,
         ) {
             Ok(root_map) => {
-                push_backend_root(root, root_map, report, top_entries);
+                push_backend_root(root, root_map, report, top_entries, diagnostics);
                 return Ok(());
             }
             Err(err) if disk_map_backend_error_can_fallback(&err) => {
-                return inspect_portable_root(
-                    root,
+                return PortableDiskMapRootInspection {
                     request,
                     cancellation,
+                    report,
+                    top_entries,
+                    diagnostics,
+                    walker: &walker,
+                }
+                .inspect(
+                    root,
                     Some(format!(
                         "windows-ntfs-mft-experimental disk-map inventory was unavailable: {err}"
                     )),
-                    report,
-                    top_entries,
-                    &walker,
                 );
             }
             Err(err) => return Err(err),
@@ -483,125 +725,15 @@ fn inspect_root(
             request.scan_backend.label()
         )
     });
-    inspect_portable_root(
-        root,
+    PortableDiskMapRootInspection {
         request,
         cancellation,
-        fallback_reason,
         report,
         top_entries,
-        &walker,
-    )
-}
-
-fn inspect_portable_root<W>(
-    root: &Path,
-    request: &DiskMapRequest,
-    cancellation: &ScanCancellationToken,
-    fallback_reason: Option<String>,
-    report: &mut DiskMapReport,
-    top_entries: &mut DiskMapTopEntries,
-    walker: &W,
-) -> Result<()>
-where
-    W: PortableDiskMapWalker,
-{
-    let provenance = portable_estimate_provenance(fallback_reason.clone());
-    if let Some(reason) = &fallback_reason {
-        report.diagnostics.push(DiskMapDiagnostic::new(
-            DiskMapDiagnosticKind::Fallback,
-            root.to_path_buf(),
-            reason.clone(),
-        ));
+        diagnostics,
+        walker: &walker,
     }
-
-    let metadata = match walker.symlink_metadata(root) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            push_root_skip(
-                report,
-                root,
-                DiskMapDiagnosticKind::RootMissing,
-                "disk map root does not exist",
-                provenance,
-            );
-            return Ok(());
-        }
-        Err(err) => {
-            push_root_skip(
-                report,
-                root,
-                DiskMapDiagnosticKind::RootMetadataReadSkipped,
-                format!("disk map root metadata could not be read: {err}"),
-                provenance,
-            );
-            return Ok(());
-        }
-    };
-
-    if walker.is_reparse_like(root, &metadata) {
-        push_root_skip(
-            report,
-            root,
-            DiskMapDiagnosticKind::ReparsePointSkipped,
-            "disk map root is a symlink or reparse point",
-            provenance,
-        );
-        return Ok(());
-    }
-
-    let max_depth = request.max_depth.unwrap_or(usize::MAX);
-    let root_metrics = match walker.metadata_kind(&metadata) {
-        PortableMetadataKind::File => {
-            let metrics = portable_file_metrics(walker.metadata_len(&metadata));
-            push_portable_entry(
-                root,
-                root.to_path_buf(),
-                DiskMapEntryKind::File,
-                0,
-                metrics,
-                &provenance,
-                top_entries,
-            );
-            metrics
-        }
-        PortableMetadataKind::Directory => match (PortableDiskMapTraversal {
-            root,
-            cancellation,
-            max_depth,
-            estimate_provenance: &provenance,
-            top_entries,
-            diagnostics: &mut report.diagnostics,
-            walker,
-        })
-        .inspect_root_directory()
-        {
-            Ok(metrics) => metrics,
-            Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
-            Err(err) => {
-                push_root_skip(
-                    report,
-                    root,
-                    DiskMapDiagnosticKind::DirectoryReadSkipped,
-                    format!("disk map root directory could not be read: {err}"),
-                    provenance,
-                );
-                return Ok(());
-            }
-        },
-        PortableMetadataKind::Other => DiskMapMetrics::from_scan_report(ScanReport::default()),
-    };
-
-    report.totals.add(root_metrics);
-    report.roots.push(DiskMapRoot {
-        path: root.to_path_buf(),
-        status: DiskMapRootStatus::Scanned,
-        metrics: root_metrics,
-        estimate_source: EstimateSource::FreshScan,
-        estimate_provenance: provenance,
-        reason: None,
-    });
-    Ok(())
+    .inspect(root, fallback_reason)
 }
 
 fn push_backend_root(
@@ -609,12 +741,13 @@ fn push_backend_root(
     root_map: DiskMapBackendRoot,
     report: &mut DiskMapReport,
     top_entries: &mut DiskMapTopEntries,
+    diagnostics: &mut DiskMapDiagnostics,
 ) {
     report.totals.add(root_map.metrics);
     for entry in root_map.top_entries {
         top_entries.push(entry);
     }
-    report.diagnostics.extend(root_map.diagnostics);
+    diagnostics.extend(root_map.diagnostics);
     report.roots.push(DiskMapRoot {
         path: root.to_path_buf(),
         status: DiskMapRootStatus::Scanned,
@@ -783,6 +916,7 @@ fn push_root_skip(
     kind: DiskMapDiagnosticKind,
     detail: impl Into<String>,
     estimate_provenance: EstimateProvenance,
+    diagnostics: &mut DiskMapDiagnostics,
 ) {
     let detail = detail.into();
     report.roots.push(DiskMapRoot {
@@ -793,9 +927,7 @@ fn push_root_skip(
         estimate_provenance,
         reason: Some(detail.clone()),
     });
-    report
-        .diagnostics
-        .push(DiskMapDiagnostic::new(kind, root.to_path_buf(), detail));
+    diagnostics.push_priority(DiskMapDiagnostic::new(kind, root.to_path_buf(), detail));
 }
 
 pub(crate) struct DiskMapBackendRoot {
@@ -861,22 +993,23 @@ where
 {
     let mut report = DiskMapReport::default();
     let mut top_entries = DiskMapTopEntries::new(request.top_limit);
+    let mut diagnostics = DiskMapDiagnostics::new(request.diagnostic_limit);
 
     for root in &request.roots {
         check_cancelled(cancellation)?;
-        inspect_portable_root(
-            root,
+        PortableDiskMapRootInspection {
             request,
             cancellation,
-            None,
-            &mut report,
-            &mut top_entries,
+            report: &mut report,
+            top_entries: &mut top_entries,
+            diagnostics: &mut diagnostics,
             walker,
-        )?;
+        }
+        .inspect(root, None)?;
     }
 
     report.top_entries = top_entries.into_sorted_entries();
-    report.diagnostics.sort();
+    diagnostics.finish(&mut report);
     Ok(report)
 }
 
@@ -1132,5 +1265,97 @@ mod tests {
         assert!(report.diagnostics.iter().any(|diagnostic| {
             diagnostic.kind == DiskMapDiagnosticKind::ReparsePointSkipped && diagnostic.path == link
         }));
+    }
+
+    #[test]
+    fn portable_map_bounds_raw_diagnostics_but_counts_all_failures() {
+        let root = PathBuf::from("C:\\root");
+        let failed_paths = (0..5)
+            .map(|index| root.join(format!("missing-{index}.bin")))
+            .collect::<Vec<_>>();
+        let entries = failed_paths
+            .iter()
+            .cloned()
+            .map(FakeEntry::Path)
+            .collect::<Vec<_>>();
+        let walker = failed_paths.iter().fold(
+            FakeDiskMapWalker::default().with_directory(&root, entries),
+            |walker, path| walker.with_metadata_error(path, "raced away"),
+        );
+        let report = inspect_map_with_walker_for_test(
+            &DiskMapRequest::new(vec![root])
+                .with_top_limit(0)
+                .with_diagnostic_limit(2),
+            &ScanCancellationToken::new(),
+            &walker,
+        )
+        .unwrap();
+
+        assert_eq!(report.diagnostics.len(), 2);
+        assert_eq!(report.diagnostic_summary.total, 5);
+        assert_eq!(report.diagnostic_summary.retained, 2);
+        assert_eq!(report.diagnostic_summary.truncated, 3);
+        assert_eq!(
+            report.diagnostic_summary.by_kind,
+            vec![DiskMapDiagnosticKindSummary {
+                kind: DiskMapDiagnosticKind::MetadataReadSkipped,
+                count: 5,
+            }]
+        );
+    }
+
+    #[test]
+    fn disk_map_diagnostics_retains_priority_samples_when_full() {
+        let child = PathBuf::from("C:\\root\\child");
+        let fallback = PathBuf::from("C:\\root");
+        let mut diagnostics = DiskMapDiagnostics::new(1);
+        diagnostics.push(DiskMapDiagnostic::new(
+            DiskMapDiagnosticKind::MetadataReadSkipped,
+            child,
+            "child failed",
+        ));
+        diagnostics.push_priority(DiskMapDiagnostic::new(
+            DiskMapDiagnosticKind::Fallback,
+            fallback.clone(),
+            "backend fallback",
+        ));
+        let mut report = DiskMapReport::default();
+        diagnostics.finish(&mut report);
+
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].kind, DiskMapDiagnosticKind::Fallback);
+        assert_eq!(report.diagnostics[0].path, fallback);
+        assert_eq!(report.diagnostic_summary.total, 2);
+        assert_eq!(report.diagnostic_summary.retained, 1);
+        assert_eq!(report.diagnostic_summary.truncated, 1);
+        assert_eq!(
+            report
+                .diagnostic_summary
+                .by_kind
+                .iter()
+                .map(|summary| (summary.kind, summary.count))
+                .collect::<Vec<_>>(),
+            vec![
+                (DiskMapDiagnosticKind::MetadataReadSkipped, 1),
+                (DiskMapDiagnosticKind::Fallback, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn disk_map_diagnostic_limit_zero_keeps_summary_only() {
+        let mut diagnostics = DiskMapDiagnostics::new(0);
+        diagnostics.push(DiskMapDiagnostic::new(
+            DiskMapDiagnosticKind::MetadataReadSkipped,
+            PathBuf::from("C:\\root\\child"),
+            "child failed",
+        ));
+        let mut report = DiskMapReport::default();
+        diagnostics.finish(&mut report);
+
+        assert!(report.diagnostics.is_empty());
+        assert_eq!(report.diagnostic_summary.total, 1);
+        assert_eq!(report.diagnostic_summary.retained, 0);
+        assert_eq!(report.diagnostic_summary.truncated, 1);
     }
 }
