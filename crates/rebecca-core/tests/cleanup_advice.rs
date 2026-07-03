@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use rebecca_core::app_leftovers::{AppLeftoverCandidate, AppLeftoverSource};
+use rebecca_core::applications::InstalledApplication;
 use rebecca_core::applications::NoopApplicationDiscovery;
 use rebecca_core::cleanup_advice::{
     CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceRelation, CleanupAdviceStatus,
@@ -174,6 +176,90 @@ fn project_artifact_candidate_is_cleanable_when_context_is_verified() {
 }
 
 #[test]
+fn app_leftover_candidate_is_cleanable_with_structured_context() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("Example App")
+        .join("Cache");
+    let candidate = app_leftover_candidate(&target);
+    let mut index = build_index(&[], ProtectionPolicy::new());
+    index.add_app_leftover_candidates([candidate]);
+
+    let advice = index.advise_path(&target);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::Cleanable);
+    assert_eq!(advice.source.unwrap().label(), "app-leftover");
+    assert_eq!(advice.relation, Some(CleanupAdviceRelation::Exact));
+    assert_eq!(
+        advice.rule_id.as_deref(),
+        Some("windows.app-leftover-local-cache")
+    );
+    assert_eq!(advice.category.as_deref(), Some("app-leftover"));
+    assert_eq!(
+        advice.suggested_command.as_ref().unwrap().args,
+        ["apps", "clean", "--dry-run"]
+    );
+    let context = advice.app_leftover.as_ref().unwrap();
+    assert_eq!(context.app.stable_id, "hklm/example");
+    assert_eq!(context.app.display_name, "Example App");
+    assert_eq!(context.app.publisher.as_deref(), Some("Example Inc"));
+    assert_eq!(context.source.label(), "local-app-data");
+    assert_eq!(context.target_leaf, "Cache");
+    assert_eq!(context.deletion_style.label(), "preserve-root-contents");
+    assert_eq!(context.modified_at_unix_seconds, Some(123));
+}
+
+#[test]
+fn app_leftover_parent_contains_cleanable_without_durable_data_overblock() {
+    let temp = tempfile::tempdir().unwrap();
+    let app_root = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("Example App");
+    let target = app_root.join("Cache");
+    let mut index = build_index(&[], ProtectionPolicy::new());
+    index.add_app_leftover_candidates([app_leftover_candidate(&target)]);
+
+    let advice = index.advise_path(&app_root);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::ContainsCleanable);
+    assert_eq!(advice.source.unwrap().label(), "app-leftover");
+    assert_eq!(advice.relation, Some(CleanupAdviceRelation::Ancestor));
+    assert_eq!(advice.matched_path.as_deref(), Some(target.as_path()));
+    assert!(advice.app_leftover.is_some());
+}
+
+#[test]
+fn protected_path_wins_over_app_leftover_match() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("Example App")
+        .join("Cache");
+    let protected_paths = vec![target.clone()];
+    let policy = ProtectionPolicy::new().with_protected_paths(&protected_paths);
+    let mut index = build_index(&[], policy);
+    index.add_app_leftover_candidates([app_leftover_candidate(&target)]);
+
+    let advice = index.advise_path(&target);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::Protected);
+    assert_eq!(
+        advice.protection_kind.as_deref(),
+        Some("user-protected-path")
+    );
+    assert_eq!(advice.source.unwrap().label(), "protection");
+    assert_eq!(advice.app_leftover, None);
+    assert_eq!(advice.suggested_command, None);
+}
+
+#[test]
 fn bare_project_artifact_name_without_context_remains_unknown() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
@@ -217,4 +303,14 @@ fn unmatched_path_is_unknown() {
     assert_eq!(advice.status, CleanupAdviceStatus::Unknown);
     assert_eq!(advice.source, None);
     assert_eq!(advice.suggested_command, None);
+}
+
+fn app_leftover_candidate(path: impl AsRef<Path>) -> AppLeftoverCandidate {
+    AppLeftoverCandidate {
+        app: InstalledApplication::new("hklm/example", "Example App", Vec::new())
+            .with_publisher("Example Inc"),
+        path: path.as_ref().to_path_buf(),
+        source: AppLeftoverSource::LocalAppData,
+        modified_at_unix_seconds: Some(123),
+    }
 }

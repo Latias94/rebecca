@@ -7,7 +7,7 @@
   "data": {
     "roots": [
       {
-        "path": "C:\\Users\\example\\workspace",
+        "path": "C:\\Users\\example\\AppData\\Local\\Example App",
         "status": "scanned",
         "metrics": {
           "logical_bytes": 7,
@@ -32,8 +32,8 @@
     },
     "top_entries": [
       {
-        "path": "C:\\Users\\example\\workspace\\target",
-        "root": "C:\\Users\\example\\workspace",
+        "path": "C:\\Users\\example\\AppData\\Local\\Example App\\Cache",
+        "root": "C:\\Users\\example\\AppData\\Local\\Example App",
         "kind": "directory",
         "depth": 1,
         "logical_bytes": 4,
@@ -44,7 +44,35 @@
         "directories": 1,
         "estimate_source": "fresh-scan",
         "estimate_backend": "portable-recursive",
-        "estimate_confidence": "exact"
+        "estimate_confidence": "exact",
+        "cleanup_advice": {
+          "status": "cleanable",
+          "source": "app-leftover",
+          "relation": "exact",
+          "rule_id": "windows.app-leftover-local-cache",
+          "category": "app-leftover",
+          "matched_path": "C:\\Users\\example\\AppData\\Local\\Example App\\Cache",
+          "app_leftover": {
+            "app": {
+              "stable_id": "hklm/example-app",
+              "display_name": "Example App",
+              "publisher": "Example Inc"
+            },
+            "source": "local-app-data",
+            "target_leaf": "Cache",
+            "deletion_style": "preserve-root-contents",
+            "modified_at_unix_seconds": 1782660000
+          },
+          "reason": "path is a rebuildable Cache app leftover for Example App",
+          "suggested_command": {
+            "command": "rebecca",
+            "args": [
+              "apps",
+              "clean",
+              "--dry-run"
+            ]
+          }
+        }
       }
     ],
     "groups": [],

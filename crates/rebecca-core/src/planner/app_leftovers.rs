@@ -11,8 +11,8 @@ use crate::plan::{CleanupPlan, CleanupTargetIssueReason};
 use crate::scan::run_scoped_scan;
 
 use super::measure::{
-    app_leftover_rule_id, app_leftover_skipped_target, dedupe_key, emit_measured_target_progress,
-    emit_target_finished, finalize_plan, measure_app_leftover_candidate, prune_scan_cache,
+    app_leftover_skipped_target, dedupe_key, emit_measured_target_progress, emit_target_finished,
+    finalize_plan, measure_app_leftover_candidate, prune_scan_cache,
 };
 use super::{PlanBuildContext, PlanProgressEvent};
 
@@ -49,7 +49,7 @@ where
         }
 
         progress(PlanProgressEvent::TargetScanning {
-            rule_id: app_leftover_rule_id(&leftover),
+            rule_id: leftover.rule_id(),
             path: &leftover.path,
         });
         unique_leftovers.push(leftover);

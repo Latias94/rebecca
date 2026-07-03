@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, ensure};
+use rebecca::core::app_leftovers::derive_app_leftover_candidates;
 use rebecca::core::cleanup_advice::{
     CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceStatus,
 };
@@ -204,6 +205,7 @@ fn annotate_map_report_with_cleanup_advice(
     let rules = rebecca::rules::builtin_rules()?;
     let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
     let applications = crate::info::application_discovery();
+    let env = rebecca::core::environment::SystemEnvironment;
     let protected_storage = runtime_config.app_paths.storage_entries();
     let protected_paths = runtime_config.protected_paths.clone();
     let mut protection_policy = ProtectionPolicy::new()
@@ -216,9 +218,21 @@ fn annotate_map_report_with_cleanup_advice(
     let mut index = CleanupAdviceIndex::build(
         CleanupAdviceBuildRequest::new(request, protection_policy),
         &rules,
-        &rebecca::core::environment::SystemEnvironment,
+        &env,
         applications.as_ref(),
     )?;
+    match applications.installed_applications() {
+        Ok(installed_applications) => {
+            let app_leftovers = derive_app_leftover_candidates(&installed_applications, &env);
+            index.add_app_leftover_candidates(app_leftovers);
+        }
+        Err(err) => {
+            tracing::debug!(
+                error = %err,
+                "app-leftover cleanup advice skipped because application discovery failed"
+            );
+        }
+    }
     let artifact_roots = report
         .roots
         .iter()
@@ -443,6 +457,16 @@ const INSPECT_MAP_ADVICE_TABLE_HEADER: [&str; 12] = [
     "cleanup_command",
 ];
 
+const INSPECT_MAP_APP_LEFTOVER_ADVICE_TABLE_HEADER: [&str; 7] = [
+    "cleanup_app_stable_id",
+    "cleanup_app_display_name",
+    "cleanup_app_publisher",
+    "cleanup_app_leftover_source",
+    "cleanup_app_leftover_target_leaf",
+    "cleanup_app_leftover_deletion_style",
+    "cleanup_app_leftover_modified_at_unix_seconds",
+];
+
 fn print_map_report_table(
     format: InspectMapTableFormat,
     row_kinds: &[InspectMapTableRowKind],
@@ -548,6 +572,7 @@ fn map_table_header(include_cleanup_advice: bool) -> Vec<&'static str> {
     let mut header = INSPECT_MAP_TABLE_HEADER.to_vec();
     if include_cleanup_advice {
         header.extend(INSPECT_MAP_ADVICE_TABLE_HEADER);
+        header.extend(INSPECT_MAP_APP_LEFTOVER_ADVICE_TABLE_HEADER);
     }
     header
 }
@@ -567,7 +592,8 @@ fn push_advice_cells(row: &mut Vec<String>, advice: Option<&CleanupAdvice>) {
     let Some(advice) = advice else {
         row.extend(std::iter::repeat_n(
             String::new(),
-            INSPECT_MAP_ADVICE_TABLE_HEADER.len(),
+            INSPECT_MAP_ADVICE_TABLE_HEADER.len()
+                + INSPECT_MAP_APP_LEFTOVER_ADVICE_TABLE_HEADER.len(),
         ));
         return;
     };
@@ -598,6 +624,30 @@ fn push_advice_cells(row: &mut Vec<String>, advice: Option<&CleanupAdvice>) {
             .unwrap_or_default(),
         advice.reason.clone(),
         format_advice_command(advice),
+    ]);
+    push_app_leftover_advice_cells(row, advice);
+}
+
+fn push_app_leftover_advice_cells(row: &mut Vec<String>, advice: &CleanupAdvice) {
+    let Some(context) = advice.app_leftover.as_ref() else {
+        row.extend(std::iter::repeat_n(
+            String::new(),
+            INSPECT_MAP_APP_LEFTOVER_ADVICE_TABLE_HEADER.len(),
+        ));
+        return;
+    };
+
+    row.extend([
+        context.app.stable_id.clone(),
+        context.app.display_name.clone(),
+        context.app.publisher.clone().unwrap_or_default(),
+        context.source.label().to_string(),
+        context.target_leaf.clone(),
+        context.deletion_style.label().to_string(),
+        context
+            .modified_at_unix_seconds
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
     ]);
 }
 

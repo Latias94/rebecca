@@ -913,6 +913,70 @@
         }
       }
     },
+    "appLeftoverSource": {
+      "type": "string",
+      "enum": [
+        "local-app-data",
+        "roaming-app-data",
+        "local-low-app-data"
+      ]
+    },
+    "appLeftoverDeletionStyle": {
+      "type": "string",
+      "enum": [
+        "preserve-root-contents"
+      ]
+    },
+    "appLeftoverAppContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stable_id",
+        "display_name"
+      ],
+      "properties": {
+        "stable_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publisher": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "appLeftoverAdviceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app",
+        "source",
+        "target_leaf",
+        "deletion_style"
+      ],
+      "properties": {
+        "app": {
+          "$ref": "#/$defs/appLeftoverAppContext"
+        },
+        "source": {
+          "$ref": "#/$defs/appLeftoverSource"
+        },
+        "target_leaf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deletion_style": {
+          "$ref": "#/$defs/appLeftoverDeletionStyle"
+        },
+        "modified_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
     "cleanupAdvice": {
       "type": "object",
       "additionalProperties": false,
@@ -969,6 +1033,9 @@
         },
         "suggested_command": {
           "$ref": "#/$defs/cleanupAdviceCommand"
+        },
+        "app_leftover": {
+          "$ref": "#/$defs/appLeftoverAdviceContext"
         }
       }
     },

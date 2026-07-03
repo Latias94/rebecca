@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::app_leftovers::AppLeftoverCandidate;
+use crate::app_leftovers::{AppLeftoverCandidate, AppLeftoverDeletionStyle};
 use crate::error::{RebeccaError, Result};
 use crate::model::Platform;
 use crate::plan::{
@@ -146,14 +146,14 @@ pub(crate) fn app_leftover_skipped_target(
     reason: impl Into<String>,
 ) -> CleanupTarget {
     CleanupTarget::skipped_with_reason_code(
-        app_leftover_rule_id(leftover),
+        leftover.rule_id(),
         leftover.path.clone(),
         mode,
         reason_code,
         reason,
     )
-    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
-    .with_deletion_style(CleanupTargetDeletionStyle::PreserveRootContents)
+    .with_restore_hint(Some(leftover.restore_hint()))
+    .with_deletion_style(cleanup_target_deletion_style(leftover.deletion_style()))
     .with_modified_at_unix_seconds(leftover.modified_at_unix_seconds)
 }
 
@@ -514,13 +514,13 @@ fn app_leftover_allowed_target(
     mode: crate::DeleteMode,
 ) -> CleanupTarget {
     CleanupTarget::allowed(
-        app_leftover_rule_id(leftover),
+        leftover.rule_id(),
         leftover.path.clone(),
         estimated_bytes,
         mode,
     )
-    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
-    .with_deletion_style(CleanupTargetDeletionStyle::PreserveRootContents)
+    .with_restore_hint(Some(leftover.restore_hint()))
+    .with_deletion_style(cleanup_target_deletion_style(leftover.deletion_style()))
     .with_modified_at_unix_seconds(leftover.modified_at_unix_seconds)
 }
 
@@ -531,33 +531,23 @@ fn app_leftover_blocked_target(
     reason: impl Into<String>,
 ) -> CleanupTarget {
     CleanupTarget::blocked_with_reason_code(
-        app_leftover_rule_id(leftover),
+        leftover.rule_id(),
         leftover.path.clone(),
         mode,
         reason_code,
         reason,
     )
-    .with_restore_hint(Some(app_leftover_restore_hint(leftover)))
-    .with_deletion_style(CleanupTargetDeletionStyle::PreserveRootContents)
+    .with_restore_hint(Some(leftover.restore_hint()))
+    .with_deletion_style(cleanup_target_deletion_style(leftover.deletion_style()))
     .with_modified_at_unix_seconds(leftover.modified_at_unix_seconds)
 }
 
-pub(crate) fn app_leftover_rule_id(leftover: &AppLeftoverCandidate) -> &'static str {
-    match leftover.source {
-        crate::app_leftovers::AppLeftoverSource::LocalAppData => "windows.app-leftover-local-cache",
-        crate::app_leftovers::AppLeftoverSource::RoamingAppData => {
-            "windows.app-leftover-roaming-cache"
-        }
-        crate::app_leftovers::AppLeftoverSource::LocalLowAppData => {
-            "windows.app-leftover-local-low-cache"
+fn cleanup_target_deletion_style(
+    deletion_style: AppLeftoverDeletionStyle,
+) -> CleanupTargetDeletionStyle {
+    match deletion_style {
+        AppLeftoverDeletionStyle::PreserveRootContents => {
+            CleanupTargetDeletionStyle::PreserveRootContents
         }
     }
-}
-
-fn app_leftover_restore_hint(leftover: &AppLeftoverCandidate) -> String {
-    format!(
-        "{} {} cache data is rebuildable.",
-        leftover.app.display_name(),
-        leftover.source.label()
-    )
 }

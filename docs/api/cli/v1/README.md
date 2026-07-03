@@ -66,7 +66,8 @@ flags can limit the export to selected row kinds; omitting them preserves the
 full table. When `--cleanup-advice` or `--advice-status` is enabled, the table
 appends cleanup columns for entry rows: status, relation, source, rule id,
 category, safety level, required flags, required warnings, protection kind,
-matched path, reason, and a PowerShell-quoted dry-run command hint.
+matched path, reason, a PowerShell-quoted dry-run command hint, and optional
+`cleanup_app_*` context columns for app-leftover advice.
 
 ## Payload Kinds
 
@@ -184,16 +185,19 @@ Repeated `--table-row` flags can narrow that row set when a caller only needs
 entries, groups, or root summaries.
 When callers pass `--cleanup-advice`, each ranked entry may include
 `cleanup_advice`. Advice is read-only guidance derived from Rebecca's cleanup
-rule catalog, project artifact policy, and protection policy; it is not deletion
-authority. Status values are `cleanable`, `maybe-cleanable`,
+rule catalog, project artifact policy, app-leftover discovery, and protection
+policy; it is not deletion authority. Status values are `cleanable`, `maybe-cleanable`,
 `contains-cleanable`, `protected`, and `unknown`. Rule-backed and
 project-artifact-backed advice can include `rule_id`, `category`,
 `safety_level`, `required_flags`, `required_warnings`, `matched_path`, `reason`,
-and a structured `suggested_command`. `--advice-status <status>` implies
+and a structured `suggested_command`. App-leftover advice can also include an
+`app_leftover` object with the installed app identity, app-data source, target
+leaf, deletion style, and optional modification time. `--advice-status <status>` implies
 `--cleanup-advice` and filters only the ranked entries, not root totals or
 diagnostic summaries. CSV/TSV `cleanup_command` cells are PowerShell-quoted
-human hints derived from the structured command; machine consumers should use
-JSON or NDJSON `suggested_command` fields instead of reparsing the table cell.
+human hints derived from the structured command, and app-leftover rows append
+`cleanup_app_*` context columns; machine consumers should use JSON or NDJSON
+`suggested_command` and `app_leftover` fields instead of reparsing table cells.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was

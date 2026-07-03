@@ -15,6 +15,78 @@ pub struct AppLeftoverCandidate {
     pub modified_at_unix_seconds: Option<u64>,
 }
 
+impl AppLeftoverCandidate {
+    pub fn rule_id(&self) -> &'static str {
+        match self.source {
+            AppLeftoverSource::LocalAppData => "windows.app-leftover-local-cache",
+            AppLeftoverSource::RoamingAppData => "windows.app-leftover-roaming-cache",
+            AppLeftoverSource::LocalLowAppData => "windows.app-leftover-local-low-cache",
+        }
+    }
+
+    pub fn restore_hint(&self) -> String {
+        format!(
+            "{} {} cache data is rebuildable.",
+            self.app.display_name(),
+            self.source.label()
+        )
+    }
+
+    pub fn deletion_style(&self) -> AppLeftoverDeletionStyle {
+        AppLeftoverDeletionStyle::PreserveRootContents
+    }
+
+    pub fn advice_context(&self) -> AppLeftoverAdviceContext {
+        AppLeftoverAdviceContext {
+            app: AppLeftoverAppContext {
+                stable_id: self.app.stable_id().to_string(),
+                display_name: self.app.display_name().to_string(),
+                publisher: self.app.publisher.clone(),
+            },
+            source: self.source,
+            target_leaf: self
+                .path
+                .file_name()
+                .map(|leaf| leaf.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            deletion_style: self.deletion_style(),
+            modified_at_unix_seconds: self.modified_at_unix_seconds,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppLeftoverAdviceContext {
+    pub app: AppLeftoverAppContext,
+    pub source: AppLeftoverSource,
+    pub target_leaf: String,
+    pub deletion_style: AppLeftoverDeletionStyle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_at_unix_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppLeftoverAppContext {
+    pub stable_id: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AppLeftoverDeletionStyle {
+    PreserveRootContents,
+}
+
+impl AppLeftoverDeletionStyle {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::PreserveRootContents => "preserve-root-contents",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AppLeftoverSource {

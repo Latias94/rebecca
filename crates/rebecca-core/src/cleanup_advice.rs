@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::app_leftovers::{AppLeftoverAdviceContext, AppLeftoverCandidate};
 use crate::applications::ApplicationDiscovery;
 use crate::discovery::{
     DiscoveryIndex, TargetResolution, resolve_rule_target_with_applications_and_index,
@@ -13,7 +14,9 @@ use crate::error::Result;
 use crate::model::{PlanRequest, RuleDefinition, SafetyLevel};
 use crate::path_overlap::{PathRelation, path_relation};
 use crate::project_artifacts::{ProjectArtifactCandidate, recently_modified_reason};
-use crate::protection::{ProtectionAssessment, ProtectionPolicy};
+use crate::protection::{
+    ProtectedCategory, ProtectionAssessment, ProtectionBlock, ProtectionBlockKind, ProtectionPolicy,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -102,6 +105,8 @@ pub struct CleanupAdvice {
     pub protection_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matched_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_leftover: Option<AppLeftoverAdviceContext>,
     pub reason: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested_command: Option<CleanupAdviceCommand>,
@@ -120,6 +125,7 @@ impl CleanupAdvice {
             required_warnings: Vec::new(),
             protection_kind: None,
             matched_path: None,
+            app_leftover: None,
             reason: "no cleanup rule or protection policy matched this path".to_string(),
             suggested_command: None,
         }
@@ -137,6 +143,7 @@ impl CleanupAdvice {
             required_warnings: Vec::new(),
             protection_kind: Some(kind),
             matched_path: None,
+            app_leftover: None,
             reason,
             suggested_command: None,
         }
@@ -216,6 +223,7 @@ impl<'a> CleanupAdviceIndex<'a> {
                         required_warnings: required_warnings.clone(),
                         reason: None,
                         suggested_command: cleanup_rule_command(&rule.id),
+                        app_leftover: None,
                     });
                 }
             }
@@ -228,6 +236,16 @@ impl<'a> CleanupAdviceIndex<'a> {
     }
 
     pub fn advise_path(&self, path: &Path) -> CleanupAdvice {
+        if let Some(advice) = self
+            .targets
+            .iter()
+            .filter_map(|target| target.advice_for(path, self.protection_policy))
+            .max_by_key(CleanupAdviceCandidate::rank)
+            .map(CleanupAdviceCandidate::into_advice)
+        {
+            return advice;
+        }
+
         match self.protection_policy.assess_path(path) {
             ProtectionAssessment::Allowed => {}
             ProtectionAssessment::Blocked(block) => {
@@ -235,12 +253,7 @@ impl<'a> CleanupAdviceIndex<'a> {
             }
         }
 
-        self.targets
-            .iter()
-            .filter_map(|target| target.advice_for(path))
-            .max_by_key(CleanupAdviceCandidate::rank)
-            .map(CleanupAdviceCandidate::into_advice)
-            .unwrap_or_else(CleanupAdvice::unknown)
+        CleanupAdvice::unknown()
     }
 
     pub fn add_project_artifact_candidates(
@@ -282,6 +295,34 @@ impl<'a> CleanupAdviceIndex<'a> {
                         candidate.policy.artifact.to_string(),
                     ],
                 }),
+                app_leftover: None,
+            });
+        }
+    }
+
+    pub fn add_app_leftover_candidates(
+        &mut self,
+        candidates: impl IntoIterator<Item = AppLeftoverCandidate>,
+    ) {
+        let mut seen = BTreeSet::new();
+        for candidate in candidates {
+            let rule_id = candidate.rule_id().to_string();
+            let dedupe_key = comparable_path_key(&candidate.path);
+            if !seen.insert((rule_id.to_ascii_lowercase(), dedupe_key)) {
+                continue;
+            }
+
+            self.targets.push(CleanupAdviceTarget {
+                source: CleanupAdviceSource::AppLeftover,
+                path: candidate.path.clone(),
+                rule_id: Some(rule_id),
+                category: Some("app-leftover".to_string()),
+                safety_level: None,
+                required_flags: Vec::new(),
+                required_warnings: Vec::new(),
+                reason: None,
+                suggested_command: app_leftover_command(),
+                app_leftover: Some(candidate.advice_context()),
             });
         }
     }
@@ -304,16 +345,28 @@ struct CleanupAdviceTarget {
     required_warnings: Vec<String>,
     reason: Option<String>,
     suggested_command: Option<CleanupAdviceCommand>,
+    app_leftover: Option<AppLeftoverAdviceContext>,
 }
 
 impl CleanupAdviceTarget {
-    fn advice_for(&self, entry_path: &Path) -> Option<CleanupAdviceCandidate> {
+    fn advice_for(
+        &self,
+        entry_path: &Path,
+        protection_policy: ProtectionPolicy<'_>,
+    ) -> Option<CleanupAdviceCandidate> {
         let relation = match path_relation(entry_path, &self.path) {
             PathRelation::Same => CleanupAdviceRelation::Exact,
             PathRelation::Descendant => CleanupAdviceRelation::Descendant,
             PathRelation::Ancestor => CleanupAdviceRelation::Ancestor,
             PathRelation::Unrelated => return None,
         };
+
+        if let Some(block) = self.protection_block(entry_path, relation, protection_policy) {
+            return Some(CleanupAdviceCandidate {
+                rank: advice_rank(CleanupAdviceStatus::Protected, relation),
+                advice: CleanupAdvice::protected(block.kind.label().to_string(), block.message),
+            });
+        }
 
         let status = if matches!(relation, CleanupAdviceRelation::Ancestor) {
             CleanupAdviceStatus::ContainsCleanable
@@ -336,10 +389,41 @@ impl CleanupAdviceTarget {
                 required_warnings: self.required_warnings.clone(),
                 protection_kind: None,
                 matched_path: Some(self.path.clone()),
+                app_leftover: self.app_leftover.clone(),
                 reason: self.advice_reason(status, relation),
                 suggested_command: self.suggested_command.clone(),
             },
         })
+    }
+
+    fn protection_block(
+        &self,
+        entry_path: &Path,
+        relation: CleanupAdviceRelation,
+        protection_policy: ProtectionPolicy<'_>,
+    ) -> Option<ProtectionBlock> {
+        let assessment = match (self.source, relation) {
+            (
+                CleanupAdviceSource::AppLeftover,
+                CleanupAdviceRelation::Exact | CleanupAdviceRelation::Descendant,
+            ) => protection_policy.assess_app_leftover_path(entry_path),
+            (CleanupAdviceSource::AppLeftover, CleanupAdviceRelation::Ancestor) => {
+                match protection_policy.assess_path(entry_path) {
+                    ProtectionAssessment::Blocked(block)
+                        if is_application_durable_data_block(&block) =>
+                    {
+                        ProtectionAssessment::Allowed
+                    }
+                    assessment => assessment,
+                }
+            }
+            _ => protection_policy.assess_path(entry_path),
+        };
+
+        match assessment {
+            ProtectionAssessment::Allowed => None,
+            ProtectionAssessment::Blocked(block) => Some(block),
+        }
     }
 
     fn advice_reason(
@@ -360,10 +444,9 @@ impl CleanupAdviceTarget {
             CleanupAdviceSource::ProjectArtifact => {
                 project_artifact_advice_reason(status, relation, self.rule_id.as_deref())
             }
-            CleanupAdviceSource::AppLeftover => format!(
-                "path matched app leftover policy {}",
-                self.rule_id.as_deref().unwrap_or("matched policy")
-            ),
+            CleanupAdviceSource::AppLeftover => {
+                app_leftover_advice_reason(status, relation, self.app_leftover.as_ref())
+            }
             CleanupAdviceSource::Protection => "path matched protection policy".to_string(),
         }
     }
@@ -458,6 +541,33 @@ fn project_artifact_advice_reason(
     }
 }
 
+fn app_leftover_advice_reason(
+    status: CleanupAdviceStatus,
+    relation: CleanupAdviceRelation,
+    context: Option<&AppLeftoverAdviceContext>,
+) -> String {
+    let app_name = context
+        .map(|context| context.app.display_name.as_str())
+        .unwrap_or("installed application");
+    let leaf = context
+        .map(|context| context.target_leaf.as_str())
+        .filter(|leaf| !leaf.is_empty())
+        .unwrap_or("cache");
+
+    match (status, relation) {
+        (CleanupAdviceStatus::Cleanable, CleanupAdviceRelation::Exact) => {
+            format!("path is a rebuildable {leaf} app leftover for {app_name}")
+        }
+        (CleanupAdviceStatus::Cleanable, CleanupAdviceRelation::Descendant) => {
+            format!("path is inside a rebuildable {leaf} app leftover for {app_name}")
+        }
+        (CleanupAdviceStatus::ContainsCleanable, CleanupAdviceRelation::Ancestor) => {
+            format!("path contains rebuildable app leftover data for {app_name}")
+        }
+        _ => format!("path matched app leftover policy for {app_name}"),
+    }
+}
+
 fn cleanup_rule_command(rule_id: &str) -> Option<CleanupAdviceCommand> {
     Some(CleanupAdviceCommand {
         command: "rebecca".to_string(),
@@ -468,6 +578,24 @@ fn cleanup_rule_command(rule_id: &str) -> Option<CleanupAdviceCommand> {
             rule_id.to_string(),
         ],
     })
+}
+
+fn app_leftover_command() -> Option<CleanupAdviceCommand> {
+    Some(CleanupAdviceCommand {
+        command: "rebecca".to_string(),
+        args: vec![
+            "apps".to_string(),
+            "clean".to_string(),
+            "--dry-run".to_string(),
+        ],
+    })
+}
+
+fn is_application_durable_data_block(block: &ProtectionBlock) -> bool {
+    matches!(
+        block.kind,
+        ProtectionBlockKind::ProtectedCategory(ProtectedCategory::ApplicationDurableData)
+    )
 }
 
 fn required_safety_flags(request: &PlanRequest, safety_level: SafetyLevel) -> Vec<String> {

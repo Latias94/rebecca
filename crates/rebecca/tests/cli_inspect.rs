@@ -601,6 +601,76 @@ fn inspect_map_json_reports_project_artifact_cleanup_advice() {
 }
 
 #[test]
+fn inspect_map_json_reports_app_leftover_cleanup_advice() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("AppData").join("Local");
+    let roaming = temp.path().join("AppData").join("Roaming");
+    let app_root = local.join("Example App");
+    let target = app_root.join("Cache");
+    write_fixture_file(target.join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .env("USERPROFILE", temp.path())
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            app_root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--max-depth",
+            "1",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "Cache",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let entries = envelope["data"]["top_entries"].as_array().unwrap();
+    let entry = entries
+        .iter()
+        .find(|entry| Path::new(entry["path"].as_str().unwrap()) == target.as_path())
+        .expect("app cache entry should be present");
+    let advice = &entry["cleanup_advice"];
+    assert_eq!(advice["status"], "cleanable");
+    assert_eq!(advice["source"], "app-leftover");
+    assert_eq!(advice["rule_id"], "windows.app-leftover-local-cache");
+    assert_eq!(advice["category"], "app-leftover");
+    assert_eq!(
+        advice["suggested_command"]["args"],
+        serde_json::json!(["apps", "clean", "--dry-run"])
+    );
+    assert_eq!(
+        advice["app_leftover"]["app"]["stable_id"],
+        "debug/installed-application/0"
+    );
+    assert_eq!(advice["app_leftover"]["app"]["display_name"], "Example App");
+    assert_eq!(advice["app_leftover"]["source"], "local-app-data");
+    assert_eq!(advice["app_leftover"]["target_leaf"], "Cache");
+    assert_eq!(
+        advice["app_leftover"]["deletion_style"],
+        "preserve-root-contents"
+    );
+}
+
+#[test]
 fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
     let temp = tempfile::tempdir().unwrap();
     let local = temp.path().join("local");
@@ -646,6 +716,64 @@ fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
     assert!(lines[1].contains("windows.npm-cache"));
     assert!(lines[1].contains("--allow-moderate"));
     assert!(lines[1].contains("rebecca clean --dry-run --rule windows.npm-cache"));
+}
+
+#[test]
+fn inspect_map_table_reports_app_leftover_advice_columns() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("AppData").join("Local");
+    let roaming = temp.path().join("AppData").join("Roaming");
+    let app_root = local.join("Example App");
+    let target = app_root.join("Cache");
+    write_fixture_file(target.join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .env("USERPROFILE", temp.path())
+        .args([
+            "inspect",
+            "map",
+            "--table",
+            "csv",
+            "--table-row",
+            "entry",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            app_root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--max-depth",
+            "1",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "Cache",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV);
+    assert!(lines[1].contains("cleanable"));
+    assert!(lines[1].contains("app-leftover"));
+    assert!(lines[1].contains("windows.app-leftover-local-cache"));
+    assert!(lines[1].contains("rebecca apps clean --dry-run"));
+    assert!(lines[1].contains("debug/installed-application/0"));
+    assert!(lines[1].contains("Example App"));
+    assert!(lines[1].contains("local-app-data"));
+    assert!(lines[1].contains("preserve-root-contents"));
 }
 
 #[test]
@@ -904,7 +1032,7 @@ fn assert_json_group(
 }
 
 const INSPECT_MAP_TABLE_HEADER_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason";
-const INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason,cleanup_status,cleanup_relation,cleanup_source,cleanup_rule_id,cleanup_category,cleanup_safety_level,cleanup_required_flags,cleanup_required_warnings,cleanup_protection_kind,cleanup_matched_path,cleanup_reason,cleanup_command";
+const INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason,cleanup_status,cleanup_relation,cleanup_source,cleanup_rule_id,cleanup_category,cleanup_safety_level,cleanup_required_flags,cleanup_required_warnings,cleanup_protection_kind,cleanup_matched_path,cleanup_reason,cleanup_command,cleanup_app_stable_id,cleanup_app_display_name,cleanup_app_publisher,cleanup_app_leftover_source,cleanup_app_leftover_target_leaf,cleanup_app_leftover_deletion_style,cleanup_app_leftover_modified_at_unix_seconds";
 const INSPECT_MAP_TABLE_HEADER_TSV: &str = "row_kind\trank\tpath\troot\tstatus\tentry_kind\tgroup_kind\tgroup_key\tgroup_label\tdepth\tlogical_bytes\tallocated_bytes\tunique_logical_bytes\tunique_allocated_bytes\tfiles\tdirectories\testimate_source\testimate_backend\testimate_backend_source\testimate_confidence\testimate_fallback_reason\testimate_caveats\treason";
 
 #[cfg(windows)]
