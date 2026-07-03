@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::adapter::{
     NtfsAttributeListEntry, NtfsAttributeStream, NtfsDirectoryEntry, NtfsFileReference,
-    NtfsIndexEntry, NtfsParsedRecord, merge_attribute_stream,
+    NtfsIndexEntry, NtfsParsedAttribute, NtfsParsedRecord, merge_attribute_stream,
 };
 use crate::attrs::AttributeType;
 use crate::dir_index::{NtfsIndexAllocationRecord, parse_i30_index_allocation_record};
@@ -49,16 +49,9 @@ impl NtfsRecordSet {
             }
 
             let mut record = record.clone();
-            let unresolved_extension =
-                resolve_attribute_list_extensions(&mut record, |reference| {
-                    find_extension_record(&records, &record_positions, &record_ids, reference)
-                        .cloned()
-                });
-            if !unresolved_extension {
-                record
-                    .caveats
-                    .retain(|caveat| caveat.code != "attribute-list-extension-records-unexpanded");
-            }
+            resolve_attribute_list_extensions(&mut record, |reference| {
+                find_extension_record(&records, &record_positions, &record_ids, reference).cloned()
+            });
             resolved.push(record);
         }
 
@@ -111,13 +104,7 @@ where
     S: NtfsStreamSource,
     F: NtfsRecordResolver,
 {
-    let unresolved_extension =
-        resolve_attribute_list_extensions_result(&mut record, resolve_extension)?;
-    if !unresolved_extension {
-        record
-            .caveats
-            .retain(|caveat| caveat.code != "attribute-list-extension-records-unexpanded");
-    }
+    resolve_attribute_list_extensions_result(&mut record, resolve_extension)?;
     expand_record_index_allocations(&mut record, geometry, source);
     Ok(record)
 }
@@ -148,11 +135,10 @@ where
 fn resolve_attribute_list_extensions_result<R>(
     record: &mut NtfsParsedRecord,
     mut resolve: R,
-) -> std::result::Result<bool, R::Error>
+) -> std::result::Result<(), R::Error>
 where
     R: NtfsRecordResolver,
 {
-    let mut unresolved_extension = false;
     let entries = record.attribute_list_entries.clone();
     for entry in entries {
         if should_skip_attribute_list_entry(record.reference, &entry) {
@@ -160,7 +146,6 @@ where
         }
 
         let Some(extension) = resolve.resolve(entry.file_reference)? else {
-            unresolved_extension = true;
             record.caveats.push(ParseCaveat::new(
                 "attribute-list-extension-record-missing",
                 format!(
@@ -171,17 +156,16 @@ where
             continue;
         };
 
-        unresolved_extension |= merge_attribute_list_extension(record, &entry, &extension);
+        merge_attribute_list_extension(record, &entry, &extension);
     }
 
-    Ok(unresolved_extension)
+    Ok(())
 }
 
-fn resolve_attribute_list_extensions<F>(record: &mut NtfsParsedRecord, mut resolve: F) -> bool
+fn resolve_attribute_list_extensions<F>(record: &mut NtfsParsedRecord, mut resolve: F)
 where
     F: FnMut(NtfsFileReference) -> Option<NtfsParsedRecord>,
 {
-    let mut unresolved_extension = false;
     let entries = record.attribute_list_entries.clone();
     for entry in entries {
         if should_skip_attribute_list_entry(record.reference, &entry) {
@@ -189,7 +173,6 @@ where
         }
 
         let Some(extension) = resolve(entry.file_reference) else {
-            unresolved_extension = true;
             record.caveats.push(ParseCaveat::new(
                 "attribute-list-extension-record-missing",
                 format!(
@@ -200,10 +183,8 @@ where
             continue;
         };
 
-        unresolved_extension |= merge_attribute_list_extension(record, &entry, &extension);
+        merge_attribute_list_extension(record, &entry, &extension);
     }
-
-    unresolved_extension
 }
 
 fn should_skip_attribute_list_entry(
@@ -217,7 +198,7 @@ fn merge_attribute_list_extension(
     record: &mut NtfsParsedRecord,
     entry: &NtfsAttributeListEntry,
     extension: &NtfsParsedRecord,
-) -> bool {
+) {
     if extension.base_reference != Some(record.reference) {
         record.caveats.push(ParseCaveat::new(
             "attribute-list-extension-base-mismatch",
@@ -226,7 +207,19 @@ fn merge_attribute_list_extension(
                 extension.reference.record_id, record.reference.record_id
             ),
         ));
-        return true;
+        return;
+    }
+    if extension_sequence_mismatches(entry.file_reference, extension.reference) {
+        record.caveats.push(ParseCaveat::new(
+            "attribute-list-extension-sequence-mismatch",
+            format!(
+                "attribute list references extension record {} sequence {:?}, but current sequence is {:?}",
+                entry.file_reference.record_id,
+                entry.file_reference.sequence_number,
+                extension.reference.sequence_number
+            ),
+        ));
+        return;
     }
 
     match entry.attribute_type {
@@ -236,30 +229,140 @@ fn merge_attribute_list_extension(
                 stream.attribute_type == entry.attribute_type
                     && stream.attribute_id == entry.attribute_id
                     && stream.name == entry.name
-                    && stream.lowest_vcn == Some(entry.lowest_vcn)
+                    && stream.lowest_vcn.unwrap_or(0) == entry.lowest_vcn
             }) {
                 merge_attribute_stream(&mut record.attribute_streams, stream.clone());
                 matched = true;
             }
-            if !matched {
-                record.caveats.push(ParseCaveat::new(
-                    "attribute-list-extension-attribute-missing",
-                    format!(
-                        "extension record {} does not contain attribute id {}",
-                        extension.reference.record_id, entry.attribute_id
-                    ),
-                ));
+            if matched {
+                append_extension_attribute_metadata(record, extension, entry);
             }
-            !matched
+            if !matched {
+                push_missing_extension_attribute_caveat(record, entry, extension);
+            }
+        }
+        AttributeType::StandardInformation => {
+            if !append_extension_attribute_metadata(record, extension, entry) {
+                push_missing_extension_attribute_caveat(record, entry, extension);
+                return;
+            }
+            record.is_directory |= extension.is_directory;
+            record.is_reparse_point |= extension.is_reparse_point;
+        }
+        AttributeType::FileName => {
+            if !append_extension_attribute_metadata(record, extension, entry) {
+                push_missing_extension_attribute_caveat(record, entry, extension);
+                return;
+            }
+            let mut merged_name = false;
+            for name in extension
+                .names
+                .iter()
+                .filter(|name| file_name_matches_entry(name, entry))
+            {
+                append_unique(&mut record.names, name.clone());
+                merged_name = true;
+            }
+            if !merged_name {
+                push_missing_extension_attribute_caveat(record, entry, extension);
+            } else {
+                record
+                    .caveats
+                    .retain(|caveat| caveat.code != "pathless-record");
+            }
+        }
+        AttributeType::IndexRoot => {
+            let mut matched = false;
+            let mut seen_entries = directory_entry_set(&record.directory_entries);
+            for index in extension.directory_indexes.iter().filter(|index| {
+                index.attribute_id == entry.attribute_id
+                    && Some(index.name.as_str()) == entry.name.as_deref()
+            }) {
+                append_unique(&mut record.directory_indexes, index.clone());
+                for directory_entry in &index.root_entries {
+                    if let Some(directory_entry) = &directory_entry.directory_entry {
+                        append_unique_directory_entry(
+                            &mut record.directory_entries,
+                            &mut seen_entries,
+                            directory_entry.clone(),
+                        );
+                    }
+                }
+                matched = true;
+            }
+            if matched {
+                append_extension_attribute_metadata(record, extension, entry);
+            } else {
+                push_missing_extension_attribute_caveat(record, entry, extension);
+            }
         }
         other => {
             record.caveats.push(ParseCaveat::new(
                 "attribute-list-extension-attribute-unsupported",
                 format!("attribute-list expansion does not yet merge {other:?} attributes"),
             ));
-            true
         }
     }
+}
+
+fn append_extension_attribute_metadata(
+    record: &mut NtfsParsedRecord,
+    extension: &NtfsParsedRecord,
+    entry: &NtfsAttributeListEntry,
+) -> bool {
+    let mut matched = false;
+    for attribute in extension
+        .attributes
+        .iter()
+        .filter(|attribute| attribute_matches_entry(attribute, entry))
+    {
+        append_unique(&mut record.attributes, attribute.clone());
+        matched = true;
+    }
+    matched
+}
+
+fn attribute_matches_entry(
+    attribute: &NtfsParsedAttribute,
+    entry: &NtfsAttributeListEntry,
+) -> bool {
+    attribute.attribute_type == entry.attribute_type
+        && attribute.attribute_id == entry.attribute_id
+        && attribute.name == entry.name
+        && attribute.lowest_vcn.unwrap_or(0) == entry.lowest_vcn
+}
+
+fn file_name_matches_entry(name: &crate::NtfsFileName, entry: &NtfsAttributeListEntry) -> bool {
+    name.attribute_id == Some(entry.attribute_id)
+        && name.attribute_name == entry.name
+        && name.lowest_vcn.unwrap_or(0) == entry.lowest_vcn
+}
+
+fn extension_sequence_mismatches(expected: NtfsFileReference, actual: NtfsFileReference) -> bool {
+    matches!(
+        (expected.sequence_number, actual.sequence_number),
+        (Some(expected), Some(actual)) if expected != 0 && actual != 0 && expected != actual
+    )
+}
+
+fn append_unique<T: PartialEq>(items: &mut Vec<T>, incoming: T) {
+    if !items.contains(&incoming) {
+        items.push(incoming);
+    }
+}
+
+fn push_missing_extension_attribute_caveat(
+    record: &mut NtfsParsedRecord,
+    entry: &NtfsAttributeListEntry,
+    extension: &NtfsParsedRecord,
+) {
+    record.caveats.push(ParseCaveat::new(
+        "attribute-list-extension-attribute-missing",
+        format!(
+            "extension record {} does not contain attribute id {}",
+            extension.reference.record_id, entry.attribute_id
+        ),
+    ));
 }
 
 fn expand_record_index_allocations<S>(

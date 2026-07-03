@@ -184,6 +184,7 @@ fn app_leftover_candidate_is_cleanable_with_structured_context() {
         .join("Local")
         .join("Example App")
         .join("Cache");
+    std::fs::create_dir_all(&target).unwrap();
     let candidate = app_leftover_candidate(&target);
     let mut index = build_index(&[], ProtectionPolicy::new());
     index.add_app_leftover_candidates([candidate]);
@@ -221,6 +222,7 @@ fn app_leftover_parent_contains_cleanable_without_durable_data_overblock() {
         .join("Local")
         .join("Example App");
     let target = app_root.join("Cache");
+    std::fs::create_dir_all(&target).unwrap();
     let mut index = build_index(&[], ProtectionPolicy::new());
     index.add_app_leftover_candidates([app_leftover_candidate(&target)]);
 
@@ -242,6 +244,7 @@ fn protected_path_wins_over_app_leftover_match() {
         .join("Local")
         .join("Example App")
         .join("Cache");
+    std::fs::create_dir_all(&target).unwrap();
     let protected_paths = vec![target.clone()];
     let policy = ProtectionPolicy::new().with_protected_paths(&protected_paths);
     let mut index = build_index(&[], policy);
@@ -256,6 +259,30 @@ fn protected_path_wins_over_app_leftover_match() {
     );
     assert_eq!(advice.source.unwrap().label(), "protection");
     assert_eq!(advice.app_leftover, None);
+    assert_eq!(advice.suggested_command, None);
+}
+
+#[cfg(unix)]
+#[test]
+fn app_leftover_symlink_target_is_protected() {
+    let temp = tempfile::tempdir().unwrap();
+    let real_target = temp.path().join("real-cache");
+    std::fs::create_dir_all(&real_target).unwrap();
+    let target = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("Example App")
+        .join("Cache");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&real_target, &target).unwrap();
+    let mut index = build_index(&[], ProtectionPolicy::new());
+    index.add_app_leftover_candidates([app_leftover_candidate(&target)]);
+
+    let advice = index.advise_path(&target);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::Protected);
+    assert_eq!(advice.protection_kind.as_deref(), Some("reparse-point"));
     assert_eq!(advice.suggested_command, None);
 }
 

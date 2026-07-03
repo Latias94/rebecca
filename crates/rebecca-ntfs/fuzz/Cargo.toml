@@ -1,0 +1,43 @@
+[package]
+name = "rebecca-ntfs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.95.0"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+rebecca-ntfs = { path = ".." }
+
+[[bin]]
+name = "mft_record"
+path = "fuzz_targets/mft_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "attribute_list"
+path = "fuzz_targets/attribute_list.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "i30_index"
+path = "fuzz_targets/i30_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "runlist"
+path = "fuzz_targets/runlist.rs"
+test = false
+doc = false
+bench = false

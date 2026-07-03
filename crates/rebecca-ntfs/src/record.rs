@@ -86,11 +86,8 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
     let first_attribute_offset = usize::from(read_u16(&record, 20)?);
     let record_flags = read_u16(&record, 22)?;
     let used_size = read_u32(&record, 24)? as usize;
-    let attr_limit = if used_size >= first_attribute_offset && used_size <= record.len() {
-        used_size
-    } else {
-        record.len()
-    };
+    let attr_limit = record_attribute_limit(&record, first_attribute_offset, used_size)?;
+    let attribute_envelope = &record[..attr_limit];
 
     let mut parsed = NtfsParsedRecord {
         reference: NtfsFileReference::known(record_id, sequence_number),
@@ -109,11 +106,11 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
 
     let mut offset = first_attribute_offset;
     while offset < attr_limit {
-        let Some(header) = AttributeHeader::parse(&record, offset)? else {
+        let Some(header) = AttributeHeader::parse(attribute_envelope, offset)? else {
             break;
         };
 
-        parse_attribute(&record, &header, &mut parsed)?;
+        parse_attribute(attribute_envelope, &header, &mut parsed)?;
         offset = offset
             .checked_add(header.length)
             .ok_or(NtfsParseError::InvalidAttribute {
@@ -135,6 +132,25 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
     }
 
     Ok(parsed)
+}
+
+fn record_attribute_limit(
+    record: &[u8],
+    first_attribute_offset: usize,
+    used_size: usize,
+) -> Result<usize> {
+    if first_attribute_offset < RECORD_HEADER_MIN_LEN
+        || used_size < first_attribute_offset
+        || used_size > record.len()
+    {
+        return Err(NtfsParseError::InvalidRecordBounds {
+            first_attribute_offset,
+            used_size,
+            record_size: record.len(),
+        });
+    }
+
+    Ok(used_size)
 }
 
 fn parse_attribute(
@@ -174,7 +190,10 @@ fn parse_attribute(
             let Some(value) = header.resident_value(record) else {
                 return Err(NtfsParseError::InvalidFileName);
             };
-            let file_name = parse_file_name(value)?;
+            let mut file_name = parse_file_name(value)?;
+            file_name.attribute_id = Some(header.attribute_id);
+            file_name.attribute_name = attribute_name.clone();
+            file_name.lowest_vcn = header.lowest_vcn;
             parsed.is_reparse_point |=
                 (file_name.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
             parsed.is_directory |= (file_name.file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -339,6 +358,9 @@ pub(crate) fn parse_file_name(value: &[u8]) -> Result<NtfsFileName> {
         ),
         namespace: FileNameNamespace::from_raw(value[65]),
         name: utf16_lossy(&value[66..66 + name_bytes]),
+        attribute_id: None,
+        attribute_name: None,
+        lowest_vcn: None,
         modified_windows_filetime: read_u64(value, 16)?,
         allocated_size: read_u64(value, 40)?,
         real_size: read_u64(value, 48)?,

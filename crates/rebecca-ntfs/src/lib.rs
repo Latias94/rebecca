@@ -44,6 +44,15 @@ pub enum NtfsParseError {
     #[error("invalid update sequence array")]
     InvalidUpdateSequence,
 
+    #[error(
+        "record attribute bounds are invalid: first attribute offset {first_attribute_offset}, used size {used_size}, record size {record_size}"
+    )]
+    InvalidRecordBounds {
+        first_attribute_offset: usize,
+        used_size: usize,
+        record_size: usize,
+    },
+
     #[error("invalid attribute header at offset {offset}")]
     InvalidAttribute { offset: usize },
 

@@ -50,6 +50,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca-ntfs` now reads fragmented `$INDEX_ALLOCATION:$I30` streams through a sequential chunk reader and covers multi-record fragmented directory indexes with deterministic fixtures.
 - `rebecca-ntfs` now preserves `$I30` index-entry child VCNs and traverses reachable `$INDEX_ALLOCATION:$I30` nodes from `$INDEX_ROOT` instead of promoting every valid allocation record as directory evidence.
 - `rebecca-ntfs` now exposes resolver-assisted single-record expansion so live targeted traversal can lazily merge direct `$ATTRIBUTE_LIST` extension `$DATA` and `$INDEX_ALLOCATION:$I30` streams without requiring a full MFT record set.
+- `rebecca-ntfs` now enforces MFT record used-size and attribute-envelope bounds, resolves direct `$ATTRIBUTE_LIST` extension `$FILE_NAME`, `$STANDARD_INFORMATION`, and `$INDEX_ROOT:$I30` metadata into base records, and includes optional cargo-fuzz targets for MFT records, attribute lists, `$I30` indexes, and runlists.
 - Experimental NTFS/MFT estimates now aggregate through a sequence-aware `MftIndex` that preserves hardlink path candidates, resolves direct `$ATTRIBUTE_LIST` extension-record `$DATA` and `$INDEX_ALLOCATION` streams, cross-checks resident and nonresident `$I30` directory entries, and counts each physical record once per subtree.
 - The live experimental NTFS/MFT backend now feeds raw volume reads into the parser crate's stream-source boundary so large-directory index allocation can supplement parent edges while cancellation, source provenance, and portable fallback behavior remain owned by `rebecca-core`.
 - The live experimental NTFS/MFT backend now uses targeted per-record FSCTL traversal by default, reading only records reachable from the requested target through `$I30` directory indexes instead of building a full-volume MFT index for ordinary estimates.
@@ -118,6 +119,7 @@ All notable changes to Rebecca will be documented in this file.
 - Experimental NTFS/MFT directory-index fallback caveats now stay attached to the affected parent child edge, so `$I30` parent-map supplements remain visible in subtree estimate caveats without duplicating child-entry caveats.
 - Valid nonresident `$INDEX_ALLOCATION:$I30` directory indexes are no longer reduced to a caveat-only outcome; invalid, unreadable, sparse, compressed, or encrypted index allocation streams now produce bounded caveats without adding trusted child edges.
 - Unreachable, cyclic, out-of-range, or VCN-mismatched `$INDEX_ALLOCATION:$I30` records are no longer counted as trusted large-directory children merely because they are present in the allocation stream.
+- App-leftover cleanup advice no longer marks missing or reparse-like cache targets as cleanable; `inspect map --cleanup-advice` now aligns app-leftover advice with the planner/executor existing-target protection boundary.
 
 ## [0.2.0]
 

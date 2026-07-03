@@ -43,6 +43,7 @@ pub struct AttributeHeader {
     pub name_offset: u16,
     pub flags: u16,
     pub attribute_id: u16,
+    pub name_range: Option<Range<usize>>,
     pub resident_value_range: Option<Range<usize>>,
     pub lowest_vcn: Option<u64>,
     pub highest_vcn: Option<u64>,
@@ -83,6 +84,8 @@ impl AttributeHeader {
         let name_offset = read_u16(record, offset + 10)?;
         let flags = read_u16(record, offset + 12)?;
         let attribute_id = read_u16(record, offset + 14)?;
+        let name_range =
+            attribute_name_range(offset, length, non_resident, name_length, name_offset)?;
         let (
             resident_value_range,
             lowest_vcn,
@@ -117,6 +120,9 @@ impl AttributeHeader {
             }
             let value_length = read_u32(record, offset + 16)? as usize;
             let value_offset = usize::from(read_u16(record, offset + 20)?);
+            if value_offset < 24 {
+                return Err(NtfsParseError::InvalidAttribute { offset });
+            }
             let value_start = offset
                 .checked_add(value_offset)
                 .ok_or(NtfsParseError::TruncatedResidentValue { offset })?;
@@ -136,6 +142,12 @@ impl AttributeHeader {
                 None,
             )
         };
+        validate_payload_after_name(
+            offset,
+            name_range.as_ref(),
+            resident_value_range.as_ref(),
+            non_resident_runlist_range.as_ref(),
+        )?;
 
         Ok(Some(Self {
             attribute_type: AttributeType::from_code(type_code),
@@ -146,6 +158,7 @@ impl AttributeHeader {
             name_offset,
             flags,
             attribute_id,
+            name_range,
             resident_value_range,
             lowest_vcn,
             highest_vcn,
@@ -161,9 +174,10 @@ impl AttributeHeader {
             return Ok(None);
         }
 
-        let name_offset = self.offset + usize::from(self.name_offset);
-        let name_len = usize::from(self.name_length) * 2;
-        Ok(Some(slice(record, name_offset, name_len)?))
+        let Some(range) = &self.name_range else {
+            return Ok(None);
+        };
+        Ok(Some(slice(record, range.start, range.len())?))
     }
 
     pub fn is_named(&self) -> bool {
@@ -188,4 +202,59 @@ impl AttributeHeader {
             .as_ref()
             .and_then(|range| record.get(range.clone()))
     }
+}
+
+fn attribute_name_range(
+    offset: usize,
+    length: usize,
+    non_resident: bool,
+    name_length: u8,
+    name_offset: u16,
+) -> Result<Option<Range<usize>>> {
+    if name_length == 0 {
+        return Ok(None);
+    }
+
+    let minimum_name_offset = if non_resident { 64 } else { 24 };
+    let relative_name_offset = usize::from(name_offset);
+    if relative_name_offset < minimum_name_offset {
+        return Err(NtfsParseError::InvalidAttribute { offset });
+    }
+
+    let name_start = offset
+        .checked_add(relative_name_offset)
+        .ok_or(NtfsParseError::InvalidAttribute { offset })?;
+    let name_len = usize::from(name_length)
+        .checked_mul(2)
+        .ok_or(NtfsParseError::InvalidAttribute { offset })?;
+    let name_end = name_start
+        .checked_add(name_len)
+        .ok_or(NtfsParseError::InvalidAttribute { offset })?;
+    let attr_end = offset
+        .checked_add(length)
+        .ok_or(NtfsParseError::InvalidAttribute { offset })?;
+    if name_end > attr_end {
+        return Err(NtfsParseError::InvalidAttribute { offset });
+    }
+
+    Ok(Some(name_start..name_end))
+}
+
+fn validate_payload_after_name(
+    offset: usize,
+    name_range: Option<&Range<usize>>,
+    resident_value_range: Option<&Range<usize>>,
+    non_resident_runlist_range: Option<&Range<usize>>,
+) -> Result<()> {
+    let Some(name_range) = name_range else {
+        return Ok(());
+    };
+
+    if resident_value_range.is_some_and(|range| range.start < name_range.end)
+        || non_resident_runlist_range.is_some_and(|range| range.start < name_range.end)
+    {
+        return Err(NtfsParseError::InvalidAttribute { offset });
+    }
+
+    Ok(())
 }

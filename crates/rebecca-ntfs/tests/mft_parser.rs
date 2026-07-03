@@ -170,6 +170,89 @@ fn invalid_fixups_fail_safely() {
 }
 
 #[test]
+fn invalid_record_attribute_bounds_fail_safely() {
+    let mut beyond_record = mft_record(9, true, false, vec![file_name_attr(5, "broken.bin", 0)]);
+    put_u32(&mut beyond_record, 24, (RECORD_SIZE + 8) as u32);
+    let err = NtfsParsedRecord::parse_mft_record(9, &beyond_record, SECTOR_SIZE).unwrap_err();
+    assert!(matches!(err, NtfsParseError::InvalidRecordBounds { .. }));
+
+    let mut before_header = mft_record(10, true, false, vec![file_name_attr(5, "broken.bin", 0)]);
+    put_u16(&mut before_header, 20, 16);
+    let err = NtfsParsedRecord::parse_mft_record(10, &before_header, SECTOR_SIZE).unwrap_err();
+    assert!(matches!(err, NtfsParseError::InvalidRecordBounds { .. }));
+}
+
+#[test]
+fn attribute_name_and_value_ranges_must_stay_inside_attribute_envelope() {
+    let mut bad_name = named_resident_data_attr("secret", b"hidden");
+    let bad_name_offset = bad_name.len() - 1;
+    put_u16(&mut bad_name, 10, bad_name_offset as u16);
+    let err = NtfsParsedRecord::parse_mft_record(
+        11,
+        &mft_record(
+            11,
+            true,
+            false,
+            vec![file_name_attr(5, "bad-name.bin", 0), bad_name],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap_err();
+    assert!(matches!(err, NtfsParseError::InvalidAttribute { .. }));
+
+    let mut bad_value = resident_data_attr(b"abc");
+    put_u16(&mut bad_value, 20, 16);
+    let err = NtfsParsedRecord::parse_mft_record(
+        12,
+        &mft_record(
+            12,
+            true,
+            false,
+            vec![file_name_attr(5, "bad-value.bin", 0), bad_value],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap_err();
+    assert!(matches!(err, NtfsParseError::InvalidAttribute { .. }));
+
+    let mut overlapping_named_value = named_resident_data_attr("secret", b"hidden");
+    put_u16(&mut overlapping_named_value, 20, 26);
+    let err = NtfsParsedRecord::parse_mft_record(
+        13,
+        &mft_record(
+            13,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "overlap-value.bin", 0),
+                overlapping_named_value,
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap_err();
+    assert!(matches!(err, NtfsParseError::InvalidAttribute { .. }));
+
+    let mut overlapping_named_runlist = nonresident_named_attr(ATTR_DATA, "stream", 1, 0, &[0x00]);
+    put_u16(&mut overlapping_named_runlist, 32, 66);
+    let err = NtfsParsedRecord::parse_mft_record(
+        14,
+        &mft_record(
+            14,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "overlap-runlist.bin", 0),
+                overlapping_named_runlist,
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap_err();
+    assert!(matches!(err, NtfsParseError::InvalidAttribute { .. }));
+}
+
+#[test]
 fn parent_child_index_aggregation_sums_subtree_bytes() {
     let records = [
         (
@@ -765,14 +848,6 @@ fn record_set_expands_attribute_list_i30_index_allocation_extension() {
         .unwrap();
     assert_eq!(directory.directory_entries.len(), 1);
     assert_eq!(directory.directory_entries[0].name, "split.bin");
-    assert!(
-        !directory
-            .caveats
-            .iter()
-            .any(|caveat| caveat.code == "attribute-list-extension-records-unexpanded"),
-        "{:?}",
-        directory.caveats
-    );
 }
 
 #[test]
@@ -820,14 +895,6 @@ fn single_record_resolution_lazily_merges_attribute_list_data_extension() {
 
     assert_eq!(extension_reads, 1);
     assert_eq!(resolved.cleanup_logical_size(), 123);
-    assert!(
-        !resolved
-            .caveats
-            .iter()
-            .any(|caveat| caveat.code == "attribute-list-extension-records-unexpanded"),
-        "{:?}",
-        resolved.caveats
-    );
 }
 
 #[test]
@@ -895,14 +962,6 @@ fn single_record_resolution_lazily_merges_attribute_list_i30_extension() {
 
     assert_eq!(resolved.directory_entries.len(), 1);
     assert_eq!(resolved.directory_entries[0].name, "split.bin");
-    assert!(
-        !resolved
-            .caveats
-            .iter()
-            .any(|caveat| caveat.code == "attribute-list-extension-records-unexpanded"),
-        "{:?}",
-        resolved.caveats
-    );
 }
 
 #[test]
@@ -1709,12 +1768,537 @@ fn attribute_list_extension_data_is_resolved_for_index_aggregation() {
             .iter()
             .any(|c| c.code == "attribute-list-present")
     );
+}
+
+#[test]
+fn attribute_list_extension_file_name_is_resolved_for_index_aggregation() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            20,
+            mft_record(
+                20,
+                true,
+                false,
+                vec![
+                    attribute_list_attr_with_entry(
+                        ATTR_FILE_NAME,
+                        None,
+                        0,
+                        file_reference(21, 21),
+                        0,
+                    ),
+                    resident_data_attr(b"abc"),
+                ],
+            ),
+        ),
+        (
+            21,
+            mft_record_with_base(
+                21,
+                file_reference(20, 20),
+                true,
+                false,
+                vec![file_name_attr(5, "split-name.bin", 0)],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
+    let entry = index.get(20).unwrap();
+
+    assert_eq!(summary.bytes, 3);
+    assert_eq!(entry.path_candidates[0].name, "split-name.bin");
+    assert!(
+        !entry.caveats.iter().any(|c| c.code == "pathless-record"),
+        "{:?}",
+        entry.caveats
+    );
     assert!(
         !summary
             .caveats
             .iter()
-            .any(|c| c.code == "attribute-list-extension-records-unexpanded")
+            .any(|c| c.code == "attribute-list-extension-attribute-unsupported")
     );
+}
+
+#[test]
+fn attribute_list_extension_file_name_merges_only_referenced_attribute_id() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            20,
+            mft_record(
+                20,
+                true,
+                false,
+                vec![
+                    attribute_list_attr_with_entry(
+                        ATTR_FILE_NAME,
+                        None,
+                        0,
+                        file_reference(21, 21),
+                        7,
+                    ),
+                    resident_data_attr(b"abc"),
+                ],
+            ),
+        ),
+        (
+            21,
+            mft_record_with_base(
+                21,
+                file_reference(20, 20),
+                true,
+                false,
+                vec![
+                    file_name_attr_with_id(99, "wrong.bin", 0, 8),
+                    file_name_attr_with_id(5, "wanted.bin", 0, 7),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let entry = index.get(20).unwrap();
+
+    assert_eq!(entry.path_candidates.len(), 1);
+    assert_eq!(entry.path_candidates[0].name, "wanted.bin");
+    assert_eq!(index.aggregate_subtree(5).bytes, 3);
+    assert_eq!(index.aggregate_subtree(99).bytes, 0);
+}
+
+#[test]
+fn attribute_list_extension_standard_information_updates_resolved_flags() {
+    let base = NtfsParsedRecord::parse_mft_record(
+        30,
+        &mft_record(
+            30,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "junction", 0),
+                attribute_list_attr_with_entry(
+                    ATTR_STANDARD_INFORMATION,
+                    None,
+                    0,
+                    file_reference(31, 31),
+                    0,
+                ),
+                resident_data_attr(b"abc"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let extension = NtfsParsedRecord::parse_mft_record(
+        31,
+        &mft_record_with_base(
+            31,
+            file_reference(30, 30),
+            true,
+            false,
+            vec![standard_information_attr(FILE_ATTRIBUTE_REPARSE_POINT)],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_attribute_lists(vec![base, extension]);
+    let record = record_set
+        .records
+        .iter()
+        .find(|record| record.reference.record_id == 30)
+        .unwrap();
+
+    assert!(record.is_reparse_point);
+    assert!(
+        !record
+            .caveats
+            .iter()
+            .any(|c| c.code == "attribute-list-extension-attribute-unsupported"),
+        "{:?}",
+        record.caveats
+    );
+}
+
+#[test]
+fn attribute_list_extension_i30_index_root_is_resolved_before_allocation_expansion() {
+    let mut source = FakeStreamSource::default().with_bytes(
+        0x90_000,
+        &index_allocation_record(
+            0,
+            vec![
+                index_allocation_entry(file_reference(6, 6), file_reference(5, 5), "split.bin", 0),
+                index_allocation_last_entry(false),
+            ],
+        ),
+    );
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "large-dir", FILE_ATTRIBUTE_DIRECTORY),
+                attribute_list_attr_with_entries(vec![
+                    attribute_list_entry(
+                        ATTR_INDEX_ROOT,
+                        Some("$I30"),
+                        0,
+                        file_reference(50, 50),
+                        0,
+                    ),
+                    attribute_list_entry(
+                        ATTR_INDEX_ALLOCATION,
+                        Some("$I30"),
+                        0,
+                        file_reference(51, 51),
+                        0,
+                    ),
+                ]),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let index_root_extension = NtfsParsedRecord::parse_mft_record(
+        50,
+        &mft_record_with_base(
+            50,
+            file_reference(5, 5),
+            true,
+            true,
+            vec![empty_index_root_attr_with_child_vcn(RECORD_SIZE as u32, 0)],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let index_allocation_extension = NtfsParsedRecord::parse_mft_record(
+        51,
+        &mft_record_with_base(
+            51,
+            file_reference(5, 5),
+            true,
+            true,
+            vec![nonresident_named_attr(
+                ATTR_INDEX_ALLOCATION,
+                "$I30",
+                RECORD_SIZE as u64,
+                0,
+                &[0x21, 0x01, 0x90, 0x00, 0x00],
+            )],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let child = NtfsParsedRecord::parse_mft_record(
+        6,
+        &mft_record(
+            6,
+            true,
+            false,
+            vec![
+                file_name_attr(99, "split.bin", 0),
+                resident_data_attr(b"abc"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![
+            directory,
+            index_root_extension,
+            index_allocation_extension,
+            child,
+        ],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+    let directory = record_set
+        .records
+        .iter()
+        .find(|record| record.reference.record_id == 5)
+        .unwrap();
+
+    assert_eq!(directory.directory_indexes.len(), 1);
+    assert_eq!(directory.directory_entries.len(), 1);
+    assert_eq!(directory.directory_entries[0].name, "split.bin");
+    assert!(
+        !directory
+            .caveats
+            .iter()
+            .any(|c| c.code == "index-allocation-root-missing"),
+        "{:?}",
+        directory.caveats
+    );
+}
+
+#[test]
+fn attribute_list_extension_base_mismatch_is_not_merged() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            20,
+            mft_record(
+                20,
+                true,
+                false,
+                vec![
+                    attribute_list_attr_with_entry(
+                        ATTR_FILE_NAME,
+                        None,
+                        0,
+                        file_reference(21, 21),
+                        0,
+                    ),
+                    resident_data_attr(b"abc"),
+                ],
+            ),
+        ),
+        (
+            21,
+            mft_record_with_base(
+                21,
+                file_reference(99, 99),
+                true,
+                false,
+                vec![file_name_attr(5, "wrong.bin", 0)],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 0);
+    assert!(index.get(20).is_none());
+    assert!(
+        index
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "attribute-list-extension-base-mismatch"),
+        "{:?}",
+        index.caveats
+    );
+}
+
+#[test]
+fn attribute_list_extension_sequence_mismatch_is_not_merged() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            20,
+            mft_record(
+                20,
+                true,
+                false,
+                vec![
+                    attribute_list_attr_with_entry(
+                        ATTR_FILE_NAME,
+                        None,
+                        0,
+                        file_reference(21, 99),
+                        0,
+                    ),
+                    resident_data_attr(b"abc"),
+                ],
+            ),
+        ),
+        (
+            21,
+            mft_record_with_base(
+                21,
+                file_reference(20, 20),
+                true,
+                false,
+                vec![file_name_attr(5, "stale.bin", 0)],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+
+    assert!(index.get(20).is_none());
+    assert!(
+        index
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "attribute-list-extension-sequence-mismatch"),
+        "{:?}",
+        index.caveats
+    );
+}
+
+#[test]
+fn duplicate_attribute_list_data_entries_do_not_double_count() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            20,
+            mft_record(
+                20,
+                true,
+                false,
+                vec![
+                    file_name_attr(5, "split.bin", 0),
+                    attribute_list_attr_with_entries(vec![
+                        attribute_list_entry(ATTR_DATA, None, 0, file_reference(21, 21), 0),
+                        attribute_list_entry(ATTR_DATA, None, 0, file_reference(21, 21), 0),
+                    ]),
+                ],
+            ),
+        ),
+        (
+            21,
+            mft_record_with_base(
+                21,
+                file_reference(20, 20),
+                true,
+                false,
+                vec![nonresident_data_attr(123)],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let summary = MftIndex::from_parsed_records(records).aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 123);
+    assert_eq!(summary.files, 1);
+}
+
+#[test]
+fn duplicate_attribute_list_i30_root_entries_do_not_duplicate_children() {
+    let directory = NtfsParsedRecord::parse_mft_record(
+        5,
+        &mft_record(
+            5,
+            true,
+            true,
+            vec![
+                file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY),
+                attribute_list_attr_with_entries(vec![
+                    attribute_list_entry(
+                        ATTR_INDEX_ROOT,
+                        Some("$I30"),
+                        0,
+                        file_reference(50, 50),
+                        0,
+                    ),
+                    attribute_list_entry(
+                        ATTR_INDEX_ROOT,
+                        Some("$I30"),
+                        0,
+                        file_reference(50, 50),
+                        0,
+                    ),
+                ]),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let index_root_extension = NtfsParsedRecord::parse_mft_record(
+        50,
+        &mft_record_with_base(
+            50,
+            file_reference(5, 5),
+            true,
+            true,
+            vec![index_root_attr(
+                file_reference(6, 6),
+                file_reference(5, 5),
+                "child.bin",
+                0,
+            )],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let child = NtfsParsedRecord::parse_mft_record(
+        6,
+        &mft_record(
+            6,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "child.bin", 0),
+                resident_data_attr(b"abc"),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set =
+        NtfsRecordSet::resolve_attribute_lists(vec![directory, index_root_extension, child]);
+    let directory_entry_count = record_set
+        .records
+        .iter()
+        .find(|record| record.reference.record_id == 5)
+        .unwrap()
+        .directory_entries
+        .len();
+    let index = MftIndex::from_record_set(record_set);
+    let children = index.child_entries(5).collect::<Vec<_>>();
+
+    assert_eq!(directory_entry_count, 1);
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].name, "child.bin");
 }
 
 #[test]
@@ -2018,6 +2602,17 @@ fn file_name_attr_with_parent_reference(
     )
 }
 
+fn file_name_attr_with_id(
+    parent_id: u64,
+    name: &str,
+    file_attributes: u32,
+    attribute_id: u16,
+) -> Vec<u8> {
+    let mut attr = file_name_attr(parent_id, name, file_attributes);
+    put_u16(&mut attr, 14, attribute_id);
+    attr
+}
+
 fn file_name_value(
     parent_reference: u64,
     name: &str,
@@ -2052,6 +2647,11 @@ fn named_resident_data_attr(name: &str, bytes: &[u8]) -> Vec<u8> {
 
 fn attribute_list_attr() -> Vec<u8> {
     attribute_list_attr_with_entry(ATTR_DATA, None, 4, file_reference(99, 3), 9)
+}
+
+fn attribute_list_attr_with_entries(entries: Vec<Vec<u8>>) -> Vec<u8> {
+    let value = entries.concat();
+    resident_attr(ATTR_ATTRIBUTE_LIST, &value)
 }
 
 fn index_root_attr(

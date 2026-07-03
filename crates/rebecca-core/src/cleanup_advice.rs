@@ -224,6 +224,7 @@ impl<'a> CleanupAdviceIndex<'a> {
                         reason: None,
                         suggested_command: cleanup_rule_command(&rule.id),
                         app_leftover: None,
+                        app_leftover_target_block: None,
                     });
                 }
             }
@@ -296,6 +297,7 @@ impl<'a> CleanupAdviceIndex<'a> {
                     ],
                 }),
                 app_leftover: None,
+                app_leftover_target_block: None,
             });
         }
     }
@@ -323,6 +325,9 @@ impl<'a> CleanupAdviceIndex<'a> {
                 reason: None,
                 suggested_command: app_leftover_command(),
                 app_leftover: Some(candidate.advice_context()),
+                app_leftover_target_block: self
+                    .protection_policy
+                    .assess_existing_app_leftover_block(&candidate.path),
             });
         }
     }
@@ -346,6 +351,7 @@ struct CleanupAdviceTarget {
     reason: Option<String>,
     suggested_command: Option<CleanupAdviceCommand>,
     app_leftover: Option<AppLeftoverAdviceContext>,
+    app_leftover_target_block: Option<ProtectionBlock>,
 }
 
 impl CleanupAdviceTarget {
@@ -406,8 +412,11 @@ impl CleanupAdviceTarget {
             (
                 CleanupAdviceSource::AppLeftover,
                 CleanupAdviceRelation::Exact | CleanupAdviceRelation::Descendant,
-            ) => protection_policy.assess_app_leftover_path(entry_path),
+            ) => return self.app_leftover_target_block.clone(),
             (CleanupAdviceSource::AppLeftover, CleanupAdviceRelation::Ancestor) => {
+                if let Some(block) = self.app_leftover_target_block.clone() {
+                    return Some(block);
+                }
                 match protection_policy.assess_path(entry_path) {
                     ProtectionAssessment::Blocked(block)
                         if is_application_durable_data_block(&block) =>

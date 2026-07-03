@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 mod patterns;
@@ -166,24 +167,43 @@ impl<'a> ProtectionPolicy<'a> {
     }
 
     pub fn assess_existing_app_leftover_path(&self, path: &Path) -> AppLeftoverPathDisposition {
-        match self.assess_app_leftover_path(path) {
-            ProtectionAssessment::Allowed => {}
-            ProtectionAssessment::Blocked(block) => {
-                return AppLeftoverPathDisposition::Blocked(block.message);
+        match self.assess_existing_app_leftover_block(path) {
+            None => AppLeftoverPathDisposition::Allowed,
+            Some(block)
+                if matches!(
+                    block.kind,
+                    ProtectionBlockKind::MissingPath | ProtectionBlockKind::MetadataUnavailable
+                ) =>
+            {
+                AppLeftoverPathDisposition::Missing
             }
+            Some(block) => AppLeftoverPathDisposition::Blocked(block.message),
+        }
+    }
+
+    pub fn assess_existing_app_leftover_block(&self, path: &Path) -> Option<ProtectionBlock> {
+        if let ProtectionAssessment::Blocked(block) = self.assess_app_leftover_path(path) {
+            return Some(block);
         }
 
         match std::fs::symlink_metadata(path) {
             Ok(metadata) => {
                 if crate::safety::is_reparse_like(&metadata) {
-                    return AppLeftoverPathDisposition::Blocked(
-                        "reparse-point traversal is disabled".to_string(),
-                    );
+                    return Some(ProtectionBlock {
+                        kind: ProtectionBlockKind::ReparsePoint,
+                        message: "reparse-point traversal is disabled".to_string(),
+                    });
                 }
-
-                AppLeftoverPathDisposition::Allowed
+                None
             }
-            Err(_) => AppLeftoverPathDisposition::Missing,
+            Err(err) if err.kind() == ErrorKind::NotFound => Some(ProtectionBlock {
+                kind: ProtectionBlockKind::MissingPath,
+                message: crate::safety::PATH_DOES_NOT_EXIST_REASON.to_string(),
+            }),
+            Err(err) => Some(ProtectionBlock {
+                kind: ProtectionBlockKind::MetadataUnavailable,
+                message: format!("failed to inspect app leftover target metadata: {err}"),
+            }),
         }
     }
 
@@ -306,8 +326,11 @@ pub struct ProtectionBlock {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProtectionBlockKind {
     EmptyPath,
+    MissingPath,
+    MetadataUnavailable,
     PathTraversal,
     FilesystemRoot,
+    ReparsePoint,
     WindowsCriticalPath,
     UserProfileRoot,
     RebeccaOwnedStorage,
@@ -319,8 +342,11 @@ impl ProtectionBlockKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::EmptyPath => "empty-path",
+            Self::MissingPath => "missing-path",
+            Self::MetadataUnavailable => "metadata-unavailable",
             Self::PathTraversal => "path-traversal",
             Self::FilesystemRoot => "filesystem-root",
+            Self::ReparsePoint => "reparse-point",
             Self::WindowsCriticalPath => "windows-critical-path",
             Self::UserProfileRoot => "user-profile-root",
             Self::RebeccaOwnedStorage => "rebecca-owned-storage",
