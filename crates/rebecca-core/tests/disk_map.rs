@@ -187,3 +187,35 @@ fn disk_map_experimental_backend_records_portable_fallback() {
     );
     assert_eq!(report.diagnostics[0].kind, DiskMapDiagnosticKind::Fallback);
 }
+
+#[cfg(windows)]
+#[test]
+fn disk_map_windows_native_backend_reports_native_provenance() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("alpha").join("data.bin"), b"abcd");
+    write_file(root.join("beta.bin"), b"xyz");
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::WindowsNative)
+        .with_top_limit(10);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.logical_bytes, 7);
+    assert_eq!(report.totals.files, 2);
+    assert_eq!(report.totals.directories, 1);
+    assert!(report.diagnostics.is_empty());
+    assert_eq!(
+        report.roots[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::WindowsNative)
+    );
+    assert_eq!(
+        report.roots[0].estimate_provenance.estimate_confidence,
+        Some(ScanEstimateConfidence::Exact)
+    );
+    assert_eq!(
+        report.top_entries[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::WindowsNative)
+    );
+    assert_eq!(report.top_entries[0].path, root.join("alpha"));
+}

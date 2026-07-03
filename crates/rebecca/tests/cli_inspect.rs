@@ -296,6 +296,54 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
     assert_eq!(value["diagnostics"][0]["kind"], "fallback");
 }
 
+#[cfg(windows)]
+#[test]
+fn inspect_map_json_windows_native_reports_native_provenance() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha").join("data.bin"), b"abcd");
+    write_fixture_file(root.join("beta.bin"), b"xyz");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "windows-native",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert_eq!(value["totals"]["logical_bytes"], 7);
+    assert_eq!(value["totals"]["files"], 2);
+    assert_eq!(value["totals"]["directories"], 1);
+    assert_eq!(
+        value["top_entries"][0]["estimate_backend"],
+        "windows-native"
+    );
+    assert_eq!(value["top_entries"][0]["estimate_confidence"], "exact");
+    assert!(value["top_entries"][0]["estimate_fallback_reason"].is_null());
+    assert!(
+        value["diagnostics"]
+            .as_array()
+            .is_some_and(|diagnostics| diagnostics.is_empty())
+    );
+}
+
 #[test]
 fn inspect_map_json_top_zero_preserves_totals_without_entries() {
     let temp = tempfile::tempdir().unwrap();

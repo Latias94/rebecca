@@ -2,7 +2,7 @@ mod backend;
 mod portable;
 mod progress;
 #[cfg(windows)]
-mod windows_native;
+pub(crate) mod windows_native;
 #[cfg(windows)]
 mod windows_ntfs_mft;
 

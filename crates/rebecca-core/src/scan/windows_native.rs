@@ -20,6 +20,38 @@ use super::{ScanCancellationToken, ScanReport};
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WindowsNativeDirectoryScanBackend;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WindowsNativeEntryKind {
+    File,
+    Directory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WindowsNativeDirectoryEntry {
+    path: PathBuf,
+    kind: WindowsNativeEntryKind,
+    file_size: u64,
+    reparse_like: bool,
+}
+
+impl WindowsNativeDirectoryEntry {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn kind(&self) -> WindowsNativeEntryKind {
+        self.kind
+    }
+
+    pub(crate) fn file_size(&self) -> u64 {
+        self.file_size
+    }
+
+    pub(crate) fn is_reparse_like(&self) -> bool {
+        self.reparse_like
+    }
+}
+
 impl ScanBackend for WindowsNativeDirectoryScanBackend {
     fn kind(&self) -> ScanBackendKind {
         ScanBackendKind::WindowsNative
@@ -94,6 +126,32 @@ fn enumerate_directory<F>(
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
+    for_each_directory_entry(directory, cancellation, |entry| {
+        record_native_entry(entry, report, stack, progress);
+        Ok(())
+    })
+}
+
+pub(crate) fn read_directory_entries(
+    directory: &Path,
+    cancellation: &ScanCancellationToken,
+) -> Result<Vec<WindowsNativeDirectoryEntry>> {
+    let mut entries = Vec::new();
+    for_each_directory_entry(directory, cancellation, |entry| {
+        entries.push(entry);
+        Ok(())
+    })?;
+    Ok(entries)
+}
+
+fn for_each_directory_entry<F>(
+    directory: &Path,
+    cancellation: &ScanCancellationToken,
+    mut visitor: F,
+) -> Result<()>
+where
+    F: FnMut(WindowsNativeDirectoryEntry) -> Result<()>,
+{
     let mut data = WIN32_FIND_DATAW::default();
     let Some(handle) = find_first_entry(directory, &mut data)? else {
         return Ok(());
@@ -101,7 +159,9 @@ where
 
     loop {
         check_not_cancelled(cancellation)?;
-        record_find_data(directory, &data, report, stack, progress);
+        if let Some(entry) = directory_entry_from_find_data(directory, &data) {
+            visitor(entry)?;
+        }
 
         data = WIN32_FIND_DATAW::default();
         match unsafe { FindNextFileW(handle.raw(), &mut data) } {
@@ -133,31 +193,30 @@ fn find_first_entry(directory: &Path, data: &mut WIN32_FIND_DATAW) -> Result<Opt
     }
 }
 
-fn record_find_data<F>(
-    directory: &Path,
-    data: &WIN32_FIND_DATAW,
+fn record_native_entry<F>(
+    entry: WindowsNativeDirectoryEntry,
     report: &mut ScanReport,
     stack: &mut Vec<PathBuf>,
     progress: &mut F,
 ) where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
-    let Some(file_name) = find_data_file_name(data) else {
-        return;
-    };
-
-    if file_name == OsStr::new(".") || file_name == OsStr::new("..") || is_reparse_entry(data) {
+    if entry.is_reparse_like() {
         return;
     }
 
-    let path = directory.join(&file_name);
-    if is_directory_entry(data) {
+    if entry.kind() == WindowsNativeEntryKind::Directory {
         report.record_directory();
-        stack.push(path);
+        stack.push(entry.path);
         return;
     }
 
-    let file_size = find_data_file_size(data);
+    if entry.kind() != WindowsNativeEntryKind::File {
+        return;
+    }
+
+    let file_size = entry.file_size();
+    let path = entry.path;
     report.record_file(file_size);
     progress(ScanProgressEvent::FileMeasured {
         path: &path,
@@ -165,6 +224,23 @@ fn record_find_data<F>(
         files_scanned: report.files_scanned,
         bytes_scanned: report.bytes_scanned,
     });
+}
+
+fn directory_entry_from_find_data(
+    directory: &Path,
+    data: &WIN32_FIND_DATAW,
+) -> Option<WindowsNativeDirectoryEntry> {
+    let file_name = find_data_file_name(data)?;
+    if file_name == OsStr::new(".") || file_name == OsStr::new("..") {
+        return None;
+    }
+
+    Some(WindowsNativeDirectoryEntry {
+        path: directory.join(file_name),
+        kind: find_data_entry_kind(data),
+        file_size: find_data_file_size(data),
+        reparse_like: is_reparse_entry(data),
+    })
 }
 
 fn measure_file<F>(path: &Path, file_size: u64, progress: F) -> ScanReport
@@ -193,7 +269,7 @@ fn root_metadata(path: &Path) -> Result<std::fs::Metadata> {
     })
 }
 
-fn unsupported_path_reason(path: &Path) -> Option<String> {
+pub(crate) fn unsupported_path_reason(path: &Path) -> Option<String> {
     if !path.is_absolute() {
         return Some("windows-native scan backend requires an absolute local path".to_string());
     }
@@ -214,6 +290,14 @@ fn is_unc_path(path: &Path) -> bool {
 
 fn is_directory_entry(data: &WIN32_FIND_DATAW) -> bool {
     (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) != 0
+}
+
+fn find_data_entry_kind(data: &WIN32_FIND_DATAW) -> WindowsNativeEntryKind {
+    if is_directory_entry(data) {
+        WindowsNativeEntryKind::Directory
+    } else {
+        WindowsNativeEntryKind::File
+    }
 }
 
 fn is_reparse_entry(data: &WIN32_FIND_DATAW) -> bool {

@@ -1,11 +1,10 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
-use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{RebeccaError, Result};
+use crate::error::{RebeccaError, Result, ScanFailureKind};
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
 use crate::scan::{
@@ -360,9 +359,9 @@ struct DiskMapDiagnosticSample {
     diagnostic: DiskMapDiagnostic,
 }
 
-struct PortableDiskMapRootInspection<'a, W>
+struct DiskMapRootInspection<'a, W>
 where
-    W: PortableDiskMapWalker,
+    W: DiskMapWalker,
 {
     request: &'a DiskMapRequest,
     cancellation: &'a ScanCancellationToken,
@@ -372,12 +371,16 @@ where
     walker: &'a W,
 }
 
-impl<'a, W> PortableDiskMapRootInspection<'a, W>
+impl<'a, W> DiskMapRootInspection<'a, W>
 where
-    W: PortableDiskMapWalker,
+    W: DiskMapWalker,
 {
-    fn inspect(&mut self, root: &Path, fallback_reason: Option<String>) -> Result<()> {
-        let provenance = portable_estimate_provenance(fallback_reason.clone());
+    fn inspect(
+        &mut self,
+        root: &Path,
+        provenance: EstimateProvenance,
+        fallback_reason: Option<String>,
+    ) -> Result<()> {
         if let Some(reason) = &fallback_reason {
             self.diagnostics.push_priority(DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::Fallback,
@@ -388,7 +391,7 @@ where
 
         let metadata = match self.walker.symlink_metadata(root) {
             Ok(metadata) => metadata,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Err(RebeccaError::ScanFailed(failure)) if failure.kind == ScanFailureKind::NotFound => {
                 push_root_skip(
                     self.report,
                     root,
@@ -426,7 +429,7 @@ where
 
         let max_depth = self.request.max_depth.unwrap_or(usize::MAX);
         let root_metrics = match self.walker.metadata_kind(&metadata) {
-            PortableMetadataKind::File => {
+            DiskMapMetadataKind::File => {
                 let metrics = portable_file_metrics(self.walker.metadata_len(&metadata));
                 push_portable_entry(
                     root,
@@ -439,7 +442,7 @@ where
                 );
                 metrics
             }
-            PortableMetadataKind::Directory => match (PortableDiskMapTraversal {
+            DiskMapMetadataKind::Directory => match (DiskMapTraversal {
                 root,
                 cancellation: self.cancellation,
                 max_depth,
@@ -464,7 +467,7 @@ where
                     return Ok(());
                 }
             },
-            PortableMetadataKind::Other => DiskMapMetrics::from_scan_report(ScanReport::default()),
+            DiskMapMetadataKind::Other => DiskMapMetrics::from_scan_report(ScanReport::default()),
         };
 
         self.report.totals.add(root_metrics);
@@ -481,33 +484,64 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PortableMetadataKind {
+enum DiskMapMetadataKind {
     File,
     Directory,
     Other,
 }
 
-trait PortableDiskMapWalker {
+#[derive(Debug)]
+struct DiskMapWalkerEntry<M> {
+    path: PathBuf,
+    metadata: Option<M>,
+}
+
+impl<M> DiskMapWalkerEntry<M> {
+    fn path(path: PathBuf) -> Self {
+        Self {
+            path,
+            metadata: None,
+        }
+    }
+
+    fn with_metadata(path: PathBuf, metadata: M) -> Self {
+        Self {
+            path,
+            metadata: Some(metadata),
+        }
+    }
+}
+
+trait DiskMapWalker {
     type Metadata;
     type ReadDir;
 
-    fn symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata>;
+    fn symlink_metadata(&self, path: &Path) -> Result<Self::Metadata>;
     fn is_reparse_like(&self, path: &Path, metadata: &Self::Metadata) -> bool;
     fn metadata_len(&self, metadata: &Self::Metadata) -> u64;
-    fn metadata_kind(&self, metadata: &Self::Metadata) -> PortableMetadataKind;
-    fn read_dir(&self, path: &Path) -> io::Result<Self::ReadDir>;
-    fn next_entry(&self, entries: &mut Self::ReadDir) -> Option<io::Result<PathBuf>>;
+    fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind;
+    fn read_dir(&self, path: &Path, cancellation: &ScanCancellationToken) -> Result<Self::ReadDir>;
+    fn next_entry(
+        &self,
+        entries: &mut Self::ReadDir,
+    ) -> Option<Result<DiskMapWalkerEntry<Self::Metadata>>>;
 }
 
 #[derive(Debug, Default)]
 struct FsPortableDiskMapWalker;
 
-impl PortableDiskMapWalker for FsPortableDiskMapWalker {
+impl DiskMapWalker for FsPortableDiskMapWalker {
     type Metadata = std::fs::Metadata;
     type ReadDir = std::fs::ReadDir;
 
-    fn symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
-        std::fs::symlink_metadata(path)
+    fn symlink_metadata(&self, path: &Path) -> Result<Self::Metadata> {
+        std::fs::symlink_metadata(path).map_err(|err| {
+            RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
+                path,
+                crate::error::ScanFailurePhase::EntryMetadata,
+                &err,
+            ))
+        })
     }
 
     fn is_reparse_like(&self, _path: &Path, metadata: &Self::Metadata) -> bool {
@@ -518,28 +552,141 @@ impl PortableDiskMapWalker for FsPortableDiskMapWalker {
         metadata.len()
     }
 
-    fn metadata_kind(&self, metadata: &Self::Metadata) -> PortableMetadataKind {
+    fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
         if metadata.is_file() {
-            PortableMetadataKind::File
+            DiskMapMetadataKind::File
         } else if metadata.is_dir() {
-            PortableMetadataKind::Directory
+            DiskMapMetadataKind::Directory
         } else {
-            PortableMetadataKind::Other
+            DiskMapMetadataKind::Other
         }
     }
 
-    fn read_dir(&self, path: &Path) -> io::Result<Self::ReadDir> {
-        std::fs::read_dir(path)
+    fn read_dir(
+        &self,
+        path: &Path,
+        _cancellation: &ScanCancellationToken,
+    ) -> Result<Self::ReadDir> {
+        std::fs::read_dir(path).map_err(|err| {
+            RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
+                path,
+                crate::error::ScanFailurePhase::DirectoryWalk,
+                &err,
+            ))
+        })
     }
 
-    fn next_entry(&self, entries: &mut Self::ReadDir) -> Option<io::Result<PathBuf>> {
-        entries.next().map(|entry| entry.map(|entry| entry.path()))
+    fn next_entry(
+        &self,
+        entries: &mut Self::ReadDir,
+    ) -> Option<Result<DiskMapWalkerEntry<Self::Metadata>>> {
+        entries.next().map(|entry| {
+            entry
+                .map(|entry| DiskMapWalkerEntry::path(entry.path()))
+                .map_err(|err| {
+                    RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
+                        Path::new("<directory-entry>"),
+                        crate::error::ScanFailurePhase::DirectoryWalk,
+                        &err,
+                    ))
+                })
+        })
     }
 }
 
-struct PortableDiskMapTraversal<'a, W>
+#[cfg(windows)]
+#[derive(Debug, Default)]
+struct WindowsNativeDiskMapWalker;
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+struct WindowsNativeDiskMapMetadata {
+    kind: DiskMapMetadataKind,
+    len: u64,
+    reparse_like: bool,
+}
+
+#[cfg(windows)]
+impl WindowsNativeDiskMapMetadata {
+    fn from_fs_metadata(metadata: &std::fs::Metadata) -> Self {
+        Self {
+            kind: if metadata.is_file() {
+                DiskMapMetadataKind::File
+            } else if metadata.is_dir() {
+                DiskMapMetadataKind::Directory
+            } else {
+                DiskMapMetadataKind::Other
+            },
+            len: metadata.len(),
+            reparse_like: is_reparse_like(metadata),
+        }
+    }
+
+    fn from_native_entry(entry: &crate::scan::windows_native::WindowsNativeDirectoryEntry) -> Self {
+        Self {
+            kind: match entry.kind() {
+                crate::scan::windows_native::WindowsNativeEntryKind::File => {
+                    DiskMapMetadataKind::File
+                }
+                crate::scan::windows_native::WindowsNativeEntryKind::Directory => {
+                    DiskMapMetadataKind::Directory
+                }
+            },
+            len: entry.file_size(),
+            reparse_like: entry.is_reparse_like(),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl DiskMapWalker for WindowsNativeDiskMapWalker {
+    type Metadata = WindowsNativeDiskMapMetadata;
+    type ReadDir = std::vec::IntoIter<crate::scan::windows_native::WindowsNativeDirectoryEntry>;
+
+    fn symlink_metadata(&self, path: &Path) -> Result<Self::Metadata> {
+        std::fs::symlink_metadata(path)
+            .map(|metadata| WindowsNativeDiskMapMetadata::from_fs_metadata(&metadata))
+            .map_err(|err| {
+                RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
+                    path,
+                    crate::error::ScanFailurePhase::EntryMetadata,
+                    &err,
+                ))
+            })
+    }
+
+    fn is_reparse_like(&self, _path: &Path, metadata: &Self::Metadata) -> bool {
+        metadata.reparse_like
+    }
+
+    fn metadata_len(&self, metadata: &Self::Metadata) -> u64 {
+        metadata.len
+    }
+
+    fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
+        metadata.kind
+    }
+
+    fn read_dir(&self, path: &Path, cancellation: &ScanCancellationToken) -> Result<Self::ReadDir> {
+        crate::scan::windows_native::read_directory_entries(path, cancellation).map(Vec::into_iter)
+    }
+
+    fn next_entry(
+        &self,
+        entries: &mut Self::ReadDir,
+    ) -> Option<Result<DiskMapWalkerEntry<Self::Metadata>>> {
+        entries.next().map(|entry| {
+            Ok(DiskMapWalkerEntry::with_metadata(
+                entry.path().to_path_buf(),
+                WindowsNativeDiskMapMetadata::from_native_entry(&entry),
+            ))
+        })
+    }
+}
+
+struct DiskMapTraversal<'a, W>
 where
-    W: PortableDiskMapWalker,
+    W: DiskMapWalker,
 {
     root: &'a Path,
     cancellation: &'a ScanCancellationToken,
@@ -550,62 +697,70 @@ where
     walker: &'a W,
 }
 
-impl<'a, W> PortableDiskMapTraversal<'a, W>
+impl<'a, W> DiskMapTraversal<'a, W>
 where
-    W: PortableDiskMapWalker,
+    W: DiskMapWalker,
 {
     fn inspect_root_directory(&mut self) -> Result<DiskMapMetrics> {
-        let child_paths = self.read_sorted_child_paths(self.root)?;
+        let child_entries = self.read_sorted_child_entries(self.root)?;
 
         let mut metrics = DiskMapMetrics::default();
-        for child in child_paths {
+        for child in child_entries {
             check_cancelled(self.cancellation)?;
-            let child_metrics = self.inspect_node(&child, 1)?;
+            let child_metrics = self.inspect_node(child, 1)?;
             metrics.add(child_metrics);
         }
         Ok(metrics)
     }
 
-    fn inspect_node(&mut self, path: &Path, depth: usize) -> Result<DiskMapMetrics> {
-        let metadata = match self.walker.symlink_metadata(path) {
-            Ok(metadata) => metadata,
-            Err(err) => {
-                self.diagnostics.push(DiskMapDiagnostic::new(
-                    DiskMapDiagnosticKind::MetadataReadSkipped,
-                    path.to_path_buf(),
-                    format!("disk map entry metadata could not be read: {err}"),
-                ));
-                return Ok(DiskMapMetrics::default());
-            }
+    fn inspect_node(
+        &mut self,
+        entry: DiskMapWalkerEntry<W::Metadata>,
+        depth: usize,
+    ) -> Result<DiskMapMetrics> {
+        let path = entry.path;
+        let metadata = match entry.metadata {
+            Some(metadata) => metadata,
+            None => match self.walker.symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(err) => {
+                    self.diagnostics.push(DiskMapDiagnostic::new(
+                        DiskMapDiagnosticKind::MetadataReadSkipped,
+                        path.clone(),
+                        format!("disk map entry metadata could not be read: {err}"),
+                    ));
+                    return Ok(DiskMapMetrics::default());
+                }
+            },
         };
-        if self.walker.is_reparse_like(path, &metadata) {
+        if self.walker.is_reparse_like(&path, &metadata) {
             self.diagnostics.push(DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::ReparsePointSkipped,
-                path.to_path_buf(),
+                path.clone(),
                 "disk map entry is a symlink or reparse point",
             ));
             let metrics = DiskMapMetrics::default();
-            self.push_entry_if_visible(path, DiskMapEntryKind::Other, depth, metrics);
+            self.push_entry_if_visible(&path, DiskMapEntryKind::Other, depth, metrics);
             return Ok(metrics);
         }
 
         match self.walker.metadata_kind(&metadata) {
-            PortableMetadataKind::File => {
+            DiskMapMetadataKind::File => {
                 let metrics = portable_file_metrics(self.walker.metadata_len(&metadata));
-                self.push_entry_if_visible(path, DiskMapEntryKind::File, depth, metrics);
+                self.push_entry_if_visible(&path, DiskMapEntryKind::File, depth, metrics);
                 Ok(metrics)
             }
-            PortableMetadataKind::Directory => self.inspect_directory_node(path, depth),
-            PortableMetadataKind::Other => {
+            DiskMapMetadataKind::Directory => self.inspect_directory_node(&path, depth),
+            DiskMapMetadataKind::Other => {
                 let metrics = DiskMapMetrics::default();
-                self.push_entry_if_visible(path, DiskMapEntryKind::Other, depth, metrics);
+                self.push_entry_if_visible(&path, DiskMapEntryKind::Other, depth, metrics);
                 Ok(metrics)
             }
         }
     }
 
     fn inspect_directory_node(&mut self, path: &Path, depth: usize) -> Result<DiskMapMetrics> {
-        let child_paths = match self.read_sorted_child_paths(path) {
+        let child_entries = match self.read_sorted_child_entries(path) {
             Ok(child_paths) => child_paths,
             Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
             Err(err) => {
@@ -624,9 +779,9 @@ where
             files: 0,
             directories: 1,
         };
-        for child in child_paths {
+        for child in child_entries {
             check_cancelled(self.cancellation)?;
-            let child_metrics = self.inspect_node(&child, depth.saturating_add(1))?;
+            let child_metrics = self.inspect_node(child, depth.saturating_add(1))?;
             metrics.add(child_metrics);
         }
 
@@ -634,28 +789,28 @@ where
         Ok(metrics)
     }
 
-    fn read_sorted_child_paths(&mut self, path: &Path) -> Result<Vec<PathBuf>> {
-        let mut entries = self.walker.read_dir(path).map_err(|err| {
-            RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
-                path,
-                crate::error::ScanFailurePhase::DirectoryWalk,
-                &err,
-            ))
-        })?;
-        let mut child_paths = Vec::new();
+    fn read_sorted_child_entries(
+        &mut self,
+        path: &Path,
+    ) -> Result<Vec<DiskMapWalkerEntry<W::Metadata>>> {
+        let mut entries = self.walker.read_dir(path, self.cancellation)?;
+        let mut child_entries = Vec::new();
         while let Some(entry) = self.walker.next_entry(&mut entries) {
             check_cancelled(self.cancellation)?;
             match entry {
-                Ok(path) => child_paths.push(path),
-                Err(err) => self.diagnostics.push(DiskMapDiagnostic::new(
-                    DiskMapDiagnosticKind::DirectoryEntryReadSkipped,
-                    path.to_path_buf(),
-                    format!("disk map directory entry could not be read: {err}"),
-                )),
+                Ok(entry) => child_entries.push(entry),
+                Err(err @ RebeccaError::OperationCancelled(_)) => return Err(err),
+                Err(err) => {
+                    self.diagnostics.push(DiskMapDiagnostic::new(
+                        DiskMapDiagnosticKind::DirectoryEntryReadSkipped,
+                        path.to_path_buf(),
+                        format!("disk map directory entry could not be read: {err}"),
+                    ));
+                }
             }
         }
-        child_paths.sort();
-        Ok(child_paths)
+        child_entries.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(child_entries)
     }
 
     fn push_entry_if_visible(
@@ -688,6 +843,37 @@ fn inspect_root(
     diagnostics: &mut DiskMapDiagnostics,
 ) -> Result<()> {
     let walker = FsPortableDiskMapWalker;
+    if request.scan_backend == ScanBackendKind::WindowsNative {
+        match inspect_windows_native_root(
+            root,
+            request,
+            cancellation,
+            report,
+            top_entries,
+            diagnostics,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) if disk_map_backend_error_can_fallback(&err) => {
+                let fallback_reason =
+                    format!("windows-native disk-map inventory was unavailable: {err}");
+                return DiskMapRootInspection {
+                    request,
+                    cancellation,
+                    report,
+                    top_entries,
+                    diagnostics,
+                    walker: &walker,
+                }
+                .inspect(
+                    root,
+                    portable_estimate_provenance(Some(fallback_reason.clone())),
+                    Some(fallback_reason),
+                );
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
     if request.scan_backend == ScanBackendKind::WindowsNtfsMftExperimental {
         match scan_engine.inspect_windows_ntfs_mft_disk_map(
             root,
@@ -700,7 +886,10 @@ fn inspect_root(
                 return Ok(());
             }
             Err(err) if disk_map_backend_error_can_fallback(&err) => {
-                return PortableDiskMapRootInspection {
+                let fallback_reason = format!(
+                    "windows-ntfs-mft-experimental disk-map inventory was unavailable: {err}"
+                );
+                return DiskMapRootInspection {
                     request,
                     cancellation,
                     report,
@@ -710,9 +899,8 @@ fn inspect_root(
                 }
                 .inspect(
                     root,
-                    Some(format!(
-                        "windows-ntfs-mft-experimental disk-map inventory was unavailable: {err}"
-                    )),
+                    portable_estimate_provenance(Some(fallback_reason.clone())),
+                    Some(fallback_reason),
                 );
             }
             Err(err) => return Err(err),
@@ -725,7 +913,7 @@ fn inspect_root(
             request.scan_backend.label()
         )
     });
-    PortableDiskMapRootInspection {
+    DiskMapRootInspection {
         request,
         cancellation,
         report,
@@ -733,7 +921,58 @@ fn inspect_root(
         diagnostics,
         walker: &walker,
     }
-    .inspect(root, fallback_reason)
+    .inspect(
+        root,
+        portable_estimate_provenance(fallback_reason.clone()),
+        fallback_reason,
+    )
+}
+
+#[cfg(windows)]
+fn inspect_windows_native_root(
+    root: &Path,
+    request: &DiskMapRequest,
+    cancellation: &ScanCancellationToken,
+    report: &mut DiskMapReport,
+    top_entries: &mut DiskMapTopEntries,
+    diagnostics: &mut DiskMapDiagnostics,
+) -> Result<()> {
+    if let Some(reason) = crate::scan::windows_native::unsupported_path_reason(root) {
+        return Err(RebeccaError::PlatformUnavailable(reason));
+    }
+
+    let walker = WindowsNativeDiskMapWalker;
+    DiskMapRootInspection {
+        request,
+        cancellation,
+        report,
+        top_entries,
+        diagnostics,
+        walker: &walker,
+    }
+    .inspect(
+        root,
+        EstimateProvenance::from_backend_confidence(
+            ScanBackendKind::WindowsNative,
+            ScanEstimateConfidence::Exact,
+        ),
+        None,
+    )
+}
+
+#[cfg(not(windows))]
+fn inspect_windows_native_root(
+    _root: &Path,
+    _request: &DiskMapRequest,
+    _cancellation: &ScanCancellationToken,
+    _report: &mut DiskMapReport,
+    _top_entries: &mut DiskMapTopEntries,
+    _diagnostics: &mut DiskMapDiagnostics,
+) -> Result<()> {
+    Err(RebeccaError::PlatformUnavailable(format!(
+        "{} disk-map inventory is only available on Windows",
+        ScanBackendKind::WindowsNative.label()
+    )))
 }
 
 fn push_backend_root(
@@ -989,7 +1228,7 @@ fn inspect_map_with_walker_for_test<W>(
     walker: &W,
 ) -> Result<DiskMapReport>
 where
-    W: PortableDiskMapWalker,
+    W: DiskMapWalker,
 {
     let mut report = DiskMapReport::default();
     let mut top_entries = DiskMapTopEntries::new(request.top_limit);
@@ -997,7 +1236,7 @@ where
 
     for root in &request.roots {
         check_cancelled(cancellation)?;
-        PortableDiskMapRootInspection {
+        DiskMapRootInspection {
             request,
             cancellation,
             report: &mut report,
@@ -1005,7 +1244,7 @@ where
             diagnostics: &mut diagnostics,
             walker,
         }
-        .inspect(root, None)?;
+        .inspect(root, portable_estimate_provenance(None), None)?;
     }
 
     report.top_entries = top_entries.into_sorted_entries();
@@ -1111,15 +1350,27 @@ mod tests {
         }
     }
 
-    impl PortableDiskMapWalker for FakeDiskMapWalker {
+    impl DiskMapWalker for FakeDiskMapWalker {
         type Metadata = FakeMetadata;
         type ReadDir = VecDeque<FakeEntry>;
 
-        fn symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+        fn symlink_metadata(&self, path: &Path) -> Result<Self::Metadata> {
             match self.metadata.get(path) {
                 Some(Ok(metadata)) => Ok(metadata.clone()),
-                Some(Err(message)) => Err(io::Error::other(*message)),
-                None => Err(io::Error::new(io::ErrorKind::NotFound, "missing")),
+                Some(Err(message)) => Err(RebeccaError::ScanFailed(
+                    crate::error::ScanFailure::from_io(
+                        path,
+                        crate::error::ScanFailurePhase::EntryMetadata,
+                        &io::Error::other(*message),
+                    ),
+                )),
+                None => Err(RebeccaError::ScanFailed(
+                    crate::error::ScanFailure::from_io(
+                        path,
+                        crate::error::ScanFailurePhase::EntryMetadata,
+                        &io::Error::new(io::ErrorKind::NotFound, "missing"),
+                    ),
+                )),
             }
         }
 
@@ -1131,26 +1382,51 @@ mod tests {
             metadata.len
         }
 
-        fn metadata_kind(&self, metadata: &Self::Metadata) -> PortableMetadataKind {
+        fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
             match metadata.kind {
-                FakeMetadataKind::File => PortableMetadataKind::File,
-                FakeMetadataKind::Directory => PortableMetadataKind::Directory,
-                FakeMetadataKind::Other => PortableMetadataKind::Other,
+                FakeMetadataKind::File => DiskMapMetadataKind::File,
+                FakeMetadataKind::Directory => DiskMapMetadataKind::Directory,
+                FakeMetadataKind::Other => DiskMapMetadataKind::Other,
             }
         }
 
-        fn read_dir(&self, path: &Path) -> io::Result<Self::ReadDir> {
+        fn read_dir(
+            &self,
+            path: &Path,
+            _cancellation: &ScanCancellationToken,
+        ) -> Result<Self::ReadDir> {
             match self.directories.get(path) {
                 Some(Ok(entries)) => Ok(entries.clone()),
-                Some(Err(message)) => Err(io::Error::other(*message)),
-                None => Err(io::Error::new(io::ErrorKind::NotFound, "missing dir")),
+                Some(Err(message)) => Err(RebeccaError::ScanFailed(
+                    crate::error::ScanFailure::from_io(
+                        path,
+                        crate::error::ScanFailurePhase::DirectoryWalk,
+                        &io::Error::other(*message),
+                    ),
+                )),
+                None => Err(RebeccaError::ScanFailed(
+                    crate::error::ScanFailure::from_io(
+                        path,
+                        crate::error::ScanFailurePhase::DirectoryWalk,
+                        &io::Error::new(io::ErrorKind::NotFound, "missing dir"),
+                    ),
+                )),
             }
         }
 
-        fn next_entry(&self, entries: &mut Self::ReadDir) -> Option<io::Result<PathBuf>> {
+        fn next_entry(
+            &self,
+            entries: &mut Self::ReadDir,
+        ) -> Option<Result<DiskMapWalkerEntry<Self::Metadata>>> {
             entries.pop_front().map(|entry| match entry {
-                FakeEntry::Path(path) => Ok(path),
-                FakeEntry::Error(message) => Err(io::Error::other(message)),
+                FakeEntry::Path(path) => Ok(DiskMapWalkerEntry::path(path)),
+                FakeEntry::Error(message) => Err(RebeccaError::ScanFailed(
+                    crate::error::ScanFailure::from_io(
+                        Path::new("<fake-entry>"),
+                        crate::error::ScanFailurePhase::DirectoryWalk,
+                        &io::Error::other(message),
+                    ),
+                )),
             })
         }
     }

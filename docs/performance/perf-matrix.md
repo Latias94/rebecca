@@ -57,10 +57,12 @@ targeted-traversal failure to try the older full-volume MFT index path before
 directory-scanner fallback.
 
 `inspect map` defaults to portable recursive inventory. Selecting
-`--scan-backend windows-ntfs-mft-experimental` is adaptive: scoped roots should
-normally report `windows-ntfs-mft-experimental-targeted-fsctl`, while drive-root
-maps or explicit full-index diagnostics may report sequential or FSCTL-record
-full-index sources. On the earlier 2026-07-02 elevated E: run,
+`--scan-backend windows-native` exercises the Windows find-data inventory path
+and should report `estimate_backend: "windows-native"` on supported local roots.
+Selecting `--scan-backend windows-ntfs-mft-experimental` is adaptive: scoped
+roots should normally report `windows-ntfs-mft-experimental-targeted-fsctl`,
+while drive-root maps or explicit full-index diagnostics may report sequential
+or FSCTL-record full-index sources. On the earlier 2026-07-02 elevated E: run,
 `target/ntfs-dogfood/20260702-181216-50924/` showed why this split matters:
 the old scoped map path tried full-volume construction and exceeded the 20
 second internal budget while reading sequential MFT bytes. A follow-up run with

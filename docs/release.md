@@ -121,6 +121,7 @@ cargo run -p rebecca -- clean --dry-run --scan-cache --category system
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system --format json
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system --format json
 cargo run -p rebecca -- inspect space --scan-backend windows-ntfs-mft-experimental --root . --top 10 --format json
+cargo run -p rebecca -- inspect map --scan-backend windows-native --root docs\plans --top 10 --format json
 cargo run -p rebecca -- inspect map --scan-backend windows-ntfs-mft-experimental --root docs\plans --top 10 --format json
 ```
 
@@ -140,8 +141,9 @@ cargo run -p rebecca -- clean --dry-run --rule windows.user-temp
 Record JSON `estimate_source`, `estimate_backend`, `estimate_backend_source`,
 `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` values
 for the backend dogfood runs. Also record any `diagnostic_summary` totals and
-the dogfood report's `comparisons.status` value. The experimental NTFS/MFT run
-should either show
+the dogfood report's `comparisons.status` value. The Windows native map run
+should show `estimate_backend: "windows-native"` on supported local roots. The
+experimental NTFS/MFT run should either show
 `estimate_backend: "windows-ntfs-mft-experimental"` with
 `estimate_backend_source: "windows-ntfs-mft-experimental-targeted-fsctl"` on a
 supported elevated local NTFS volume, including scoped `inspect map` roots.
