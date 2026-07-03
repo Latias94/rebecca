@@ -56,6 +56,13 @@ cleanup scans can opt into file-level scan details with
 either stream ranked rows as they arrive or keep reading the last completed
 payload as the authoritative whole-report snapshot.
 
+`inspect map --table csv|tsv` is a command-specific raw table export, not a
+JSON/NDJSON API envelope. It cannot be combined with `--format json` or
+`--format ndjson`. The table has one header and flat `total`, `root`, `entry`,
+and `group` rows using the same bounded `top_entries` and requested `groups` as
+the report payload; empty cells mean the column is not applicable to that row
+type or the metric is unknown.
+
 ## Payload Kinds
 
 The `payload_kind` field identifies the shape under `data`:
@@ -166,6 +173,8 @@ that rank value so portable reports remain deterministic and useful.
 In NDJSON mode, those already-bounded `top_entries` and `groups` are also
 emitted as ranked `map-entry` and `map-group` events before the final full
 report.
+For table-first tools, `--table csv|tsv` exports the same totals, roots, ranked
+entries, and requested groups as a flat row set outside the JSON API envelope.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -206,6 +215,7 @@ rebecca catalog --format json --kind warning
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
 rebecca inspect map --format ndjson --root . --top 20 --group-by extension
+rebecca inspect map --table csv --root . --top 20 --group-by extension
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0
 rebecca inspect lint --format json --root .

@@ -162,6 +162,10 @@ fn run_inspect(
                 group_kinds: args.group_kinds.into_iter().map(Into::into).collect(),
                 group_limit: args.group_limit,
                 group_sort: args.group_sort.into(),
+                table_format: args.table_format.map(|format| match format {
+                    cli::InspectMapTableFormatArg::Csv => inspect::InspectMapTableFormat::Csv,
+                    cli::InspectMapTableFormatArg::Tsv => inspect::InspectMapTableFormat::Tsv,
+                }),
                 diagnostic_limit: args.diagnostic_limit,
                 max_depth: args.max_depth,
             },

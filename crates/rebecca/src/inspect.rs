@@ -1,10 +1,12 @@
+use std::borrow::Cow;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::disk_map::{
-    DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapReport, DiskMapRequest, DiskMapSortField,
-    inspect_map as inspect_map_core,
+    DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics, DiskMapReport, DiskMapRequest,
+    DiskMapSortField, inspect_map as inspect_map_core,
 };
 use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
@@ -12,7 +14,7 @@ use rebecca::core::inspect::{
 use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
-use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
+use rebecca::core::{CleanupWorkflow, DeleteMode, EstimateProvenance, PlanRequest, Platform};
 use serde::Serialize;
 
 use crate::clean::{
@@ -50,8 +52,15 @@ pub struct InspectMapOptions {
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
     pub group_sort: DiskMapSortField,
+    pub table_format: Option<InspectMapTableFormat>,
     pub diagnostic_limit: usize,
     pub max_depth: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InspectMapTableFormat {
+    Csv,
+    Tsv,
 }
 
 #[derive(Debug)]
@@ -104,6 +113,14 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
 }
 
 pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime) -> Result<()> {
+    if options.table_format.is_some() {
+        ensure!(
+            options.output_mode.is_human(),
+            "--table cannot be combined with --format {}; table output writes raw rows",
+            options.output_mode
+        );
+    }
+
     let roots = resolve_space_roots(options.roots)?;
     let request = DiskMapRequest::new(roots)
         .with_top_limit(options.top_limit)
@@ -116,6 +133,10 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
         .with_scan_backend(options.scan_backend.into());
 
     let report = inspect_map_core(&request, runtime.cancellation())?;
+    if let Some(table_format) = options.table_format {
+        return print_map_report_table(table_format, &report);
+    }
+
     let contract = CliApiContract::v1("inspect map", "inspect-map");
     match options.output_mode {
         OutputMode::Ndjson => print_map_report_ndjson(contract, &report),
@@ -274,6 +295,280 @@ fn print_map_report_ndjson(contract: CliApiContract, report: &DiskMapReport) -> 
     }
 
     writer.emit_completed(contract.payload_kind, report)
+}
+
+const INSPECT_MAP_TABLE_HEADER: [&str; 23] = [
+    "row_kind",
+    "rank",
+    "path",
+    "root",
+    "status",
+    "entry_kind",
+    "group_kind",
+    "group_key",
+    "group_label",
+    "depth",
+    "logical_bytes",
+    "allocated_bytes",
+    "unique_logical_bytes",
+    "unique_allocated_bytes",
+    "files",
+    "directories",
+    "estimate_source",
+    "estimate_backend",
+    "estimate_backend_source",
+    "estimate_confidence",
+    "estimate_fallback_reason",
+    "estimate_caveats",
+    "reason",
+];
+
+fn print_map_report_table(format: InspectMapTableFormat, report: &DiskMapReport) -> Result<()> {
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+
+    write_table_row(&mut writer, format, INSPECT_MAP_TABLE_HEADER)?;
+    write_table_row(&mut writer, format, total_table_row(report))?;
+
+    for (index, root) in report.roots.iter().enumerate() {
+        let mut row = table_row_prefix(TableRowPrefix {
+            row_kind: "root",
+            rank: Some(index + 1),
+            path: root.path.display().to_string(),
+            status: root.status.label().to_string(),
+            ..TableRowPrefix::default()
+        });
+        push_metrics(&mut row, &root.metrics);
+        push_provenance(
+            &mut row,
+            Some(root.estimate_source.label()),
+            &root.estimate_provenance,
+        );
+        row.push(root.reason.clone().unwrap_or_default());
+        write_table_row(&mut writer, format, row)?;
+    }
+
+    for (index, entry) in report.top_entries.iter().enumerate() {
+        let mut row = table_row_prefix(TableRowPrefix {
+            row_kind: "entry",
+            rank: Some(index + 1),
+            path: entry.path.display().to_string(),
+            root: entry.root.display().to_string(),
+            entry_kind: entry.kind.label().to_string(),
+            depth: Some(entry.depth),
+            ..TableRowPrefix::default()
+        });
+        push_entry_metrics(&mut row, entry);
+        push_provenance(
+            &mut row,
+            Some(entry.estimate_source.label()),
+            &entry.estimate_provenance,
+        );
+        row.push(String::new());
+        write_table_row(&mut writer, format, row)?;
+    }
+
+    for (index, group) in report.groups.iter().enumerate() {
+        let mut row = table_row_prefix(TableRowPrefix {
+            row_kind: "group",
+            rank: Some(index + 1),
+            group_kind: group.kind.label().to_string(),
+            group_key: group.key.clone(),
+            group_label: group.label.clone(),
+            ..TableRowPrefix::default()
+        });
+        push_metrics(&mut row, &group.metrics);
+        push_empty_provenance(&mut row);
+        row.push(String::new());
+        write_table_row(&mut writer, format, row)?;
+    }
+
+    writer.flush()?;
+    Ok(())
+}
+
+fn total_table_row(report: &DiskMapReport) -> Vec<String> {
+    let mut row = table_row_prefix(TableRowPrefix {
+        row_kind: "total",
+        ..TableRowPrefix::default()
+    });
+    push_metrics(&mut row, &report.totals);
+    push_empty_provenance(&mut row);
+    row.push(String::new());
+    row
+}
+
+#[derive(Debug, Default)]
+struct TableRowPrefix {
+    row_kind: &'static str,
+    rank: Option<usize>,
+    path: String,
+    root: String,
+    status: String,
+    entry_kind: String,
+    group_kind: String,
+    group_key: String,
+    group_label: String,
+    depth: Option<usize>,
+}
+
+fn table_row_prefix(prefix: TableRowPrefix) -> Vec<String> {
+    vec![
+        prefix.row_kind.to_string(),
+        optional_usize(prefix.rank),
+        prefix.path,
+        prefix.root,
+        prefix.status,
+        prefix.entry_kind,
+        prefix.group_kind,
+        prefix.group_key,
+        prefix.group_label,
+        optional_usize(prefix.depth),
+    ]
+}
+
+fn push_entry_metrics(row: &mut Vec<String>, entry: &DiskMapEntry) {
+    row.extend([
+        entry.logical_bytes.to_string(),
+        optional_u64(entry.allocated_bytes),
+        optional_u64(entry.unique_logical_bytes),
+        optional_u64(entry.unique_allocated_bytes),
+        entry.files.to_string(),
+        entry.directories.to_string(),
+    ]);
+}
+
+fn push_metrics(row: &mut Vec<String>, metrics: &DiskMapMetrics) {
+    row.extend([
+        metrics.logical_bytes.to_string(),
+        optional_u64(metrics.allocated_bytes),
+        optional_u64(metrics.unique_logical_bytes),
+        optional_u64(metrics.unique_allocated_bytes),
+        metrics.files.to_string(),
+        metrics.directories.to_string(),
+    ]);
+}
+
+fn push_provenance(
+    row: &mut Vec<String>,
+    estimate_source: Option<&str>,
+    provenance: &EstimateProvenance,
+) {
+    row.extend([
+        estimate_source.unwrap_or_default().to_string(),
+        provenance
+            .estimate_backend
+            .map(|backend| backend.label().to_string())
+            .unwrap_or_default(),
+        provenance
+            .estimate_backend_source
+            .clone()
+            .unwrap_or_default(),
+        provenance
+            .estimate_confidence
+            .map(|confidence| confidence.label().to_string())
+            .unwrap_or_default(),
+        provenance
+            .estimate_fallback_reason
+            .clone()
+            .unwrap_or_default(),
+        provenance
+            .estimate_caveats
+            .iter()
+            .map(|caveat| caveat.code.as_str())
+            .collect::<Vec<_>>()
+            .join(";"),
+    ]);
+}
+
+fn push_empty_provenance(row: &mut Vec<String>) {
+    row.extend(std::iter::repeat_n(String::new(), 6));
+}
+
+fn optional_usize(value: Option<usize>) -> String {
+    value.map(|value| value.to_string()).unwrap_or_default()
+}
+
+fn optional_u64(value: Option<u64>) -> String {
+    value.map(|value| value.to_string()).unwrap_or_default()
+}
+
+fn write_table_row<W, I, S>(
+    writer: &mut W,
+    format: InspectMapTableFormat,
+    fields: I,
+) -> io::Result<()>
+where
+    W: Write,
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    for (index, field) in fields.into_iter().enumerate() {
+        if index > 0 {
+            match format {
+                InspectMapTableFormat::Csv => writer.write_all(b",")?,
+                InspectMapTableFormat::Tsv => writer.write_all(b"\t")?,
+            }
+        }
+        write_table_field(writer, format, field.as_ref())?;
+    }
+    writer.write_all(b"\n")
+}
+
+fn write_table_field<W: Write>(
+    writer: &mut W,
+    format: InspectMapTableFormat,
+    field: &str,
+) -> io::Result<()> {
+    match format {
+        InspectMapTableFormat::Csv => write_csv_field(writer, field),
+        InspectMapTableFormat::Tsv => {
+            writer.write_all(normalized_table_field(format, field).as_bytes())
+        }
+    }
+}
+
+fn write_csv_field<W: Write>(writer: &mut W, field: &str) -> io::Result<()> {
+    let normalized = normalized_table_field(InspectMapTableFormat::Csv, field);
+    let needs_quotes = normalized.contains(',')
+        || normalized.contains('"')
+        || normalized.starts_with(' ')
+        || normalized.ends_with(' ');
+
+    if !needs_quotes {
+        return writer.write_all(normalized.as_bytes());
+    }
+
+    writer.write_all(b"\"")?;
+    for byte in normalized.bytes() {
+        if byte == b'"' {
+            writer.write_all(b"\"\"")?;
+        } else {
+            writer.write_all(&[byte])?;
+        }
+    }
+    writer.write_all(b"\"")
+}
+
+fn normalized_table_field(format: InspectMapTableFormat, field: &str) -> Cow<'_, str> {
+    let escape_tabs = matches!(format, InspectMapTableFormat::Tsv);
+    let needs_escape = field
+        .chars()
+        .any(|value| matches!(value, '\r' | '\n') || (escape_tabs && value == '\t'));
+    if !needs_escape {
+        return Cow::Borrowed(field);
+    }
+
+    let mut normalized = String::with_capacity(field.len());
+    for value in field.chars() {
+        match value {
+            '\r' => normalized.push_str("\\r"),
+            '\n' => normalized.push_str("\\n"),
+            '\t' if escape_tabs => normalized.push_str("\\t"),
+            _ => normalized.push(value),
+        }
+    }
+    Cow::Owned(normalized)
 }
 
 fn resolve_space_roots(cli_roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {

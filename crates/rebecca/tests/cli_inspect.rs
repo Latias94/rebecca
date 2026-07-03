@@ -394,6 +394,119 @@ fn inspect_map_json_respects_requested_sort_fields() {
     assert_eq!(value["groups"][1]["metrics"]["logical_bytes"], 10);
 }
 
+#[test]
+fn inspect_map_table_csv_exports_flat_rows() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace,with-comma");
+    write_fixture_file(root.join("many,files").join("a.txt"), b"x");
+    write_fixture_file(root.join("many,files").join("b.txt"), b"x");
+    write_fixture_file(root.join("large.bin"), b"abcdefghij");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--table",
+            "csv",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "1",
+            "--sort",
+            "files",
+            "--group-by",
+            "extension",
+            "--group-limit",
+            "1",
+            "--group-sort",
+            "files",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 5);
+    assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_CSV);
+    assert!(lines[1].starts_with("total,"));
+    assert!(lines[2].starts_with("root,"));
+    assert!(lines[3].starts_with("entry,1,"));
+    assert!(lines[4].starts_with("group,1,"));
+    assert!(lines[2].contains(&format!("\"{}\"", root.display())));
+    assert!(lines[3].contains(&format!("\"{}\"", root.join("many,files").display())));
+    assert!(lines[4].contains(",extension,.txt,.txt,"));
+    assert!(!stdout.contains('{'));
+}
+
+#[test]
+fn inspect_map_table_tsv_exports_tab_separated_rows() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("src").join("main.rs"), b"abcd");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--table",
+            "tsv",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_TSV);
+    assert_eq!(lines[1].split('\t').next().unwrap(), "total");
+    assert_eq!(lines[2].split('\t').next().unwrap(), "root");
+    assert_eq!(lines[3].split('\t').next().unwrap(), "entry");
+    assert!(!stdout.contains('{'));
+}
+
+#[test]
+fn inspect_map_table_rejects_machine_format() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("entry.bin"), b"abc");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--table",
+            "csv",
+            "--root",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(common::support::stderr(&output).contains("--table"));
+}
+
 fn assert_json_group(
     value: &serde_json::Value,
     kind: &str,
@@ -410,6 +523,9 @@ fn assert_json_group(
     assert_eq!(group["metrics"]["logical_bytes"], logical_bytes);
     assert_eq!(group["metrics"]["files"], files);
 }
+
+const INSPECT_MAP_TABLE_HEADER_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason";
+const INSPECT_MAP_TABLE_HEADER_TSV: &str = "row_kind\trank\tpath\troot\tstatus\tentry_kind\tgroup_kind\tgroup_key\tgroup_label\tdepth\tlogical_bytes\tallocated_bytes\tunique_logical_bytes\tunique_allocated_bytes\tfiles\tdirectories\testimate_source\testimate_backend\testimate_backend_source\testimate_confidence\testimate_fallback_reason\testimate_caveats\treason";
 
 #[cfg(windows)]
 #[test]

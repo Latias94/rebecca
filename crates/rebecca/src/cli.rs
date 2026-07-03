@@ -100,6 +100,12 @@ impl From<DiskMapSortArg> for rebecca::core::disk_map::DiskMapSortField {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum InspectMapTableFormatArg {
+    Csv,
+    Tsv,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CatalogKindArg {
     CleanupRule,
     ProjectArtifact,
@@ -264,6 +270,9 @@ pub struct InspectMapArgs {
     /// Sort groups by logical bytes, allocated bytes, file count, or unique logical bytes.
     #[arg(long = "group-sort", value_enum, default_value_t = DiskMapSortArg::Logical)]
     pub group_sort: DiskMapSortArg,
+    /// Export the flat map table as CSV or TSV. Cannot be combined with --format json/ndjson.
+    #[arg(long = "table", value_enum, value_name = "FORMAT")]
+    pub table_format: Option<InspectMapTableFormatArg>,
     /// Maximum number of raw diagnostics to include. Use 0 for summary only.
     #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
     pub diagnostic_limit: usize,
