@@ -435,9 +435,94 @@ fn check_mft_build_progress(
     monitor.check(cancellation)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct NtfsVolumeIndexCacheKey {
+    device_path: String,
+    volume_serial: u64,
+}
+
+impl NtfsVolumeIndexCacheKey {
+    fn new(device_path: impl Into<String>, volume_serial: u64) -> Self {
+        Self {
+            device_path: device_path.into(),
+            volume_serial,
+        }
+    }
+}
+
+impl fmt::Display for NtfsVolumeIndexCacheKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}#{}", self.device_path, self.volume_serial)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NtfsVolumeIndexFingerprint {
+    key: NtfsVolumeIndexCacheKey,
+    record_size: usize,
+    sector_size: usize,
+    bytes_per_cluster: u64,
+    mft_start_lcn: u64,
+    mft_mirror_start_lcn: u64,
+    mft_valid_data_length: u64,
+}
+
+impl NtfsVolumeIndexFingerprint {
+    fn from_volume_data(
+        capabilities: &NtfsVolumeCapabilities,
+        volume_data: &NTFS_VOLUME_DATA_BUFFER,
+        geometry: NtfsRecordGeometry,
+    ) -> Self {
+        Self {
+            key: capabilities.cache_key(),
+            record_size: geometry.record_size,
+            sector_size: geometry.sector_size,
+            bytes_per_cluster: geometry.bytes_per_cluster,
+            mft_start_lcn: u64::try_from(volume_data.MftStartLcn).unwrap_or(0),
+            mft_mirror_start_lcn: u64::try_from(volume_data.Mft2StartLcn).unwrap_or(0),
+            mft_valid_data_length: u64::try_from(volume_data.MftValidDataLength).unwrap_or(0),
+        }
+    }
+
+    fn is_reusable_for(&self, capabilities: &NtfsVolumeCapabilities) -> bool {
+        self.key.device_path == capabilities.device_path
+            && self.key.volume_serial == capabilities.volume_serial
+            && self.persistent_generation() != 0
+    }
+
+    fn persistent_generation(&self) -> u64 {
+        const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+        const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+        const SCHEMA_VERSION: u64 = 1;
+
+        fn update_bytes(hash: &mut u64, bytes: &[u8]) {
+            for byte in bytes {
+                *hash ^= u64::from(*byte);
+                *hash = hash.wrapping_mul(FNV_PRIME);
+            }
+        }
+
+        fn update_u64(hash: &mut u64, value: u64) {
+            update_bytes(hash, &value.to_le_bytes());
+        }
+
+        let mut hash = FNV_OFFSET_BASIS;
+        update_u64(&mut hash, SCHEMA_VERSION);
+        update_bytes(&mut hash, self.key.device_path.as_bytes());
+        update_u64(&mut hash, self.key.volume_serial);
+        update_u64(&mut hash, self.record_size as u64);
+        update_u64(&mut hash, self.sector_size as u64);
+        update_u64(&mut hash, self.bytes_per_cluster);
+        update_u64(&mut hash, self.mft_start_lcn);
+        update_u64(&mut hash, self.mft_mirror_start_lcn);
+        update_u64(&mut hash, self.mft_valid_data_length);
+        hash
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct WindowsNtfsMftIndexCache {
-    volumes: Mutex<BTreeMap<String, CachedNtfsVolumeIndexSlot>>,
+    volumes: Mutex<BTreeMap<NtfsVolumeIndexCacheKey, CachedNtfsVolumeIndexSlot>>,
     volume_changed: Condvar,
 }
 
@@ -453,7 +538,14 @@ impl WindowsNtfsMftIndexCache {
         loop {
             check_not_cancelled(cancellation)?;
             match volumes.get(&cache_key) {
-                Some(CachedNtfsVolumeIndexSlot::Ready(index)) => return Ok(Arc::clone(index)),
+                Some(CachedNtfsVolumeIndexSlot::Ready(index))
+                    if index.is_reusable_for(capabilities) =>
+                {
+                    return Ok(Arc::clone(index));
+                }
+                Some(CachedNtfsVolumeIndexSlot::Ready(_)) => {
+                    volumes.remove(&cache_key);
+                }
                 Some(CachedNtfsVolumeIndexSlot::Unavailable(reason)) => {
                     return Err(RebeccaError::PlatformUnavailable(reason.clone()));
                 }
@@ -494,7 +586,9 @@ impl WindowsNtfsMftIndexCache {
 
     fn lock_volumes(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, BTreeMap<String, CachedNtfsVolumeIndexSlot>>> {
+    ) -> Result<
+        std::sync::MutexGuard<'_, BTreeMap<NtfsVolumeIndexCacheKey, CachedNtfsVolumeIndexSlot>>,
+    > {
         self.volumes.lock().map_err(|_| {
             RebeccaError::PlatformUnavailable(format!(
                 "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} volume index cache is unavailable"
@@ -504,8 +598,13 @@ impl WindowsNtfsMftIndexCache {
 
     fn wait_for_volume_update<'a>(
         &self,
-        volumes: std::sync::MutexGuard<'a, BTreeMap<String, CachedNtfsVolumeIndexSlot>>,
-    ) -> Result<std::sync::MutexGuard<'a, BTreeMap<String, CachedNtfsVolumeIndexSlot>>> {
+        volumes: std::sync::MutexGuard<
+            'a,
+            BTreeMap<NtfsVolumeIndexCacheKey, CachedNtfsVolumeIndexSlot>,
+        >,
+    ) -> Result<
+        std::sync::MutexGuard<'a, BTreeMap<NtfsVolumeIndexCacheKey, CachedNtfsVolumeIndexSlot>>,
+    > {
         let (volumes, _) = self
             .volume_changed
             .wait_timeout(volumes, Duration::from_millis(250))
@@ -534,12 +633,17 @@ fn cacheable_index_failure(err: &RebeccaError) -> Option<String> {
 
 #[derive(Debug)]
 struct CachedNtfsVolumeIndex {
+    fingerprint: NtfsVolumeIndexFingerprint,
     mft_index: MftIndex,
     source_label: &'static str,
     caveats: Vec<ParseCaveat>,
 }
 
 impl CachedNtfsVolumeIndex {
+    fn is_reusable_for(&self, capabilities: &NtfsVolumeCapabilities) -> bool {
+        self.fingerprint.is_reusable_for(capabilities)
+    }
+
     fn build(
         capabilities: &NtfsVolumeCapabilities,
         cancellation: &ScanCancellationToken,
@@ -555,6 +659,8 @@ impl CachedNtfsVolumeIndex {
                 volume.ntfs_volume_data()
             })?;
         let geometry = NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)?;
+        let fingerprint =
+            NtfsVolumeIndexFingerprint::from_volume_data(capabilities, &volume_data, geometry);
         let records = volume.read_mft_records(&volume_data, cancellation, &monitor)?;
         let source_label = records.source_label;
         let mut stream_source = LiveNtfsIndexStreamSource {
@@ -573,6 +679,7 @@ impl CachedNtfsVolumeIndex {
             caveats.push(caveat);
         }
         Ok(Self {
+            fingerprint,
             mft_index,
             source_label,
             caveats,
@@ -984,8 +1091,8 @@ impl NtfsVolumeCapabilities {
         })
     }
 
-    fn cache_key(&self) -> String {
-        format!("{}:{}", self.device_path, self.volume_serial)
+    fn cache_key(&self) -> NtfsVolumeIndexCacheKey {
+        NtfsVolumeIndexCacheKey::new(self.device_path.clone(), self.volume_serial)
     }
 }
 
@@ -3125,6 +3232,7 @@ mod tests {
         MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE, MftExtent, MftParseErrorCaveats,
         MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
         NtfsMftBuildMetric, NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry,
+        NtfsVolumeCapabilities, NtfsVolumeIndexCacheKey, NtfsVolumeIndexFingerprint,
         ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0,
         SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken, SequentialMftChunk,
         SequentialMftMirrorChunk, TargetedMftRecordResolver, TargetedMftTraversal,
@@ -3173,6 +3281,112 @@ mod tests {
         assert_eq!(
             file_reference_number(NtfsFileReference::unknown_sequence(42)),
             42
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_cache_key_uses_device_path_and_serial() {
+        let capabilities = ntfs_volume_capabilities("\\\\.\\C:", 7);
+
+        assert_eq!(
+            capabilities.cache_key(),
+            NtfsVolumeIndexCacheKey::new("\\\\.\\C:", 7)
+        );
+        assert_ne!(
+            capabilities.cache_key(),
+            NtfsVolumeIndexCacheKey::new("\\\\.\\D:", 7)
+        );
+        assert_ne!(
+            capabilities.cache_key(),
+            NtfsVolumeIndexCacheKey::new("\\\\.\\C:", 8)
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_fingerprint_generation_is_stable() {
+        let capabilities = ntfs_volume_capabilities("\\\\.\\C:", 7);
+        let mut volume_data = ntfs_volume_data(1024, 512, 4096, 8192);
+        volume_data.MftStartLcn = 12;
+        volume_data.Mft2StartLcn = 34;
+        let geometry =
+            NtfsRecordGeometry::from_volume_data(&capabilities.device_path, &volume_data).unwrap();
+
+        let first =
+            NtfsVolumeIndexFingerprint::from_volume_data(&capabilities, &volume_data, geometry);
+        let second =
+            NtfsVolumeIndexFingerprint::from_volume_data(&capabilities, &volume_data, geometry);
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first.persistent_generation(),
+            second.persistent_generation()
+        );
+        assert!(first.is_reusable_for(&capabilities));
+        assert!(!first.is_reusable_for(&ntfs_volume_capabilities("\\\\.\\D:", 7)));
+    }
+
+    #[test]
+    fn ntfs_volume_index_fingerprint_generation_changes_with_reuse_boundary() {
+        let capabilities = ntfs_volume_capabilities("\\\\.\\C:", 7);
+        let mut volume_data = ntfs_volume_data(1024, 512, 4096, 8192);
+        volume_data.MftStartLcn = 12;
+        volume_data.Mft2StartLcn = 34;
+        let geometry =
+            NtfsRecordGeometry::from_volume_data(&capabilities.device_path, &volume_data).unwrap();
+        let base =
+            NtfsVolumeIndexFingerprint::from_volume_data(&capabilities, &volume_data, geometry);
+
+        let mut geometry_changed = volume_data;
+        geometry_changed.BytesPerFileRecordSegment = 2048;
+        geometry_changed.MftValidDataLength = 16_384;
+        let changed_geometry =
+            NtfsRecordGeometry::from_volume_data(&capabilities.device_path, &geometry_changed)
+                .unwrap();
+        let geometry_fingerprint = NtfsVolumeIndexFingerprint::from_volume_data(
+            &capabilities,
+            &geometry_changed,
+            changed_geometry,
+        );
+
+        let mut location_changed = volume_data;
+        location_changed.MftStartLcn = 99;
+        let location_fingerprint = NtfsVolumeIndexFingerprint::from_volume_data(
+            &capabilities,
+            &location_changed,
+            geometry,
+        );
+
+        let mut mirror_changed = volume_data;
+        mirror_changed.Mft2StartLcn = 100;
+        let mirror_fingerprint =
+            NtfsVolumeIndexFingerprint::from_volume_data(&capabilities, &mirror_changed, geometry);
+
+        let mut length_changed = volume_data;
+        length_changed.MftValidDataLength = 16_384;
+        let length_geometry =
+            NtfsRecordGeometry::from_volume_data(&capabilities.device_path, &length_changed)
+                .unwrap();
+        let length_fingerprint = NtfsVolumeIndexFingerprint::from_volume_data(
+            &capabilities,
+            &length_changed,
+            length_geometry,
+        );
+
+        assert_ne!(
+            base.persistent_generation(),
+            geometry_fingerprint.persistent_generation()
+        );
+        assert_ne!(
+            base.persistent_generation(),
+            location_fingerprint.persistent_generation()
+        );
+        assert_ne!(
+            base.persistent_generation(),
+            mirror_fingerprint.persistent_generation()
+        );
+        assert_ne!(
+            base.persistent_generation(),
+            length_fingerprint.persistent_generation()
         );
     }
 
@@ -4795,6 +5009,19 @@ mod tests {
             allocated_size: 0,
             real_size: 0,
             file_attributes,
+        }
+    }
+
+    fn ntfs_volume_capabilities(device_path: &str, volume_serial: u64) -> NtfsVolumeCapabilities {
+        let drive = device_path
+            .strip_prefix("\\\\.\\")
+            .unwrap_or(device_path)
+            .trim_end_matches(':');
+        NtfsVolumeCapabilities {
+            root_path: std::path::PathBuf::from(format!("{drive}:\\")),
+            device_path: device_path.to_string(),
+            mft_data_path: format!("\\\\?\\{drive}:\\$MFT::$DATA"),
+            volume_serial,
         }
     }
 

@@ -128,7 +128,10 @@ changed parser output for a reported record; `mft-mirror-read-failed` proves
 mirror bytes were unavailable while primary `$MFT` parsing remained
 authoritative. Use the timing and metric fields to decide whether a future
 persistent volume index cache should target raw full-volume reads, targeted
-record resolution, or stream-backed `$I30` expansion first.
+record resolution, or stream-backed `$I30` expansion first. The live backend now
+has an internal typed volume identity plus stable volume fingerprint generation
+for that future cache manifest; the missing production pieces are still index
+serialization and USN checkpoint validation before cross-process reuse.
 
 After the adaptive disk-map refactor, elevated local dogfood under
 `target/ntfs-dogfood/20260702-185357-58228/` completed
