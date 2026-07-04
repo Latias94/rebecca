@@ -130,9 +130,9 @@ authoritative. Use the timing and metric fields to decide whether a future
 persistent volume index cache should target raw full-volume reads, targeted
 record resolution, or stream-backed `$I30` expansion first. The live backend now
 has an internal typed volume identity, stable volume fingerprint generation, and
-an opt-in manifest store for persistent cache metadata; the missing production
-pieces are still full index serialization and USN checkpoint capture before
-cross-process reuse.
+an opt-in manifest plus versioned `MftIndex` payload store for configured
+builds; the missing production piece is still live USN checkpoint capture and
+validation before cross-process reuse.
 
 After the adaptive disk-map refactor, elevated local dogfood under
 `target/ntfs-dogfood/20260702-185357-58228/` completed
