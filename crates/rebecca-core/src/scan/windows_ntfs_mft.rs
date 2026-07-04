@@ -99,6 +99,7 @@ impl NtfsMftBuildBudget {
 struct NtfsMftBuildMonitorState {
     active_stage: Option<(NtfsMftBuildStage, Instant)>,
     timings: BTreeMap<NtfsMftBuildStage, Duration>,
+    metrics: BTreeMap<NtfsMftBuildMetric, u64>,
 }
 
 #[derive(Debug)]
@@ -216,8 +217,8 @@ impl NtfsMftBuildMonitor {
                 )
             })
             .unwrap_or_default();
-        let timings = format_timing_summary(&state.timings)
-            .map(|summary| format!("; completed_timings={summary}"))
+        let timings = format_build_summary(&state.timings, &state.metrics)
+            .map(|summary| format!("; {summary}"))
             .unwrap_or_default();
 
         Err(RebeccaError::PlatformUnavailable(format!(
@@ -236,7 +237,7 @@ impl NtfsMftBuildMonitor {
         if !self.emit_timing_caveat {
             return None;
         }
-        self.timing_summary().map(|summary| {
+        self.build_summary().map(|summary| {
             ParseCaveat::new(
                 MFT_BUILD_TIMING_CAVEAT_CODE,
                 format!("live NTFS/MFT index build timings: {summary}"),
@@ -244,9 +245,22 @@ impl NtfsMftBuildMonitor {
         })
     }
 
-    fn timing_summary(&self) -> Option<String> {
+    fn build_summary(&self) -> Option<String> {
         let state = self.state.borrow();
-        format_timing_summary(&state.timings)
+        format_build_summary(&state.timings, &state.metrics)
+    }
+
+    fn add_metric(&self, metric: NtfsMftBuildMetric, value: u64) {
+        if value == 0 {
+            return;
+        }
+        let mut state = self.state.borrow_mut();
+        let total = state.metrics.entry(metric).or_default();
+        *total = total.saturating_add(value);
+    }
+
+    fn add_metric_usize(&self, metric: NtfsMftBuildMetric, value: usize) {
+        self.add_metric(metric, u64::try_from(value).unwrap_or(u64::MAX));
     }
 
     #[cfg(test)]
@@ -285,6 +299,39 @@ enum NtfsMftBuildStage {
     BuildMftIndex,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum NtfsMftBuildMetric {
+    ParsedRecords,
+    SequentialMftReadBytes,
+    SequentialMftReadChunks,
+    MftMirrorReadBytes,
+    MftMirrorReadChunks,
+    FsctlRecordAttempts,
+    FsctlRecordSuccesses,
+    TargetedRecordAttempts,
+    TargetedRecordSuccesses,
+    StreamReadBytes,
+    StreamReads,
+}
+
+impl NtfsMftBuildMetric {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ParsedRecords => "parsed-records",
+            Self::SequentialMftReadBytes => "sequential-mft-read-bytes",
+            Self::SequentialMftReadChunks => "sequential-mft-read-chunks",
+            Self::MftMirrorReadBytes => "mft-mirror-read-bytes",
+            Self::MftMirrorReadChunks => "mft-mirror-read-chunks",
+            Self::FsctlRecordAttempts => "fsctl-record-attempts",
+            Self::FsctlRecordSuccesses => "fsctl-record-successes",
+            Self::TargetedRecordAttempts => "targeted-record-attempts",
+            Self::TargetedRecordSuccesses => "targeted-record-successes",
+            Self::StreamReadBytes => "stream-read-bytes",
+            Self::StreamReads => "stream-reads",
+        }
+    }
+}
+
 impl NtfsMftBuildStage {
     fn label(self) -> &'static str {
         match self {
@@ -316,6 +363,35 @@ fn format_timing_summary(timings: &BTreeMap<NtfsMftBuildStage, Duration>) -> Opt
             .collect::<Vec<_>>()
             .join(", "),
     )
+}
+
+fn format_metric_summary(metrics: &BTreeMap<NtfsMftBuildMetric, u64>) -> Option<String> {
+    let values: Vec<_> = metrics
+        .iter()
+        .filter(|(_, value)| **value > 0)
+        .map(|(metric, value)| format!("{}={value}", metric.label()))
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    Some(values.join(", "))
+}
+
+fn format_build_summary(
+    timings: &BTreeMap<NtfsMftBuildStage, Duration>,
+    metrics: &BTreeMap<NtfsMftBuildMetric, u64>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(timings) = format_timing_summary(timings) {
+        parts.push(format!("completed_timings={timings}"));
+    }
+    if let Some(metrics) = format_metric_summary(metrics) {
+        parts.push(format!("metrics={metrics}"));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("; "))
 }
 
 fn live_ntfs_mft_index_timeout() -> Option<Duration> {
@@ -1080,6 +1156,7 @@ fn read_mft_records_from_sources(
         check_mft_build_progress(cancellation, monitor)?;
         match source.read_records(volume_data, cancellation, monitor) {
             Ok(mut records) => {
+                monitor.add_metric_usize(NtfsMftBuildMetric::ParsedRecords, records.records.len());
                 records.source_label = source.label();
                 records.caveats.extend(
                     fallback_errors
@@ -1338,8 +1415,8 @@ fn index_allocation_budget_exhausted_caveat(monitor: &NtfsMftBuildMonitor) -> Pa
         .map(|timeout| format!("{}s", timeout.as_secs()))
         .unwrap_or_else(|| "disabled".to_string());
     let timings = monitor
-        .timing_summary()
-        .map(|summary| format!("; completed_timings={summary}"))
+        .build_summary()
+        .map(|summary| format!("; {summary}"))
         .unwrap_or_default();
     ParseCaveat::new(
         MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE,
@@ -1519,11 +1596,18 @@ impl<'a> LiveNtfsTargetRecordResolver<'a> {
         &self,
         reference: NtfsFileReference,
     ) -> Result<Option<(u64, Vec<u8>)>> {
+        self.monitor
+            .add_metric(NtfsMftBuildMetric::TargetedRecordAttempts, 1);
         match self
             .volume
             .read_file_record(file_reference_number(reference), self.geometry.record_size)
         {
-            Ok(record) => Ok(record),
+            Ok(Some(record)) => {
+                self.monitor
+                    .add_metric(NtfsMftBuildMetric::TargetedRecordSuccesses, 1);
+                Ok(Some(record))
+            }
+            Ok(None) => Ok(None),
             Err(err) if windows_error_matches(&err, ERROR_HANDLE_EOF) => Ok(None),
             Err(err) if windows_error_matches(&err, ERROR_INVALID_PARAMETER) => Ok(None),
             Err(err) => Err(RebeccaError::PlatformUnavailable(format!(
@@ -1565,6 +1649,8 @@ impl TargetedMftRecordResolver for LiveNtfsTargetRecordResolver<'_> {
             self.geometry.sector_size,
         ) {
             Ok(record) => {
+                self.monitor
+                    .add_metric(NtfsMftBuildMetric::ParsedRecords, 1);
                 self.records.insert(parsed_record_id, record.clone());
                 Ok(Some(record))
             }
@@ -2579,7 +2665,11 @@ impl NtfsStreamSource for LiveNtfsIndexStreamSource<'_> {
         len: usize,
     ) -> std::result::Result<Vec<u8>, Self::Error> {
         check_mft_build_progress(self.cancellation, self.monitor)?;
-        self.volume.read_volume_bytes(volume_offset, len)
+        let bytes = self.volume.read_volume_bytes(volume_offset, len)?;
+        self.monitor
+            .add_metric_usize(NtfsMftBuildMetric::StreamReadBytes, bytes.len());
+        self.monitor.add_metric(NtfsMftBuildMetric::StreamReads, 1);
+        Ok(bytes)
     }
 
     fn should_continue_stream_reads(&self) -> bool {
@@ -2726,6 +2816,8 @@ impl SequentialMftDataSource<'_> {
                 self.volume.device_path
             )));
         }
+        monitor.add_metric_usize(NtfsMftBuildMetric::MftMirrorReadBytes, bytes.len());
+        monitor.add_metric(NtfsMftBuildMetric::MftMirrorReadChunks, 1);
 
         Ok(Some(SequentialMftMirrorChunk {
             base_record_id: plan.base_record_id,
@@ -2792,6 +2884,12 @@ impl SequentialMftDataSource<'_> {
                     self.volume.device_path
                 )));
             }
+            context
+                .monitor
+                .add_metric_usize(NtfsMftBuildMetric::SequentialMftReadBytes, bytes.len());
+            context
+                .monitor
+                .add_metric(NtfsMftBuildMetric::SequentialMftReadChunks, 1);
 
             let read_len = read_len as u64;
             let records_read = read_len / geometry.record_size as u64;
@@ -2855,11 +2953,13 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
                         check_mft_build_progress(cancellation, monitor)?;
                     }
 
+                    monitor.add_metric(NtfsMftBuildMetric::FsctlRecordAttempts, 1);
                     match self
                         .volume
                         .read_file_record(requested_record, geometry.record_size)
                     {
                         Ok(Some((record_id, raw_record))) => {
+                            monitor.add_metric(NtfsMftBuildMetric::FsctlRecordSuccesses, 1);
                             let parsed_record_id = low_file_reference_number(record_id);
                             match NtfsParsedRecord::parse_fsctl_file_record(
                                 parsed_record_id,
@@ -3024,15 +3124,15 @@ mod tests {
         MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE,
         MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE, MftExtent, MftParseErrorCaveats,
         MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
-        NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry, ParsedNtfsRecords,
-        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
-        ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
-        TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, VolumePaths,
-        build_mft_index_from_records, check_mft_build_progress, collect_mft_disk_map_entry,
-        file_reference_from_number, file_reference_number, low_file_reference_number,
-        mft_mirror_read_plan, mirror_for_primary_records, next_mft_chunk_len,
-        parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
-        read_mft_records_from_sources, with_bounded_mft_caveats,
+        NtfsMftBuildMetric, NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry,
+        ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0,
+        SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken, SequentialMftChunk,
+        SequentialMftMirrorChunk, TargetedMftRecordResolver, TargetedMftTraversal,
+        TargetedMftTraversalLimits, VolumePaths, build_mft_index_from_records,
+        check_mft_build_progress, collect_mft_disk_map_entry, file_reference_from_number,
+        file_reference_number, low_file_reference_number, mft_mirror_read_plan,
+        mirror_for_primary_records, next_mft_chunk_len, parse_retrieval_pointer_extents,
+        parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
     };
     use crate::disk_map::{
         DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapSortField,
@@ -4186,6 +4286,7 @@ mod tests {
         monitor
             .measure(NtfsMftBuildStage::OpenVolume, || Ok(()))
             .unwrap();
+        monitor.add_metric(NtfsMftBuildMetric::ParsedRecords, 2);
 
         let err = monitor
             .measure(NtfsMftBuildStage::SequentialParseRecords, || {
@@ -4196,6 +4297,7 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("while sequential-parse-records"));
         assert!(message.contains("completed_timings=open-volume="));
+        assert!(message.contains("metrics=parsed-records=2"));
     }
 
     #[test]
@@ -4211,12 +4313,18 @@ mod tests {
         monitor
             .measure(NtfsMftBuildStage::BuildMftIndex, || Ok(()))
             .unwrap();
+        monitor.add_metric(NtfsMftBuildMetric::SequentialMftReadBytes, 4096);
+        monitor.add_metric(NtfsMftBuildMetric::SequentialMftReadChunks, 1);
+        monitor.add_metric(NtfsMftBuildMetric::ParsedRecords, 4);
         let caveat = monitor.timing_caveat().unwrap();
 
         assert_eq!(caveat.code, MFT_BUILD_TIMING_CAVEAT_CODE);
         assert!(caveat.message.contains("sequential-read-mft-bytes="));
         assert!(caveat.message.contains("sequential-parse-records="));
         assert!(caveat.message.contains("build-mft-index="));
+        assert!(caveat.message.contains("metrics=parsed-records=4"));
+        assert!(caveat.message.contains("sequential-mft-read-bytes=4096"));
+        assert!(caveat.message.contains("sequential-mft-read-chunks=1"));
     }
 
     #[test]
