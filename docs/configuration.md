@@ -213,10 +213,14 @@ and nullable `unique_logical_bytes` / `unique_allocated_bytes`; portable
 inventory leaves allocation and unique accounting unknown, Windows native
 inventory fills file allocation bytes and file-id-deduplicated unique bytes
 through the host API when available, and NTFS/MFT inventory can fill allocated
-bytes when the unnamed `$DATA` stream exposes them. Windows native inventory
-caveats compressed, sparse, hardlinked, and skipped reparse entries; hardlink
-caveats mean path-ranked bytes may overstate unique physical usage, while
-non-null unique fields deduplicate stable Windows file ids.
+bytes when the unnamed `$DATA` stream exposes them. When NTFS/MFT allocated
+bytes come from covering data runs instead of the attribute header value, the
+backend emits `mft-data-run-allocated-by-cluster`; that caveat means the value is
+cluster-allocation evidence and may differ from Windows native file allocation
+APIs, especially for sparse, compressed, or small nonresident files. Windows
+native inventory caveats compressed, sparse, hardlinked, and skipped reparse
+entries; hardlink caveats mean path-ranked bytes may overstate unique physical
+usage, while non-null unique fields deduplicate stable Windows file ids.
 `inspect map --group-by extension|depth|age` adds bounded file-only distribution
 groups from the same traversal; `--group-limit` caps the combined group list.
 Windows native and experimental NTFS/MFT inventory feed these groups directly

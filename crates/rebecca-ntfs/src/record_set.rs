@@ -18,6 +18,7 @@ const STREAM_FLAG_COMPRESSED: u16 = 0x0001;
 const STREAM_FLAG_ENCRYPTED: u16 = 0x4000;
 const STREAM_FLAG_SPARSE: u16 = 0x8000;
 const MAX_ATTRIBUTE_LIST_STREAM_BYTES: u64 = 1024 * 1024;
+const DATA_RUN_ALLOCATED_BY_CLUSTER_CAVEAT: &str = "mft-data-run-allocated-by-cluster";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NtfsRecordSet {
@@ -398,12 +399,25 @@ fn apply_record_stream_physical_allocated_sizes(
     record: &mut NtfsParsedRecord,
     geometry: NtfsStreamGeometry,
 ) {
+    let mut caveats = Vec::new();
     for stream in &mut record.attribute_streams {
+        let original_allocated_size = stream.allocated_size;
         let Some(allocated_size) = stream_physical_allocated_size(stream, geometry) else {
             continue;
         };
         stream.allocated_size = Some(allocated_size);
+        if stream.attribute_type == AttributeType::Data
+            && stream.name.is_none()
+            && original_allocated_size != Some(allocated_size)
+        {
+            caveats.push(data_run_allocated_by_cluster_caveat(
+                record.reference.record_id,
+                original_allocated_size,
+                allocated_size,
+            ));
+        }
     }
+    record.caveats.extend(caveats);
 }
 
 fn stream_physical_allocated_size(
@@ -439,6 +453,22 @@ fn data_runs_cover_stream(stream: &NtfsAttributeStream, bytes_per_cluster: u64) 
     }
 
     expected_vcn >= logical_clusters
+}
+
+fn data_run_allocated_by_cluster_caveat(
+    record_id: u64,
+    header_allocated_size: Option<u64>,
+    data_run_allocated_size: u64,
+) -> ParseCaveat {
+    let header_allocated = header_allocated_size
+        .map(|bytes| bytes.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    ParseCaveat::new(
+        DATA_RUN_ALLOCATED_BY_CLUSTER_CAVEAT,
+        format!(
+            "record {record_id} unnamed $DATA allocated_bytes uses {data_run_allocated_size} bytes from covering NTFS data-run clusters instead of the attribute header value {header_allocated}; this is physical cluster evidence and may differ from Windows file allocation APIs"
+        ),
+    )
 }
 
 fn expand_record_attribute_lists<S>(

@@ -211,6 +211,39 @@ fn resolved_record_uses_data_run_physical_allocation_for_sparse_stream() {
 
     assert_eq!(resolved.cleanup_logical_size(), logical_size);
     assert_eq!(resolved.cleanup_allocated_size(), Some(4096));
+    assert!(resolved.caveats.iter().any(|caveat| {
+        caveat.code == "mft-data-run-allocated-by-cluster"
+            && caveat.message.contains("covering NTFS data-run clusters")
+    }));
+}
+
+#[test]
+fn resolved_record_caveats_small_nonresident_cluster_allocation() {
+    let raw = mft_record(
+        45,
+        true,
+        false,
+        vec![
+            file_name_attr(5, "small.bin", 0),
+            nonresident_data_attr_with_runlist(1024, 0, 0, &[0x11, 0x01, 0x20, 0x00]),
+        ],
+    );
+    let record = NtfsParsedRecord::parse_mft_record(45, &raw, SECTOR_SIZE).unwrap();
+
+    assert_eq!(record.cleanup_allocated_size(), Some(1024));
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![record],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut FakeStreamSource::default(),
+    );
+    let resolved = record_set.records.first().unwrap();
+
+    assert_eq!(resolved.cleanup_logical_size(), 1024);
+    assert_eq!(resolved.cleanup_allocated_size(), Some(4096));
+    assert!(resolved.caveats.iter().any(|caveat| {
+        caveat.code == "mft-data-run-allocated-by-cluster" && caveat.message.contains("1024")
+    }));
 }
 
 #[test]
