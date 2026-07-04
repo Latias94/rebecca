@@ -192,6 +192,13 @@ Timeout fallback reasons then include the active build stage and completed
 timings, and successful experimental estimates include an opt-in
 `mft-index-build-timing` caveat with stage timings.
 
+Explicit full-index diagnostics may emit
+`mft-index-allocation-budget-exhausted` when parsed MFT records are available
+but stream-backed `$INDEX_ALLOCATION:$I30` expansion crosses the live metadata
+budget. In that case Rebecca stops further live stream reads, preserves the
+usable MFT evidence with caveats, and still treats user cancellation or earlier
+volume/MFT read failures as fallback-capable errors.
+
 Experimental NTFS/MFT estimates are explainability data only. They never
 authorize deletion, and execution still revalidates filesystem paths through
 the normal safety model. The parser keeps Rebecca-owned records, file-reference

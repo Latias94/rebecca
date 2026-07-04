@@ -55,6 +55,9 @@ impl NtfsRecordSet {
         S: NtfsStreamSource,
     {
         for record in &mut self.records {
+            if !source.should_continue_stream_reads() {
+                break;
+            }
             expand_record_index_allocations(record, geometry, source);
         }
     }
@@ -478,15 +481,25 @@ fn expand_record_attribute_lists<S>(
 ) where
     S: NtfsStreamSource,
 {
-    let streams = record
-        .attribute_streams
-        .iter()
-        .filter(|stream| {
-            stream.attribute_type == AttributeType::AttributeList && stream.non_resident
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    for stream in streams {
+    let mut stream_index = 0;
+    loop {
+        if !source.should_continue_stream_reads() {
+            return;
+        }
+        let Some(next_index) = record
+            .attribute_streams
+            .iter()
+            .enumerate()
+            .skip(stream_index)
+            .find_map(|(index, stream)| {
+                (stream.attribute_type == AttributeType::AttributeList && stream.non_resident)
+                    .then_some(index)
+            })
+        else {
+            return;
+        };
+        stream_index = next_index + 1;
+        let stream = record.attribute_streams[next_index].clone();
         expand_attribute_list_stream(record, geometry, source, &stream);
     }
 }
@@ -629,16 +642,13 @@ fn expand_record_index_allocations<S>(
 ) where
     S: NtfsStreamSource,
 {
-    let streams = record
-        .attribute_streams
-        .iter()
-        .filter(|stream| {
-            stream.attribute_type == AttributeType::IndexAllocation
-                && stream.name.as_deref() == Some("$I30")
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    if streams.is_empty() {
+    let Some(first_stream_index) = record.attribute_streams.iter().position(|stream| {
+        stream.attribute_type == AttributeType::IndexAllocation
+            && stream.name.as_deref() == Some("$I30")
+    }) else {
+        return;
+    };
+    if !source.should_continue_stream_reads() {
         return;
     }
 
@@ -680,7 +690,26 @@ fn expand_record_index_allocations<S>(
     }
 
     let reader = NtfsStreamReader::new(geometry.bytes_per_cluster, SparseRunPolicy::Reject);
-    for stream in streams {
+    let mut stream_index = first_stream_index;
+    loop {
+        if !source.should_continue_stream_reads() {
+            break;
+        }
+        let Some(next_index) = record
+            .attribute_streams
+            .iter()
+            .enumerate()
+            .skip(stream_index)
+            .find_map(|(index, stream)| {
+                (stream.attribute_type == AttributeType::IndexAllocation
+                    && stream.name.as_deref() == Some("$I30"))
+                .then_some(index)
+            })
+        else {
+            break;
+        };
+        stream_index = next_index + 1;
+        let stream = record.attribute_streams[next_index].clone();
         expand_index_allocation_stream(
             record,
             &reader,
@@ -801,6 +830,9 @@ where
     }
 
     fn traverse_child(&mut self, child_vcn: u64) {
+        if !self.source.should_continue_stream_reads() {
+            return;
+        }
         if !self.visited_vcns.insert(child_vcn) {
             self.caveats.push(invalid_index_allocation_caveat(
                 self.record_id,

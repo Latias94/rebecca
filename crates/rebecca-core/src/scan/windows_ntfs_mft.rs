@@ -75,6 +75,8 @@ const LIVE_NTFS_MFT_INDEX_TIMINGS_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMINGS";
 const LIVE_NTFS_MFT_FULL_INDEX_FALLBACK_ENV: &str = "REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK";
 const DEFAULT_LIVE_NTFS_MFT_INDEX_TIMEOUT: Duration = Duration::from_secs(20);
 const MFT_BUILD_TIMING_CAVEAT_CODE: &str = "mft-index-build-timing";
+const MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE: &str =
+    "mft-index-allocation-budget-exhausted";
 
 static MFT_PARSE_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
@@ -139,6 +141,26 @@ impl NtfsMftBuildMonitor {
     ) -> Result<R> {
         self.check(cancellation)?;
         self.measure_inner(stage, operation, || self.check(cancellation))
+    }
+
+    fn measure_allow_budget_overrun_after_success<R>(
+        &self,
+        stage: NtfsMftBuildStage,
+        cancellation: &ScanCancellationToken,
+        operation: impl FnOnce() -> Result<R>,
+    ) -> Result<R> {
+        self.check(cancellation)?;
+        self.measure_inner(stage, operation, || check_not_cancelled(cancellation))
+    }
+
+    fn measure_cancellation_only<R>(
+        &self,
+        stage: NtfsMftBuildStage,
+        cancellation: &ScanCancellationToken,
+        operation: impl FnOnce() -> Result<R>,
+    ) -> Result<R> {
+        check_not_cancelled(cancellation)?;
+        self.measure_inner(stage, operation, || check_not_cancelled(cancellation))
     }
 
     fn measure_inner<R>(
@@ -229,9 +251,18 @@ impl NtfsMftBuildMonitor {
 
     #[cfg(test)]
     fn expired_for_test(timeout: Duration) -> Self {
+        Self::elapsed_for_test(timeout, timeout + Duration::from_secs(1))
+    }
+
+    #[cfg(test)]
+    fn near_timeout_for_test(timeout: Duration, remaining: Duration) -> Self {
+        Self::elapsed_for_test(timeout, timeout.saturating_sub(remaining))
+    }
+
+    #[cfg(test)]
+    fn elapsed_for_test(timeout: Duration, elapsed: Duration) -> Self {
         let mut monitor = Self::new(Some(timeout), false);
         let now = Instant::now();
-        let elapsed = timeout + Duration::from_secs(1);
         monitor.budget.started_at = now.checked_sub(elapsed).unwrap_or(now);
         monitor
     }
@@ -1265,7 +1296,8 @@ where
     S: NtfsStreamSource,
 {
     check_mft_build_progress(cancellation, monitor)?;
-    let record_set = monitor.measure_checked(
+    let mut caveats = records.caveats;
+    let record_set = monitor.measure_allow_budget_overrun_after_success(
         NtfsMftBuildStage::ResolveIndexAllocations,
         cancellation,
         || {
@@ -1276,12 +1308,45 @@ where
             ))
         },
     )?;
-    check_mft_build_progress(cancellation, monitor)?;
-    let index = monitor.measure_checked(NtfsMftBuildStage::BuildMftIndex, cancellation, || {
-        Ok(MftIndex::from_record_set(record_set))
-    })?;
-    check_mft_build_progress(cancellation, monitor)?;
-    Ok((index, records.caveats))
+    let budget_exhausted_after_resolution = monitor.is_timed_out();
+    if budget_exhausted_after_resolution {
+        caveats.push(index_allocation_budget_exhausted_caveat(monitor));
+    } else {
+        check_mft_build_progress(cancellation, monitor)?;
+    }
+    let index = if budget_exhausted_after_resolution {
+        monitor.measure_cancellation_only(NtfsMftBuildStage::BuildMftIndex, cancellation, || {
+            Ok(MftIndex::from_record_set(record_set))
+        })?
+    } else {
+        monitor.measure_checked(NtfsMftBuildStage::BuildMftIndex, cancellation, || {
+            Ok(MftIndex::from_record_set(record_set))
+        })?
+    };
+    if budget_exhausted_after_resolution {
+        check_not_cancelled(cancellation)?;
+    } else {
+        check_mft_build_progress(cancellation, monitor)?;
+    }
+    Ok((index, caveats))
+}
+
+fn index_allocation_budget_exhausted_caveat(monitor: &NtfsMftBuildMonitor) -> ParseCaveat {
+    let budget = monitor
+        .budget
+        .timeout
+        .map(|timeout| format!("{}s", timeout.as_secs()))
+        .unwrap_or_else(|| "disabled".to_string());
+    let timings = monitor
+        .timing_summary()
+        .map(|summary| format!("; completed_timings={summary}"))
+        .unwrap_or_default();
+    ParseCaveat::new(
+        MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE,
+        format!(
+            "live NTFS/MFT index allocation expansion crossed the {budget} build budget after parsed MFT records were available; returning degraded full-index evidence from available records{timings}"
+        ),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2516,6 +2581,10 @@ impl NtfsStreamSource for LiveNtfsIndexStreamSource<'_> {
         check_mft_build_progress(self.cancellation, self.monitor)?;
         self.volume.read_volume_bytes(volume_offset, len)
     }
+
+    fn should_continue_stream_reads(&self) -> bool {
+        !self.cancellation.is_cancelled() && !self.monitor.is_timed_out()
+    }
 }
 
 struct SequentialMftDataSource<'a> {
@@ -2952,7 +3021,8 @@ mod tests {
 
     use super::{
         MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE, MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES,
-        MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE, MftExtent, MftParseErrorCaveats,
+        MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE,
+        MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE, MftExtent, MftParseErrorCaveats,
         MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
         NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry, ParsedNtfsRecords,
         RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
@@ -3212,6 +3282,142 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+    }
+
+    #[test]
+    fn mft_index_builder_preserves_full_index_evidence_after_index_allocation_budget_exhaustion() {
+        let mut source = FakeIndexStreamSource::default()
+            .with_read_delay(Duration::from_millis(150))
+            .with_bytes(
+                0x80_000,
+                &index_allocation_record(
+                    0,
+                    vec![
+                        index_allocation_entry(
+                            file_reference(6, 6),
+                            file_reference(5, 5),
+                            "large.bin",
+                            0,
+                        ),
+                        index_allocation_last_entry(),
+                    ],
+                ),
+            );
+        let records = ParsedNtfsRecords {
+            source_label: "sequential",
+            records: vec![
+                parsed_directory_with_index_allocation(5, "large-dir"),
+                parsed_file(6, 99, "large.bin", 3),
+            ],
+            caveats: vec![ParseCaveat::new("source-caveat", "source")],
+        };
+        let monitor = NtfsMftBuildMonitor::near_timeout_for_test(
+            Duration::from_millis(200),
+            Duration::from_millis(100),
+        );
+
+        let (index, caveats) = build_mft_index_from_records(
+            records,
+            test_record_geometry(),
+            &mut source,
+            &ScanCancellationToken::new(),
+            &monitor,
+        )
+        .unwrap();
+        let summary = index.aggregate_subtree(5);
+
+        assert_eq!(summary.bytes, 3);
+        assert!(
+            caveats
+                .iter()
+                .any(|caveat| caveat.code == MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE)
+        );
+        assert!(caveats.iter().any(|caveat| caveat.code == "source-caveat"));
+    }
+
+    #[test]
+    fn mft_index_builder_stops_later_stream_expansion_when_source_requests_stop() {
+        let monitor = test_build_monitor();
+        let mut source = FakeIndexStreamSource::default()
+            .with_max_reads(1)
+            .with_bytes(
+                0x80_000,
+                &index_allocation_record(
+                    0,
+                    vec![
+                        index_allocation_entry(
+                            file_reference(6, 6),
+                            file_reference(5, 5),
+                            "first.bin",
+                            0,
+                        ),
+                        index_allocation_last_entry(),
+                    ],
+                ),
+            )
+            .with_bytes(
+                0x81_000,
+                &index_allocation_record(
+                    0,
+                    vec![
+                        index_allocation_entry(
+                            file_reference(8, 8),
+                            file_reference(7, 7),
+                            "second.bin",
+                            0,
+                        ),
+                        index_allocation_last_entry(),
+                    ],
+                ),
+            );
+        let mut second_directory = parsed_directory_with_index_allocation(7, "second-dir");
+        second_directory.attribute_streams[0].data_runs[0].lcn = Some(0x81);
+        let records = ParsedNtfsRecords {
+            source_label: "sequential",
+            records: vec![
+                parsed_directory_with_index_allocation(5, "first-dir"),
+                parsed_file(6, 99, "first.bin", 3),
+                second_directory,
+                parsed_file(8, 99, "second.bin", 5),
+            ],
+            caveats: Vec::new(),
+        };
+
+        let (index, caveats) = build_mft_index_from_records(
+            records,
+            test_record_geometry(),
+            &mut source,
+            &ScanCancellationToken::new(),
+            &monitor,
+        )
+        .unwrap();
+
+        assert!(caveats.is_empty());
+        assert_eq!(source.read_count, 1);
+        assert_eq!(index.aggregate_subtree(5).bytes, 3);
+        assert_eq!(index.aggregate_subtree(7).bytes, 0);
+    }
+
+    #[test]
+    fn mft_index_builder_fails_when_budget_expired_before_index_allocation_resolution() {
+        let mut source = FakeIndexStreamSource::default();
+        let records = ParsedNtfsRecords {
+            source_label: "sequential",
+            records: vec![parsed_directory_with_index_allocation(5, "large-dir")],
+            caveats: Vec::new(),
+        };
+        let monitor = NtfsMftBuildMonitor::expired_for_test(Duration::from_secs(1));
+
+        let err = build_mft_index_from_records(
+            records,
+            test_record_geometry(),
+            &mut source,
+            &ScanCancellationToken::new(),
+            &monitor,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, RebeccaError::PlatformUnavailable(_)));
     }
 
     #[test]
@@ -4260,6 +4466,9 @@ mod tests {
     #[derive(Default)]
     struct FakeIndexStreamSource {
         bytes: BTreeMap<u64, u8>,
+        read_delay: Option<Duration>,
+        read_count: usize,
+        max_reads: Option<usize>,
     }
 
     impl FakeIndexStreamSource {
@@ -4267,6 +4476,16 @@ mod tests {
             for (index, byte) in bytes.iter().copied().enumerate() {
                 self.bytes.insert(offset + index as u64, byte);
             }
+            self
+        }
+
+        fn with_read_delay(mut self, delay: Duration) -> Self {
+            self.read_delay = Some(delay);
+            self
+        }
+
+        fn with_max_reads(mut self, max_reads: usize) -> Self {
+            self.max_reads = Some(max_reads);
             self
         }
     }
@@ -4279,6 +4498,10 @@ mod tests {
             volume_offset: u64,
             len: usize,
         ) -> std::result::Result<Vec<u8>, Self::Error> {
+            if let Some(delay) = self.read_delay {
+                std::thread::sleep(delay);
+            }
+            self.read_count += 1;
             let mut bytes = Vec::new();
             for index in 0..len {
                 let Some(byte) = self.bytes.get(&(volume_offset + index as u64)) else {
@@ -4287,6 +4510,11 @@ mod tests {
                 bytes.push(*byte);
             }
             Ok(bytes)
+        }
+
+        fn should_continue_stream_reads(&self) -> bool {
+            self.max_reads
+                .is_none_or(|max_reads| self.read_count < max_reads)
         }
     }
 

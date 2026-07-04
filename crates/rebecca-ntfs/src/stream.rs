@@ -33,6 +33,10 @@ pub trait NtfsStreamSource {
         volume_offset: u64,
         len: usize,
     ) -> std::result::Result<Vec<u8>, Self::Error>;
+
+    fn should_continue_stream_reads(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]

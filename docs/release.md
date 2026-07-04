@@ -167,8 +167,9 @@ Unsupported hosts should report a clear fallback reason, no backend source, and
 `experimental-ntfs-mft-fallback` caveat. Successful NTFS/MFT dogfood should also
 review any parser caveats for sequence mismatches, hardlink path candidates,
 attribute-list handling, directory-index fallback, unsupported nonresident
-streams, `mft-data-run-allocated-by-cluster` allocation-semantics notes, or
-bounded parse-error summaries. Sequential full-index diagnostics may also report
+streams, `mft-index-allocation-budget-exhausted` full-index budget degradation,
+`mft-data-run-allocated-by-cluster` allocation-semantics notes, or bounded
+parse-error summaries. Sequential full-index diagnostics may also report
 `mft-mirror-record-used` or `mft-mirror-read-failed`; mirror caveats are
 summarized by `ntfs_mirror_record_used_count`,
 `ntfs_mirror_read_failed_count`, and `ntfs_mirror_evidence` in the dogfood

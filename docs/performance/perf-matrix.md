@@ -103,6 +103,14 @@ second internal budget while reading sequential MFT bytes. A follow-up run with
 timeout under `target/ntfs-dogfood/20260702-181342-73156/`; full-index disk-map
 performance remains a drive-root/diagnostic optimization target rather than a
 release threshold for scoped maps.
+When full-index diagnostics do return after parsed records are available, the
+`mft-index-allocation-budget-exhausted` caveat means Rebecca stopped further
+stream-backed `$I30` reads after crossing the live budget and preserved degraded
+MFT evidence instead of discarding the entire backend source. On the current
+2026-07-04 elevated E: workstation, forced full-index dogfood runs against
+`docs\plans` still hit the dogfood script's 180 second process timeout while E:
+was under cleanup load, so that host result remains a performance finding rather
+than a release threshold.
 
 When collecting drive-root or explicit full-index evidence after `$MFTMirr`
 integration, inspect `backend_source_kind`, `ntfs_full_index_source`,
