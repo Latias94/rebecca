@@ -34,9 +34,10 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::System::Ioctl::{
     FSCTL_GET_NTFS_FILE_RECORD, FSCTL_GET_NTFS_VOLUME_DATA, FSCTL_GET_RETRIEVAL_POINTERS,
-    FSCTL_QUERY_USN_JOURNAL, NTFS_FILE_RECORD_INPUT_BUFFER, NTFS_FILE_RECORD_OUTPUT_BUFFER,
-    NTFS_VOLUME_DATA_BUFFER, RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0,
-    STARTING_VCN_INPUT_BUFFER, USN_JOURNAL_DATA_V0,
+    FSCTL_QUERY_USN_JOURNAL, FSCTL_READ_USN_JOURNAL, NTFS_FILE_RECORD_INPUT_BUFFER,
+    NTFS_FILE_RECORD_OUTPUT_BUFFER, NTFS_VOLUME_DATA_BUFFER, READ_USN_JOURNAL_DATA_V0,
+    RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, STARTING_VCN_INPUT_BUFFER,
+    USN_JOURNAL_DATA_V0, USN_RECORD_V2,
 };
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
@@ -71,6 +72,9 @@ const TARGETED_MFT_MAX_RECORDS: usize = 1_000_000;
 const TARGETED_MFT_MAX_DEPTH: usize = 512;
 const NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES: usize = size_of::<i64>() + size_of::<u32>();
 const MAX_RETRIEVAL_POINTER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
+const USN_JOURNAL_READ_BUFFER_BYTES: usize = 1024 * 1024;
+const MAX_NTFS_VOLUME_INDEX_USN_REPLAY_RECORDS: usize = 100_000;
+const MAX_NTFS_VOLUME_INDEX_USN_REPLAY_ATTEMPTS: usize = 3;
 const MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES: usize = 8;
 const MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE: usize = 8;
 const MFT_CAVEAT_SUMMARY_CODE: &str = "mft-caveat-summary";
@@ -693,7 +697,9 @@ enum NtfsVolumeIndexPayloadMiss {
     UsnCheckpointMissing,
     UsnJournalChanged,
     UsnRangeUnavailable,
-    UsnJournalAdvanced,
+    UsnReplayUnstable,
+    UsnAncestryUnavailable,
+    UsnTargetChanged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -716,9 +722,11 @@ impl NtfsVolumeIndexPayloadMiss {
             | Self::Stale
             | Self::ChecksumMismatch
             | Self::UsnJournalChanged
-            | Self::UsnRangeUnavailable
-            | Self::UsnJournalAdvanced => true,
-            Self::UsnCheckpointMissing => false,
+            | Self::UsnRangeUnavailable => true,
+            Self::UsnCheckpointMissing
+            | Self::UsnReplayUnstable
+            | Self::UsnAncestryUnavailable
+            | Self::UsnTargetChanged => false,
         }
     }
 }
@@ -846,7 +854,7 @@ impl NtfsVolumeIndexManifestStore {
         }
     }
 
-    fn load_fresh_index_payload(
+    fn load_replayable_index_payload(
         &self,
         fingerprint: &NtfsVolumeIndexFingerprint,
         journal_state: &ScanCacheUsnJournalState,
@@ -857,7 +865,7 @@ impl NtfsVolumeIndexManifestStore {
         };
 
         if let Some(reason) =
-            validate_ntfs_volume_index_checkpoint(manifest.usn_checkpoint.as_ref(), journal_state)
+            validate_ntfs_volume_index_replay_range(manifest.usn_checkpoint.as_ref(), journal_state)
         {
             if reason.should_prune_pair() {
                 prune_manifest_pair(
@@ -903,7 +911,7 @@ impl NtfsVolumeIndexManifestStore {
     }
 }
 
-fn validate_ntfs_volume_index_checkpoint(
+fn validate_ntfs_volume_index_replay_range(
     checkpoint: Option<&ScanCacheUsnCheckpoint>,
     journal_state: &ScanCacheUsnJournalState,
 ) -> Option<NtfsVolumeIndexPayloadMiss> {
@@ -918,10 +926,6 @@ fn validate_ntfs_volume_index_checkpoint(
     if journal_state.first_usn > checkpoint.next_usn || journal_state.next_usn < checkpoint.next_usn
     {
         return Some(NtfsVolumeIndexPayloadMiss::UsnRangeUnavailable);
-    }
-
-    if journal_state.next_usn > checkpoint.next_usn {
-        return Some(NtfsVolumeIndexPayloadMiss::UsnJournalAdvanced);
     }
 
     None
@@ -943,6 +947,109 @@ fn stable_ntfs_volume_index_checkpoint(
         journal_id: after.journal_id,
         next_usn: after.next_usn,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NtfsVolumeIndexUsnChange {
+    file_reference: NtfsFileReference,
+    parent_reference: NtfsFileReference,
+    usn: u64,
+}
+
+fn validate_ntfs_volume_index_replay(
+    mft_index: &MftIndex,
+    target_record_id: u64,
+    target_is_volume_root: bool,
+    checkpoint_next_usn: u64,
+    journal_next_usn: u64,
+    changes: &[NtfsVolumeIndexUsnChange],
+) -> Option<NtfsVolumeIndexPayloadMiss> {
+    if journal_next_usn <= checkpoint_next_usn {
+        return None;
+    }
+
+    let replayed_changes = changes
+        .iter()
+        .filter(|change| change.usn >= checkpoint_next_usn && change.usn < journal_next_usn)
+        .collect::<Vec<_>>();
+    if target_is_volume_root {
+        return if replayed_changes.is_empty() {
+            Some(NtfsVolumeIndexPayloadMiss::UsnRangeUnavailable)
+        } else {
+            Some(NtfsVolumeIndexPayloadMiss::UsnTargetChanged)
+        };
+    }
+
+    for change in replayed_changes {
+        match ntfs_usn_change_touches_target(mft_index, target_record_id, change) {
+            Ok(true) => return Some(NtfsVolumeIndexPayloadMiss::UsnTargetChanged),
+            Ok(false) => {}
+            Err(()) => return Some(NtfsVolumeIndexPayloadMiss::UsnAncestryUnavailable),
+        }
+    }
+
+    None
+}
+
+fn ntfs_usn_change_touches_target(
+    mft_index: &MftIndex,
+    target_record_id: u64,
+    change: &NtfsVolumeIndexUsnChange,
+) -> std::result::Result<bool, ()> {
+    if change.file_reference.record_id == target_record_id
+        || change.parent_reference.record_id == target_record_id
+    {
+        return Ok(true);
+    }
+
+    if ntfs_parent_chain_touches_target(mft_index, target_record_id, change.parent_reference)? {
+        return Ok(true);
+    }
+
+    if let Some(entry) = mft_index.get(change.file_reference.record_id) {
+        if entry.reference.sequence_number != change.file_reference.sequence_number {
+            return Err(());
+        }
+
+        for candidate in &entry.path_candidates {
+            if ntfs_parent_chain_touches_target(
+                mft_index,
+                target_record_id,
+                candidate.parent_reference,
+            )? {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+fn ntfs_parent_chain_touches_target(
+    mft_index: &MftIndex,
+    target_record_id: u64,
+    mut parent_reference: NtfsFileReference,
+) -> std::result::Result<bool, ()> {
+    let mut visited = BTreeSet::new();
+    loop {
+        if parent_reference.record_id == target_record_id {
+            return Ok(true);
+        }
+        if !visited.insert(parent_reference.record_id) {
+            return Err(());
+        }
+        let Some(parent_entry) = mft_index.get(parent_reference.record_id) else {
+            return Err(());
+        };
+        if parent_entry.reference.sequence_number != parent_reference.sequence_number {
+            return Err(());
+        }
+        let next_parent = parent_entry.parent_reference;
+        if next_parent.record_id == parent_reference.record_id {
+            return Ok(false);
+        }
+        parent_reference = next_parent;
+    }
 }
 
 fn write_ntfs_volume_index_file(cache_file: &Path, raw: &[u8], label: &str) -> Result<()> {
@@ -1046,6 +1153,8 @@ impl WindowsNtfsMftIndexCache {
     fn load_or_build(
         &self,
         capabilities: &NtfsVolumeCapabilities,
+        target_record_id: u64,
+        target_is_volume_root: bool,
         cancellation: &ScanCancellationToken,
     ) -> Result<Arc<CachedNtfsVolumeIndex>> {
         let cache_key = capabilities.cache_key();
@@ -1076,7 +1185,12 @@ impl WindowsNtfsMftIndexCache {
         }
         drop(volumes);
 
-        let build_result = match self.load_persistent_index(capabilities, cancellation)? {
+        let build_result = match self.load_persistent_index(
+            capabilities,
+            target_record_id,
+            target_is_volume_root,
+            cancellation,
+        )? {
             Some(index) => Ok(index),
             None => CachedNtfsVolumeIndex::build(
                 capabilities,
@@ -1111,6 +1225,8 @@ impl WindowsNtfsMftIndexCache {
     fn load_persistent_index(
         &self,
         capabilities: &NtfsVolumeCapabilities,
+        target_record_id: u64,
+        target_is_volume_root: bool,
         cancellation: &ScanCancellationToken,
     ) -> Result<Option<CachedNtfsVolumeIndex>> {
         let Some(manifest_store) = self.manifest_store.as_ref() else {
@@ -1163,10 +1279,91 @@ impl WindowsNtfsMftIndexCache {
             }
         };
 
-        match manifest_store.load_fresh_index_payload(&fingerprint, &journal_state) {
+        match manifest_store.load_replayable_index_payload(&fingerprint, &journal_state) {
             NtfsVolumeIndexPayloadLookup::Hit { manifest, payload } => {
                 let manifest = *manifest;
                 let payload = *payload;
+                let Some(usn_checkpoint) = manifest.usn_checkpoint.clone() else {
+                    tracing::debug!(
+                        generation = fingerprint.persistent_generation(),
+                        "NTFS persistent volume-index payload miss without USN checkpoint"
+                    );
+                    return Ok(None);
+                };
+
+                let mut journal_state = journal_state;
+                let mut replay_attempts = 0_usize;
+                loop {
+                    if journal_state.next_usn > usn_checkpoint.next_usn {
+                        let changes = match volume.read_usn_changes(
+                            &usn_checkpoint,
+                            &journal_state,
+                            cancellation,
+                        ) {
+                            Ok(changes) => changes,
+                            Err(err) => {
+                                tracing::debug!(
+                                    error = %err,
+                                    generation = fingerprint.persistent_generation(),
+                                    "NTFS persistent volume-index payload miss because USN replay failed"
+                                );
+                                return Ok(None);
+                            }
+                        };
+                        if let Some(reason) = validate_ntfs_volume_index_replay(
+                            &payload.mft_index,
+                            target_record_id,
+                            target_is_volume_root,
+                            usn_checkpoint.next_usn,
+                            journal_state.next_usn,
+                            &changes,
+                        ) {
+                            tracing::debug!(
+                                ?reason,
+                                generation = fingerprint.persistent_generation(),
+                                "NTFS persistent volume-index payload miss after USN replay"
+                            );
+                            return Ok(None);
+                        }
+                    }
+
+                    let replay_end_state = match volume.usn_journal_state() {
+                        Ok(journal_state) => journal_state,
+                        Err(err) => {
+                            tracing::debug!(
+                                error = %err,
+                                generation = fingerprint.persistent_generation(),
+                                "NTFS persistent volume-index payload miss after replay stability check failed"
+                            );
+                            return Ok(None);
+                        }
+                    };
+                    if replay_end_state == journal_state {
+                        break;
+                    }
+                    if let Some(reason) = validate_ntfs_volume_index_replay_range(
+                        Some(&usn_checkpoint),
+                        &replay_end_state,
+                    ) {
+                        tracing::debug!(
+                            ?reason,
+                            generation = fingerprint.persistent_generation(),
+                            "NTFS persistent volume-index payload miss after USN replay state changed"
+                        );
+                        return Ok(None);
+                    }
+                    replay_attempts += 1;
+                    if replay_attempts >= MAX_NTFS_VOLUME_INDEX_USN_REPLAY_ATTEMPTS {
+                        tracing::debug!(
+                            reason = ?NtfsVolumeIndexPayloadMiss::UsnReplayUnstable,
+                            generation = fingerprint.persistent_generation(),
+                            attempts = replay_attempts,
+                            "NTFS persistent volume-index payload miss because USN replay did not stabilize"
+                        );
+                        return Ok(None);
+                    }
+                    journal_state = replay_end_state;
+                }
                 tracing::debug!(
                     generation = fingerprint.persistent_generation(),
                     "NTFS persistent volume-index payload hit"
@@ -1176,7 +1373,7 @@ impl WindowsNtfsMftIndexCache {
                     mft_index: payload.mft_index,
                     source_label: PERSISTENT_MFT_SOURCE_LABEL,
                     caveats: payload.caveats,
-                    usn_checkpoint: manifest.usn_checkpoint,
+                    usn_checkpoint: Some(usn_checkpoint),
                 }))
             }
             NtfsVolumeIndexPayloadLookup::Miss(reason) => {
@@ -1412,9 +1609,12 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
                 if live_ntfs_mft_full_index_fallback_enabled()
                     && mft_record_source_error_can_fallback(&err) =>
             {
-                let index = self
-                    .cache
-                    .load_or_build(&capabilities, request.cancellation)?;
+                let index = self.cache.load_or_build(
+                    &capabilities,
+                    target_record_id,
+                    is_volume_root_path(request.path, &capabilities.root_path),
+                    request.cancellation,
+                )?;
                 let Some(_) = index.mft_index.get(target_record_id) else {
                     return Err(RebeccaError::PlatformUnavailable(format!(
                         "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not map {} to MFT record {}",
@@ -1484,7 +1684,12 @@ pub(super) fn inspect_disk_map(
         );
     }
 
-    let index = cache.load_or_build(&capabilities, cancellation)?;
+    let index = cache.load_or_build(
+        &capabilities,
+        target_record_id,
+        is_volume_root_path(path, &capabilities.root_path),
+        cancellation,
+    )?;
     let target_entry = index
         .mft_index
         .get(target_record_id)
@@ -3300,6 +3505,97 @@ impl LiveNtfsVolume {
         usn_journal_data_to_state(&journal_data, &self.device_path)
     }
 
+    fn read_usn_changes(
+        &self,
+        checkpoint: &ScanCacheUsnCheckpoint,
+        journal_state: &ScanCacheUsnJournalState,
+        cancellation: &ScanCancellationToken,
+    ) -> Result<Vec<NtfsVolumeIndexUsnChange>> {
+        let mut start_usn = i64::try_from(checkpoint.next_usn).map_err(|_| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} cannot replay USN range from oversized checkpoint {} on {}",
+                checkpoint.next_usn, self.device_path
+            ))
+        })?;
+        let journal_next_usn = i64::try_from(journal_state.next_usn).map_err(|_| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} cannot replay USN range to oversized checkpoint {} on {}",
+                journal_state.next_usn, self.device_path
+            ))
+        })?;
+        let mut changes = Vec::new();
+
+        while start_usn < journal_next_usn {
+            check_not_cancelled(cancellation)?;
+            let mut input = READ_USN_JOURNAL_DATA_V0 {
+                StartUsn: start_usn,
+                ReasonMask: u32::MAX,
+                ReturnOnlyOnClose: 0,
+                Timeout: 0,
+                BytesToWaitFor: 0,
+                UsnJournalID: checkpoint.journal_id,
+            };
+            let mut output = vec![0_u8; USN_JOURNAL_READ_BUFFER_BYTES];
+            let mut bytes_returned = 0_u32;
+            let result = unsafe {
+                DeviceIoControl(
+                    self.handle,
+                    FSCTL_READ_USN_JOURNAL,
+                    Some((&mut input as *mut READ_USN_JOURNAL_DATA_V0).cast()),
+                    size_of::<READ_USN_JOURNAL_DATA_V0>() as u32,
+                    Some(output.as_mut_ptr().cast()),
+                    output.len() as u32,
+                    Some(&mut bytes_returned),
+                    None,
+                )
+            };
+
+            match result {
+                Ok(()) => {}
+                Err(err) if windows_error_matches(&err, ERROR_HANDLE_EOF) => {
+                    return Err(RebeccaError::PlatformUnavailable(format!(
+                        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not replay USN range {}..{} from {}; journal reached EOF before current state",
+                        checkpoint.next_usn, journal_state.next_usn, self.device_path
+                    )));
+                }
+                Err(err) => {
+                    return Err(RebeccaError::PlatformUnavailable(format!(
+                        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not replay USN range {}..{} from {}: {}",
+                        checkpoint.next_usn,
+                        journal_state.next_usn,
+                        self.device_path,
+                        err.message()
+                    )));
+                }
+            }
+
+            let returned = usize::try_from(bytes_returned).unwrap_or(0);
+            let (next_start_usn, mut chunk_changes) =
+                parse_usn_journal_read_buffer(&output[..returned], &self.device_path)?;
+            if next_start_usn <= u64::try_from(start_usn).unwrap_or(0) {
+                return Err(RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not replay USN range {}..{} from {}; journal cursor did not advance",
+                    checkpoint.next_usn, journal_state.next_usn, self.device_path
+                )));
+            }
+            changes.append(&mut chunk_changes);
+            if changes.len() > MAX_NTFS_VOLUME_INDEX_USN_REPLAY_RECORDS {
+                return Err(RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} skipped persistent volume-index replay after reading more than {} USN records from {}",
+                    MAX_NTFS_VOLUME_INDEX_USN_REPLAY_RECORDS, self.device_path
+                )));
+            }
+            start_usn = i64::try_from(next_start_usn).map_err(|_| {
+                RebeccaError::PlatformUnavailable(format!(
+                    "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} read oversized next USN {next_start_usn} from {}",
+                    self.device_path
+                ))
+            })?;
+        }
+
+        Ok(changes)
+    }
+
     fn read_mft_records(
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
@@ -3453,6 +3749,94 @@ fn usn_journal_data_to_state(
         first_usn: nonnegative_usn(journal_data.FirstUsn, "first", device_path)?,
         next_usn: nonnegative_usn(journal_data.NextUsn, "next", device_path)?,
     })
+}
+
+fn parse_usn_journal_read_buffer(
+    raw: &[u8],
+    device_path: &str,
+) -> Result<(u64, Vec<NtfsVolumeIndexUsnChange>)> {
+    if raw.len() < size_of::<i64>() {
+        return Err(RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} read truncated USN journal header from {device_path}"
+        )));
+    }
+
+    let next_start_usn = read_i64_le(raw, 0)
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or_else(|| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} read invalid next USN from {device_path}"
+            ))
+        })?;
+    let mut changes = Vec::new();
+    let mut offset = size_of::<i64>();
+    while offset < raw.len() {
+        let Some(record_length) = read_u32_le(raw, offset).map(|value| value as usize) else {
+            return Err(usn_record_parse_error(device_path, "missing record length"));
+        };
+        let record_header_len = offset_of!(USN_RECORD_V2, FileName);
+        if record_length < record_header_len || offset.saturating_add(record_length) > raw.len() {
+            return Err(usn_record_parse_error(device_path, "invalid record length"));
+        }
+
+        let major_version = read_u16_le(raw, offset + offset_of!(USN_RECORD_V2, MajorVersion))
+            .ok_or_else(|| usn_record_parse_error(device_path, "missing major version"))?;
+        if major_version != 2 {
+            return Err(usn_record_parse_error(
+                device_path,
+                "unsupported USN record version",
+            ));
+        }
+
+        let file_reference =
+            read_u64_le(raw, offset + offset_of!(USN_RECORD_V2, FileReferenceNumber))
+                .map(file_reference_from_number)
+                .ok_or_else(|| usn_record_parse_error(device_path, "missing file reference"))?;
+        let parent_reference = read_u64_le(
+            raw,
+            offset + offset_of!(USN_RECORD_V2, ParentFileReferenceNumber),
+        )
+        .map(file_reference_from_number)
+        .ok_or_else(|| usn_record_parse_error(device_path, "missing parent reference"))?;
+        let usn = read_i64_le(raw, offset + offset_of!(USN_RECORD_V2, Usn))
+            .and_then(|value| u64::try_from(value).ok())
+            .ok_or_else(|| usn_record_parse_error(device_path, "invalid record USN"))?;
+
+        changes.push(NtfsVolumeIndexUsnChange {
+            file_reference,
+            parent_reference,
+            usn,
+        });
+        offset += record_length;
+    }
+
+    Ok((next_start_usn, changes))
+}
+
+fn usn_record_parse_error(device_path: &str, reason: &str) -> RebeccaError {
+    RebeccaError::PlatformUnavailable(format!(
+        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} read malformed USN journal data from {device_path}: {reason}"
+    ))
+}
+
+fn read_u16_le(raw: &[u8], offset: usize) -> Option<u16> {
+    let bytes = raw.get(offset..offset + size_of::<u16>())?;
+    Some(u16::from_le_bytes(bytes.try_into().ok()?))
+}
+
+fn read_u32_le(raw: &[u8], offset: usize) -> Option<u32> {
+    let bytes = raw.get(offset..offset + size_of::<u32>())?;
+    Some(u32::from_le_bytes(bytes.try_into().ok()?))
+}
+
+fn read_u64_le(raw: &[u8], offset: usize) -> Option<u64> {
+    let bytes = raw.get(offset..offset + size_of::<u64>())?;
+    Some(u64::from_le_bytes(bytes.try_into().ok()?))
+}
+
+fn read_i64_le(raw: &[u8], offset: usize) -> Option<i64> {
+    let bytes = raw.get(offset..offset + size_of::<i64>())?;
+    Some(i64::from_le_bytes(bytes.try_into().ok()?))
 }
 
 fn nonnegative_usn(value: i64, label: &str, device_path: &str) -> Result<u64> {
@@ -3936,6 +4320,7 @@ fn windows_error_matches(err: &WindowsError, code: WIN32_ERROR) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::mem::offset_of;
     use std::time::{Duration, UNIX_EPOCH};
 
     use rebecca_ntfs::{
@@ -3954,16 +4339,17 @@ mod tests {
         NtfsVolumeIndexCacheKey, NtfsVolumeIndexCacheManifest, NtfsVolumeIndexFingerprint,
         NtfsVolumeIndexManifestLookup, NtfsVolumeIndexManifestMiss, NtfsVolumeIndexManifestStore,
         NtfsVolumeIndexPayload, NtfsVolumeIndexPayloadLookup, NtfsVolumeIndexPayloadMiss,
-        NtfsVolumeIndexPayloadRef, ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER,
-        RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken,
-        SequentialMftChunk, SequentialMftMirrorChunk, TargetedMftRecordResolver,
-        TargetedMftTraversal, TargetedMftTraversalLimits, VolumePaths,
-        build_mft_index_from_records, cache_checksum, check_mft_build_progress,
+        NtfsVolumeIndexPayloadRef, NtfsVolumeIndexUsnChange, ParsedNtfsRecords,
+        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
+        ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
+        TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, USN_RECORD_V2,
+        VolumePaths, build_mft_index_from_records, cache_checksum, check_mft_build_progress,
         collect_mft_disk_map_entry, file_reference_from_number, file_reference_number,
         low_file_reference_number, mft_mirror_read_plan, mirror_for_primary_records,
         next_mft_chunk_len, parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
-        read_mft_records_from_sources, stable_ntfs_volume_index_checkpoint,
-        validate_ntfs_volume_index_checkpoint, with_bounded_mft_caveats,
+        parse_usn_journal_read_buffer, read_mft_records_from_sources,
+        stable_ntfs_volume_index_checkpoint, validate_ntfs_volume_index_replay,
+        validate_ntfs_volume_index_replay_range, with_bounded_mft_caveats,
     };
     use crate::disk_map::{
         DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapSortField,
@@ -4360,35 +4746,35 @@ mod tests {
     }
 
     #[test]
-    fn ntfs_volume_index_checkpoint_validation_is_exact_for_full_volume_payloads() {
+    fn ntfs_volume_index_replay_range_validation_accepts_advanced_journal() {
         let checkpoint = ScanCacheUsnCheckpoint {
             journal_id: 11,
             next_usn: 200,
         };
 
         assert_eq!(
-            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 100, 200)),
+            validate_ntfs_volume_index_replay_range(Some(&checkpoint), &usn_state(11, 100, 200)),
             None
         );
         assert_eq!(
-            validate_ntfs_volume_index_checkpoint(None, &usn_state(11, 100, 200)),
+            validate_ntfs_volume_index_replay_range(None, &usn_state(11, 100, 200)),
             Some(NtfsVolumeIndexPayloadMiss::UsnCheckpointMissing)
         );
         assert_eq!(
-            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(12, 100, 200)),
+            validate_ntfs_volume_index_replay_range(Some(&checkpoint), &usn_state(12, 100, 200)),
             Some(NtfsVolumeIndexPayloadMiss::UsnJournalChanged)
         );
         assert_eq!(
-            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 201, 201)),
+            validate_ntfs_volume_index_replay_range(Some(&checkpoint), &usn_state(11, 201, 201)),
             Some(NtfsVolumeIndexPayloadMiss::UsnRangeUnavailable)
         );
         assert_eq!(
-            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 100, 199)),
+            validate_ntfs_volume_index_replay_range(Some(&checkpoint), &usn_state(11, 100, 199)),
             Some(NtfsVolumeIndexPayloadMiss::UsnRangeUnavailable)
         );
         assert_eq!(
-            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 100, 201)),
-            Some(NtfsVolumeIndexPayloadMiss::UsnJournalAdvanced)
+            validate_ntfs_volume_index_replay_range(Some(&checkpoint), &usn_state(11, 100, 201)),
+            None
         );
     }
 
@@ -4413,7 +4799,7 @@ mod tests {
             )
             .unwrap();
 
-        match store.load_fresh_index_payload(&fingerprint, &usn_state(11, 100, 200)) {
+        match store.load_replayable_index_payload(&fingerprint, &usn_state(11, 100, 200)) {
             NtfsVolumeIndexPayloadLookup::Hit { manifest, payload } => {
                 assert_eq!(manifest.usn_checkpoint, Some(checkpoint));
                 assert_eq!(payload.mft_index, index);
@@ -4434,7 +4820,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            store.load_fresh_index_payload(&fingerprint, &usn_state(11, 100, 200)),
+            store.load_replayable_index_payload(&fingerprint, &usn_state(11, 100, 200)),
             NtfsVolumeIndexPayloadLookup::Miss(NtfsVolumeIndexPayloadMiss::UsnCheckpointMissing)
         );
         assert!(store.cache_file_for(&fingerprint).exists());
@@ -4442,7 +4828,7 @@ mod tests {
     }
 
     #[test]
-    fn ntfs_volume_index_manifest_store_prunes_payload_after_usn_advance() {
+    fn ntfs_volume_index_manifest_store_keeps_payload_after_usn_advance_for_replay() {
         let temp = tempfile::tempdir().unwrap();
         let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
         let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
@@ -4462,12 +4848,204 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            store.load_fresh_index_payload(&fingerprint, &usn_state(11, 100, 201)),
-            NtfsVolumeIndexPayloadLookup::Miss(NtfsVolumeIndexPayloadMiss::UsnJournalAdvanced)
+        assert!(store.cache_file_for(&fingerprint).exists());
+        assert!(store.payload_file_for(&fingerprint).exists());
+        assert!(matches!(
+            store.load_replayable_index_payload(&fingerprint, &usn_state(11, 100, 201)),
+            NtfsVolumeIndexPayloadLookup::Hit { .. }
+        ));
+    }
+
+    #[test]
+    fn ntfs_volume_index_usn_read_buffer_parses_v2_records() {
+        let raw = usn_read_buffer(
+            230,
+            vec![
+                usn_record_v2(
+                    NtfsFileReference::known(9, 9),
+                    NtfsFileReference::known(8, 8),
+                    210,
+                ),
+                usn_record_v2(
+                    NtfsFileReference::known(10, 10),
+                    NtfsFileReference::known(5, 5),
+                    220,
+                ),
+            ],
         );
-        assert!(!store.cache_file_for(&fingerprint).exists());
-        assert!(!store.payload_file_for(&fingerprint).exists());
+
+        let (next_usn, changes) = parse_usn_journal_read_buffer(&raw, "\\\\.\\C:").unwrap();
+
+        assert_eq!(next_usn, 230);
+        assert_eq!(
+            changes,
+            vec![
+                NtfsVolumeIndexUsnChange {
+                    file_reference: NtfsFileReference::known(9, 9),
+                    parent_reference: NtfsFileReference::known(8, 8),
+                    usn: 210,
+                },
+                NtfsVolumeIndexUsnChange {
+                    file_reference: NtfsFileReference::known(10, 10),
+                    parent_reference: NtfsFileReference::known(5, 5),
+                    usn: 220,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_usn_read_buffer_rejects_unsupported_or_truncated_records() {
+        let mut unsupported = usn_record_v2(
+            NtfsFileReference::known(9, 9),
+            NtfsFileReference::known(8, 8),
+            210,
+        );
+        unsupported[offset_of!(USN_RECORD_V2, MajorVersion)..][..2]
+            .copy_from_slice(&3_u16.to_le_bytes());
+        assert!(
+            parse_usn_journal_read_buffer(&usn_read_buffer(230, vec![unsupported]), "\\\\.\\C:")
+                .is_err()
+        );
+
+        let mut truncated = usn_read_buffer(
+            230,
+            vec![usn_record_v2(
+                NtfsFileReference::known(9, 9),
+                NtfsFileReference::known(8, 8),
+                210,
+            )],
+        );
+        truncated.pop();
+        assert!(parse_usn_journal_read_buffer(&truncated, "\\\\.\\C:").is_err());
+
+        let mut negative_usn = usn_record_v2(
+            NtfsFileReference::known(9, 9),
+            NtfsFileReference::known(8, 8),
+            210,
+        );
+        negative_usn[offset_of!(USN_RECORD_V2, Usn)..][..8]
+            .copy_from_slice(&(-1_i64).to_le_bytes());
+        assert!(
+            parse_usn_journal_read_buffer(&usn_read_buffer(230, vec![negative_usn]), "\\\\.\\C:")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_usn_replay_accepts_unrelated_subtree_changes() {
+        let index = nested_fixture_mft_index();
+        let changes = vec![NtfsVolumeIndexUsnChange {
+            file_reference: NtfsFileReference::known(30, 30),
+            parent_reference: NtfsFileReference::known(20, 20),
+            usn: 210,
+        }];
+
+        assert_eq!(
+            validate_ntfs_volume_index_replay(&index, 8, false, 200, 220, &changes),
+            None
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_usn_replay_rejects_target_and_descendant_changes() {
+        let index = nested_fixture_mft_index();
+
+        assert_eq!(
+            validate_ntfs_volume_index_replay(
+                &index,
+                8,
+                false,
+                200,
+                220,
+                &[NtfsVolumeIndexUsnChange {
+                    file_reference: NtfsFileReference::known(8, 8),
+                    parent_reference: NtfsFileReference::known(5, 5),
+                    usn: 210,
+                }],
+            ),
+            Some(NtfsVolumeIndexPayloadMiss::UsnTargetChanged)
+        );
+        assert_eq!(
+            validate_ntfs_volume_index_replay(
+                &index,
+                8,
+                false,
+                200,
+                220,
+                &[NtfsVolumeIndexUsnChange {
+                    file_reference: NtfsFileReference::known(9, 9),
+                    parent_reference: NtfsFileReference::known(8, 8),
+                    usn: 210,
+                }],
+            ),
+            Some(NtfsVolumeIndexPayloadMiss::UsnTargetChanged)
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_usn_replay_rejects_unknown_ancestry_and_root_changes() {
+        let index = nested_fixture_mft_index();
+
+        assert_eq!(
+            validate_ntfs_volume_index_replay(
+                &index,
+                8,
+                false,
+                200,
+                220,
+                &[NtfsVolumeIndexUsnChange {
+                    file_reference: NtfsFileReference::known(40, 40),
+                    parent_reference: NtfsFileReference::known(99, 99),
+                    usn: 210,
+                }],
+            ),
+            Some(NtfsVolumeIndexPayloadMiss::UsnAncestryUnavailable)
+        );
+        assert_eq!(
+            validate_ntfs_volume_index_replay(
+                &index,
+                5,
+                true,
+                200,
+                220,
+                &[NtfsVolumeIndexUsnChange {
+                    file_reference: NtfsFileReference::known(30, 30),
+                    parent_reference: NtfsFileReference::known(20, 20),
+                    usn: 210,
+                }],
+            ),
+            Some(NtfsVolumeIndexPayloadMiss::UsnTargetChanged)
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_usn_replay_rejects_hardlink_candidate_under_target() {
+        let mut file = parsed_file(30, 20, "outside.bin", 1);
+        file.names
+            .push(parsed_file_name(8, "inside.bin", FILE_ATTRIBUTE_NORMAL));
+        let index = MftIndex::from_parsed_records(vec![
+            parsed_directory(5, 5, "root"),
+            parsed_directory(8, 5, "target"),
+            parsed_directory(20, 5, "outside"),
+            file,
+        ]);
+
+        assert_eq!(
+            validate_ntfs_volume_index_replay(
+                &index,
+                8,
+                false,
+                200,
+                220,
+                &[NtfsVolumeIndexUsnChange {
+                    file_reference: NtfsFileReference::known(30, 30),
+                    parent_reference: NtfsFileReference::known(20, 20),
+                    usn: 210,
+                }],
+            ),
+            Some(NtfsVolumeIndexPayloadMiss::UsnTargetChanged)
+        );
     }
 
     #[test]
@@ -6243,6 +6821,53 @@ mod tests {
         ])
     }
 
+    fn nested_fixture_mft_index() -> MftIndex {
+        MftIndex::from_parsed_records(vec![
+            parsed_directory(5, 5, "root"),
+            parsed_directory(8, 5, "target"),
+            parsed_file(9, 8, "inside.txt", 1),
+            parsed_directory(20, 5, "outside"),
+            parsed_file(30, 20, "outside.txt", 1),
+        ])
+    }
+
+    fn parsed_directory(record_id: u64, parent_id: u64, name: &str) -> NtfsParsedRecord {
+        let mut record = parsed_directory_with_index_allocation(record_id, name);
+        record.names = vec![parsed_file_name(parent_id, name, FILE_ATTRIBUTE_DIRECTORY)];
+        record.attribute_streams.clear();
+        record.directory_indexes.clear();
+        record
+    }
+
+    fn usn_read_buffer(next_usn: i64, records: Vec<Vec<u8>>) -> Vec<u8> {
+        let mut raw = next_usn.to_le_bytes().to_vec();
+        for record in records {
+            raw.extend(record);
+        }
+        raw
+    }
+
+    fn usn_record_v2(
+        file_reference: NtfsFileReference,
+        parent_reference: NtfsFileReference,
+        usn: i64,
+    ) -> Vec<u8> {
+        let record_len = offset_of!(USN_RECORD_V2, FileName);
+        let mut raw = vec![0_u8; record_len];
+        raw[0..4].copy_from_slice(&(record_len as u32).to_le_bytes());
+        raw[offset_of!(USN_RECORD_V2, MajorVersion)..][..2].copy_from_slice(&2_u16.to_le_bytes());
+        raw[offset_of!(USN_RECORD_V2, MinorVersion)..][..2].copy_from_slice(&0_u16.to_le_bytes());
+        raw[offset_of!(USN_RECORD_V2, FileReferenceNumber)..][..8]
+            .copy_from_slice(&file_reference_number(file_reference).to_le_bytes());
+        raw[offset_of!(USN_RECORD_V2, ParentFileReferenceNumber)..][..8]
+            .copy_from_slice(&file_reference_number(parent_reference).to_le_bytes());
+        raw[offset_of!(USN_RECORD_V2, Usn)..][..8].copy_from_slice(&usn.to_le_bytes());
+        raw[offset_of!(USN_RECORD_V2, FileNameLength)..][..2].copy_from_slice(&0_u16.to_le_bytes());
+        raw[offset_of!(USN_RECORD_V2, FileNameOffset)..][..2]
+            .copy_from_slice(&(record_len as u16).to_le_bytes());
+        raw
+    }
+
     fn ntfs_volume_data(
         record_size: u32,
         sector_size: u32,
@@ -6260,6 +6885,7 @@ mod tests {
 
     const RECORD_SIZE: usize = 1024;
     const SECTOR_SIZE: usize = 512;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x0000_0080;
     const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 
     fn index_allocation_record(vcn: u64, entries: Vec<Vec<u8>>) -> Vec<u8> {
