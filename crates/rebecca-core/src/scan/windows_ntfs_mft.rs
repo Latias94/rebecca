@@ -34,8 +34,9 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::System::Ioctl::{
     FSCTL_GET_NTFS_FILE_RECORD, FSCTL_GET_NTFS_VOLUME_DATA, FSCTL_GET_RETRIEVAL_POINTERS,
-    NTFS_FILE_RECORD_INPUT_BUFFER, NTFS_FILE_RECORD_OUTPUT_BUFFER, NTFS_VOLUME_DATA_BUFFER,
-    RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, STARTING_VCN_INPUT_BUFFER,
+    FSCTL_QUERY_USN_JOURNAL, NTFS_FILE_RECORD_INPUT_BUFFER, NTFS_FILE_RECORD_OUTPUT_BUFFER,
+    NTFS_VOLUME_DATA_BUFFER, RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0,
+    STARTING_VCN_INPUT_BUFFER, USN_JOURNAL_DATA_V0,
 };
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
@@ -47,7 +48,7 @@ use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
-use crate::scan_cache::ScanCacheUsnCheckpoint;
+use crate::scan_cache::{ScanCacheUsnCheckpoint, ScanCacheUsnJournalState};
 
 use super::backend::{
     MeasuredScan, ScanBackend, ScanBackendKind, ScanEstimateConfidence, ScanRequest,
@@ -62,6 +63,7 @@ const FILE_REFERENCE_LOW_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 const SEQUENTIAL_MFT_SOURCE_LABEL: &str = "sequential";
 const FSCTL_RECORD_SOURCE_LABEL: &str = "fsctl-record";
 const TARGETED_MFT_SOURCE_LABEL: &str = "targeted-fsctl";
+const PERSISTENT_MFT_SOURCE_LABEL: &str = "persistent-cache";
 const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 const SEQUENTIAL_MFT_PARSE_WINDOW_CHUNKS: usize = 8;
 const MFT_MIRROR_SYSTEM_RECORDS: u64 = 4;
@@ -688,6 +690,10 @@ enum NtfsVolumeIndexPayloadMiss {
     UnsupportedVersion,
     Stale,
     ChecksumMismatch,
+    UsnCheckpointMissing,
+    UsnJournalChanged,
+    UsnRangeUnavailable,
+    UsnJournalAdvanced,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -708,7 +714,11 @@ impl NtfsVolumeIndexPayloadMiss {
             | Self::Unreadable
             | Self::Corrupted
             | Self::Stale
-            | Self::ChecksumMismatch => true,
+            | Self::ChecksumMismatch
+            | Self::UsnJournalChanged
+            | Self::UsnRangeUnavailable
+            | Self::UsnJournalAdvanced => true,
+            Self::UsnCheckpointMissing => false,
         }
     }
 }
@@ -836,6 +846,31 @@ impl NtfsVolumeIndexManifestStore {
         }
     }
 
+    fn load_fresh_index_payload(
+        &self,
+        fingerprint: &NtfsVolumeIndexFingerprint,
+        journal_state: &ScanCacheUsnJournalState,
+    ) -> NtfsVolumeIndexPayloadLookup {
+        let lookup = self.load_index_payload(fingerprint);
+        let NtfsVolumeIndexPayloadLookup::Hit { manifest, payload } = lookup else {
+            return lookup;
+        };
+
+        if let Some(reason) =
+            validate_ntfs_volume_index_checkpoint(manifest.usn_checkpoint.as_ref(), journal_state)
+        {
+            if reason.should_prune_pair() {
+                prune_manifest_pair(
+                    &self.cache_file_for(fingerprint),
+                    &self.payload_file_for(fingerprint),
+                );
+            }
+            return NtfsVolumeIndexPayloadLookup::Miss(reason);
+        }
+
+        NtfsVolumeIndexPayloadLookup::Hit { manifest, payload }
+    }
+
     fn store(&self, manifest: &NtfsVolumeIndexCacheManifest) -> Result<()> {
         let cache_file = self.cache_file_for(&manifest.fingerprint);
         let raw = serde_json::to_vec(manifest)?;
@@ -846,6 +881,7 @@ impl NtfsVolumeIndexManifestStore {
         &self,
         fingerprint: NtfsVolumeIndexFingerprint,
         source_label: &'static str,
+        usn_checkpoint: Option<ScanCacheUsnCheckpoint>,
         caveats: &[ParseCaveat],
         mft_index: &MftIndex,
     ) -> Result<()> {
@@ -861,10 +897,52 @@ impl NtfsVolumeIndexManifestStore {
 
         let payload_ref =
             NtfsVolumeIndexPayloadRef::new(self.payload_file_name_for(&fingerprint), &raw);
-        let manifest = NtfsVolumeIndexCacheManifest::new(fingerprint, source_label, None)
+        let manifest = NtfsVolumeIndexCacheManifest::new(fingerprint, source_label, usn_checkpoint)
             .with_payload(payload_ref);
         self.store(&manifest)
     }
+}
+
+fn validate_ntfs_volume_index_checkpoint(
+    checkpoint: Option<&ScanCacheUsnCheckpoint>,
+    journal_state: &ScanCacheUsnJournalState,
+) -> Option<NtfsVolumeIndexPayloadMiss> {
+    let Some(checkpoint) = checkpoint else {
+        return Some(NtfsVolumeIndexPayloadMiss::UsnCheckpointMissing);
+    };
+
+    if checkpoint.journal_id != journal_state.journal_id {
+        return Some(NtfsVolumeIndexPayloadMiss::UsnJournalChanged);
+    }
+
+    if journal_state.first_usn > checkpoint.next_usn || journal_state.next_usn < checkpoint.next_usn
+    {
+        return Some(NtfsVolumeIndexPayloadMiss::UsnRangeUnavailable);
+    }
+
+    if journal_state.next_usn > checkpoint.next_usn {
+        return Some(NtfsVolumeIndexPayloadMiss::UsnJournalAdvanced);
+    }
+
+    None
+}
+
+fn stable_ntfs_volume_index_checkpoint(
+    before: Option<&ScanCacheUsnJournalState>,
+    after: Option<&ScanCacheUsnJournalState>,
+) -> Option<ScanCacheUsnCheckpoint> {
+    let before = before?;
+    let after = after?;
+    if before.journal_id != after.journal_id || before.next_usn != after.next_usn {
+        return None;
+    }
+    if after.first_usn > after.next_usn {
+        return None;
+    }
+    Some(ScanCacheUsnCheckpoint {
+        journal_id: after.journal_id,
+        next_usn: after.next_usn,
+    })
 }
 
 fn write_ntfs_volume_index_file(cache_file: &Path, raw: &[u8], label: &str) -> Result<()> {
@@ -998,7 +1076,14 @@ impl WindowsNtfsMftIndexCache {
         }
         drop(volumes);
 
-        let build_result = CachedNtfsVolumeIndex::build(capabilities, cancellation);
+        let build_result = match self.load_persistent_index(capabilities, cancellation)? {
+            Some(index) => Ok(index),
+            None => CachedNtfsVolumeIndex::build(
+                capabilities,
+                cancellation,
+                self.manifest_store.is_some(),
+            ),
+        };
         let mut volumes = self.lock_volumes()?;
         let result = match build_result {
             Ok(index) => {
@@ -1021,6 +1106,88 @@ impl WindowsNtfsMftIndexCache {
         };
         self.volume_changed.notify_all();
         result
+    }
+
+    fn load_persistent_index(
+        &self,
+        capabilities: &NtfsVolumeCapabilities,
+        cancellation: &ScanCancellationToken,
+    ) -> Result<Option<CachedNtfsVolumeIndex>> {
+        let Some(manifest_store) = self.manifest_store.as_ref() else {
+            return Ok(None);
+        };
+        check_not_cancelled(cancellation)?;
+
+        let volume = match LiveNtfsVolume::open(capabilities) {
+            Ok(volume) => volume,
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    "NTFS persistent volume-index load skipped before open"
+                );
+                return Ok(None);
+            }
+        };
+        let volume_data = match volume.ntfs_volume_data() {
+            Ok(volume_data) => volume_data,
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    "NTFS persistent volume-index load skipped before volume fingerprint"
+                );
+                return Ok(None);
+            }
+        };
+        let geometry = match NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)
+        {
+            Ok(geometry) => geometry,
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    "NTFS persistent volume-index load skipped before record geometry"
+                );
+                return Ok(None);
+            }
+        };
+        let fingerprint =
+            NtfsVolumeIndexFingerprint::from_volume_data(capabilities, &volume_data, geometry);
+        let journal_state = match volume.usn_journal_state() {
+            Ok(journal_state) => journal_state,
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    generation = fingerprint.persistent_generation(),
+                    "NTFS persistent volume-index load skipped before USN freshness validation"
+                );
+                return Ok(None);
+            }
+        };
+
+        match manifest_store.load_fresh_index_payload(&fingerprint, &journal_state) {
+            NtfsVolumeIndexPayloadLookup::Hit { manifest, payload } => {
+                let manifest = *manifest;
+                let payload = *payload;
+                tracing::debug!(
+                    generation = fingerprint.persistent_generation(),
+                    "NTFS persistent volume-index payload hit"
+                );
+                Ok(Some(CachedNtfsVolumeIndex {
+                    fingerprint,
+                    mft_index: payload.mft_index,
+                    source_label: PERSISTENT_MFT_SOURCE_LABEL,
+                    caveats: payload.caveats,
+                    usn_checkpoint: manifest.usn_checkpoint,
+                }))
+            }
+            NtfsVolumeIndexPayloadLookup::Miss(reason) => {
+                tracing::debug!(
+                    ?reason,
+                    generation = fingerprint.persistent_generation(),
+                    "NTFS persistent volume-index payload miss"
+                );
+                Ok(None)
+            }
+        }
     }
 
     fn lock_volumes(
@@ -1076,6 +1243,7 @@ struct CachedNtfsVolumeIndex {
     mft_index: MftIndex,
     source_label: &'static str,
     caveats: Vec<ParseCaveat>,
+    usn_checkpoint: Option<ScanCacheUsnCheckpoint>,
 }
 
 impl CachedNtfsVolumeIndex {
@@ -1087,15 +1255,24 @@ impl CachedNtfsVolumeIndex {
         let Some(manifest_store) = manifest_store else {
             return;
         };
+        let Some(usn_checkpoint) = self.usn_checkpoint.clone() else {
+            tracing::debug!(
+                generation = self.fingerprint.persistent_generation(),
+                "NTFS volume-index payload write skipped without stable USN checkpoint"
+            );
+            return;
+        };
         if matches!(
             manifest_store.load_index_payload(&self.fingerprint),
-            NtfsVolumeIndexPayloadLookup::Hit { .. }
+            NtfsVolumeIndexPayloadLookup::Hit { manifest, .. }
+                if manifest.usn_checkpoint.as_ref() == Some(&usn_checkpoint)
         ) {
             return;
         }
         if let Err(err) = manifest_store.store_index_payload(
             self.fingerprint.clone(),
             self.source_label,
+            Some(usn_checkpoint),
             &self.caveats,
             &self.mft_index,
         ) {
@@ -1110,6 +1287,7 @@ impl CachedNtfsVolumeIndex {
     fn build(
         capabilities: &NtfsVolumeCapabilities,
         cancellation: &ScanCancellationToken,
+        capture_usn_checkpoint: bool,
     ) -> Result<Self> {
         let monitor = NtfsMftBuildMonitor::from_environment();
         check_mft_build_progress(cancellation, &monitor)?;
@@ -1124,6 +1302,11 @@ impl CachedNtfsVolumeIndex {
         let geometry = NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)?;
         let fingerprint =
             NtfsVolumeIndexFingerprint::from_volume_data(capabilities, &volume_data, geometry);
+        let starting_usn_state = if capture_usn_checkpoint {
+            optional_ntfs_usn_journal_state(&volume, "before full-index build")
+        } else {
+            None
+        };
         let records = volume.read_mft_records(&volume_data, cancellation, &monitor)?;
         let source_label = records.source_label;
         let mut stream_source = LiveNtfsIndexStreamSource {
@@ -1141,12 +1324,39 @@ impl CachedNtfsVolumeIndex {
         if let Some(caveat) = monitor.timing_caveat() {
             caveats.push(caveat);
         }
+        let ending_usn_state = if capture_usn_checkpoint {
+            optional_ntfs_usn_journal_state(&volume, "after full-index build")
+        } else {
+            None
+        };
+        let usn_checkpoint = stable_ntfs_volume_index_checkpoint(
+            starting_usn_state.as_ref(),
+            ending_usn_state.as_ref(),
+        );
         Ok(Self {
             fingerprint,
             mft_index,
             source_label,
             caveats,
+            usn_checkpoint,
         })
+    }
+}
+
+fn optional_ntfs_usn_journal_state(
+    volume: &LiveNtfsVolume,
+    stage: &'static str,
+) -> Option<ScanCacheUsnJournalState> {
+    match volume.usn_journal_state() {
+        Ok(state) => Some(state),
+        Err(err) => {
+            tracing::debug!(
+                error = %err,
+                stage,
+                "NTFS volume-index USN checkpoint capture skipped"
+            );
+            None
+        }
     }
 }
 
@@ -3064,6 +3274,32 @@ impl LiveNtfsVolume {
         Ok(volume_data)
     }
 
+    fn usn_journal_state(&self) -> Result<ScanCacheUsnJournalState> {
+        let mut journal_data = USN_JOURNAL_DATA_V0::default();
+        let mut bytes_returned = 0_u32;
+        unsafe {
+            DeviceIoControl(
+                self.handle,
+                FSCTL_QUERY_USN_JOURNAL,
+                None,
+                0,
+                Some((&mut journal_data as *mut USN_JOURNAL_DATA_V0).cast()),
+                size_of::<USN_JOURNAL_DATA_V0>() as u32,
+                Some(&mut bytes_returned),
+                None,
+            )
+        }
+        .map_err(|err| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not query USN journal from {}: {}",
+                self.device_path,
+                err.message()
+            ))
+        })?;
+
+        usn_journal_data_to_state(&journal_data, &self.device_path)
+    }
+
     fn read_mft_records(
         &self,
         volume_data: &NTFS_VOLUME_DATA_BUFFER,
@@ -3206,6 +3442,25 @@ impl Drop for LiveNtfsVolume {
             let _ = CloseHandle(self.handle);
         }
     }
+}
+
+fn usn_journal_data_to_state(
+    journal_data: &USN_JOURNAL_DATA_V0,
+    device_path: &str,
+) -> Result<ScanCacheUsnJournalState> {
+    Ok(ScanCacheUsnJournalState {
+        journal_id: journal_data.UsnJournalID,
+        first_usn: nonnegative_usn(journal_data.FirstUsn, "first", device_path)?,
+        next_usn: nonnegative_usn(journal_data.NextUsn, "next", device_path)?,
+    })
+}
+
+fn nonnegative_usn(value: i64, label: &str, device_path: &str) -> Result<u64> {
+    u64::try_from(value).map_err(|_| {
+        RebeccaError::PlatformUnavailable(format!(
+            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} read negative {label} USN {value} from {device_path}"
+        ))
+    })
 }
 
 struct LiveNtfsMetadataFile {
@@ -3707,7 +3962,8 @@ mod tests {
         collect_mft_disk_map_entry, file_reference_from_number, file_reference_number,
         low_file_reference_number, mft_mirror_read_plan, mirror_for_primary_records,
         next_mft_chunk_len, parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
-        read_mft_records_from_sources, with_bounded_mft_caveats,
+        read_mft_records_from_sources, stable_ntfs_volume_index_checkpoint,
+        validate_ntfs_volume_index_checkpoint, with_bounded_mft_caveats,
     };
     use crate::disk_map::{
         DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapSortField,
@@ -3717,7 +3973,7 @@ mod tests {
     use crate::plan::EstimateProvenance;
     use crate::scan::ScanReport;
     use crate::scan::backend::{MeasuredScan, ScanBackendKind};
-    use crate::scan_cache::ScanCacheUsnCheckpoint;
+    use crate::scan_cache::{ScanCacheUsnCheckpoint, ScanCacheUsnJournalState};
 
     #[test]
     fn volume_paths_support_drive_absolute_paths() {
@@ -4041,7 +4297,13 @@ mod tests {
         );
 
         store
-            .store_index_payload(fingerprint.clone(), "sequential-mft", &caveats, &index)
+            .store_index_payload(
+                fingerprint.clone(),
+                "sequential-mft",
+                None,
+                &caveats,
+                &index,
+            )
             .unwrap();
         let manifest_file = store.cache_file_for(&fingerprint);
         let payload_file = store.payload_file_for(&fingerprint);
@@ -4065,6 +4327,147 @@ mod tests {
             }
             lookup => panic!("expected payload hit, got {lookup:?}"),
         }
+    }
+
+    #[test]
+    fn ntfs_volume_index_stable_checkpoint_requires_unchanged_usn() {
+        let before = usn_state(11, 100, 200);
+        let after = usn_state(11, 100, 200);
+
+        assert_eq!(
+            stable_ntfs_volume_index_checkpoint(Some(&before), Some(&after)),
+            Some(ScanCacheUsnCheckpoint {
+                journal_id: 11,
+                next_usn: 200
+            })
+        );
+        assert_eq!(
+            stable_ntfs_volume_index_checkpoint(Some(&before), Some(&usn_state(12, 100, 200))),
+            None
+        );
+        assert_eq!(
+            stable_ntfs_volume_index_checkpoint(Some(&before), Some(&usn_state(11, 100, 201))),
+            None
+        );
+        assert_eq!(
+            stable_ntfs_volume_index_checkpoint(Some(&before), Some(&usn_state(11, 300, 200))),
+            None
+        );
+        assert_eq!(
+            stable_ntfs_volume_index_checkpoint(None, Some(&after)),
+            None
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_checkpoint_validation_is_exact_for_full_volume_payloads() {
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 11,
+            next_usn: 200,
+        };
+
+        assert_eq!(
+            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 100, 200)),
+            None
+        );
+        assert_eq!(
+            validate_ntfs_volume_index_checkpoint(None, &usn_state(11, 100, 200)),
+            Some(NtfsVolumeIndexPayloadMiss::UsnCheckpointMissing)
+        );
+        assert_eq!(
+            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(12, 100, 200)),
+            Some(NtfsVolumeIndexPayloadMiss::UsnJournalChanged)
+        );
+        assert_eq!(
+            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 201, 201)),
+            Some(NtfsVolumeIndexPayloadMiss::UsnRangeUnavailable)
+        );
+        assert_eq!(
+            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 100, 199)),
+            Some(NtfsVolumeIndexPayloadMiss::UsnRangeUnavailable)
+        );
+        assert_eq!(
+            validate_ntfs_volume_index_checkpoint(Some(&checkpoint), &usn_state(11, 100, 201)),
+            Some(NtfsVolumeIndexPayloadMiss::UsnJournalAdvanced)
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_manifest_store_loads_fresh_payload_with_usn_checkpoint() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let index = fixture_mft_index();
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 11,
+            next_usn: 200,
+        };
+
+        store
+            .store_index_payload(
+                fingerprint.clone(),
+                "sequential-mft",
+                Some(checkpoint.clone()),
+                &[],
+                &index,
+            )
+            .unwrap();
+
+        match store.load_fresh_index_payload(&fingerprint, &usn_state(11, 100, 200)) {
+            NtfsVolumeIndexPayloadLookup::Hit { manifest, payload } => {
+                assert_eq!(manifest.usn_checkpoint, Some(checkpoint));
+                assert_eq!(payload.mft_index, index);
+            }
+            lookup => panic!("expected fresh payload hit, got {lookup:?}"),
+        }
+    }
+
+    #[test]
+    fn ntfs_volume_index_manifest_store_rejects_checkpoint_free_payload_as_not_fresh() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let index = fixture_mft_index();
+
+        store
+            .store_index_payload(fingerprint.clone(), "sequential-mft", None, &[], &index)
+            .unwrap();
+
+        assert_eq!(
+            store.load_fresh_index_payload(&fingerprint, &usn_state(11, 100, 200)),
+            NtfsVolumeIndexPayloadLookup::Miss(NtfsVolumeIndexPayloadMiss::UsnCheckpointMissing)
+        );
+        assert!(store.cache_file_for(&fingerprint).exists());
+        assert!(store.payload_file_for(&fingerprint).exists());
+    }
+
+    #[test]
+    fn ntfs_volume_index_manifest_store_prunes_payload_after_usn_advance() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let index = fixture_mft_index();
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 11,
+            next_usn: 200,
+        };
+
+        store
+            .store_index_payload(
+                fingerprint.clone(),
+                "sequential-mft",
+                Some(checkpoint),
+                &[],
+                &index,
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.load_fresh_index_payload(&fingerprint, &usn_state(11, 100, 201)),
+            NtfsVolumeIndexPayloadLookup::Miss(NtfsVolumeIndexPayloadMiss::UsnJournalAdvanced)
+        );
+        assert!(!store.cache_file_for(&fingerprint).exists());
+        assert!(!store.payload_file_for(&fingerprint).exists());
     }
 
     #[test]
@@ -4092,7 +4495,7 @@ mod tests {
         let index = fixture_mft_index();
 
         store
-            .store_index_payload(fingerprint.clone(), "sequential-mft", &[], &index)
+            .store_index_payload(fingerprint.clone(), "sequential-mft", None, &[], &index)
             .unwrap();
         let manifest_file = store.cache_file_for(&fingerprint);
         let payload_file = store.payload_file_for(&fingerprint);
@@ -5822,6 +6225,14 @@ mod tests {
         let geometry =
             NtfsRecordGeometry::from_volume_data(&capabilities.device_path, &volume_data).unwrap();
         NtfsVolumeIndexFingerprint::from_volume_data(&capabilities, &volume_data, geometry)
+    }
+
+    fn usn_state(journal_id: u64, first_usn: u64, next_usn: u64) -> ScanCacheUsnJournalState {
+        ScanCacheUsnJournalState {
+            journal_id,
+            first_usn,
+            next_usn,
+        }
     }
 
     fn fixture_mft_index() -> MftIndex {
