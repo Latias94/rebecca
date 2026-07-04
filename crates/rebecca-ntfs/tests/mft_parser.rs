@@ -2963,6 +2963,85 @@ fn reader_reports_remainder_error_at_base_record_offset() {
     ));
 }
 
+#[test]
+fn reader_recovers_failed_primary_record_from_mft_mirror() {
+    let mut primary_record_0 = mft_record(0, true, false, vec![file_name_attr(5, "broken.bin", 0)]);
+    break_test_fixup(&mut primary_record_0);
+    let primary_record_1 = mft_record(1, true, false, vec![file_name_attr(5, "primary.bin", 0)]);
+    let mut primary = primary_record_0;
+    primary.extend_from_slice(&primary_record_1);
+
+    let mut mirror = mft_record(0, true, false, vec![file_name_attr(5, "mirror.bin", 0)]);
+    mirror.extend_from_slice(&mft_record(
+        1,
+        true,
+        false,
+        vec![file_name_attr(5, "unused-mirror.bin", 0)],
+    ));
+
+    let batch = MftRecordReader::default().parse_records_with_mirror(&primary, &mirror);
+
+    assert!(batch.errors.is_empty());
+    assert_eq!(batch.records.len(), 2);
+    assert_eq!(
+        batch.records[0].primary_file_name().unwrap().name,
+        "mirror.bin"
+    );
+    assert!(batch.records[0].caveats.iter().any(|caveat| {
+        caveat.code == "mft-mirror-record-used"
+            && caveat.message.contains("primary $MFT parse failed")
+    }));
+    assert_eq!(
+        batch.records[1].primary_file_name().unwrap().name,
+        "primary.bin"
+    );
+    assert!(
+        batch.records[1]
+            .caveats
+            .iter()
+            .all(|caveat| caveat.code != "mft-mirror-record-used")
+    );
+}
+
+#[test]
+fn reader_recovers_truncated_primary_remainder_from_mft_mirror() {
+    let primary_full = mft_record(0, true, false, vec![file_name_attr(5, "truncated.bin", 0)]);
+    let primary = &primary_full[..16];
+    let mirror = mft_record(0, true, false, vec![file_name_attr(5, "mirror.bin", 0)]);
+
+    let batch = MftRecordReader::default().parse_records_with_mirror(primary, &mirror);
+
+    assert!(batch.errors.is_empty());
+    assert_eq!(batch.records.len(), 1);
+    assert_eq!(
+        batch.records[0].primary_file_name().unwrap().name,
+        "mirror.bin"
+    );
+    assert!(batch.records[0].caveats.iter().any(|caveat| {
+        caveat.code == "mft-mirror-record-used" && caveat.message.contains("record is too small")
+    }));
+}
+
+#[test]
+fn reader_keeps_primary_error_when_mft_mirror_is_invalid() {
+    let mut primary = mft_record(0, true, false, vec![file_name_attr(5, "broken.bin", 0)]);
+    break_test_fixup(&mut primary);
+    let mut mirror = mft_record(
+        0,
+        true,
+        false,
+        vec![file_name_attr(5, "also-broken.bin", 0)],
+    );
+    break_test_fixup(&mut mirror);
+
+    let batch = MftRecordReader::default().parse_records_with_mirror(&primary, &mirror);
+
+    assert!(batch.records.is_empty());
+    assert_eq!(batch.errors.len(), 1);
+    assert_eq!(batch.errors[0].record_id, 0);
+    assert_eq!(batch.errors[0].error, NtfsParseError::InvalidUpdateSequence);
+}
+
 fn mft_record(record_id: u64, in_use: bool, directory: bool, attrs: Vec<Vec<u8>>) -> Vec<u8> {
     mft_record_with_base(record_id, 0, in_use, directory, attrs)
 }
@@ -3471,6 +3550,10 @@ fn mark_test_fixup_as_already_applied(record: &mut [u8]) {
     let second_replacement = u16::from_le_bytes([record[USA_OFFSET + 4], record[USA_OFFSET + 5]]);
     put_u16(record, SECTOR_SIZE - 2, first_replacement);
     put_u16(record, RECORD_SIZE - 2, second_replacement);
+}
+
+fn break_test_fixup(record: &mut [u8]) {
+    put_u16(record, SECTOR_SIZE - 2, 0);
 }
 
 fn align8(value: usize) -> usize {
