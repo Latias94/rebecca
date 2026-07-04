@@ -98,6 +98,16 @@ identity, and byte/file/directory deltas for each backend/repetition.
 pwsh -File scripts\dogfood\run-inspect-map-report.ps1 -Root docs\plans -Backend portable-recursive,windows-native,windows-ntfs-mft-experimental -Repeat 1 -Top 20 -GroupBy extension,depth,age -DiagnosticLimit 0
 ```
 
+For a focused NTFS physical-semantics fixture, run:
+
+```powershell
+pwsh -File scripts\dogfood\run-ntfs-fixture-dogfood.ps1 -Repeat 1 -LargeFileCount 128 -Top 20 -DiagnosticLimit 0
+```
+
+Review the fixture `ntfs-fixture-manifest.json` before treating the report as
+evidence. Hardlink, sparse, and compression support can be unavailable on some
+hosts or filesystems; those gaps should appear as manifest caveats.
+
 Use a smaller `-Root` such as `docs\plans` when the repository root includes large `target\` or `repo-ref\` trees. The script refuses output directories inside the scanned root unless `-AllowOutputInsideRoot` is passed. Backend mismatches, missing portable baselines, parse failures, and timeouts exit non-zero by default; pass `-AllowMismatch` only when collecting exploratory evidence from a changing tree. The backend has an internal 20 second live metadata budget by default; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` higher for deep diagnosis, or `0` to disable the guard for a single dogfood process. Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture active-stage timeout context and successful `mft-index-build-timing` caveats during release dogfood. Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when you intentionally want to compare targeted traversal against the older full-volume MFT index path.
 
 Run this dogfood checklist on a representative Windows workstation:

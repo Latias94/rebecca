@@ -48,3 +48,32 @@ Run the pure parser/report tests without invoking Cargo:
 ```powershell
 pwsh -File scripts/dogfood/run-inspect-map-report.ps1 -SelfTest
 ```
+
+## NTFS Fixture Dogfood
+
+`run-ntfs-fixture-dogfood.ps1` creates a local fixture tree under
+`target/ntfs-dogfood-fixtures/<timestamp-pid>/`, writes
+`ntfs-fixture-manifest.json`, and then calls `run-inspect-map-report.ps1` against
+that fixture. The fixture includes hardlink aliases, a sparse file, a compressed
+file, a large flat directory, a nested directory, and best-effort fragmentation
+candidates. Unsupported host features are recorded as manifest caveats rather
+than silently treated as evidence.
+
+```powershell
+pwsh -File scripts/dogfood/run-ntfs-fixture-dogfood.ps1 `
+  -Repeat 1 `
+  -LargeFileCount 128 `
+  -Top 20 `
+  -DiagnosticLimit 0
+```
+
+Outputs are local artifacts:
+
+- fixture: `target/ntfs-dogfood-fixtures/<timestamp-pid>/`
+- report: `target/ntfs-dogfood-reports/<timestamp-pid>/`
+
+Run the fixture builder self-test without invoking the CLI report:
+
+```powershell
+pwsh -File scripts/dogfood/run-ntfs-fixture-dogfood.ps1 -SelfTest
+```

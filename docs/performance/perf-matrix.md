@@ -58,6 +58,16 @@ external `-OutputDirectory` or explicitly opt into `-AllowOutputInsideRoot`.
 Backend mismatches or missing portable baselines are non-zero by default; pass
 `-AllowMismatch` only for exploratory profiling runs where the report itself is
 the artifact being collected.
+For a repeatable live NTFS fixture that exercises hardlinks, sparse allocation,
+compression, large directories, nested directories, and best-effort fragmentation
+candidates before running the same backend comparison report, use:
+
+```powershell
+pwsh -File scripts/dogfood/run-ntfs-fixture-dogfood.ps1 -Repeat 1 -LargeFileCount 128 -Top 20 -DiagnosticLimit 0
+```
+
+The fixture wrapper writes `ntfs-fixture-manifest.json` beside the generated
+files and leaves both fixtures and reports under `target/`.
 The experimental backend has its own 20 second live metadata budget before
 falling back to a directory scanner; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`
 higher for deep profiling or `0` to disable that guard for one process.
