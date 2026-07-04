@@ -638,6 +638,11 @@ fn cross_check_directory_entries(
     for (parent_record_id, directory_entries) in directory_entries_by_parent {
         for directory_entry in directory_entries {
             let mut edge = DirectoryEdge::from_directory_entry(directory_entry);
+            if matches!(directory_entry.namespace, FileNameNamespace::Dos) {
+                edge_state.push_fact(edge);
+                continue;
+            }
+
             if directory_entry.parent.record_id != *parent_record_id {
                 edge_state.push_fact(edge.rejected(
                     DirectoryEdgeSequenceStatus::ParentMismatch,

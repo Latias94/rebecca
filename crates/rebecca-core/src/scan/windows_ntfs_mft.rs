@@ -1443,7 +1443,11 @@ impl TargetedMftRecordResolver for LiveNtfsTargetRecordResolver<'_> {
         if parsed_record_id != reference.record_id {
             return Ok(None);
         }
-        match NtfsParsedRecord::parse(parsed_record_id, &raw_record, self.geometry.sector_size) {
+        match NtfsParsedRecord::parse_fsctl_file_record(
+            parsed_record_id,
+            &raw_record,
+            self.geometry.sector_size,
+        ) {
             Ok(record) => {
                 self.records.insert(parsed_record_id, record.clone());
                 Ok(Some(record))
@@ -1788,6 +1792,9 @@ where
         aggregate: &mut PhysicalMetricsAccumulator,
     ) -> Result<()> {
         for entry in &record.directory_entries {
+            if is_dos_directory_entry(entry) {
+                continue;
+            }
             if entry.parent.record_id != record.reference.record_id {
                 state.caveats.push(ParseCaveat::new(
                     "directory-index-parent-mismatch",
@@ -1880,6 +1887,9 @@ where
         summary: &mut SubtreeSummary,
     ) {
         for entry in &record.directory_entries {
+            if is_dos_directory_entry(entry) {
+                continue;
+            }
             if entry.parent.record_id != record.reference.record_id {
                 summary.caveats.push(ParseCaveat::new(
                     "directory-index-parent-mismatch",
@@ -2003,6 +2013,10 @@ fn reference_sequence_mismatches(expected: NtfsFileReference, actual: NtfsFileRe
         (expected.sequence_number, actual.sequence_number),
         (Some(expected), Some(actual)) if expected != 0 && actual != 0 && expected != actual
     )
+}
+
+fn is_dos_directory_entry(entry: &NtfsDirectoryEntry) -> bool {
+    matches!(entry.namespace, rebecca_ntfs::FileNameNamespace::Dos)
 }
 
 fn add_file_allocated_bytes(
@@ -2631,7 +2645,7 @@ impl MftRecordSource for FsctlRecordMftSource<'_> {
                     {
                         Ok(Some((record_id, raw_record))) => {
                             let parsed_record_id = low_file_reference_number(record_id);
-                            match NtfsParsedRecord::parse(
+                            match NtfsParsedRecord::parse_fsctl_file_record(
                                 parsed_record_id,
                                 &raw_record,
                                 geometry.sector_size,
@@ -3229,6 +3243,56 @@ mod tests {
     }
 
     #[test]
+    fn targeted_traversal_skips_dos_i30_aliases() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 5, "long-name.bin", 10));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "long-name.bin",
+                        0,
+                    ),
+                    index_allocation_entry_with_namespace(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "LONG-N~1.BIN",
+                        0,
+                        2,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let summary = traversal
+            .aggregate_subtree(NtfsFileReference::known(5, 5))
+            .unwrap();
+
+        assert_eq!(summary.bytes, 10);
+        assert_eq!(summary.files, 1);
+        assert!(!summary.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-parent-map-fallback"
+                && caveat.message.contains("LONG-N~1.BIN")
+        }));
+    }
+
+    #[test]
     fn targeted_disk_map_collects_ranked_entries_without_full_index() {
         let monitor = test_build_monitor();
         let cancellation = ScanCancellationToken::new();
@@ -3535,6 +3599,68 @@ mod tests {
                 .iter()
                 .any(|caveat| caveat.code == "mft-targeted-record-already-counted")
         );
+    }
+
+    #[test]
+    fn targeted_disk_map_skips_dos_i30_aliases() {
+        let monitor = test_build_monitor();
+        let cancellation = ScanCancellationToken::new();
+        let mut resolver = FakeTargetedRecordResolver::default()
+            .with_record(parsed_directory_with_index_allocation(5, "root"))
+            .with_record(parsed_file(6, 5, "long-name.bin", 10));
+        let mut source = FakeIndexStreamSource::default().with_bytes(
+            0x80_000,
+            &index_allocation_record(
+                0,
+                vec![
+                    index_allocation_entry(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "long-name.bin",
+                        0,
+                    ),
+                    index_allocation_entry_with_namespace(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "LONG-N~1.BIN",
+                        0,
+                        2,
+                    ),
+                    index_allocation_last_entry(),
+                ],
+            ),
+        );
+        let mut traversal = TargetedMftTraversal {
+            resolver: &mut resolver,
+            stream_source: &mut source,
+            geometry: test_record_geometry(),
+            cancellation: &cancellation,
+            monitor: &monitor,
+            limits: TargetedMftTraversalLimits::default(),
+        };
+
+        let map = traversal
+            .collect_disk_map(
+                NtfsFileReference::known(5, 5),
+                std::path::Path::new("C:\\root"),
+                &disk_map_options(10, None, Vec::new()),
+                100,
+                &EstimateProvenance::default(),
+            )
+            .unwrap();
+
+        assert_eq!(map.metrics.logical_bytes, 10);
+        assert_eq!(map.metrics.unique_logical_bytes, Some(10));
+        assert_eq!(map.metrics.files, 1);
+        assert_eq!(map.top_entries.len(), 1);
+        assert_eq!(
+            map.top_entries[0].path,
+            std::path::PathBuf::from("C:\\root\\long-name.bin")
+        );
+        assert!(!map.caveats.iter().any(|caveat| {
+            caveat.code == "directory-index-parent-map-fallback"
+                && caveat.message.contains("LONG-N~1.BIN")
+        }));
     }
 
     #[test]
@@ -4193,7 +4319,24 @@ mod tests {
         name: &str,
         file_attributes: u32,
     ) -> Vec<u8> {
-        let file_name = file_name_value(parent_reference, name, file_attributes);
+        index_allocation_entry_with_namespace(
+            child_reference,
+            parent_reference,
+            name,
+            file_attributes,
+            1,
+        )
+    }
+
+    fn index_allocation_entry_with_namespace(
+        child_reference: u64,
+        parent_reference: u64,
+        name: &str,
+        file_attributes: u32,
+        namespace: u8,
+    ) -> Vec<u8> {
+        let file_name =
+            file_name_value_with_namespace(parent_reference, name, file_attributes, namespace);
         let entry_len = align8(16 + file_name.len());
         let mut entry = vec![0_u8; entry_len];
         put_u64(&mut entry, 0, child_reference);
@@ -4210,13 +4353,18 @@ mod tests {
         entry
     }
 
-    fn file_name_value(parent_reference: u64, name: &str, file_attributes: u32) -> Vec<u8> {
+    fn file_name_value_with_namespace(
+        parent_reference: u64,
+        name: &str,
+        file_attributes: u32,
+        namespace: u8,
+    ) -> Vec<u8> {
         let name_utf16 = name.encode_utf16().collect::<Vec<_>>();
         let mut value = vec![0_u8; 66 + (name_utf16.len() * 2)];
         put_u64(&mut value, 0, parent_reference);
         put_u32(&mut value, 56, file_attributes);
         value[64] = name_utf16.len() as u8;
-        value[65] = 1;
+        value[65] = namespace;
         for (index, character) in name_utf16.iter().enumerate() {
             put_u16(&mut value, 66 + (index * 2), *character);
         }

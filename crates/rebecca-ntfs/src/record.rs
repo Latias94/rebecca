@@ -24,11 +24,29 @@ const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 
 impl NtfsParsedRecord {
     pub fn parse(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result<Self> {
-        parse_record(record_id, raw_record, sector_size)
+        parse_record(
+            record_id,
+            raw_record,
+            sector_size,
+            RecordFixupPolicy::Strict,
+        )
     }
 
     pub fn parse_mft_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result<Self> {
         Self::parse(record_id, raw_record, sector_size)
+    }
+
+    pub fn parse_fsctl_file_record(
+        record_id: u64,
+        raw_record: &[u8],
+        sector_size: usize,
+    ) -> Result<Self> {
+        parse_record(
+            record_id,
+            raw_record,
+            sector_size,
+            RecordFixupPolicy::TrustKernelDeprotected,
+        )
     }
 }
 
@@ -68,7 +86,18 @@ impl ParseCaveat {
     }
 }
 
-fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result<NtfsParsedRecord> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordFixupPolicy {
+    Strict,
+    TrustKernelDeprotected,
+}
+
+fn parse_record(
+    record_id: u64,
+    raw_record: &[u8],
+    sector_size: usize,
+    fixup_policy: RecordFixupPolicy,
+) -> Result<NtfsParsedRecord> {
     if raw_record.len() < RECORD_HEADER_MIN_LEN {
         return Err(NtfsParseError::Truncated {
             expected: RECORD_HEADER_MIN_LEN,
@@ -76,7 +105,7 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
         });
     }
 
-    let record = apply_update_sequence(raw_record, sector_size)?;
+    let record = normalized_record(raw_record, sector_size, fixup_policy)?;
     if record.get(0..4) != Some(b"FILE") {
         return Err(NtfsParseError::InvalidSignature);
     }
@@ -132,6 +161,23 @@ fn parse_record(record_id: u64, raw_record: &[u8], sector_size: usize) -> Result
     }
 
     Ok(parsed)
+}
+
+fn normalized_record(
+    raw_record: &[u8],
+    sector_size: usize,
+    fixup_policy: RecordFixupPolicy,
+) -> Result<Vec<u8>> {
+    match apply_update_sequence(raw_record, sector_size) {
+        Ok(record) => Ok(record),
+        Err(_)
+            if fixup_policy == RecordFixupPolicy::TrustKernelDeprotected
+                && raw_record.get(0..4) == Some(b"FILE") =>
+        {
+            Ok(raw_record.to_vec())
+        }
+        Err(err) => Err(err),
+    }
 }
 
 fn record_attribute_limit(

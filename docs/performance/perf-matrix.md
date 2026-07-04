@@ -110,6 +110,18 @@ After the adaptive disk-map refactor, elevated local dogfood under
 `windows-ntfs-mft-experimental-targeted-fsctl` with no fallback, 624422 logical
 bytes, 39 files, and a 910 ms script-measured duration.
 
+The focused NTFS fixture dogfood on 2026-07-04 under
+`target/ntfs-dogfood-reports/20260704-041255-17552/` completed without
+`-AllowMismatch`: portable, Windows native, and experimental NTFS/MFT matched
+logical bytes, file counts, and directory counts for hardlinks, sparse files,
+compressed files, large directories, nested files, and fragmentation candidates.
+The experimental run used `windows-ntfs-mft-experimental-targeted-fsctl`,
+reported one caveat, and completed in 3052 ms. Sparse and compressed allocated
+bytes matched Windows native after data-run-backed allocation accounting; small
+nonresident file allocation can still differ by semantics because MFT data runs
+count allocated clusters while Windows native APIs may report a smaller
+file-allocation value for the same fixture.
+
 The portable map implementation should keep memory proportional to traversal
 depth plus the requested `--top` bound. It uses post-order aggregation and
 pushes completed entries directly into a bounded heap instead of retaining a

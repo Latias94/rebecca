@@ -45,6 +45,7 @@ impl NtfsRecordSet {
             expand_record_attribute_lists(record, geometry, source);
         });
         record_set.expand_index_allocations(geometry, source);
+        record_set.apply_stream_physical_allocated_sizes(geometry);
         record_set
     }
 
@@ -54,6 +55,12 @@ impl NtfsRecordSet {
     {
         for record in &mut self.records {
             expand_record_index_allocations(record, geometry, source);
+        }
+    }
+
+    fn apply_stream_physical_allocated_sizes(&mut self, geometry: NtfsStreamGeometry) {
+        for record in &mut self.records {
+            apply_record_stream_physical_allocated_sizes(record, geometry);
         }
     }
 }
@@ -125,6 +132,7 @@ where
     expand_record_attribute_lists(&mut record, geometry, source);
     resolve_attribute_list_extensions_result(&mut record, resolve_extension)?;
     expand_record_index_allocations(&mut record, geometry, source);
+    apply_record_stream_physical_allocated_sizes(&mut record, geometry);
     Ok(record)
 }
 
@@ -384,6 +392,53 @@ fn caveat_unresolved_attribute_list_streams(record: &mut NtfsParsedRecord) {
             ),
         ));
     }
+}
+
+fn apply_record_stream_physical_allocated_sizes(
+    record: &mut NtfsParsedRecord,
+    geometry: NtfsStreamGeometry,
+) {
+    for stream in &mut record.attribute_streams {
+        let Some(allocated_size) = stream_physical_allocated_size(stream, geometry) else {
+            continue;
+        };
+        stream.allocated_size = Some(allocated_size);
+    }
+}
+
+fn stream_physical_allocated_size(
+    stream: &NtfsAttributeStream,
+    geometry: NtfsStreamGeometry,
+) -> Option<u64> {
+    if !stream.non_resident || stream.data_runs.is_empty() || geometry.bytes_per_cluster == 0 {
+        return None;
+    }
+    if !data_runs_cover_stream(stream, geometry.bytes_per_cluster) {
+        return None;
+    }
+
+    let allocated_clusters = stream
+        .data_runs
+        .iter()
+        .filter(|run| run.lcn.is_some())
+        .try_fold(0_u64, |sum, run| sum.checked_add(run.cluster_count))?;
+    allocated_clusters.checked_mul(geometry.bytes_per_cluster)
+}
+
+fn data_runs_cover_stream(stream: &NtfsAttributeStream, bytes_per_cluster: u64) -> bool {
+    let logical_clusters = stream.logical_size.div_ceil(bytes_per_cluster);
+    let mut expected_vcn = 0_u64;
+    for run in &stream.data_runs {
+        if run.starting_vcn != expected_vcn {
+            return false;
+        }
+        let Some(next_vcn) = expected_vcn.checked_add(run.cluster_count) else {
+            return false;
+        };
+        expected_vcn = next_vcn;
+    }
+
+    expected_vcn >= logical_clusters
 }
 
 fn expand_record_attribute_lists<S>(

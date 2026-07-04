@@ -68,6 +68,35 @@ fn fsctl_applied_fixup_record_parses_name_parent_and_stream_size() {
 }
 
 #[test]
+fn fsctl_zeroed_fixup_record_parses_as_kernel_deprotected_buffer() {
+    let mut raw = mft_record(
+        42,
+        true,
+        false,
+        vec![
+            standard_information_attr(0),
+            file_name_attr(5, "cache.bin", 0),
+            nonresident_data_attr(1234),
+        ],
+    );
+    put_u16(&mut raw, USA_OFFSET + 2, 0);
+    put_u16(&mut raw, USA_OFFSET + 4, 0);
+    put_u16(&mut raw, SECTOR_SIZE - 2, 0x01DD);
+    put_u16(&mut raw, RECORD_SIZE - 2, 0);
+
+    assert_eq!(
+        NtfsParsedRecord::parse_mft_record(42, &raw, SECTOR_SIZE).unwrap_err(),
+        NtfsParseError::InvalidUpdateSequence
+    );
+
+    let record = NtfsParsedRecord::parse_fsctl_file_record(42, &raw, SECTOR_SIZE).unwrap();
+
+    assert!(record.in_use);
+    assert_eq!(record.cleanup_logical_size(), 1234);
+    assert_eq!(record.primary_file_name().unwrap().name, "cache.bin");
+}
+
+#[test]
 fn parsed_record_preserves_owned_references_and_stream_shape() {
     let raw = mft_record(
         42,
@@ -149,6 +178,39 @@ fn resident_and_named_attribute_streams_keep_cleanup_size_conservative() {
     assert_eq!(named.logical_size, 6);
     assert!(named.data_runs.is_empty());
     assert!(record.caveats.iter().any(|c| c.code == "named-data-stream"));
+}
+
+#[test]
+fn resolved_record_uses_data_run_physical_allocation_for_sparse_stream() {
+    let logical_size = 16 * 4096;
+    let raw = mft_record(
+        44,
+        true,
+        false,
+        vec![
+            file_name_attr(5, "sparse.bin", 0),
+            nonresident_data_attr_with_runlist(
+                logical_size,
+                0,
+                15,
+                &[0x11, 0x01, 0x20, 0x01, 0x0F, 0x00],
+            ),
+        ],
+    );
+    let record = NtfsParsedRecord::parse_mft_record(44, &raw, SECTOR_SIZE).unwrap();
+
+    assert_eq!(record.cleanup_logical_size(), logical_size);
+    assert_eq!(record.cleanup_allocated_size(), Some(logical_size));
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![record],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut FakeStreamSource::default(),
+    );
+    let resolved = record_set.records.first().unwrap();
+
+    assert_eq!(resolved.cleanup_logical_size(), logical_size);
+    assert_eq!(resolved.cleanup_allocated_size(), Some(4096));
 }
 
 #[test]
@@ -2586,6 +2648,56 @@ fn duplicate_attribute_list_i30_root_entries_do_not_duplicate_children() {
 }
 
 #[test]
+fn dos_i30_alias_does_not_create_visible_fallback_child_edge() {
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![
+                    file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY),
+                    index_root_attr_with_namespace(
+                        file_reference(6, 6),
+                        file_reference(5, 5),
+                        "LONG-N~1.BIN",
+                        0,
+                        2,
+                    ),
+                ],
+            ),
+        ),
+        (
+            6,
+            mft_record(
+                6,
+                true,
+                false,
+                vec![
+                    file_name_attr(99, "long-name.bin", 0),
+                    resident_data_attr(b"abc"),
+                ],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap());
+
+    let index = MftIndex::from_parsed_records(records);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(index.child_entries(5).count(), 0);
+    assert_eq!(summary.bytes, 0);
+    assert!(
+        !summary
+            .caveats
+            .iter()
+            .any(|caveat| caveat.code == "directory-index-parent-map-fallback")
+    );
+}
+
+#[test]
 fn subtree_aggregation_surfaces_record_caveats() {
     let records = [
         (
@@ -2954,7 +3066,17 @@ fn index_root_attr(
     name: &str,
     file_attributes: u32,
 ) -> Vec<u8> {
-    let file_name = file_name_value(parent_reference, name, file_attributes, 1);
+    index_root_attr_with_namespace(child_reference, parent_reference, name, file_attributes, 1)
+}
+
+fn index_root_attr_with_namespace(
+    child_reference: u64,
+    parent_reference: u64,
+    name: &str,
+    file_attributes: u32,
+    namespace: u8,
+) -> Vec<u8> {
+    let file_name = file_name_value(parent_reference, name, file_attributes, namespace);
     let entry_len = align8(16 + file_name.len());
     let end_entry_len = 16;
     let entries_offset = 16;
