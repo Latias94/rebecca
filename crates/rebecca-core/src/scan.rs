@@ -75,6 +75,18 @@ impl ScanEngine {
         }
     }
 
+    #[cfg(windows)]
+    pub fn with_ntfs_mft_manifest_cache_root(cache_root: impl Into<PathBuf>) -> Self {
+        let manifest_store = windows_ntfs_mft::NtfsVolumeIndexManifestStore::new(cache_root.into());
+        Self {
+            context: Arc::new(ScanEngineContext {
+                ntfs_mft_cache: windows_ntfs_mft::WindowsNtfsMftIndexCache::with_manifest_store(
+                    manifest_store,
+                ),
+            }),
+        }
+    }
+
     pub fn measure_path(&self, path: &Path) -> Result<ScanReport> {
         self.measure_scan(path).map(|measured| measured.report)
     }
@@ -380,7 +392,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{run_scoped_scan, scan_parallelism_budget};
+    use super::{
+        ScanBackendKind, ScanCancellationToken, ScanEngine, run_scoped_scan,
+        scan_parallelism_budget,
+    };
     use crate::executor::cleanup_parallelism_budget;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -407,5 +422,27 @@ mod tests {
     #[test]
     fn scan_and_cleanup_parallelism_budgets_match() {
         assert_eq!(scan_parallelism_budget(), cleanup_parallelism_budget());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_engine_ntfs_manifest_constructor_keeps_portable_scans_available() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let file = temp.path().join("file.bin");
+        std::fs::write(&file, b"abc").unwrap();
+        let engine = ScanEngine::with_ntfs_mft_manifest_cache_root(root);
+
+        let measured = engine
+            .measure_scan_with_backend(
+                &file,
+                &ScanCancellationToken::new(),
+                ScanBackendKind::PortableRecursive,
+                |_| {},
+            )
+            .unwrap();
+
+        assert_eq!(measured.report.bytes_scanned, 3);
+        assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
     }
 }

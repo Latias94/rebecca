@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::io::Write;
 use std::mem::{offset_of, size_of};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::OpenOptionsExt;
@@ -18,6 +19,7 @@ use rebecca_ntfs::{
     ParseCaveat, PhysicalMetrics, PhysicalMetricsAccumulator, SubtreeSummary,
     resolve_record_with_stream_source,
 };
+use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
     HANDLE, WIN32_ERROR,
@@ -45,6 +47,7 @@ use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::safety::is_reparse_like;
+use crate::scan_cache::ScanCacheUsnCheckpoint;
 
 use super::backend::{
     MeasuredScan, ScanBackend, ScanBackendKind, ScanEstimateConfidence, ScanRequest,
@@ -77,6 +80,8 @@ const DEFAULT_LIVE_NTFS_MFT_INDEX_TIMEOUT: Duration = Duration::from_secs(20);
 const MFT_BUILD_TIMING_CAVEAT_CODE: &str = "mft-index-build-timing";
 const MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE: &str =
     "mft-index-allocation-budget-exhausted";
+const NTFS_VOLUME_INDEX_MANIFEST_VERSION: u32 = 1;
+const NTFS_VOLUME_INDEX_CACHE_DIR: &str = "ntfs-volume-index";
 
 static MFT_PARSE_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
@@ -435,7 +440,7 @@ fn check_mft_build_progress(
     monitor.check(cancellation)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct NtfsVolumeIndexCacheKey {
     device_path: String,
     volume_serial: u64,
@@ -456,11 +461,11 @@ impl fmt::Display for NtfsVolumeIndexCacheKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct NtfsVolumeIndexFingerprint {
     key: NtfsVolumeIndexCacheKey,
-    record_size: usize,
-    sector_size: usize,
+    record_size: u64,
+    sector_size: u64,
     bytes_per_cluster: u64,
     mft_start_lcn: u64,
     mft_mirror_start_lcn: u64,
@@ -475,8 +480,8 @@ impl NtfsVolumeIndexFingerprint {
     ) -> Self {
         Self {
             key: capabilities.cache_key(),
-            record_size: geometry.record_size,
-            sector_size: geometry.sector_size,
+            record_size: geometry.record_size as u64,
+            sector_size: geometry.sector_size as u64,
             bytes_per_cluster: geometry.bytes_per_cluster,
             mft_start_lcn: u64::try_from(volume_data.MftStartLcn).unwrap_or(0),
             mft_mirror_start_lcn: u64::try_from(volume_data.Mft2StartLcn).unwrap_or(0),
@@ -510,8 +515,8 @@ impl NtfsVolumeIndexFingerprint {
         update_u64(&mut hash, SCHEMA_VERSION);
         update_bytes(&mut hash, self.key.device_path.as_bytes());
         update_u64(&mut hash, self.key.volume_serial);
-        update_u64(&mut hash, self.record_size as u64);
-        update_u64(&mut hash, self.sector_size as u64);
+        update_u64(&mut hash, self.record_size);
+        update_u64(&mut hash, self.sector_size);
         update_u64(&mut hash, self.bytes_per_cluster);
         update_u64(&mut hash, self.mft_start_lcn);
         update_u64(&mut hash, self.mft_mirror_start_lcn);
@@ -520,13 +525,219 @@ impl NtfsVolumeIndexFingerprint {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct NtfsVolumeIndexCacheManifest {
+    version: u32,
+    generation: u64,
+    fingerprint: NtfsVolumeIndexFingerprint,
+    source_label: String,
+    created_at_unix_seconds: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    usn_checkpoint: Option<ScanCacheUsnCheckpoint>,
+}
+
+impl NtfsVolumeIndexCacheManifest {
+    fn new(
+        fingerprint: NtfsVolumeIndexFingerprint,
+        source_label: &'static str,
+        usn_checkpoint: Option<ScanCacheUsnCheckpoint>,
+    ) -> Self {
+        Self {
+            version: NTFS_VOLUME_INDEX_MANIFEST_VERSION,
+            generation: fingerprint.persistent_generation(),
+            fingerprint,
+            source_label: source_label.to_string(),
+            created_at_unix_seconds: unix_now(),
+            usn_checkpoint,
+        }
+    }
+
+    fn validation_miss(
+        &self,
+        fingerprint: &NtfsVolumeIndexFingerprint,
+    ) -> Option<NtfsVolumeIndexManifestMiss> {
+        if self.version != NTFS_VOLUME_INDEX_MANIFEST_VERSION {
+            return Some(NtfsVolumeIndexManifestMiss::UnsupportedVersion);
+        }
+        if self.generation != fingerprint.persistent_generation()
+            || self.fingerprint != *fingerprint
+        {
+            return Some(NtfsVolumeIndexManifestMiss::Stale);
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NtfsVolumeIndexManifestMiss {
+    Missing,
+    Unreadable,
+    Corrupted,
+    UnsupportedVersion,
+    Stale,
+}
+
+impl NtfsVolumeIndexManifestMiss {
+    fn should_prune(self) -> bool {
+        matches!(self, Self::Unreadable | Self::Corrupted | Self::Stale)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NtfsVolumeIndexManifestLookup {
+    Hit(NtfsVolumeIndexCacheManifest),
+    Miss(NtfsVolumeIndexManifestMiss),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct NtfsVolumeIndexManifestStore {
+    root_dir: PathBuf,
+}
+
+impl NtfsVolumeIndexManifestStore {
+    pub(super) fn new(cache_root: impl Into<PathBuf>) -> Self {
+        Self {
+            root_dir: cache_root.into().join(NTFS_VOLUME_INDEX_CACHE_DIR),
+        }
+    }
+
+    fn cache_file_for(&self, fingerprint: &NtfsVolumeIndexFingerprint) -> PathBuf {
+        self.root_dir
+            .join(format!("{:016x}.json", fingerprint.persistent_generation()))
+    }
+
+    fn load(&self, fingerprint: &NtfsVolumeIndexFingerprint) -> NtfsVolumeIndexManifestLookup {
+        let cache_file = self.cache_file_for(fingerprint);
+        let raw = match std::fs::read_to_string(&cache_file) {
+            Ok(raw) => raw,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return NtfsVolumeIndexManifestLookup::Miss(NtfsVolumeIndexManifestMiss::Missing);
+            }
+            Err(_) => {
+                prune_manifest_file(&cache_file);
+                return NtfsVolumeIndexManifestLookup::Miss(
+                    NtfsVolumeIndexManifestMiss::Unreadable,
+                );
+            }
+        };
+
+        let manifest: NtfsVolumeIndexCacheManifest = match serde_json::from_str(&raw) {
+            Ok(manifest) => manifest,
+            Err(_) => {
+                prune_manifest_file(&cache_file);
+                return NtfsVolumeIndexManifestLookup::Miss(NtfsVolumeIndexManifestMiss::Corrupted);
+            }
+        };
+
+        if let Some(reason) = manifest.validation_miss(fingerprint) {
+            if reason.should_prune() {
+                prune_manifest_file(&cache_file);
+            }
+            return NtfsVolumeIndexManifestLookup::Miss(reason);
+        }
+
+        NtfsVolumeIndexManifestLookup::Hit(manifest)
+    }
+
+    fn store(&self, manifest: &NtfsVolumeIndexCacheManifest) -> Result<()> {
+        let cache_file = self.cache_file_for(&manifest.fingerprint);
+        let parent = cache_file.parent().ok_or_else(|| {
+            RebeccaError::ScanCacheUnavailable(format!(
+                "NTFS volume-index manifest path has no parent: {}",
+                cache_file.display()
+            ))
+        })?;
+        std::fs::create_dir_all(parent).map_err(|err| {
+            RebeccaError::ScanCacheUnavailable(format!(
+                "NTFS volume-index manifest directory unavailable at {}: {}",
+                parent.display(),
+                err
+            ))
+        })?;
+        let raw = serde_json::to_vec(manifest)?;
+        write_manifest_file(&cache_file, &raw)
+    }
+}
+
+fn write_manifest_file(cache_file: &Path, raw: &[u8]) -> Result<()> {
+    let temp_file = temp_manifest_file(cache_file);
+    let write_result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temp_file)?;
+        file.write_all(raw)?;
+        replace_manifest_file(&temp_file, cache_file)
+    })();
+
+    if let Err(err) = write_result {
+        let _ = std::fs::remove_file(&temp_file);
+        return Err(RebeccaError::ScanCacheUnavailable(format!(
+            "NTFS volume-index manifest write failed at {}: {}",
+            cache_file.display(),
+            err
+        )));
+    }
+
+    Ok(())
+}
+
+fn prune_manifest_file(cache_file: &Path) {
+    if let Err(err) = std::fs::remove_file(cache_file)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::debug!(
+            path = %cache_file.display(),
+            error = %err,
+            "NTFS volume-index manifest prune skipped"
+        );
+    }
+}
+
+fn replace_manifest_file(temp_file: &Path, cache_file: &Path) -> std::io::Result<()> {
+    match std::fs::rename(temp_file, cache_file) {
+        Ok(()) => Ok(()),
+        Err(_) if cache_file.exists() => {
+            std::fs::remove_file(cache_file)?;
+            std::fs::rename(temp_file, cache_file)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn temp_manifest_file(cache_file: &Path) -> PathBuf {
+    let file_name = cache_file
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| "ntfs-volume-index.json".into());
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+
+    cache_file.with_file_name(format!("{file_name}.tmp-{}-{unique}", std::process::id()))
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Default)]
 pub(super) struct WindowsNtfsMftIndexCache {
     volumes: Mutex<BTreeMap<NtfsVolumeIndexCacheKey, CachedNtfsVolumeIndexSlot>>,
+    manifest_store: Option<NtfsVolumeIndexManifestStore>,
     volume_changed: Condvar,
 }
 
 impl WindowsNtfsMftIndexCache {
+    pub(super) fn with_manifest_store(manifest_store: NtfsVolumeIndexManifestStore) -> Self {
+        Self {
+            volumes: Mutex::default(),
+            manifest_store: Some(manifest_store),
+            volume_changed: Condvar::new(),
+        }
+    }
+
     fn load_or_build(
         &self,
         capabilities: &NtfsVolumeCapabilities,
@@ -564,6 +775,7 @@ impl WindowsNtfsMftIndexCache {
         let mut volumes = self.lock_volumes()?;
         let result = match build_result {
             Ok(index) => {
+                index.store_manifest(self.manifest_store.as_ref());
                 let index = Arc::new(index);
                 volumes.insert(
                     cache_key,
@@ -642,6 +854,27 @@ struct CachedNtfsVolumeIndex {
 impl CachedNtfsVolumeIndex {
     fn is_reusable_for(&self, capabilities: &NtfsVolumeCapabilities) -> bool {
         self.fingerprint.is_reusable_for(capabilities)
+    }
+
+    fn store_manifest(&self, manifest_store: Option<&NtfsVolumeIndexManifestStore>) {
+        let Some(manifest_store) = manifest_store else {
+            return;
+        };
+        let manifest =
+            NtfsVolumeIndexCacheManifest::new(self.fingerprint.clone(), self.source_label, None);
+        if matches!(
+            manifest_store.load(&self.fingerprint),
+            NtfsVolumeIndexManifestLookup::Hit(_)
+        ) {
+            return;
+        }
+        if let Err(err) = manifest_store.store(&manifest) {
+            tracing::debug!(
+                error = %err,
+                generation = manifest.generation,
+                "NTFS volume-index manifest write skipped"
+            );
+        }
     }
 
     fn build(
@@ -3231,16 +3464,18 @@ mod tests {
         MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE,
         MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE, MftExtent, MftParseErrorCaveats,
         MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
-        NtfsMftBuildMetric, NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry,
-        NtfsVolumeCapabilities, NtfsVolumeIndexCacheKey, NtfsVolumeIndexFingerprint,
-        ParsedNtfsRecords, RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0,
-        SEQUENTIAL_MFT_CHUNK_BYTES, ScanCancellationToken, SequentialMftChunk,
-        SequentialMftMirrorChunk, TargetedMftRecordResolver, TargetedMftTraversal,
-        TargetedMftTraversalLimits, VolumePaths, build_mft_index_from_records,
-        check_mft_build_progress, collect_mft_disk_map_entry, file_reference_from_number,
-        file_reference_number, low_file_reference_number, mft_mirror_read_plan,
-        mirror_for_primary_records, next_mft_chunk_len, parse_retrieval_pointer_extents,
-        parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
+        NTFS_VOLUME_INDEX_CACHE_DIR, NtfsMftBuildMetric, NtfsMftBuildMonitor, NtfsMftBuildStage,
+        NtfsRecordGeometry, NtfsVolumeCapabilities, NtfsVolumeIndexCacheKey,
+        NtfsVolumeIndexCacheManifest, NtfsVolumeIndexFingerprint, NtfsVolumeIndexManifestLookup,
+        NtfsVolumeIndexManifestMiss, NtfsVolumeIndexManifestStore, ParsedNtfsRecords,
+        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
+        ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
+        TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, VolumePaths,
+        build_mft_index_from_records, check_mft_build_progress, collect_mft_disk_map_entry,
+        file_reference_from_number, file_reference_number, low_file_reference_number,
+        mft_mirror_read_plan, mirror_for_primary_records, next_mft_chunk_len,
+        parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
+        read_mft_records_from_sources, with_bounded_mft_caveats,
     };
     use crate::disk_map::{
         DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapSortField,
@@ -3250,6 +3485,7 @@ mod tests {
     use crate::plan::EstimateProvenance;
     use crate::scan::ScanReport;
     use crate::scan::backend::{MeasuredScan, ScanBackendKind};
+    use crate::scan_cache::ScanCacheUsnCheckpoint;
 
     #[test]
     fn volume_paths_support_drive_absolute_paths() {
@@ -3387,6 +3623,128 @@ mod tests {
         assert_ne!(
             base.persistent_generation(),
             length_fingerprint.persistent_generation()
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_manifest_round_trips_and_validates() {
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let manifest = NtfsVolumeIndexCacheManifest::new(
+            fingerprint.clone(),
+            "targeted-fsctl",
+            Some(ScanCacheUsnCheckpoint {
+                journal_id: 12,
+                next_usn: 345,
+            }),
+        );
+
+        let raw = serde_json::to_string(&manifest).unwrap();
+        let parsed: NtfsVolumeIndexCacheManifest = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(parsed, manifest);
+        assert_eq!(parsed.validation_miss(&fingerprint), None);
+        assert_eq!(parsed.generation, fingerprint.persistent_generation());
+        assert_eq!(parsed.source_label, "targeted-fsctl");
+        assert_eq!(
+            parsed.usn_checkpoint,
+            Some(ScanCacheUsnCheckpoint {
+                journal_id: 12,
+                next_usn: 345,
+            })
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_manifest_rejects_future_version_and_stale_fingerprint() {
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let manifest =
+            NtfsVolumeIndexCacheManifest::new(fingerprint.clone(), "targeted-fsctl", None);
+
+        let mut future = manifest.clone();
+        future.version = 999;
+        assert_eq!(
+            future.validation_miss(&fingerprint),
+            Some(NtfsVolumeIndexManifestMiss::UnsupportedVersion)
+        );
+
+        let stale_fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 2048, 512, 4096, 8192);
+        assert_eq!(
+            manifest.validation_miss(&stale_fingerprint),
+            Some(NtfsVolumeIndexManifestMiss::Stale)
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_manifest_store_round_trips_under_generation_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let manifest =
+            NtfsVolumeIndexCacheManifest::new(fingerprint.clone(), "targeted-fsctl", None);
+
+        assert_eq!(
+            store.load(&fingerprint),
+            NtfsVolumeIndexManifestLookup::Miss(NtfsVolumeIndexManifestMiss::Missing)
+        );
+
+        store.store(&manifest).unwrap();
+        let cache_file = store.cache_file_for(&fingerprint);
+
+        assert_eq!(
+            cache_file.parent().unwrap().file_name().unwrap(),
+            NTFS_VOLUME_INDEX_CACHE_DIR
+        );
+        assert_eq!(
+            cache_file.file_name().unwrap().to_string_lossy(),
+            format!("{:016x}.json", fingerprint.persistent_generation())
+        );
+        assert_eq!(
+            store.load(&fingerprint),
+            NtfsVolumeIndexManifestLookup::Hit(manifest)
+        );
+    }
+
+    #[test]
+    fn ntfs_volume_index_manifest_store_prunes_corrupt_and_stale_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let cache_file = store.cache_file_for(&fingerprint);
+        std::fs::create_dir_all(cache_file.parent().unwrap()).unwrap();
+        std::fs::write(&cache_file, b"not-json").unwrap();
+
+        assert_eq!(
+            store.load(&fingerprint),
+            NtfsVolumeIndexManifestLookup::Miss(NtfsVolumeIndexManifestMiss::Corrupted)
+        );
+        assert!(!cache_file.exists());
+
+        let stale_fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 2048, 512, 4096, 8192);
+        let stale_file = store.cache_file_for(&stale_fingerprint);
+        let manifest =
+            NtfsVolumeIndexCacheManifest::new(fingerprint.clone(), "targeted-fsctl", None);
+        std::fs::create_dir_all(stale_file.parent().unwrap()).unwrap();
+        std::fs::write(&stale_file, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        assert_eq!(
+            store.load(&stale_fingerprint),
+            NtfsVolumeIndexManifestLookup::Miss(NtfsVolumeIndexManifestMiss::Stale)
+        );
+        assert!(!stale_file.exists());
+    }
+
+    #[test]
+    fn ntfs_volume_index_cache_can_be_configured_with_manifest_store() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = super::WindowsNtfsMftIndexCache::with_manifest_store(
+            NtfsVolumeIndexManifestStore::new(temp.path()),
+        );
+
+        assert!(cache.manifest_store.is_some());
+        assert!(
+            super::WindowsNtfsMftIndexCache::default()
+                .manifest_store
+                .is_none()
         );
     }
 
@@ -5023,6 +5381,28 @@ mod tests {
             mft_data_path: format!("\\\\?\\{drive}:\\$MFT::$DATA"),
             volume_serial,
         }
+    }
+
+    fn ntfs_volume_fingerprint(
+        device_path: &str,
+        volume_serial: u64,
+        record_size: u32,
+        sector_size: u32,
+        bytes_per_cluster: u32,
+        mft_valid_data_length: i64,
+    ) -> NtfsVolumeIndexFingerprint {
+        let capabilities = ntfs_volume_capabilities(device_path, volume_serial);
+        let mut volume_data = ntfs_volume_data(
+            record_size,
+            sector_size,
+            bytes_per_cluster,
+            mft_valid_data_length,
+        );
+        volume_data.MftStartLcn = 12;
+        volume_data.Mft2StartLcn = 34;
+        let geometry =
+            NtfsRecordGeometry::from_volume_data(&capabilities.device_path, &volume_data).unwrap();
+        NtfsVolumeIndexFingerprint::from_volume_data(&capabilities, &volume_data, geometry)
     }
 
     fn ntfs_volume_data(
