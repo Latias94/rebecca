@@ -19,11 +19,15 @@ mod parse;
 
 pub use adapter::{
     NtfsAttributeListEntry, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryEntry,
-    NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsIndexEntry, NtfsParsedAttribute,
-    NtfsParsedRecord,
+    NtfsDirectoryEntrySource, NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsIndexEntry,
+    NtfsParsedAttribute, NtfsParsedRecord,
 };
 pub use attrs::{AttributeHeader, AttributeType};
-pub use index::{MftIndex, MftIndexEntry, MftPathCandidate, SubtreeSummary};
+pub use index::{
+    DirectoryEdge, DirectoryEdgeConfidence, DirectoryEdgeSequenceStatus, DirectoryEdgeSource,
+    MftIndex, MftIndexEntry, MftPathCandidate, PhysicalMetrics, PhysicalMetricsAccumulator,
+    SubtreeSummary,
+};
 pub use reader::{MftRecordBatch, MftRecordError, MftRecordReader};
 pub use record::{FileNameNamespace, ParseCaveat};
 pub use record_set::{NtfsRecordResolver, NtfsRecordSet, resolve_record_with_stream_source};

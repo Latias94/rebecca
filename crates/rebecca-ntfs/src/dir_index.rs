@@ -1,4 +1,6 @@
-use crate::adapter::{NtfsDirectoryEntry, NtfsFileReference, NtfsIndexEntry};
+use crate::adapter::{
+    NtfsDirectoryEntry, NtfsDirectoryEntrySource, NtfsFileReference, NtfsIndexEntry,
+};
 use crate::attrs::AttributeType;
 use crate::fixup::apply_update_sequence;
 use crate::parse::{
@@ -73,7 +75,12 @@ pub fn parse_i30_index_root(value: &[u8]) -> Result<NtfsIndexRoot> {
     Ok(NtfsIndexRoot {
         indexed_attribute,
         index_record_size,
-        entries: parse_i30_entries(value, entries_start, entries_end)?,
+        entries: parse_i30_entries(
+            value,
+            entries_start,
+            entries_end,
+            NtfsDirectoryEntrySource::IndexRoot,
+        )?,
     })
 }
 
@@ -116,7 +123,12 @@ pub fn parse_i30_index_allocation_record(
 
     Ok(NtfsIndexAllocationRecord {
         vcn: expected_vcn,
-        entries: parse_i30_entries(&record, entries_start, entries_end)?,
+        entries: parse_i30_entries(
+            &record,
+            entries_start,
+            entries_end,
+            NtfsDirectoryEntrySource::IndexAllocation,
+        )?,
     })
 }
 
@@ -124,6 +136,7 @@ fn parse_i30_entries(
     value: &[u8],
     entries_start: usize,
     entries_end: usize,
+    source: NtfsDirectoryEntrySource,
 ) -> Result<Vec<NtfsIndexEntry>> {
     let mut entries = Vec::new();
     let mut offset = entries_start;
@@ -173,6 +186,7 @@ fn parse_i30_entries(
             directory_entry: Some(parse_index_file_name(
                 raw_child_reference,
                 &value[file_name_start..file_name_end],
+                source,
             )?),
             child_vcn: parse_child_vcn(value, offset, entry_len, flags)?,
             is_last: false,
@@ -211,7 +225,11 @@ fn parse_child_vcn(
     Ok(Some(read_u64(value, child_vcn_offset)?))
 }
 
-fn parse_index_file_name(raw_child_reference: u64, value: &[u8]) -> Result<NtfsDirectoryEntry> {
+fn parse_index_file_name(
+    raw_child_reference: u64,
+    value: &[u8],
+    source: NtfsDirectoryEntrySource,
+) -> Result<NtfsDirectoryEntry> {
     let file_name = parse_file_name(value).map_err(|_| NtfsParseError::InvalidDirectoryIndex)?;
     Ok(NtfsDirectoryEntry {
         child: parse_file_reference(raw_child_reference),
@@ -219,6 +237,7 @@ fn parse_index_file_name(raw_child_reference: u64, value: &[u8]) -> Result<NtfsD
         namespace: file_name.namespace,
         name: file_name.name,
         file_attributes: file_name.file_attributes,
+        source,
     })
 }
 

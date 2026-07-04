@@ -210,4 +210,11 @@ pub struct NtfsDirectoryEntry {
     pub namespace: FileNameNamespace,
     pub name: String,
     pub file_attributes: u32,
+    pub source: NtfsDirectoryEntrySource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum NtfsDirectoryEntrySource {
+    IndexRoot,
+    IndexAllocation,
 }

@@ -226,9 +226,9 @@ backend is unavailable or unsafe for the target.
 `--group-sort logical|allocated|files|unique` changes the bounded group rank.
 When allocation or unique usage is unavailable, the rank value falls back to
 logical bytes instead of treating unknown metadata as zero.
-Unsupported metadata, such as nonresident attribute lists that cannot be
-expanded directly, stale sequence references, or unreadable `$I30` child nodes,
-must produce caveats or fallback instead of silent success.
+Unsupported metadata, such as unreadable or unsupported nonresident attribute
+lists, stale sequence references, or unreadable `$I30` child nodes, must produce
+caveats or fallback instead of silent success.
 
 ## Cache Purge Boundary
 

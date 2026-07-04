@@ -15,7 +15,8 @@ use rayon::{ThreadPool, prelude::*};
 use rebecca_ntfs::{
     MftIndex, MftIndexEntry, MftRecordBatch, MftRecordReader, NtfsDirectoryEntry,
     NtfsFileReference, NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry, NtfsStreamSource,
-    ParseCaveat, SubtreeSummary, resolve_record_with_stream_source,
+    ParseCaveat, PhysicalMetrics, PhysicalMetricsAccumulator, SubtreeSummary,
+    resolve_record_with_stream_source,
 };
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_HANDLE_EOF, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
@@ -605,14 +606,14 @@ pub(super) fn inspect_disk_map(
             ))
         })?;
 
-    let summary = index.mft_index.aggregate_subtree(target_record_id);
     let mut top_entries = DiskMapTopEntries::new(
         options.top_limit,
         options.top_sort,
         options.entry_filter.clone(),
     );
     let mut groups = options.group_collector();
-    let mut visited = BTreeSet::new();
+    let mut caveats = Vec::new();
+    let mut visited_directories = BTreeSet::new();
     let max_depth = options.max_depth.unwrap_or(usize::MAX);
     let backend_source = mft_backend_source_label(index.source_label);
     let entry_provenance = EstimateProvenance::from_backend_confidence_and_source(
@@ -620,17 +621,23 @@ pub(super) fn inspect_disk_map(
         ScanEstimateConfidence::Exact,
         Some(backend_source.clone()),
     );
-    let metrics = if target_entry.is_directory {
-        let mut metrics = DiskMapMetrics::default();
-        for child in index
+    let aggregate = if target_entry.is_directory {
+        caveats.extend(target_entry.caveats.clone());
+        extend_mft_directory_edge_caveats(&index.mft_index, target_record_id, &mut caveats);
+        visited_directories.insert(target_record_id);
+        let mut aggregate = PhysicalMetricsAccumulator::default();
+        for edge in index
             .mft_index
-            .child_entries(target_record_id)
+            .child_edges(target_record_id)
             .cloned()
             .collect::<Vec<_>>()
         {
             check_not_cancelled(cancellation)?;
-            let child_path = mft_child_path(path, &child, target_record_id);
-            let child_metrics = collect_mft_disk_map_entry(
+            let Some(child) = index.mft_index.get(edge.child.record_id).cloned() else {
+                continue;
+            };
+            let child_path = path.join(&edge.name);
+            let child_aggregate = collect_mft_disk_map_entry(
                 &index.mft_index,
                 path,
                 child_path,
@@ -638,15 +645,16 @@ pub(super) fn inspect_disk_map(
                 1,
                 max_depth,
                 &entry_provenance,
-                &mut visited,
+                &mut visited_directories,
+                &mut caveats,
                 &mut top_entries,
                 &mut groups,
                 capabilities.volume_serial,
                 cancellation,
             )?;
-            metrics.add(child_metrics);
+            aggregate.absorb_child(child_aggregate);
         }
-        metrics
+        aggregate
     } else {
         collect_mft_disk_map_entry(
             &index.mft_index,
@@ -656,13 +664,15 @@ pub(super) fn inspect_disk_map(
             0,
             max_depth,
             &entry_provenance,
-            &mut visited,
+            &mut visited_directories,
+            &mut caveats,
             &mut top_entries,
             &mut groups,
             capabilities.volume_serial,
             cancellation,
         )?
     };
+    let metrics = disk_map_metrics_from_physical(aggregate.into_metrics());
 
     let measured = MeasuredScan::exact(
         ScanReport {
@@ -673,10 +683,8 @@ pub(super) fn inspect_disk_map(
         ScanBackendKind::WindowsNtfsMftExperimental,
     )
     .with_backend_source(backend_source);
-    let measured = with_bounded_mft_caveats(
-        measured,
-        index.caveats.clone().into_iter().chain(summary.caveats),
-    );
+    let measured =
+        with_bounded_mft_caveats(measured, index.caveats.clone().into_iter().chain(caveats));
 
     Ok(DiskMapBackendRoot {
         metrics,
@@ -700,47 +708,62 @@ fn collect_mft_disk_map_entry(
     max_depth: usize,
     estimate_provenance: &EstimateProvenance,
     visited: &mut BTreeSet<u64>,
+    caveats: &mut Vec<ParseCaveat>,
     top_entries: &mut DiskMapTopEntries,
     groups: &mut DiskMapGroupCollector,
     volume_serial_number: u64,
     cancellation: &ScanCancellationToken,
-) -> Result<DiskMapMetrics> {
+) -> Result<PhysicalMetricsAccumulator> {
     check_not_cancelled(cancellation)?;
-    if !visited.insert(entry.reference.record_id) {
-        return Ok(DiskMapMetrics::default());
-    }
+    caveats.extend(entry.caveats.clone());
     if entry.is_reparse_point {
-        return Ok(DiskMapMetrics::default());
+        caveats.push(ParseCaveat::new(
+            "reparse-point-skipped",
+            format!("record {} is a reparse point", entry.reference.record_id),
+        ));
+        return Ok(PhysicalMetricsAccumulator::default());
     }
 
-    let mut metrics = if entry.is_directory {
-        DiskMapMetrics {
-            logical_bytes: 0,
-            allocated_bytes: None,
-            unique_logical_bytes: None,
-            unique_allocated_bytes: None,
-            files: 0,
-            directories: 1,
+    let mut aggregate = PhysicalMetricsAccumulator::default();
+    if entry.is_directory {
+        if !visited.insert(entry.reference.record_id) {
+            caveats.push(ParseCaveat::new(
+                "mft-index-cycle-skipped",
+                format!(
+                    "directory record {} appeared more than once in a subtree",
+                    entry.reference.record_id
+                ),
+            ));
+            return Ok(PhysicalMetricsAccumulator::default());
         }
+        extend_mft_directory_edge_caveats(index, entry.reference.record_id, caveats);
+        aggregate.record_directory();
     } else {
-        DiskMapMetrics {
-            logical_bytes: entry.logical_size,
-            allocated_bytes: entry.allocated_size,
-            unique_logical_bytes: None,
-            unique_allocated_bytes: None,
-            files: 1,
-            directories: 0,
-        }
-    };
+        aggregate.record_file_path(
+            entry.reference.record_id,
+            entry.logical_size,
+            entry.allocated_size,
+        );
+    }
 
     if entry.is_directory {
-        for child in index
-            .child_entries(entry.reference.record_id)
+        for edge in index
+            .child_edges(entry.reference.record_id)
             .cloned()
             .collect::<Vec<_>>()
         {
-            let child_path = mft_child_path(&path, &child, entry.reference.record_id);
-            let child_metrics = collect_mft_disk_map_entry(
+            let Some(child) = index.get(edge.child.record_id).cloned() else {
+                caveats.push(ParseCaveat::new(
+                    "missing-record",
+                    format!(
+                        "record {} is not present in the MFT index",
+                        edge.child.record_id
+                    ),
+                ));
+                continue;
+            };
+            let child_path = path.join(&edge.name);
+            let child_aggregate = collect_mft_disk_map_entry(
                 index,
                 root,
                 child_path,
@@ -749,12 +772,13 @@ fn collect_mft_disk_map_entry(
                 max_depth,
                 estimate_provenance,
                 visited,
+                caveats,
                 top_entries,
                 groups,
                 volume_serial_number,
                 cancellation,
             )?;
-            metrics.add(child_metrics);
+            aggregate.absorb_child(child_aggregate);
         }
     }
 
@@ -773,6 +797,7 @@ fn collect_mft_disk_map_entry(
     }
 
     if depth <= max_depth {
+        let metrics = disk_map_metrics_from_physical(aggregate.metrics());
         top_entries.push(DiskMapEntry {
             path,
             root: root.to_path_buf(),
@@ -790,17 +815,17 @@ fn collect_mft_disk_map_entry(
         });
     }
 
-    Ok(metrics)
+    Ok(aggregate)
 }
 
-fn mft_child_path(parent_path: &Path, entry: &MftIndexEntry, parent_record_id: u64) -> PathBuf {
-    let name = entry
-        .path_candidates
-        .iter()
-        .find(|candidate| candidate.parent_reference.record_id == parent_record_id)
-        .map(|candidate| candidate.name.as_str())
-        .unwrap_or(&entry.name);
-    parent_path.join(name)
+fn extend_mft_directory_edge_caveats(
+    index: &MftIndex,
+    parent_record_id: u64,
+    caveats: &mut Vec<ParseCaveat>,
+) {
+    for edge in index.directory_edges(parent_record_id) {
+        caveats.extend(edge.caveats.clone());
+    }
 }
 
 fn mft_disk_map_entry_kind(entry: &MftIndexEntry) -> DiskMapEntryKind {
@@ -1592,10 +1617,10 @@ where
             volume_serial_number,
             entry_provenance,
         };
-        let metrics = self.collect_disk_map_record(root_node, false, &context, &mut state)?;
+        let aggregate = self.collect_disk_map_record(root_node, false, &context, &mut state)?;
 
         Ok(TargetedDiskMap {
-            metrics,
+            metrics: disk_map_metrics_from_physical(aggregate.into_metrics()),
             top_entries: state.top_entries.into_sorted_entries(),
             groups: state.groups,
             caveats: state.caveats,
@@ -1608,7 +1633,7 @@ where
         include_root_directory: bool,
         context: &TargetedDiskMapContext<'_>,
         state: &mut TargetedDiskMapState,
-    ) -> Result<DiskMapMetrics> {
+    ) -> Result<PhysicalMetricsAccumulator> {
         check_mft_build_progress(self.cancellation, self.monitor)?;
         state.record_attempt(self.limits.max_records)?;
 
@@ -1626,7 +1651,7 @@ where
                     node.reference.record_id
                 ),
             ));
-            return Ok(DiskMapMetrics::default());
+            return Ok(PhysicalMetricsAccumulator::default());
         };
         if reference_sequence_mismatches(node.reference, record.reference) {
             state.caveats.push(ParseCaveat::new(
@@ -1638,17 +1663,7 @@ where
                     record.reference.sequence_number
                 ),
             ));
-            return Ok(DiskMapMetrics::default());
-        }
-        if !state.visited.insert(record.reference.record_id) {
-            state.caveats.push(ParseCaveat::new(
-                "mft-targeted-record-already-counted",
-                format!(
-                    "record {} appeared more than once in targeted disk-map traversal",
-                    record.reference.record_id
-                ),
-            ));
-            return Ok(DiskMapMetrics::default());
+            return Ok(PhysicalMetricsAccumulator::default());
         }
 
         let record = self.resolve_record(record)?;
@@ -1664,67 +1679,65 @@ where
             state.caveats.push(ParseCaveat::new(
                 "hardlink-path-candidates",
                 format!(
-                    "record {} has multiple non-DOS file names; targeted disk-map traversal counted the record once",
+                    "record {} has multiple non-DOS file names; targeted disk-map path metrics preserve visible names and unique metrics count the physical record once",
                     record.reference.record_id
                 ),
             ));
         }
         if !record.in_use {
-            return Ok(DiskMapMetrics::default());
+            return Ok(PhysicalMetricsAccumulator::default());
         }
         if record.is_reparse_point {
             state.caveats.push(ParseCaveat::new(
                 "reparse-point-skipped",
                 format!("record {} is a reparse point", record.reference.record_id),
             ));
-            return Ok(DiskMapMetrics::default());
+            return Ok(PhysicalMetricsAccumulator::default());
         }
 
-        let metrics = if record.is_directory {
+        let mut aggregate = PhysicalMetricsAccumulator::default();
+        if record.is_directory {
+            if !state.visited_directories.insert(record.reference.record_id) {
+                state.caveats.push(ParseCaveat::new(
+                    "mft-targeted-directory-already-visited",
+                    format!(
+                        "directory record {} appeared more than once in targeted disk-map traversal",
+                        record.reference.record_id
+                    ),
+                ));
+                return Ok(PhysicalMetricsAccumulator::default());
+            }
             if node.depth >= self.limits.max_depth && !record.directory_entries.is_empty() {
                 return Err(targeted_mft_unavailable(format!(
                     "targeted traversal reached depth {} below directory record {}",
                     node.depth, record.reference.record_id
                 )));
             }
-            let mut metrics = DiskMapMetrics {
-                logical_bytes: 0,
-                allocated_bytes: None,
-                unique_logical_bytes: None,
-                unique_allocated_bytes: None,
-                files: 0,
-                directories: if include_root_directory || node.directory_entry.is_some() {
-                    1
-                } else {
-                    0
-                },
-            };
+            if include_root_directory || node.directory_entry.is_some() {
+                aggregate.record_directory();
+            }
             self.collect_disk_map_children(
                 &record,
                 &node.path,
                 node.depth,
                 context,
                 state,
-                &mut metrics,
+                &mut aggregate,
             )?;
-            metrics
         } else {
-            DiskMapMetrics {
-                logical_bytes: record.cleanup_logical_size(),
-                allocated_bytes: record.cleanup_allocated_size(),
-                unique_logical_bytes: None,
-                unique_allocated_bytes: None,
-                files: 1,
-                directories: 0,
-            }
-        };
+            aggregate.record_file_path(
+                record.reference.record_id,
+                record.cleanup_logical_size(),
+                record.cleanup_allocated_size(),
+            );
+        }
 
         if !record.is_directory {
             state.groups.record_file(
                 &node.path,
                 node.depth,
-                metrics.logical_bytes,
-                metrics.allocated_bytes,
+                record.cleanup_logical_size(),
+                record.cleanup_allocated_size(),
                 ntfs_filetime_to_system_time(
                     record
                         .primary_file_name()
@@ -1740,6 +1753,7 @@ where
         let should_push_entry =
             !record.is_directory || include_root_directory || node.directory_entry.is_some();
         if should_push_entry && node.depth <= context.max_visible_depth {
+            let metrics = disk_map_metrics_from_physical(aggregate.metrics());
             state.top_entries.push(DiskMapEntry {
                 path: node.path,
                 root: context.root_path.to_path_buf(),
@@ -1761,7 +1775,7 @@ where
             });
         }
 
-        Ok(metrics)
+        Ok(aggregate)
     }
 
     fn collect_disk_map_children(
@@ -1771,7 +1785,7 @@ where
         parent_depth: usize,
         context: &TargetedDiskMapContext<'_>,
         state: &mut TargetedDiskMapState,
-        metrics: &mut DiskMapMetrics,
+        aggregate: &mut PhysicalMetricsAccumulator,
     ) -> Result<()> {
         for entry in &record.directory_entries {
             if entry.parent.record_id != record.reference.record_id {
@@ -1804,8 +1818,8 @@ where
                 depth: parent_depth.saturating_add(1),
                 directory_entry: Some(entry.clone()),
             };
-            let child_metrics = self.collect_disk_map_record(child, true, context, state)?;
-            metrics.add(child_metrics);
+            let child_aggregate = self.collect_disk_map_record(child, true, context, state)?;
+            aggregate.absorb_child(child_aggregate);
         }
 
         Ok(())
@@ -1913,6 +1927,17 @@ struct TargetedDiskMap {
     caveats: Vec<ParseCaveat>,
 }
 
+fn disk_map_metrics_from_physical(metrics: PhysicalMetrics) -> DiskMapMetrics {
+    DiskMapMetrics {
+        logical_bytes: metrics.logical_bytes,
+        allocated_bytes: metrics.allocated_bytes,
+        unique_logical_bytes: (metrics.files > 0).then_some(metrics.unique_logical_bytes),
+        unique_allocated_bytes: metrics.unique_allocated_bytes,
+        files: metrics.files,
+        directories: metrics.directories,
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct TargetedDiskMapContext<'a> {
     root_path: &'a Path,
@@ -1923,7 +1948,7 @@ struct TargetedDiskMapContext<'a> {
 
 #[derive(Debug)]
 struct TargetedDiskMapState {
-    visited: BTreeSet<u64>,
+    visited_directories: BTreeSet<u64>,
     traversal_attempts: usize,
     top_entries: DiskMapTopEntries,
     groups: DiskMapGroupCollector,
@@ -1933,7 +1958,7 @@ struct TargetedDiskMapState {
 impl TargetedDiskMapState {
     fn new(options: &DiskMapBackendOptions) -> Self {
         Self {
-            visited: BTreeSet::new(),
+            visited_directories: BTreeSet::new(),
             traversal_attempts: 0,
             top_entries: DiskMapTopEntries::new(
                 options.top_limit,
@@ -2755,13 +2780,13 @@ fn windows_error_matches(err: &WindowsError, code: WIN32_ERROR) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::time::{Duration, UNIX_EPOCH};
 
     use rebecca_ntfs::{
-        AttributeType, FileNameNamespace, MftRecordReader, NtfsAttributeStream, NtfsDataRun,
-        NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsIndexEntry, NtfsParsedRecord,
-        NtfsStreamSource, ParseCaveat,
+        AttributeType, FileNameNamespace, MftIndex, MftRecordReader, NtfsAttributeStream,
+        NtfsDataRun, NtfsDirectoryIndex, NtfsFileName, NtfsFileReference, NtfsIndexEntry,
+        NtfsParsedRecord, NtfsStreamSource, ParseCaveat, PhysicalMetricsAccumulator,
     };
 
     use super::{
@@ -2772,12 +2797,14 @@ mod tests {
         RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
         ScanCancellationToken, SequentialMftChunk, TargetedMftRecordResolver, TargetedMftTraversal,
         TargetedMftTraversalLimits, VolumePaths, build_mft_index_from_records,
-        check_mft_build_progress, file_reference_from_number, file_reference_number,
-        low_file_reference_number, next_mft_chunk_len, parse_retrieval_pointer_extents,
-        parse_sequential_mft_chunks, read_mft_records_from_sources, with_bounded_mft_caveats,
+        check_mft_build_progress, collect_mft_disk_map_entry, file_reference_from_number,
+        file_reference_number, low_file_reference_number, next_mft_chunk_len,
+        parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
+        read_mft_records_from_sources, with_bounded_mft_caveats,
     };
     use crate::disk_map::{
         DiskMapBackendOptions, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapSortField,
+        DiskMapTopEntries,
     };
     use crate::error::{RebeccaError, Result};
     use crate::plan::EstimateProvenance;
@@ -3251,6 +3278,8 @@ mod tests {
 
         assert_eq!(map.metrics.logical_bytes, 13);
         assert_eq!(map.metrics.allocated_bytes, Some(13));
+        assert_eq!(map.metrics.unique_logical_bytes, Some(13));
+        assert_eq!(map.metrics.unique_allocated_bytes, Some(13));
         assert_eq!(map.metrics.files, 2);
         assert_eq!(map.metrics.directories, 0);
         assert_eq!(map.top_entries.len(), 2);
@@ -3265,6 +3294,71 @@ mod tests {
             std::path::PathBuf::from("C:\\root\\small.bin")
         );
         assert!(map.caveats.is_empty());
+    }
+
+    #[test]
+    fn full_index_disk_map_preserves_duplicate_paths_with_unique_metrics() {
+        let mut dir_a = parsed_directory_with_index_allocation(6, "a");
+        dir_a.names = vec![parsed_file_name(5, "a", FILE_ATTRIBUTE_DIRECTORY)];
+        let mut dir_b = parsed_directory_with_index_allocation(7, "b");
+        dir_b.names = vec![parsed_file_name(5, "b", FILE_ATTRIBUTE_DIRECTORY)];
+        let mut file = parsed_file(8, 6, "left.bin", 10);
+        file.names.push(parsed_file_name(7, "right.bin", 0));
+        let index = MftIndex::from_parsed_records(vec![
+            parsed_directory_with_index_allocation(5, "root"),
+            dir_a,
+            dir_b,
+            file,
+        ]);
+        let options = disk_map_options(10, None, Vec::new());
+        let mut top_entries = DiskMapTopEntries::new(
+            options.top_limit,
+            options.top_sort,
+            options.entry_filter.clone(),
+        );
+        let mut groups = options.group_collector();
+        let mut visited_directories = BTreeSet::new();
+        let mut caveats = Vec::new();
+        let mut aggregate = PhysicalMetricsAccumulator::default();
+        let cancellation = ScanCancellationToken::new();
+        let provenance = EstimateProvenance::default();
+
+        for edge in index.child_edges(5).cloned().collect::<Vec<_>>() {
+            let child = index.get(edge.child.record_id).unwrap().clone();
+            let child_path = std::path::PathBuf::from("C:\\root").join(edge.name);
+            let child_aggregate = collect_mft_disk_map_entry(
+                &index,
+                std::path::Path::new("C:\\root"),
+                child_path,
+                child,
+                1,
+                usize::MAX,
+                &provenance,
+                &mut visited_directories,
+                &mut caveats,
+                &mut top_entries,
+                &mut groups,
+                100,
+                &cancellation,
+            )
+            .unwrap();
+            aggregate.absorb_child(child_aggregate);
+        }
+
+        let metrics = aggregate.into_metrics();
+        assert_eq!(metrics.logical_bytes, 20);
+        assert_eq!(metrics.allocated_bytes, Some(20));
+        assert_eq!(metrics.unique_logical_bytes, 10);
+        assert_eq!(metrics.unique_allocated_bytes, Some(10));
+        assert_eq!(metrics.files, 2);
+        assert_eq!(metrics.directories, 2);
+        let paths = top_entries
+            .into_sorted_entries()
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect::<BTreeSet<_>>();
+        assert!(paths.contains(&std::path::PathBuf::from("C:\\root\\a\\left.bin")));
+        assert!(paths.contains(&std::path::PathBuf::from("C:\\root\\b\\right.bin")));
     }
 
     #[test]
@@ -3377,7 +3471,7 @@ mod tests {
     }
 
     #[test]
-    fn targeted_disk_map_counts_duplicate_records_once() {
+    fn targeted_disk_map_preserves_duplicate_paths_with_unique_metrics() {
         let monitor = test_build_monitor();
         let cancellation = ScanCancellationToken::new();
         let mut resolver = FakeTargetedRecordResolver::default()
@@ -3423,13 +3517,24 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(map.metrics.logical_bytes, 10);
-        assert_eq!(map.metrics.files, 1);
-        assert_eq!(map.top_entries.len(), 1);
-        assert!(map.caveats.iter().any(|caveat| {
-            caveat.code == "mft-targeted-record-already-counted"
-                && caveat.message.contains("record 6")
-        }));
+        assert_eq!(map.metrics.logical_bytes, 20);
+        assert_eq!(map.metrics.allocated_bytes, Some(20));
+        assert_eq!(map.metrics.unique_logical_bytes, Some(10));
+        assert_eq!(map.metrics.unique_allocated_bytes, Some(10));
+        assert_eq!(map.metrics.files, 2);
+        assert_eq!(map.top_entries.len(), 2);
+        let paths = map
+            .top_entries
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect::<BTreeSet<_>>();
+        assert!(paths.contains(&std::path::PathBuf::from("C:\\root\\large.bin")));
+        assert!(paths.contains(&std::path::PathBuf::from("C:\\root\\alias.bin")));
+        assert!(
+            !map.caveats
+                .iter()
+                .any(|caveat| caveat.code == "mft-targeted-record-already-counted")
+        );
     }
 
     #[test]

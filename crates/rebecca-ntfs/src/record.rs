@@ -264,10 +264,6 @@ fn parse_attribute_list_attribute(
     if header.non_resident {
         let stream = parse_attribute_stream(record, header, None)?;
         merge_attribute_stream(&mut parsed.attribute_streams, stream);
-        parsed.caveats.push(ParseCaveat::new(
-            "nonresident-attribute-list",
-            "nonresident attribute lists require runlist-backed record-set resolution",
-        ));
         return Ok(());
     }
 

@@ -79,8 +79,13 @@ history for hard thresholds.
 pwsh -File scripts\perf\run-benchmark-matrix.ps1
 ```
 
-The expected report path is
-`target\perf\rebecca-core-perf_matrix-report.json`.
+The expected report paths are
+`target\perf\rebecca-core-perf_matrix-report.json`,
+`target\perf\rebecca-core-perf_matrix-report-scenarios.csv`, and
+`target\perf\rebecca-core-perf_matrix-report-summary.md`. Use `-SkipRun` for
+report-generation smoke checks that should not execute Criterion; missing
+benchmark artifacts should produce a `skipped` or `partial` report instead of a
+script failure.
 
 Collect live NTFS/MFT evidence with the inspect-map dogfood script. It isolates
 Rebecca config, state, cache, and history under
@@ -127,7 +132,8 @@ cargo run -p rebecca -- clean --dry-run --rule windows.user-temp
 Record JSON `estimate_source`, `estimate_backend`, `estimate_backend_source`,
 `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` values
 for the backend dogfood runs. Also record any `diagnostic_summary` totals and
-the dogfood report's `comparisons.status` value. The Windows native map run
+the dogfood report's `comparisons.status`, allocated/unique comparison status,
+throughput, and repeat-stat fields. The Windows native map run
 should show `estimate_backend: "windows-native"` and non-null `allocated_bytes`
 on supported local roots. When hardlinks or other repeated file ids are present,
 the same run should keep path-ranked bytes unchanged while reporting non-null
@@ -149,8 +155,8 @@ backend performance evidence rather than treated as a dogfood script failure.
 Unsupported hosts should report a clear fallback reason, no backend source, and
 `experimental-ntfs-mft-fallback` caveat. Successful NTFS/MFT dogfood should also
 review any parser caveats for sequence mismatches, hardlink path candidates,
-attribute-list handling, directory-index fallback, unsupported nonresident index
-allocation, or bounded parse-error summaries. Focused Windows backend tests and
+attribute-list handling, directory-index fallback, unsupported nonresident
+streams, or bounded parse-error summaries. Focused Windows backend tests and
 the performance matrix remain the authoritative evidence for native and
 experimental backend fallback behavior.
 

@@ -123,13 +123,13 @@ NTFS metadata is available, `estimate_backend_source` distinguishes the
 normal targeted per-record FSCTL traversal source from explicit full-index
 diagnostic sources. When live metadata is unavailable or ambiguous, Rebecca
 reports fallback provenance instead of treating raw metadata as cleanup
-authority. Parser caveats may
-include sequence mismatches, hardlink path candidates, direct attribute-list
-extension handling, resident or nonresident `$I30` directory-index fallback,
-unreadable or unsupported index-allocation streams, or bounded parse-error
-summaries. Valid nonresident `$INDEX_ALLOCATION:$I30` metadata can supplement
-subtree edges, but these fields are still explainability data; they do not
-authorize deletion or change v1 byte semantics.
+authority. Parser caveats may include sequence mismatches, hardlink path
+candidates, resident or nonresident attribute-list handling, resident or
+nonresident `$I30` directory-index fallback, unreadable or unsupported stream
+expansion, or bounded parse-error summaries. Valid nonresident
+`$ATTRIBUTE_LIST` and `$INDEX_ALLOCATION:$I30` metadata can supplement record
+streams and subtree edges, but these fields are still explainability data; they
+do not authorize deletion or change cleanup byte semantics.
 
 `inspect-map` can also emit Windows-native disk inventory caveats such as
 `windows-native-compressed-file`, `windows-native-sparse-file`,
@@ -163,8 +163,8 @@ surface rather than a cleanup estimate surface. It also exposes nullable
 deduplicate stable file identities. Portable inventory leaves allocation and
 unique accounting unknown; Windows native inventory fills file allocation bytes
 and file-id-deduplicated unique bytes when the host API exposes them; NTFS/MFT
-inventory can fill allocation from parsed stream metadata but leaves unique
-fields null until its record identity accounting is projected into this contract.
+inventory fills allocation from parsed stream metadata and uses NTFS record
+identity for unique metrics when all counted files have parser-backed evidence.
 When callers pass one or more `--group-by extension|depth|age` flags,
 `inspect-map` includes `groups`: bounded file-only distribution summaries with
 `kind`, stable `key`, human `label`, and the same `metrics` object used by roots

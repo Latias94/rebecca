@@ -29,6 +29,12 @@ default:
 - `raw/*.stdout.json`
 - `raw/*.stderr.txt`
 
+Run summaries include duration, derived throughput, requested backend, actual
+backend/source, fallback reason, caveat count, diagnostic counts,
+logical/allocated/unique totals, portable-baseline deltas, allocated and unique
+comparison status, and repeat duration statistics. Unknown allocated or unique
+metrics are recorded as unknown rather than zero.
+
 Drive roots are refused unless `-AllowDriveRoot` is passed. The script isolates
 Rebecca config, state, cache, and history paths under the report directory.
 Report directories inside the scanned root are refused unless

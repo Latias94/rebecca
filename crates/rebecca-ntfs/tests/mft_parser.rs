@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use rebecca_ntfs::{
-    AttributeType, MftIndex, MftRecordReader, NtfsDataRun, NtfsFileReference, NtfsParseError,
-    NtfsParsedRecord, NtfsRecordSet, NtfsStreamGeometry, NtfsStreamReadError, NtfsStreamReader,
-    NtfsStreamSource, SparseRunPolicy, resolve_record_with_stream_source,
+    AttributeType, DirectoryEdgeConfidence, DirectoryEdgeSource, MftIndex, MftRecordReader,
+    NtfsDataRun, NtfsFileReference, NtfsParseError, NtfsParsedRecord, NtfsRecordSet,
+    NtfsStreamGeometry, NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy,
+    resolve_record_with_stream_source,
 };
 
 const RECORD_SIZE: usize = 1024;
@@ -436,11 +437,15 @@ fn hardlink_path_candidates_resolve_without_double_counting() {
     let left = index.find_path(5, ["a", "left.bin"]).unwrap();
     let right = index.find_path(5, ["b", "right.bin"]).unwrap();
     let summary = index.aggregate_subtree(5);
+    let physical = index.aggregate_physical_subtree(5);
 
     assert_eq!(left.reference.record_id, 8);
     assert_eq!(right.reference.record_id, 8);
     assert_eq!(left.path_candidates.len(), 2);
     assert_eq!(summary.bytes, 10);
+    assert_eq!(physical.logical_bytes, 20);
+    assert_eq!(physical.unique_logical_bytes, 10);
+    assert_eq!(physical.files, 2);
     assert!(
         summary
             .caveats
@@ -492,8 +497,13 @@ fn resident_i30_index_root_can_supply_verified_fallback_edge() {
     let index = MftIndex::from_parsed_records(records);
     let summary = index.aggregate_subtree(5);
     let child = index.get(6).unwrap();
+    let edge = index
+        .edges()
+        .find(|edge| edge.child.record_id == 6 && edge.source == DirectoryEdgeSource::I30Root)
+        .unwrap();
 
     assert_eq!(summary.bytes, 12);
+    assert_eq!(edge.confidence, DirectoryEdgeConfidence::Fallback);
     assert!(
         child
             .caveats
@@ -1341,8 +1351,13 @@ fn nonresident_i30_index_allocation_supplies_mft_index_fallback_edge() {
 
     let index = MftIndex::from_record_set(record_set);
     let summary = index.aggregate_subtree(5);
+    let edge = index
+        .edges()
+        .find(|edge| edge.child.record_id == 6 && edge.source == DirectoryEdgeSource::I30Allocation)
+        .unwrap();
 
     assert_eq!(summary.bytes, 3);
+    assert_eq!(edge.confidence, DirectoryEdgeConfidence::Fallback);
     assert_eq!(
         index
             .find_child(5, "large.bin")
@@ -1510,7 +1525,35 @@ fn nonresident_attribute_list_is_preserved_as_attribute_stream_and_caveated() {
         record
             .caveats
             .iter()
-            .any(|c| c.code == "nonresident-attribute-list")
+            .any(|c| c.code == "attribute-list-present")
+    );
+}
+
+#[test]
+fn record_set_without_stream_source_caveats_nonresident_attribute_list() {
+    let record = NtfsParsedRecord::parse_mft_record(
+        16,
+        &mft_record(
+            16,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "listed-nonresident.bin", 0),
+                nonresident_attribute_list_attr(),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_attribute_lists(vec![record]);
+    let record = record_set.records.first().unwrap();
+
+    assert!(
+        record
+            .caveats
+            .iter()
+            .any(|c| c.code == "nonresident-attribute-list-unresolved")
     );
 }
 
@@ -1767,6 +1810,247 @@ fn attribute_list_extension_data_is_resolved_for_index_aggregation() {
             .caveats
             .iter()
             .any(|c| c.code == "attribute-list-present")
+    );
+}
+
+#[test]
+fn nonresident_attribute_list_extension_data_is_resolved_with_stream_source() {
+    let attribute_list_bytes = attribute_list_bytes(
+        vec![attribute_list_entry(
+            ATTR_DATA,
+            None,
+            0,
+            file_reference(21, 21),
+            0,
+        )],
+        64,
+    );
+    let mut source = FakeStreamSource::default().with_bytes(0x20_000, &attribute_list_bytes);
+    let records = [
+        (
+            5,
+            mft_record(
+                5,
+                true,
+                true,
+                vec![file_name_attr(5, "root", FILE_ATTRIBUTE_DIRECTORY)],
+            ),
+        ),
+        (
+            20,
+            mft_record(
+                20,
+                true,
+                false,
+                vec![
+                    file_name_attr(5, "split-nonresident.bin", 0),
+                    nonresident_attribute_list_attr(),
+                ],
+            ),
+        ),
+        (
+            21,
+            mft_record_with_base(
+                21,
+                file_reference(20, 20),
+                true,
+                false,
+                vec![nonresident_data_attr(123)],
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, raw)| NtfsParsedRecord::parse_mft_record(id, &raw, SECTOR_SIZE).unwrap())
+    .collect::<Vec<_>>();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        records,
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+    let index = MftIndex::from_record_set(record_set);
+    let summary = index.aggregate_subtree(5);
+
+    assert_eq!(summary.bytes, 123);
+    assert!(
+        !summary
+            .caveats
+            .iter()
+            .any(|c| c.code == "nonresident-attribute-list-unresolved"),
+        "{:?}",
+        summary.caveats
+    );
+}
+
+#[test]
+fn single_record_resolution_reads_nonresident_attribute_list_stream() {
+    let attribute_list_bytes = attribute_list_bytes(
+        vec![attribute_list_entry(
+            ATTR_DATA,
+            None,
+            0,
+            file_reference(21, 21),
+            0,
+        )],
+        64,
+    );
+    let mut source = FakeStreamSource::default().with_bytes(0x20_000, &attribute_list_bytes);
+    let base = NtfsParsedRecord::parse_mft_record(
+        20,
+        &mft_record(
+            20,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "split-single.bin", 0),
+                nonresident_attribute_list_attr(),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let extension = NtfsParsedRecord::parse_mft_record(
+        21,
+        &mft_record_with_base(
+            21,
+            file_reference(20, 20),
+            true,
+            false,
+            vec![nonresident_data_attr(123)],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let resolved = resolve_record_with_stream_source(
+        base,
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+        |reference: NtfsFileReference| {
+            Ok::<_, ()>((reference.record_id == 21).then_some(extension.clone()))
+        },
+    )
+    .unwrap();
+
+    assert_eq!(resolved.cleanup_logical_size(), 123);
+    assert!(
+        !resolved
+            .caveats
+            .iter()
+            .any(|c| c.code == "nonresident-attribute-list-unresolved"),
+        "{:?}",
+        resolved.caveats
+    );
+}
+
+#[test]
+fn nonresident_attribute_list_stream_failures_are_caveated() {
+    let unsupported = NtfsParsedRecord::parse_mft_record(
+        20,
+        &mft_record(
+            20,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "sparse-list.bin", 0),
+                nonresident_attribute_list_attr_with_flags(0x8000),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let short_read = NtfsParsedRecord::parse_mft_record(
+        21,
+        &mft_record(
+            21,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "short-list.bin", 0),
+                nonresident_attribute_list_attr(),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+    let mut source = FakeStreamSource::default().with_bytes(0x20_000, b"too-short");
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![unsupported, short_read],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+
+    let unsupported = record_set
+        .records
+        .iter()
+        .find(|record| record.reference.record_id == 20)
+        .unwrap();
+    let short_read = record_set
+        .records
+        .iter()
+        .find(|record| record.reference.record_id == 21)
+        .unwrap();
+    assert!(
+        unsupported
+            .caveats
+            .iter()
+            .any(|c| c.code == "unsupported-attribute-list-stream"),
+        "{:?}",
+        unsupported.caveats
+    );
+    assert!(
+        short_read
+            .caveats
+            .iter()
+            .any(|c| c.code == "invalid-attribute-list-stream"),
+        "{:?}",
+        short_read.caveats
+    );
+}
+
+#[test]
+fn nonresident_recursive_attribute_list_entries_are_refused() {
+    let attribute_list_bytes = attribute_list_bytes(
+        vec![attribute_list_entry(
+            ATTR_ATTRIBUTE_LIST,
+            None,
+            0,
+            file_reference(99, 99),
+            0,
+        )],
+        64,
+    );
+    let mut source = FakeStreamSource::default().with_bytes(0x20_000, &attribute_list_bytes);
+    let record = NtfsParsedRecord::parse_mft_record(
+        20,
+        &mft_record(
+            20,
+            true,
+            false,
+            vec![
+                file_name_attr(5, "recursive-stream.bin", 0),
+                nonresident_attribute_list_attr(),
+            ],
+        ),
+        SECTOR_SIZE,
+    )
+    .unwrap();
+
+    let record_set = NtfsRecordSet::resolve_with_stream_source(
+        vec![record],
+        NtfsStreamGeometry::new(4096, SECTOR_SIZE),
+        &mut source,
+    );
+    let record = record_set.records.first().unwrap();
+
+    assert!(
+        record
+            .caveats
+            .iter()
+            .any(|c| c.code == "recursive-attribute-list-unsupported"),
+        "{:?}",
+        record.caveats
     );
 }
 
@@ -2459,8 +2743,12 @@ fn subtree_aggregation_caveats_multiple_non_dos_file_names() {
 
     let index = MftIndex::from_parsed_records(records);
     let summary = index.aggregate_subtree(5);
+    let physical = index.aggregate_physical_subtree(5);
 
     assert_eq!(summary.bytes, 11);
+    assert_eq!(physical.logical_bytes, 22);
+    assert_eq!(physical.unique_logical_bytes, 11);
+    assert_eq!(physical.files, 2);
     assert!(
         summary
             .caveats
@@ -2654,6 +2942,12 @@ fn attribute_list_attr_with_entries(entries: Vec<Vec<u8>>) -> Vec<u8> {
     resident_attr(ATTR_ATTRIBUTE_LIST, &value)
 }
 
+fn attribute_list_bytes(entries: Vec<Vec<u8>>, logical_size: usize) -> Vec<u8> {
+    let mut bytes = entries.concat();
+    bytes.resize(logical_size, 0);
+    bytes
+}
+
 fn index_root_attr(
     child_reference: u64,
     parent_reference: u64,
@@ -2812,6 +3106,12 @@ fn index_allocation_attr() -> Vec<u8> {
 
 fn nonresident_attribute_list_attr() -> Vec<u8> {
     nonresident_named_attr(ATTR_ATTRIBUTE_LIST, "", 64, 0, &[0x11, 0x01, 0x20, 0x00])
+}
+
+fn nonresident_attribute_list_attr_with_flags(flags: u16) -> Vec<u8> {
+    let mut attr = nonresident_attribute_list_attr();
+    put_u16(&mut attr, 12, flags);
+    attr
 }
 
 fn data_run(starting_vcn: u64, cluster_count: u64, lcn: Option<u64>) -> NtfsDataRun {

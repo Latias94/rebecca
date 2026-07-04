@@ -9,15 +9,21 @@ cargo check -p rebecca-core --benches
 cargo check -p rebecca-ntfs --benches
 ```
 
-Run the matrix and collect a JSON report:
+Run the matrix and collect JSON, CSV, and Markdown reports:
 
 ```powershell
 pwsh -File scripts/perf/run-benchmark-matrix.ps1
 ```
 
-The script runs `cargo bench -p rebecca-core --bench perf_matrix`, reads Criterion estimates from `target/criterion/perf_matrix`, combines them with scenario metadata from `target/perf/perf_matrix-scenarios.json`, and writes `target/perf/rebecca-core-perf_matrix-report.json`.
+The script runs `cargo bench -p rebecca-core --bench perf_matrix`, reads Criterion estimates from `target/criterion/perf_matrix`, combines them with scenario metadata from `target/perf/perf_matrix-scenarios.json`, and writes `target/perf/rebecca-core-perf_matrix-report.json`, `target/perf/rebecca-core-perf_matrix-report-scenarios.csv`, and `target/perf/rebecca-core-perf_matrix-report-summary.md`.
 
-The report records scenario name, operation, requested backend, backend-source expectation, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, and Criterion mean/median timing estimates. The default scenarios cover:
+For verification jobs that should not execute Criterion, use `-SkipRun`. If the manifest or Criterion output is absent, the script still writes a schema-v3 report with `status: "skipped"` or `status: "partial"` and exits successfully; that keeps report generation itself testable without pretending a benchmark was run.
+
+```powershell
+pwsh -File scripts/perf/run-benchmark-matrix.ps1 -SkipRun
+```
+
+The report records scenario name, operation, requested backend, backend-source expectation, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, per-scenario status, status reason, and Criterion mean/median timing estimates when available. The default scenarios cover:
 
 - cold recursive scan over many small files
 - Windows native directory scan selection over many small files
@@ -46,7 +52,7 @@ The script runs one `inspect map --format json` scan per backend/repetition, the
 pwsh -File scripts/dogfood/run-inspect-map-report.ps1 -Root docs -Backend portable-recursive,windows-native,windows-ntfs-mft-experimental -Repeat 1 -Top 20 -GroupBy extension,depth,age -DiagnosticLimit 0
 ```
 
-The report is written under `target/inspect-map-dogfood/` and includes raw JSON stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested versus actual backend fields, diagnostic summary totals, fallback reasons, caveats, and portable-baseline comparison status.
+The report is written under `target/inspect-map-dogfood/` and includes raw JSON stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested versus actual backend fields, diagnostic summary totals, fallback reasons, caveats, duration, throughput, allocated/unique metric deltas, repeat statistics, and portable-baseline comparison status.
 When scanning a root that contains the default report directory, pass an
 external `-OutputDirectory` or explicitly opt into `-AllowOutputInsideRoot`.
 Backend mismatches or missing portable baselines are non-zero by default; pass

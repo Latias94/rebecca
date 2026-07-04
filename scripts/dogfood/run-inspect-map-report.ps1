@@ -287,6 +287,57 @@ function Get-MetricValue {
     return [int64]$value
 }
 
+function Get-RatePerSecond {
+    param(
+        [object]$Value,
+        [int64]$DurationMs
+    )
+
+    if ($null -eq $Value -or $DurationMs -le 0) {
+        return $null
+    }
+    return [Math]::Round(([double]$Value * 1000.0) / [double]$DurationMs, 3)
+}
+
+function Get-NullableDelta {
+    param(
+        [object]$Left,
+        [object]$Right
+    )
+
+    if ($null -eq $Left -or $null -eq $Right) {
+        return $null
+    }
+    return $Left - $Right
+}
+
+function Get-NullableComparisonStatus {
+    param(
+        [object]$Left,
+        [object]$Right
+    )
+
+    if ($null -eq $Left -or $null -eq $Right) {
+        return "unknown"
+    }
+    if ($Left -eq $Right) {
+        return "matched"
+    }
+    return "mismatched"
+}
+
+function Merge-ComparisonStatuses {
+    param([string[]]$Statuses)
+
+    if ($Statuses -contains "mismatched") {
+        return "mismatched"
+    }
+    if ($Statuses -contains "unknown") {
+        return "unknown"
+    }
+    return "matched"
+}
+
 function New-RunSummary {
     param(
         [string]$RunId,
@@ -314,6 +365,12 @@ function New-RunSummary {
     $actualBackend = if ($actualBackends.Count -eq 1) { $actualBackends[0] } else { "" }
     $totals = $Probe.totals
     $diag = $Probe.diagnostic_summary
+    $logicalBytes = Get-MetricValue -Object $totals -Name "logical_bytes"
+    $allocatedBytes = Get-MetricValue -Object $totals -Name "allocated_bytes"
+    $uniqueLogicalBytes = Get-MetricValue -Object $totals -Name "unique_logical_bytes"
+    $uniqueAllocatedBytes = Get-MetricValue -Object $totals -Name "unique_allocated_bytes"
+    $files = Get-MetricValue -Object $totals -Name "files"
+    $directories = Get-MetricValue -Object $totals -Name "directories"
 
     return [pscustomobject]@{
         run_id = $RunId
@@ -329,12 +386,17 @@ function New-RunSummary {
         exit_code = $ExitCode
         timed_out = $TimedOut
         duration_ms = $DurationMs
-        logical_bytes = Get-MetricValue -Object $totals -Name "logical_bytes"
-        allocated_bytes = Get-MetricValue -Object $totals -Name "allocated_bytes"
-        unique_logical_bytes = Get-MetricValue -Object $totals -Name "unique_logical_bytes"
-        unique_allocated_bytes = Get-MetricValue -Object $totals -Name "unique_allocated_bytes"
-        files = Get-MetricValue -Object $totals -Name "files"
-        directories = Get-MetricValue -Object $totals -Name "directories"
+        files_per_second = Get-RatePerSecond -Value $files -DurationMs $DurationMs
+        directories_per_second = Get-RatePerSecond -Value $directories -DurationMs $DurationMs
+        logical_bytes_per_second = Get-RatePerSecond -Value $logicalBytes -DurationMs $DurationMs
+        allocated_bytes_per_second = Get-RatePerSecond -Value $allocatedBytes -DurationMs $DurationMs
+        logical_bytes = $logicalBytes
+        allocated_bytes = $allocatedBytes
+        unique_logical_bytes = $uniqueLogicalBytes
+        unique_allocated_bytes = $uniqueAllocatedBytes
+        files = $files
+        directories = $directories
+        caveat_count = @($Probe.caveats).Count
         diagnostic_total = Get-MetricValue -Object $diag -Name "total"
         diagnostic_retained = Get-MetricValue -Object $diag -Name "retained"
         diagnostic_truncated = Get-MetricValue -Object $diag -Name "truncated"
@@ -343,8 +405,13 @@ function New-RunSummary {
         parse_error = $Probe.parse_error
         comparison_status = ""
         logical_delta = $null
+        allocated_delta = $null
+        allocated_comparison_status = ""
         file_delta = $null
         directory_delta = $null
+        unique_logical_delta = $null
+        unique_allocated_delta = $null
+        unique_comparison_status = ""
     }
 }
 
@@ -426,8 +493,16 @@ function Add-RunComparisons {
             }
 
             $run.logical_delta = $run.logical_bytes - $baseline.logical_bytes
+            $run.allocated_delta = Get-NullableDelta -Left $run.allocated_bytes -Right $baseline.allocated_bytes
             $run.file_delta = $run.files - $baseline.files
             $run.directory_delta = $run.directories - $baseline.directories
+            $run.unique_logical_delta = Get-NullableDelta -Left $run.unique_logical_bytes -Right $baseline.unique_logical_bytes
+            $run.unique_allocated_delta = Get-NullableDelta -Left $run.unique_allocated_bytes -Right $baseline.unique_allocated_bytes
+            $run.allocated_comparison_status = Get-NullableComparisonStatus -Left $run.allocated_bytes -Right $baseline.allocated_bytes
+            $run.unique_comparison_status = Merge-ComparisonStatuses -Statuses @(
+                Get-NullableComparisonStatus -Left $run.unique_logical_bytes -Right $baseline.unique_logical_bytes
+                Get-NullableComparisonStatus -Left $run.unique_allocated_bytes -Right $baseline.unique_allocated_bytes
+            )
             if ($run.logical_delta -eq 0 -and $run.file_delta -eq 0 -and $run.directory_delta -eq 0) {
                 $run.comparison_status = "matched"
             }
@@ -458,21 +533,63 @@ function Convert-RunsForCsv {
             exit_code = $_.exit_code
             timed_out = $_.timed_out
             duration_ms = $_.duration_ms
+            files_per_second = $_.files_per_second
+            directories_per_second = $_.directories_per_second
+            logical_bytes_per_second = $_.logical_bytes_per_second
+            allocated_bytes_per_second = $_.allocated_bytes_per_second
             logical_bytes = $_.logical_bytes
             allocated_bytes = $_.allocated_bytes
             unique_logical_bytes = $_.unique_logical_bytes
             unique_allocated_bytes = $_.unique_allocated_bytes
             files = $_.files
             directories = $_.directories
+            caveat_count = $_.caveat_count
             logical_delta = $_.logical_delta
+            allocated_delta = $_.allocated_delta
+            allocated_comparison_status = $_.allocated_comparison_status
             file_delta = $_.file_delta
             directory_delta = $_.directory_delta
+            unique_logical_delta = $_.unique_logical_delta
+            unique_allocated_delta = $_.unique_allocated_delta
+            unique_comparison_status = $_.unique_comparison_status
             diagnostic_total = $_.diagnostic_total
             diagnostic_retained = $_.diagnostic_retained
             diagnostic_truncated = $_.diagnostic_truncated
             stdout_path = $_.stdout_path
             stderr_path = $_.stderr_path
             parse_error = $_.parse_error
+        }
+    })
+}
+
+function Get-PercentileValue {
+    param(
+        [int64[]]$Values,
+        [double]$Percentile
+    )
+
+    if ($Values.Count -eq 0) {
+        return $null
+    }
+    $sorted = @($Values | Sort-Object)
+    $index = [Math]::Ceiling(($Percentile / 100.0) * $sorted.Count) - 1
+    if ($index -lt 0) { $index = 0 }
+    if ($index -ge $sorted.Count) { $index = $sorted.Count - 1 }
+    return [int64]$sorted[$index]
+}
+
+function New-RepeatStats {
+    param([object[]]$Runs)
+
+    return @($Runs | Group-Object requested_backend | ForEach-Object {
+        $durations = @($_.Group | Where-Object { $null -ne $_.duration_ms } | ForEach-Object { [int64]$_.duration_ms })
+        [pscustomobject]@{
+            backend = $_.Name
+            run_count = $durations.Count
+            duration_min_ms = Get-PercentileValue -Values $durations -Percentile 0
+            duration_median_ms = Get-PercentileValue -Values $durations -Percentile 50
+            duration_p95_ms = Get-PercentileValue -Values $durations -Percentile 95
+            duration_max_ms = Get-PercentileValue -Values $durations -Percentile 100
         }
     })
 }
@@ -491,10 +608,10 @@ function New-MarkdownSummary {
     $lines.Add("- Commit: $($Report.git_commit)")
     $lines.Add("- Cleanup advice: $($Report.cleanup_advice)")
     $lines.Add("")
-    $lines.Add("| Run | Backend | Actual | Status | Compare | ms | Logical | Files | Dirs |")
-    $lines.Add("| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
+    $lines.Add("| Run | Backend | Actual | Status | Compare | Allocated compare | Unique compare | ms | Logical/s | Files/s | Caveats |")
+    $lines.Add("| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
     foreach ($run in $Runs) {
-        $lines.Add("| $($run.run_id) | $($run.requested_backend) | $($run.actual_backend) | $($run.status) | $($run.comparison_status) | $($run.duration_ms) | $($run.logical_bytes) | $($run.files) | $($run.directories) |")
+        $lines.Add("| $($run.run_id) | $($run.requested_backend) | $($run.actual_backend) | $($run.status) | $($run.comparison_status) | $($run.allocated_comparison_status) | $($run.unique_comparison_status) | $($run.duration_ms) | $($run.logical_bytes_per_second) | $($run.files_per_second) | $($run.caveat_count) |")
     }
     $lines.Add("")
     return ($lines -join [Environment]::NewLine)
@@ -582,9 +699,9 @@ function Invoke-SelfTest {
             roots = @()
             totals = @{
                 logical_bytes = 10
-                allocated_bytes = $null
-                unique_logical_bytes = $null
-                unique_allocated_bytes = $null
+                allocated_bytes = 10
+                unique_logical_bytes = 10
+                unique_allocated_bytes = 10
                 files = 2
                 directories = 1
             }
@@ -595,9 +712,9 @@ function Invoke-SelfTest {
                     kind = "directory"
                     depth = 1
                     logical_bytes = 10
-                    allocated_bytes = $null
-                    unique_logical_bytes = $null
-                    unique_allocated_bytes = $null
+                    allocated_bytes = 10
+                    unique_logical_bytes = 10
+                    unique_allocated_bytes = 10
                     files = 2
                     directories = 1
                     estimate_source = "fresh-scan"
@@ -618,9 +735,9 @@ function Invoke-SelfTest {
                     label = ".bin"
                     metrics = @{
                         logical_bytes = 10
-                        allocated_bytes = $null
-                        unique_logical_bytes = $null
-                        unique_allocated_bytes = $null
+                        allocated_bytes = 10
+                        unique_logical_bytes = 10
+                        unique_allocated_bytes = 10
                         files = 2
                         directories = 0
                     }
@@ -648,6 +765,23 @@ function Invoke-SelfTest {
     $runs = @(Add-RunComparisons -Runs @($portable, $native))
     if (($runs | Where-Object { $_.requested_backend -eq "windows-native" }).comparison_status -ne "matched") {
         throw "self-test comparison failed"
+    }
+    $nativeRun = $runs | Where-Object { $_.requested_backend -eq "windows-native" } | Select-Object -First 1
+    if ($nativeRun.allocated_comparison_status -ne "matched") {
+        throw "self-test allocated comparison failed"
+    }
+    if ($nativeRun.unique_comparison_status -ne "matched") {
+        throw "self-test unique comparison failed"
+    }
+    if ($nativeRun.files_per_second -le 0 -or $nativeRun.logical_bytes_per_second -le 0) {
+        throw "self-test throughput failed"
+    }
+    if ((Get-NullableComparisonStatus -Left $null -Right 1) -ne "unknown") {
+        throw "self-test unknown nullable comparison failed"
+    }
+    $repeatStats = @(New-RepeatStats -Runs $runs)
+    if ($repeatStats.Count -eq 0 -or $null -eq $repeatStats[0].duration_p95_ms) {
+        throw "self-test repeat stats failed"
     }
     $mismatch = [pscustomobject]@{
         run_id = "r1-native-mismatch"
@@ -745,6 +879,7 @@ $report = [pscustomobject]@{
     diagnostic_limit = $DiagnosticLimit
     timeout_seconds = $TimeoutSeconds
     output_directory = $outputRoot
+    repeat_stats = @(New-RepeatStats -Runs $runs)
     runs = @($runs)
 }
 

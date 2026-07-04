@@ -6,6 +6,7 @@ use crate::adapter::{
     NtfsAttributeListEntry, NtfsAttributeStream, NtfsDirectoryEntry, NtfsFileReference,
     NtfsIndexEntry, NtfsParsedAttribute, NtfsParsedRecord, merge_attribute_stream,
 };
+use crate::attribute_list::parse_attribute_list;
 use crate::attrs::AttributeType;
 use crate::dir_index::{NtfsIndexAllocationRecord, parse_i30_index_allocation_record};
 use crate::record::ParseCaveat;
@@ -13,9 +14,10 @@ use crate::stream::{
     NtfsStreamGeometry, NtfsStreamReadError, NtfsStreamReader, NtfsStreamSource, SparseRunPolicy,
 };
 
-const INDEX_ALLOCATION_FLAG_COMPRESSED: u16 = 0x0001;
-const INDEX_ALLOCATION_FLAG_ENCRYPTED: u16 = 0x4000;
-const INDEX_ALLOCATION_FLAG_SPARSE: u16 = 0x8000;
+const STREAM_FLAG_COMPRESSED: u16 = 0x0001;
+const STREAM_FLAG_ENCRYPTED: u16 = 0x4000;
+const STREAM_FLAG_SPARSE: u16 = 0x8000;
+const MAX_ATTRIBUTE_LIST_STREAM_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NtfsRecordSet {
@@ -25,50 +27,10 @@ pub struct NtfsRecordSet {
 
 impl NtfsRecordSet {
     pub fn resolve_attribute_lists(records: Vec<NtfsParsedRecord>) -> Self {
-        let record_positions = records
-            .iter()
-            .enumerate()
-            .map(|(index, record)| (record.reference, index))
-            .collect::<BTreeMap<_, _>>();
-        let record_ids = records
-            .iter()
-            .enumerate()
-            .map(|(index, record)| (record.reference.record_id, index))
-            .collect::<BTreeMap<_, _>>();
-        let extension_references = records
-            .iter()
-            .filter_map(|record| record.base_reference.map(|_| record.reference))
-            .collect::<BTreeSet<_>>();
-
-        let mut resolved = Vec::new();
-        let mut caveats = Vec::new();
-
-        for record in &records {
-            if record.base_reference.is_some() {
-                continue;
-            }
-
-            let mut record = record.clone();
-            resolve_attribute_list_extensions(&mut record, |reference| {
-                find_extension_record(&records, &record_positions, &record_ids, reference).cloned()
-            });
-            resolved.push(record);
-        }
-
-        for extension_reference in extension_references {
-            caveats.push(ParseCaveat::new(
-                "attribute-list-extension-record-skipped",
-                format!(
-                    "extension record {} was skipped as a standalone index entry",
-                    extension_reference.record_id
-                ),
-            ));
-        }
-
-        Self {
-            records: resolved,
-            caveats,
-        }
+        resolve_attribute_lists_with_record_prepare(
+            records,
+            caveat_unresolved_attribute_list_streams,
+        )
     }
 
     pub fn resolve_with_stream_source<S>(
@@ -79,7 +41,9 @@ impl NtfsRecordSet {
     where
         S: NtfsStreamSource,
     {
-        let mut record_set = Self::resolve_attribute_lists(records);
+        let mut record_set = resolve_attribute_lists_with_record_prepare(records, |record| {
+            expand_record_attribute_lists(record, geometry, source);
+        });
         record_set.expand_index_allocations(geometry, source);
         record_set
     }
@@ -94,6 +58,60 @@ impl NtfsRecordSet {
     }
 }
 
+fn resolve_attribute_lists_with_record_prepare<F>(
+    records: Vec<NtfsParsedRecord>,
+    mut prepare_record: F,
+) -> NtfsRecordSet
+where
+    F: FnMut(&mut NtfsParsedRecord),
+{
+    let record_positions = records
+        .iter()
+        .enumerate()
+        .map(|(index, record)| (record.reference, index))
+        .collect::<BTreeMap<_, _>>();
+    let record_ids = records
+        .iter()
+        .enumerate()
+        .map(|(index, record)| (record.reference.record_id, index))
+        .collect::<BTreeMap<_, _>>();
+    let extension_references = records
+        .iter()
+        .filter_map(|record| record.base_reference.map(|_| record.reference))
+        .collect::<BTreeSet<_>>();
+
+    let mut resolved = Vec::new();
+    let mut caveats = Vec::new();
+
+    for record in &records {
+        if record.base_reference.is_some() {
+            continue;
+        }
+
+        let mut record = record.clone();
+        prepare_record(&mut record);
+        resolve_attribute_list_extensions(&mut record, |reference| {
+            find_extension_record(&records, &record_positions, &record_ids, reference).cloned()
+        });
+        resolved.push(record);
+    }
+
+    for extension_reference in extension_references {
+        caveats.push(ParseCaveat::new(
+            "attribute-list-extension-record-skipped",
+            format!(
+                "extension record {} was skipped as a standalone index entry",
+                extension_reference.record_id
+            ),
+        ));
+    }
+
+    NtfsRecordSet {
+        records: resolved,
+        caveats,
+    }
+}
+
 pub fn resolve_record_with_stream_source<S, F>(
     mut record: NtfsParsedRecord,
     geometry: NtfsStreamGeometry,
@@ -104,6 +122,7 @@ where
     S: NtfsStreamSource,
     F: NtfsRecordResolver,
 {
+    expand_record_attribute_lists(&mut record, geometry, source);
     resolve_attribute_list_extensions_result(&mut record, resolve_extension)?;
     expand_record_index_allocations(&mut record, geometry, source);
     Ok(record)
@@ -351,6 +370,159 @@ fn append_unique<T: PartialEq>(items: &mut Vec<T>, incoming: T) {
     }
 }
 
+fn caveat_unresolved_attribute_list_streams(record: &mut NtfsParsedRecord) {
+    if record
+        .attribute_streams
+        .iter()
+        .any(|stream| stream.attribute_type == AttributeType::AttributeList && stream.non_resident)
+    {
+        record.caveats.push(ParseCaveat::new(
+            "nonresident-attribute-list-unresolved",
+            format!(
+                "record {} has nonresident $ATTRIBUTE_LIST but no stream source was provided",
+                record.reference.record_id
+            ),
+        ));
+    }
+}
+
+fn expand_record_attribute_lists<S>(
+    record: &mut NtfsParsedRecord,
+    geometry: NtfsStreamGeometry,
+    source: &mut S,
+) where
+    S: NtfsStreamSource,
+{
+    let streams = record
+        .attribute_streams
+        .iter()
+        .filter(|stream| {
+            stream.attribute_type == AttributeType::AttributeList && stream.non_resident
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for stream in streams {
+        expand_attribute_list_stream(record, geometry, source, &stream);
+    }
+}
+
+fn expand_attribute_list_stream<S>(
+    record: &mut NtfsParsedRecord,
+    geometry: NtfsStreamGeometry,
+    source: &mut S,
+    stream: &NtfsAttributeStream,
+) where
+    S: NtfsStreamSource,
+{
+    if (stream.flags & (STREAM_FLAG_COMPRESSED | STREAM_FLAG_ENCRYPTED)) != 0 {
+        record
+            .caveats
+            .push(unsupported_attribute_list_stream_caveat(
+                record.reference.record_id,
+                "compressed or encrypted attribute-list streams are unsupported",
+            ));
+        return;
+    }
+    if (stream.flags & STREAM_FLAG_SPARSE) != 0 {
+        record
+            .caveats
+            .push(unsupported_attribute_list_stream_caveat(
+                record.reference.record_id,
+                "sparse attribute-list streams are unsupported",
+            ));
+        return;
+    }
+    if stream.logical_size == 0 {
+        return;
+    }
+    if stream.logical_size > MAX_ATTRIBUTE_LIST_STREAM_BYTES {
+        record
+            .caveats
+            .push(unsupported_attribute_list_stream_caveat(
+                record.reference.record_id,
+                format!(
+                    "attribute-list stream size {} exceeds cap {}",
+                    stream.logical_size, MAX_ATTRIBUTE_LIST_STREAM_BYTES
+                ),
+            ));
+        return;
+    }
+
+    let Ok(len) = usize::try_from(stream.logical_size) else {
+        record
+            .caveats
+            .push(unsupported_attribute_list_stream_caveat(
+                record.reference.record_id,
+                "attribute-list stream size does not fit in memory",
+            ));
+        return;
+    };
+    let reader = NtfsStreamReader::new(geometry.bytes_per_cluster, SparseRunPolicy::Reject);
+    let bytes = match reader.read_range(source, &stream.data_runs, 0, len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            record.caveats.push(invalid_attribute_list_stream_caveat(
+                record.reference.record_id,
+                format!("stream read failed: {err}"),
+            ));
+            return;
+        }
+    };
+    let entries = match parse_attribute_list(&bytes) {
+        Ok(entries) => entries,
+        Err(err) => {
+            record.caveats.push(invalid_attribute_list_stream_caveat(
+                record.reference.record_id,
+                format!("attribute list could not be parsed: {err}"),
+            ));
+            return;
+        }
+    };
+    append_attribute_list_entries(record, entries);
+}
+
+fn append_attribute_list_entries(
+    record: &mut NtfsParsedRecord,
+    entries: Vec<NtfsAttributeListEntry>,
+) {
+    if entries
+        .iter()
+        .any(|entry| entry.attribute_type == AttributeType::AttributeList)
+    {
+        record.caveats.push(ParseCaveat::new(
+            "recursive-attribute-list-unsupported",
+            "attribute list points at another attribute list; recursive expansion is refused",
+        ));
+    }
+
+    for entry in entries {
+        append_unique(&mut record.attribute_list_entries, entry);
+    }
+}
+
+fn unsupported_attribute_list_stream_caveat(
+    record_id: u64,
+    reason: impl Into<String>,
+) -> ParseCaveat {
+    ParseCaveat::new(
+        "unsupported-attribute-list-stream",
+        format!(
+            "record {record_id} nonresident $ATTRIBUTE_LIST was not expanded: {}",
+            reason.into()
+        ),
+    )
+}
+
+fn invalid_attribute_list_stream_caveat(record_id: u64, reason: impl Into<String>) -> ParseCaveat {
+    ParseCaveat::new(
+        "invalid-attribute-list-stream",
+        format!(
+            "record {record_id} nonresident $ATTRIBUTE_LIST could not be parsed: {}",
+            reason.into()
+        ),
+    )
+}
+
 fn push_missing_extension_attribute_caveat(
     record: &mut NtfsParsedRecord,
     entry: &NtfsAttributeListEntry,
@@ -447,7 +619,7 @@ fn expand_index_allocation_stream<S>(
 ) where
     S: NtfsStreamSource,
 {
-    if (stream.flags & (INDEX_ALLOCATION_FLAG_COMPRESSED | INDEX_ALLOCATION_FLAG_ENCRYPTED)) != 0 {
+    if (stream.flags & (STREAM_FLAG_COMPRESSED | STREAM_FLAG_ENCRYPTED)) != 0 {
         record.caveats.push(ParseCaveat::new(
             "unsupported-index-allocation",
             format!(
@@ -457,7 +629,7 @@ fn expand_index_allocation_stream<S>(
         ));
         return;
     }
-    if (stream.flags & INDEX_ALLOCATION_FLAG_SPARSE) != 0 {
+    if (stream.flags & STREAM_FLAG_SPARSE) != 0 {
         record.caveats.push(ParseCaveat::new(
             "unsupported-index-allocation",
             format!(
