@@ -205,7 +205,10 @@ through optional `estimate_backend_source`, and parser or ambiguity notes throug
 `windows-ntfs-mft-experimental-targeted-fsctl` for targeted estimates and
 scoped disk maps. Sequential and per-record full-index source labels are
 reserved for drive-root disk maps, explicit full-index fallback, or diagnostic
-paths.
+paths. Sequential full-index reads can use bounded `$MFTMirr` system-record
+bytes as best-effort recovery evidence; recovered records carry
+`mft-mirror-record-used`, while `mft-mirror-read-failed` means mirror recovery
+bytes were unavailable and primary `$MFT` records remained authoritative.
 
 The v1 cleanup estimate remains logical bytes from the unnamed `$DATA` stream.
 `inspect map` reports path-ranked `logical_bytes`, nullable `allocated_bytes`,
@@ -231,8 +234,9 @@ backend is unavailable or unsafe for the target.
 When allocation or unique usage is unavailable, the rank value falls back to
 logical bytes instead of treating unknown metadata as zero.
 Unsupported metadata, such as unreadable or unsupported nonresident attribute
-lists, stale sequence references, or unreadable `$I30` child nodes, must produce
-caveats or fallback instead of silent success.
+lists, stale sequence references, unreadable `$I30` child nodes, or unavailable
+mirror recovery bytes, must produce caveats or fallback instead of silent
+success.
 
 ## Cache Purge Boundary
 

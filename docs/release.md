@@ -167,11 +167,14 @@ Unsupported hosts should report a clear fallback reason, no backend source, and
 review any parser caveats for sequence mismatches, hardlink path candidates,
 attribute-list handling, directory-index fallback, unsupported nonresident
 streams, `mft-data-run-allocated-by-cluster` allocation-semantics notes, or
-bounded parse-error summaries. The data-run allocation caveat is expected when
-NTFS/MFT reports cluster-allocation evidence that intentionally differs from a
-Windows native file allocation API value. Focused Windows backend tests and the
-performance matrix remain the authoritative evidence for native and experimental
-backend fallback behavior.
+bounded parse-error summaries. Sequential full-index diagnostics may also report
+`mft-mirror-record-used` or `mft-mirror-read-failed`; mirror caveats are
+read-only recovery evidence and must not be interpreted as cleanup authority.
+The data-run allocation caveat is expected when NTFS/MFT reports
+cluster-allocation evidence that intentionally differs from a Windows native
+file allocation API value. Focused Windows backend tests and the performance
+matrix remain the authoritative evidence for native and experimental backend
+fallback behavior.
 
 ## Current Limitations
 

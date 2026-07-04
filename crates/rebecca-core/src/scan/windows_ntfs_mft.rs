@@ -61,6 +61,7 @@ const FSCTL_RECORD_SOURCE_LABEL: &str = "fsctl-record";
 const TARGETED_MFT_SOURCE_LABEL: &str = "targeted-fsctl";
 const SEQUENTIAL_MFT_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 const SEQUENTIAL_MFT_PARSE_WINDOW_CHUNKS: usize = 8;
+const MFT_MIRROR_SYSTEM_RECORDS: u64 = 4;
 const TARGETED_MFT_MAX_RECORDS: usize = 1_000_000;
 const TARGETED_MFT_MAX_DEPTH: usize = 512;
 const NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES: usize = size_of::<i64>() + size_of::<u32>();
@@ -68,6 +69,7 @@ const MAX_RETRIEVAL_POINTER_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 const MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES: usize = 8;
 const MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE: usize = 8;
 const MFT_CAVEAT_SUMMARY_CODE: &str = "mft-caveat-summary";
+const MFT_MIRROR_READ_FAILED_CAVEAT_CODE: &str = "mft-mirror-read-failed";
 const LIVE_NTFS_MFT_INDEX_TIMEOUT_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS";
 const LIVE_NTFS_MFT_INDEX_TIMINGS_ENV: &str = "REBECCA_NTFS_MFT_INDEX_TIMINGS";
 const LIVE_NTFS_MFT_FULL_INDEX_FALLBACK_ENV: &str = "REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK";
@@ -242,6 +244,7 @@ enum NtfsMftBuildStage {
     SequentialOpenMftData,
     SequentialReadRetrievalPointers,
     SequentialReadMftBytes,
+    SequentialReadMftMirror,
     SequentialParseRecords,
     FsctlReadParseRecords,
     TargetedReadRecord,
@@ -259,6 +262,7 @@ impl NtfsMftBuildStage {
             Self::SequentialOpenMftData => "sequential-open-mft-data",
             Self::SequentialReadRetrievalPointers => "sequential-read-retrieval-pointers",
             Self::SequentialReadMftBytes => "sequential-read-mft-bytes",
+            Self::SequentialReadMftMirror => "sequential-read-mft-mirror",
             Self::SequentialParseRecords => "sequential-parse-records",
             Self::FsctlReadParseRecords => "fsctl-read-parse-records",
             Self::TargetedReadRecord => "targeted-read-record",
@@ -1201,6 +1205,53 @@ impl NtfsRecordGeometry {
     fn stream_geometry(self) -> NtfsStreamGeometry {
         NtfsStreamGeometry::new(self.bytes_per_cluster, self.sector_size)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MftMirrorReadPlan {
+    base_record_id: u64,
+    volume_offset: u64,
+    byte_len: usize,
+    record_count: u64,
+}
+
+fn mft_mirror_read_plan(
+    device_path: &str,
+    volume_data: &NTFS_VOLUME_DATA_BUFFER,
+    geometry: NtfsRecordGeometry,
+) -> Result<Option<MftMirrorReadPlan>> {
+    let mirror_start_lcn = u64::try_from(volume_data.Mft2StartLcn).unwrap_or(0);
+    if mirror_start_lcn == 0 {
+        return Ok(None);
+    }
+
+    let record_count = MFT_MIRROR_SYSTEM_RECORDS.min(geometry.max_record_count);
+    if record_count == 0 {
+        return Ok(None);
+    }
+
+    let volume_offset = mirror_start_lcn
+        .checked_mul(geometry.bytes_per_cluster)
+        .ok_or_else(|| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} $MFTMirr offset overflowed on {device_path}"
+            ))
+        })?;
+    let byte_len = record_count
+        .checked_mul(geometry.record_size as u64)
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or_else(|| {
+            RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} $MFTMirr read length overflowed on {device_path}"
+            ))
+        })?;
+
+    Ok(Some(MftMirrorReadPlan {
+        base_record_id: 0,
+        volume_offset,
+        byte_len,
+        record_count,
+    }))
 }
 
 fn build_mft_index_from_records<S>(
@@ -2181,6 +2232,13 @@ where
 struct SequentialMftChunk {
     base_record_id: u64,
     bytes: Vec<u8>,
+    mirror: Option<SequentialMftMirrorChunk>,
+}
+
+#[derive(Debug, Clone)]
+struct SequentialMftMirrorChunk {
+    base_record_id: u64,
+    bytes: Vec<u8>,
 }
 
 fn parse_sequential_mft_chunks(
@@ -2193,10 +2251,38 @@ fn parse_sequential_mft_chunks(
             .par_iter()
             .map(|chunk| {
                 check_not_cancelled(cancellation)?;
-                Ok(reader.parse_records_from(chunk.base_record_id, &chunk.bytes))
+                Ok(match &chunk.mirror {
+                    Some(mirror) => reader.parse_records_from_with_mirror(
+                        chunk.base_record_id,
+                        &chunk.bytes,
+                        mirror.base_record_id,
+                        &mirror.bytes,
+                    ),
+                    None => reader.parse_records_from(chunk.base_record_id, &chunk.bytes),
+                })
             })
             .collect::<Result<Vec<_>>>()
     })
+}
+
+fn mirror_for_primary_records(
+    primary_base_record_id: u64,
+    primary_record_count: u64,
+    mirror: Option<&SequentialMftMirrorChunk>,
+    record_size: usize,
+) -> Option<SequentialMftMirrorChunk> {
+    let mirror = mirror?;
+    let primary_end = primary_base_record_id.checked_add(primary_record_count)?;
+    let mirror_record_count = mirror.bytes.len() / record_size;
+    let mirror_end = mirror
+        .base_record_id
+        .checked_add(u64::try_from(mirror_record_count).ok()?)?;
+
+    if primary_base_record_id >= mirror_end || primary_end <= mirror.base_record_id {
+        return None;
+    }
+
+    Some(mirror.clone())
 }
 
 struct LiveNtfsVolume {
@@ -2462,6 +2548,14 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
         let mut records = Vec::new();
         let mut caveats = Vec::new();
         let mut parse_errors = MftParseErrorCaveats::default();
+        let mft_mirror =
+            match self.read_mft_mirror_records(volume_data, geometry, cancellation, monitor) {
+                Ok(mirror) => mirror,
+                Err(err) => {
+                    caveats.push(mft_mirror_read_failed_caveat(&err));
+                    None
+                }
+            };
 
         let mut context = SequentialMftReadContext {
             geometry,
@@ -2470,6 +2564,7 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
             monitor,
             records: &mut records,
             parse_errors: &mut parse_errors,
+            mft_mirror: mft_mirror.as_ref(),
             parse_chunks: Vec::with_capacity(sequential_mft_parse_window_chunks()),
             parse_window_chunks: sequential_mft_parse_window_chunks(),
         };
@@ -2494,6 +2589,7 @@ struct SequentialMftReadContext<'a> {
     monitor: &'a NtfsMftBuildMonitor,
     records: &'a mut Vec<NtfsParsedRecord>,
     parse_errors: &'a mut MftParseErrorCaveats,
+    mft_mirror: Option<&'a SequentialMftMirrorChunk>,
     parse_chunks: Vec<SequentialMftChunk>,
     parse_window_chunks: usize,
 }
@@ -2533,6 +2629,41 @@ impl SequentialMftReadContext<'_> {
 }
 
 impl SequentialMftDataSource<'_> {
+    fn read_mft_mirror_records(
+        &self,
+        volume_data: &NTFS_VOLUME_DATA_BUFFER,
+        geometry: NtfsRecordGeometry,
+        cancellation: &ScanCancellationToken,
+        monitor: &NtfsMftBuildMonitor,
+    ) -> Result<Option<SequentialMftMirrorChunk>> {
+        let Some(plan) = mft_mirror_read_plan(&self.volume.device_path, volume_data, geometry)?
+        else {
+            return Ok(None);
+        };
+
+        let bytes = monitor.measure_checked(
+            NtfsMftBuildStage::SequentialReadMftMirror,
+            cancellation,
+            || {
+                self.volume
+                    .read_volume_bytes(plan.volume_offset, plan.byte_len)
+            },
+        )?;
+        if bytes.len() != plan.byte_len {
+            return Err(RebeccaError::PlatformUnavailable(format!(
+                "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {SEQUENTIAL_MFT_SOURCE_LABEL} read only {} of {} requested $MFTMirr bytes from {}",
+                bytes.len(),
+                plan.byte_len,
+                self.volume.device_path
+            )));
+        }
+
+        Ok(Some(SequentialMftMirrorChunk {
+            base_record_id: plan.base_record_id,
+            bytes,
+        }))
+    }
+
     fn read_extent_records(
         &self,
         extent: MftExtent,
@@ -2595,9 +2726,16 @@ impl SequentialMftDataSource<'_> {
 
             let read_len = read_len as u64;
             let records_read = read_len / geometry.record_size as u64;
+            let mirror = mirror_for_primary_records(
+                next_record_id,
+                records_read,
+                context.mft_mirror,
+                geometry.record_size,
+            );
             context.push_parse_chunk(SequentialMftChunk {
                 base_record_id: next_record_id,
                 bytes,
+                mirror,
             })?;
             next_record_id = next_record_id.saturating_add(records_read);
             volume_offset = volume_offset.saturating_add(read_len);
@@ -2606,6 +2744,15 @@ impl SequentialMftDataSource<'_> {
 
         Ok(())
     }
+}
+
+fn mft_mirror_read_failed_caveat(err: &RebeccaError) -> ParseCaveat {
+    ParseCaveat::new(
+        MFT_MIRROR_READ_FAILED_CAVEAT_CODE,
+        format!(
+            "sequential NTFS/MFT parsing could not read bounded $MFTMirr recovery bytes; primary $MFT records remain authoritative: {err}"
+        ),
+    )
 }
 
 struct FsctlRecordMftSource<'a> {
@@ -2809,10 +2956,11 @@ mod tests {
         MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
         NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry, ParsedNtfsRecords,
         RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
-        ScanCancellationToken, SequentialMftChunk, TargetedMftRecordResolver, TargetedMftTraversal,
-        TargetedMftTraversalLimits, VolumePaths, build_mft_index_from_records,
-        check_mft_build_progress, collect_mft_disk_map_entry, file_reference_from_number,
-        file_reference_number, low_file_reference_number, next_mft_chunk_len,
+        ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
+        TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, VolumePaths,
+        build_mft_index_from_records, check_mft_build_progress, collect_mft_disk_map_entry,
+        file_reference_from_number, file_reference_number, low_file_reference_number,
+        mft_mirror_read_plan, mirror_for_primary_records, next_mft_chunk_len,
         parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
         read_mft_records_from_sources, with_bounded_mft_caveats,
     };
@@ -2882,6 +3030,48 @@ mod tests {
         let err = NtfsRecordGeometry::from_volume_data("\\\\.\\C:", &volume_data).unwrap_err();
 
         assert!(err.to_string().contains("unaligned"));
+    }
+
+    #[test]
+    fn mft_mirror_read_plan_uses_mft2_lcn_for_bounded_system_records() {
+        let mut volume_data = ntfs_volume_data(1024, 512, 4096, 8192);
+        volume_data.Mft2StartLcn = 42;
+        let geometry = NtfsRecordGeometry::from_volume_data("\\\\.\\C:", &volume_data).unwrap();
+
+        let plan = mft_mirror_read_plan("\\\\.\\C:", &volume_data, geometry)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(plan.base_record_id, 0);
+        assert_eq!(plan.record_count, 4);
+        assert_eq!(plan.volume_offset, 42 * 4096);
+        assert_eq!(plan.byte_len, 4 * 1024);
+    }
+
+    #[test]
+    fn mft_mirror_read_plan_skips_absent_or_empty_mirror() {
+        let volume_data = ntfs_volume_data(1024, 512, 4096, 8192);
+        let geometry = NtfsRecordGeometry::from_volume_data("\\\\.\\C:", &volume_data).unwrap();
+
+        assert!(
+            mft_mirror_read_plan("\\\\.\\C:", &volume_data, geometry)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn mft_mirror_chunk_is_attached_only_to_overlapping_primary_records() {
+        let mirror = SequentialMftMirrorChunk {
+            base_record_id: 0,
+            bytes: vec![0xAB; 4 * 1024],
+        };
+
+        assert!(mirror_for_primary_records(10, 2, Some(&mirror), 1024).is_none());
+        let attached = mirror_for_primary_records(2, 4, Some(&mirror), 1024).unwrap();
+
+        assert_eq!(attached.base_record_id, 0);
+        assert_eq!(attached.bytes.len(), 4 * 1024);
     }
 
     #[test]
@@ -3830,10 +4020,12 @@ mod tests {
             SequentialMftChunk {
                 base_record_id: 20,
                 bytes: vec![0; 8],
+                mirror: None,
             },
             SequentialMftChunk {
                 base_record_id: 10,
                 bytes: vec![0; 4],
+                mirror: None,
             },
         ];
 
@@ -3860,6 +4052,7 @@ mod tests {
             &[SequentialMftChunk {
                 base_record_id: 0,
                 bytes: vec![0; 4],
+                mirror: None,
             }],
         )
         .unwrap_err();
