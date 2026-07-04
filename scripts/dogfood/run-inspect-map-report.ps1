@@ -149,12 +149,16 @@ function Get-ObjectProperty {
 function Find-JsonValues {
     param(
         [object]$Node,
-        [string[]]$Names
+        [string[]]$Names,
+        [bool]$Unique = $true
     )
 
     $values = [System.Collections.Generic.List[string]]::new()
     Add-JsonValues -Node $Node -Names $Names -Values $values
-    return @($values | Select-Object -Unique)
+    if ($Unique) {
+        return @($values | Select-Object -Unique)
+    }
+    return @($values)
 }
 
 function Add-JsonValues {
@@ -224,6 +228,142 @@ function Join-ReportValues {
     return (@($Values) | Where-Object { $null -ne $_ -and [string]$_ -ne "" }) -join ";"
 }
 
+function Get-CaveatCodesFromValue {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return @()
+    }
+    if ($Value -is [string]) {
+        $text = $Value.Trim()
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            return @()
+        }
+        if ($text.StartsWith("{") -or $text.StartsWith("[")) {
+            try {
+                $parsed = $text | ConvertFrom-Json -Depth 32
+                return @(Get-CaveatCodesFromValue -Value $parsed)
+            }
+            catch {
+            }
+        }
+        return @($text)
+    }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        $codes = @()
+        foreach ($item in $Value) {
+            $codes += @(Get-CaveatCodesFromValue -Value $item)
+        }
+        return @($codes)
+    }
+
+    $code = Get-ObjectProperty -Object $Value -Name "code"
+    if ([string]::IsNullOrWhiteSpace([string]$code)) {
+        return @()
+    }
+    return @([string]$code)
+}
+
+function Get-CaveatCodeCounts {
+    param([object[]]$Caveats)
+
+    $counts = @{}
+    foreach ($caveat in @($Caveats)) {
+        foreach ($code in @(Get-CaveatCodesFromValue -Value $caveat)) {
+            if ([string]::IsNullOrWhiteSpace($code)) {
+                continue
+            }
+            if (-not $counts.ContainsKey($code)) {
+                $counts[$code] = 0
+            }
+            $counts[$code] += 1
+        }
+    }
+
+    return @($counts.Keys | Sort-Object | ForEach-Object {
+        [pscustomobject]@{
+            code = [string]$_
+            count = [int]$counts[$_]
+        }
+    })
+}
+
+function Get-CaveatCodesFromCounts {
+    param([object[]]$Counts)
+
+    return @(@($Counts) | ForEach-Object { [string]$_.code })
+}
+
+function Get-CaveatCodeCount {
+    param(
+        [object[]]$Counts,
+        [string]$Code
+    )
+
+    foreach ($count in @($Counts)) {
+        if ($count.code -eq $Code) {
+            return [int]$count.count
+        }
+    }
+    return 0
+}
+
+function Join-CaveatCodeCounts {
+    param([object[]]$Counts)
+
+    return (@($Counts) | ForEach-Object { "$($_.code)=$($_.count)" }) -join ";"
+}
+
+function Get-BackendSourceKind {
+    param([object[]]$Sources)
+
+    $sourceValues = @($Sources | ForEach-Object { [string]$_ })
+    if ($sourceValues -contains "windows-ntfs-mft-experimental-targeted-fsctl") {
+        return "ntfs-targeted-fsctl"
+    }
+    if ($sourceValues -contains "windows-ntfs-mft-experimental-sequential") {
+        return "ntfs-full-index-sequential"
+    }
+    if ($sourceValues -contains "windows-ntfs-mft-experimental-fsctl-record") {
+        return "ntfs-full-index-fsctl-record"
+    }
+    if ($sourceValues.Count -gt 0) {
+        return "other"
+    }
+    return ""
+}
+
+function Get-NtfsMirrorEvidence {
+    param(
+        [int]$RecordUsedCount,
+        [int]$ReadFailedCount,
+        [bool]$FullIndexSource
+    )
+
+    if ($RecordUsedCount -gt 0 -and $ReadFailedCount -gt 0) {
+        return "record-used+read-failed"
+    }
+    if ($RecordUsedCount -gt 0) {
+        return "record-used"
+    }
+    if ($ReadFailedCount -gt 0) {
+        return "read-failed"
+    }
+    if ($FullIndexSource) {
+        return "none"
+    }
+    return ""
+}
+
+function Format-MarkdownCell {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return ""
+    }
+    return ([string]$Value).Replace("|", "\|").Replace("`r", " ").Replace("`n", " ")
+}
+
 function Convert-InspectMapJson {
     param([string]$Raw)
 
@@ -253,7 +393,7 @@ function Convert-InspectMapJson {
             actual_backends = @(Find-JsonValues -Node $json -Names @("estimate_backend"))
             backend_sources = @(Find-JsonValues -Node $json -Names @("estimate_backend_source"))
             fallback_reasons = @(Find-JsonValues -Node $json -Names @("estimate_fallback_reason"))
-            caveats = @(Find-JsonValues -Node $json -Names @("estimate_caveats"))
+            caveats = @(Find-JsonValues -Node $json -Names @("estimate_caveats") -Unique $false)
             totals = Get-ObjectProperty -Object $data -Name "totals"
             diagnostic_summary = Get-ObjectProperty -Object $data -Name "diagnostic_summary"
         }
@@ -371,6 +511,12 @@ function New-RunSummary {
     $uniqueAllocatedBytes = Get-MetricValue -Object $totals -Name "unique_allocated_bytes"
     $files = Get-MetricValue -Object $totals -Name "files"
     $directories = Get-MetricValue -Object $totals -Name "directories"
+    $caveats = @($Probe.caveats)
+    $caveatCodeCounts = @(Get-CaveatCodeCounts -Caveats $caveats)
+    $backendSourceKind = Get-BackendSourceKind -Sources $Probe.backend_sources
+    $ntfsFullIndexSource = $backendSourceKind -in @("ntfs-full-index-sequential", "ntfs-full-index-fsctl-record")
+    $mftMirrorRecordUsedCount = Get-CaveatCodeCount -Counts $caveatCodeCounts -Code "mft-mirror-record-used"
+    $mftMirrorReadFailedCount = Get-CaveatCodeCount -Counts $caveatCodeCounts -Code "mft-mirror-read-failed"
 
     return [pscustomobject]@{
         run_id = $RunId
@@ -380,8 +526,15 @@ function New-RunSummary {
         actual_backend = $actualBackend
         actual_backends = $actualBackends
         backend_sources = @($Probe.backend_sources)
+        backend_source_kind = $backendSourceKind
         fallback_reasons = @($Probe.fallback_reasons)
-        caveats = @($Probe.caveats)
+        caveats = $caveats
+        caveat_codes = @(Get-CaveatCodesFromCounts -Counts $caveatCodeCounts)
+        caveat_code_counts = $caveatCodeCounts
+        ntfs_full_index_source = $ntfsFullIndexSource
+        ntfs_mirror_record_used_count = $mftMirrorRecordUsedCount
+        ntfs_mirror_read_failed_count = $mftMirrorReadFailedCount
+        ntfs_mirror_evidence = Get-NtfsMirrorEvidence -RecordUsedCount $mftMirrorRecordUsedCount -ReadFailedCount $mftMirrorReadFailedCount -FullIndexSource $ntfsFullIndexSource
         status = $status
         exit_code = $ExitCode
         timed_out = $TimedOut
@@ -396,7 +549,7 @@ function New-RunSummary {
         unique_allocated_bytes = $uniqueAllocatedBytes
         files = $files
         directories = $directories
-        caveat_count = @($Probe.caveats).Count
+        caveat_count = $caveats.Count
         diagnostic_total = Get-MetricValue -Object $diag -Name "total"
         diagnostic_retained = Get-MetricValue -Object $diag -Name "retained"
         diagnostic_truncated = Get-MetricValue -Object $diag -Name "truncated"
@@ -527,6 +680,7 @@ function Convert-RunsForCsv {
             actual_backend = $_.actual_backend
             actual_backends = Join-ReportValues $_.actual_backends
             backend_sources = Join-ReportValues $_.backend_sources
+            backend_source_kind = $_.backend_source_kind
             fallback_reasons = Join-ReportValues $_.fallback_reasons
             status = $_.status
             comparison_status = $_.comparison_status
@@ -544,6 +698,12 @@ function Convert-RunsForCsv {
             files = $_.files
             directories = $_.directories
             caveat_count = $_.caveat_count
+            caveat_codes = Join-ReportValues $_.caveat_codes
+            caveat_code_counts = Join-CaveatCodeCounts -Counts $_.caveat_code_counts
+            ntfs_full_index_source = $_.ntfs_full_index_source
+            ntfs_mirror_record_used_count = $_.ntfs_mirror_record_used_count
+            ntfs_mirror_read_failed_count = $_.ntfs_mirror_read_failed_count
+            ntfs_mirror_evidence = $_.ntfs_mirror_evidence
             logical_delta = $_.logical_delta
             allocated_delta = $_.allocated_delta
             allocated_comparison_status = $_.allocated_comparison_status
@@ -612,6 +772,20 @@ function New-MarkdownSummary {
     $lines.Add("| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |")
     foreach ($run in $Runs) {
         $lines.Add("| $($run.run_id) | $($run.requested_backend) | $($run.actual_backend) | $($run.status) | $($run.comparison_status) | $($run.allocated_comparison_status) | $($run.unique_comparison_status) | $($run.duration_ms) | $($run.logical_bytes_per_second) | $($run.files_per_second) | $($run.caveat_count) |")
+    }
+    $lines.Add("")
+    $lines.Add("## Backend Evidence")
+    $lines.Add("")
+    $lines.Add("| Run | Source kind | Full index | Mirror evidence | Caveat codes |")
+    $lines.Add("| --- | --- | --- | --- | --- |")
+    foreach ($run in $Runs) {
+        $sourceKind = if ([string]::IsNullOrWhiteSpace($run.backend_source_kind)) { "-" } else { $run.backend_source_kind }
+        $mirrorEvidence = if ([string]::IsNullOrWhiteSpace($run.ntfs_mirror_evidence)) { "-" } else { $run.ntfs_mirror_evidence }
+        $caveatCounts = Join-CaveatCodeCounts -Counts $run.caveat_code_counts
+        if ([string]::IsNullOrWhiteSpace($caveatCounts)) {
+            $caveatCounts = "-"
+        }
+        $lines.Add("| $(Format-MarkdownCell $run.run_id) | $(Format-MarkdownCell $sourceKind) | $($run.ntfs_full_index_source) | $(Format-MarkdownCell $mirrorEvidence) | $(Format-MarkdownCell $caveatCounts) |")
     }
     $lines.Add("")
     return ($lines -join [Environment]::NewLine)
@@ -719,7 +893,26 @@ function Invoke-SelfTest {
                     directories = 1
                     estimate_source = "fresh-scan"
                     estimate_backend = "portable-recursive"
+                    estimate_backend_source = "windows-ntfs-mft-experimental-sequential"
                     estimate_confidence = "exact"
+                    estimate_caveats = @(
+                        @{
+                            code = "mft-mirror-record-used"
+                            message = "record 0 recovered from bounded mirror bytes"
+                        }
+                        @{
+                            code = "mft-mirror-record-used"
+                            message = "record 1 recovered from bounded mirror bytes"
+                        }
+                        @{
+                            code = "mft-mirror-read-failed"
+                            message = "mirror bytes were unavailable"
+                        }
+                        @{
+                            code = "mft-mirror-read-failed"
+                            message = "mirror bytes were unavailable"
+                        }
+                    )
                     cleanup_advice = @{
                         status = "cleanable"
                         source = "project-artifact"
@@ -762,6 +955,28 @@ function Invoke-SelfTest {
 
     $portable = New-RunSummary -RunId "r1-portable" -RepeatIndex 1 -RootPath "C:\tmp" -RequestedBackend "portable-recursive" -ExitCode 0 -TimedOut $false -DurationMs 10 -StdoutPath "out" -StderrPath "err" -Probe $probe
     $native = New-RunSummary -RunId "r1-native" -RepeatIndex 1 -RootPath "C:\tmp" -RequestedBackend "windows-native" -ExitCode 0 -TimedOut $false -DurationMs 5 -StdoutPath "out" -StderrPath "err" -Probe $probe
+    if ($portable.caveat_count -ne 4) {
+        throw "self-test caveat count failed"
+    }
+    if ($portable.backend_source_kind -ne "ntfs-full-index-sequential") {
+        throw "self-test backend source kind failed"
+    }
+    if (-not $portable.ntfs_full_index_source) {
+        throw "self-test full-index source failed"
+    }
+    if ($portable.ntfs_mirror_record_used_count -ne 2) {
+        throw "self-test mirror record-used count failed"
+    }
+    if ($portable.ntfs_mirror_read_failed_count -ne 2) {
+        throw "self-test mirror read-failed count failed"
+    }
+    if ($portable.ntfs_mirror_evidence -ne "record-used+read-failed") {
+        throw "self-test mirror evidence failed"
+    }
+    $caveatCodeCounts = Join-CaveatCodeCounts -Counts $portable.caveat_code_counts
+    if ($caveatCodeCounts -ne "mft-mirror-read-failed=2;mft-mirror-record-used=2") {
+        throw "self-test caveat code counts failed: $caveatCodeCounts"
+    }
     $runs = @(Add-RunComparisons -Runs @($portable, $native))
     if (($runs | Where-Object { $_.requested_backend -eq "windows-native" }).comparison_status -ne "matched") {
         throw "self-test comparison failed"
@@ -817,6 +1032,22 @@ function Invoke-SelfTest {
         $rows | Export-Csv -LiteralPath (Join-Path $temp "rows.csv") -NoTypeInformation
         if (-not (Test-Path -LiteralPath (Join-Path $temp "runs.csv"))) { throw "self-test csv failed" }
         if (-not (Test-Path -LiteralPath (Join-Path $temp "rows.csv"))) { throw "self-test rows csv failed" }
+        $runCsvRows = @(Convert-RunsForCsv -Runs @($portable))
+        if ($runCsvRows[0].caveat_code_counts -ne "mft-mirror-read-failed=2;mft-mirror-record-used=2") {
+            throw "self-test csv caveat code counts failed"
+        }
+        if ($runCsvRows[0].ntfs_mirror_evidence -ne "record-used+read-failed") {
+            throw "self-test csv mirror evidence failed"
+        }
+        $markdown = New-MarkdownSummary -Report ([pscustomobject]@{
+            root = "C:\tmp"
+            generated_at_utc = "1970-01-01T00:00:00Z"
+            git_commit = "selftest"
+            cleanup_advice = $false
+        }) -Runs @($portable)
+        if ($markdown -notlike "*mft-mirror-record-used=2*") {
+            throw "self-test markdown caveat evidence failed"
+        }
     }
     finally {
         Remove-Item -LiteralPath $temp -Recurse -Force

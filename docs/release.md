@@ -143,7 +143,8 @@ Record JSON `estimate_source`, `estimate_backend`, `estimate_backend_source`,
 `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` values
 for the backend dogfood runs. Also record any `diagnostic_summary` totals and
 the dogfood report's `comparisons.status`, allocated/unique comparison status,
-throughput, and repeat-stat fields. The Windows native map run
+throughput, repeat-stat fields, `backend_source_kind`, `caveat_code_counts`,
+and NTFS mirror evidence fields. The Windows native map run
 should show `estimate_backend: "windows-native"` and non-null `allocated_bytes`
 on supported local roots. When hardlinks or other repeated file ids are present,
 the same run should keep path-ranked bytes unchanged while reporting non-null
@@ -169,7 +170,10 @@ attribute-list handling, directory-index fallback, unsupported nonresident
 streams, `mft-data-run-allocated-by-cluster` allocation-semantics notes, or
 bounded parse-error summaries. Sequential full-index diagnostics may also report
 `mft-mirror-record-used` or `mft-mirror-read-failed`; mirror caveats are
-read-only recovery evidence and must not be interpreted as cleanup authority.
+summarized by `ntfs_mirror_record_used_count`,
+`ntfs_mirror_read_failed_count`, and `ntfs_mirror_evidence` in the dogfood
+report. Mirror caveats are read-only recovery evidence and must not be
+interpreted as cleanup authority.
 The data-run allocation caveat is expected when NTFS/MFT reports
 cluster-allocation evidence that intentionally differs from a Windows native
 file allocation API value. Focused Windows backend tests and the performance

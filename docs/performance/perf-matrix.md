@@ -52,7 +52,7 @@ The script runs one `inspect map --format json` scan per backend/repetition, the
 pwsh -File scripts/dogfood/run-inspect-map-report.ps1 -Root docs -Backend portable-recursive,windows-native,windows-ntfs-mft-experimental -Repeat 1 -Top 20 -GroupBy extension,depth,age -DiagnosticLimit 0
 ```
 
-The report is written under `target/inspect-map-dogfood/` and includes raw JSON stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested versus actual backend fields, diagnostic summary totals, fallback reasons, caveats, duration, throughput, allocated/unique metric deltas, repeat statistics, and portable-baseline comparison status.
+The report is written under `target/inspect-map-dogfood/` and includes raw JSON stdout/stderr, run-level CSV, entry/group row CSV, a Markdown summary, requested versus actual backend fields, normalized `backend_source_kind`, diagnostic summary totals, fallback reasons, caveat code counts, NTFS full-index and mirror evidence fields, duration, throughput, allocated/unique metric deltas, repeat statistics, and portable-baseline comparison status.
 When scanning a root that contains the default report directory, pass an
 external `-OutputDirectory` or explicitly opt into `-AllowOutputInsideRoot`.
 Backend mismatches or missing portable baselines are non-zero by default; pass
@@ -103,6 +103,15 @@ second internal budget while reading sequential MFT bytes. A follow-up run with
 timeout under `target/ntfs-dogfood/20260702-181342-73156/`; full-index disk-map
 performance remains a drive-root/diagnostic optimization target rather than a
 release threshold for scoped maps.
+
+When collecting drive-root or explicit full-index evidence after `$MFTMirr`
+integration, inspect `backend_source_kind`, `ntfs_full_index_source`,
+`ntfs_mirror_record_used_count`, `ntfs_mirror_read_failed_count`, and
+`ntfs_mirror_evidence` in `inspect-map-report.json` or
+`inspect-map-runs.csv`. `mft-mirror-record-used` proves bounded mirror recovery
+changed parser output for a reported record; `mft-mirror-read-failed` proves
+mirror bytes were unavailable while primary `$MFT` parsing remained
+authoritative.
 
 After the adaptive disk-map refactor, elevated local dogfood under
 `target/ntfs-dogfood/20260702-185357-58228/` completed
