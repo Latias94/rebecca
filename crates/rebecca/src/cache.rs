@@ -2,9 +2,11 @@ use std::fmt::Write as _;
 
 use anyhow::{Result, anyhow};
 use rebecca::core::cache::{
-    CachePurgeMode, CachePurgeReport, purge_app_cache, purge_app_cache_with_backend,
+    CacheDoctorReport, CacheInventory, CacheInventoryEntryStatus, CacheNamespace, CachePruneReport,
+    CachePurgeMode, CachePurgeReport, doctor_app_cache, inspect_app_cache,
+    prune_app_cache_inventory, purge_app_cache, purge_app_cache_with_backend,
 };
-use rebecca::core::config::load_app_paths;
+use rebecca::core::config::{load_app_paths, load_runtime_config};
 
 use crate::cache_view::CachePurgeProjection;
 use crate::cli::OutputMode;
@@ -16,6 +18,88 @@ pub struct CachePurgeOptions {
     pub output_mode: OutputMode,
     pub yes: bool,
     pub permanent: bool,
+}
+
+#[derive(Debug)]
+pub struct CacheInspectOptions {
+    pub output_mode: OutputMode,
+    pub namespace: CacheNamespace,
+}
+
+#[derive(Debug)]
+pub struct CacheDoctorOptions {
+    pub output_mode: OutputMode,
+}
+
+#[derive(Debug)]
+pub struct CachePruneOptions {
+    pub output_mode: OutputMode,
+    pub namespace: CacheNamespace,
+    pub stale_only: bool,
+    pub limit: Option<std::num::NonZeroUsize>,
+    pub dry_run: bool,
+    pub yes: bool,
+}
+
+pub fn inspect(options: CacheInspectOptions) -> Result<()> {
+    let runtime_config = load_runtime_config()?;
+    let inventory = inspect_app_cache(
+        &runtime_config.app_paths,
+        options.namespace,
+        runtime_config.scan_cache_policy,
+    );
+    crate::output::print_command_success(
+        "cache inspect",
+        "cache-inventory",
+        options.output_mode,
+        || &inventory,
+        || {
+            print!("{}", render_cache_inventory(&inventory)?);
+            Ok(())
+        },
+    )
+}
+
+pub fn doctor(options: CacheDoctorOptions) -> Result<()> {
+    let runtime_config = load_runtime_config()?;
+    let report = doctor_app_cache(&runtime_config.app_paths, runtime_config.scan_cache_policy);
+    crate::output::print_command_success(
+        "cache doctor",
+        "cache-doctor",
+        options.output_mode,
+        || &report,
+        || {
+            print!("{}", render_cache_doctor_report(&report)?);
+            Ok(())
+        },
+    )
+}
+
+pub fn prune(options: CachePruneOptions) -> Result<()> {
+    let runtime_config = load_runtime_config()?;
+    if options.dry_run && options.yes {
+        return Err(anyhow!("--dry-run cannot be combined with --yes"));
+    }
+    let dry_run = !options.yes || options.dry_run;
+    let report = prune_app_cache_inventory(
+        &runtime_config.app_paths,
+        options.namespace,
+        runtime_config.scan_cache_policy,
+        options.stale_only,
+        options.limit.map(std::num::NonZeroUsize::get),
+        dry_run,
+    );
+
+    crate::output::print_command_success(
+        "cache prune",
+        "cache-prune-report",
+        options.output_mode,
+        || &report,
+        || {
+            print!("{}", render_cache_prune_report(&report)?);
+            Ok(())
+        },
+    )
 }
 
 pub fn purge(options: CachePurgeOptions) -> Result<()> {
@@ -168,6 +252,151 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
     }
 
     Ok(output)
+}
+
+fn render_cache_inventory(inventory: &CacheInventory) -> Result<String> {
+    let mut output = String::new();
+    writeln!(output, "Rebecca cache: {}", inventory.cache_dir.display())?;
+    writeln!(output, "Namespace: {}", inventory.namespace.label())?;
+    writeln!(
+        output,
+        "Entries: {}, valid: {}, stale: {}, corrupt: {}, missing payloads: {}, prunable: {}",
+        inventory.summary.total_entries,
+        inventory.summary.valid_entries,
+        inventory.summary.stale_entries,
+        inventory.summary.corrupt_entries,
+        inventory.summary.missing_payloads,
+        inventory.summary.prunable_entries
+    )?;
+    writeln!(
+        output,
+        "Cache bytes: {} ({})",
+        inventory.summary.bytes,
+        format_bytes(inventory.summary.bytes)
+    )?;
+
+    if inventory.entries.is_empty() {
+        writeln!(output, "No cache records found.")?;
+    } else {
+        writeln!(output, "Cache records:")?;
+        for entry in &inventory.entries {
+            let reason = entry
+                .reason_code
+                .as_deref()
+                .map(|reason| format!("; {reason}"))
+                .unwrap_or_default();
+            writeln!(
+                output,
+                "- {} {}: {} ({}; {}){}",
+                entry.namespace.label(),
+                cache_status_label(entry.status),
+                entry.display_path.display(),
+                entry.bytes,
+                format_bytes(entry.bytes),
+                reason
+            )?;
+        }
+    }
+
+    if !inventory.diagnostics.is_empty() {
+        writeln!(output, "Diagnostics:")?;
+        for diagnostic in &inventory.diagnostics {
+            writeln!(
+                output,
+                "- {}: {} ({})",
+                diagnostic.reason_code,
+                diagnostic.display_path.display(),
+                diagnostic.message
+            )?;
+        }
+    }
+
+    Ok(output)
+}
+
+fn render_cache_doctor_report(report: &CacheDoctorReport) -> Result<String> {
+    let mut output = render_cache_inventory(&report.inventory)?;
+    if report.recommendations.is_empty() {
+        writeln!(output, "Recommendations: none")?;
+    } else {
+        writeln!(output, "Recommendations:")?;
+        for recommendation in &report.recommendations {
+            let command = recommendation
+                .suggested_command
+                .as_ref()
+                .map(|parts| format!(" [{}]", parts.join(" ")))
+                .unwrap_or_default();
+            writeln!(
+                output,
+                "- {:?}: {}{}",
+                recommendation.severity, recommendation.message, command
+            )?;
+        }
+    }
+    Ok(output)
+}
+
+fn render_cache_prune_report(report: &CachePruneReport) -> Result<String> {
+    let mut output = String::new();
+    writeln!(output, "Rebecca cache: {}", report.cache_dir.display())?;
+    writeln!(output, "Namespace: {}", report.namespace.label())?;
+    writeln!(
+        output,
+        "Mode: {}",
+        if report.dry_run { "dry-run" } else { "delete" }
+    )?;
+    writeln!(
+        output,
+        "Stale only: {}",
+        if report.stale_only { "yes" } else { "no" }
+    )?;
+    writeln!(
+        output,
+        "Selected records: {}",
+        report.selected_entries.len()
+    )?;
+    writeln!(
+        output,
+        "Execution: {} completed, {} skipped, {} failed, {} bytes reclaimed",
+        report.execution_report.summary.completed_actions,
+        report.execution_report.summary.skipped_actions,
+        report.execution_report.summary.failed_actions,
+        report.execution_report.summary.confirmed_reclaimed_bytes
+    )?;
+    if report.selected_entries.is_empty() {
+        writeln!(output, "No cache records selected.")?;
+    } else {
+        writeln!(output, "Selected cache records:")?;
+        for entry in &report.selected_entries {
+            writeln!(
+                output,
+                "- {} {}: {} ({})",
+                entry.namespace.label(),
+                cache_status_label(entry.status),
+                entry.display_path.display(),
+                format_bytes(entry.bytes)
+            )?;
+        }
+    }
+    if report.dry_run && !report.selected_entries.is_empty() {
+        writeln!(
+            output,
+            "Run with --yes to delete the selected cache metadata records."
+        )?;
+    }
+    Ok(output)
+}
+
+fn cache_status_label(status: CacheInventoryEntryStatus) -> &'static str {
+    match status {
+        CacheInventoryEntryStatus::Valid => "valid",
+        CacheInventoryEntryStatus::Stale => "stale",
+        CacheInventoryEntryStatus::Corrupt => "corrupt",
+        CacheInventoryEntryStatus::Unreadable => "unreadable",
+        CacheInventoryEntryStatus::MissingPayload => "missing-payload",
+        CacheInventoryEntryStatus::Payload => "payload",
+        CacheInventoryEntryStatus::Unknown => "unknown",
+    }
 }
 
 #[cfg(test)]

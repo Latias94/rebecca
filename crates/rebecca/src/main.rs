@@ -70,6 +70,27 @@ fn run() -> Result<()> {
         Command::Purge(args) => run_purge(args, cli.format, &runtime),
         Command::History(args) => run_history(args, cli.format),
         Command::Cache { command } => match command {
+            CacheCommand::Inspect { namespace } => cache::inspect(cache::CacheInspectOptions {
+                output_mode: cli.format,
+                namespace: namespace.into(),
+            }),
+            CacheCommand::Doctor => cache::doctor(cache::CacheDoctorOptions {
+                output_mode: cli.format,
+            }),
+            CacheCommand::Prune {
+                namespace,
+                stale_only,
+                limit,
+                dry_run,
+                yes,
+            } => cache::prune(cache::CachePruneOptions {
+                output_mode: cli.format,
+                namespace: namespace.into(),
+                stale_only,
+                limit,
+                dry_run,
+                yes,
+            }),
             CacheCommand::Purge {
                 dry_run,
                 yes,
@@ -413,6 +434,13 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
         }
         Command::History(_) => output::CliApiContract::v1("history", "history-list"),
         Command::Cache { command } => match command {
+            CacheCommand::Inspect { .. } => {
+                output::CliApiContract::v1("cache inspect", "cache-inventory")
+            }
+            CacheCommand::Doctor => output::CliApiContract::v1("cache doctor", "cache-doctor"),
+            CacheCommand::Prune { .. } => {
+                output::CliApiContract::v1("cache prune", "cache-prune-report")
+            }
             CacheCommand::Purge { .. } => {
                 output::CliApiContract::v1("cache purge", "cache-purge-report")
             }

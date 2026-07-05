@@ -582,6 +582,32 @@ pub struct HistoryArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum CacheCommand {
+    /// Inspect Rebecca cache records without deleting anything.
+    Inspect {
+        /// Cache namespace to inspect.
+        #[arg(long, value_enum, default_value_t = CacheNamespaceArg::All)]
+        namespace: CacheNamespaceArg,
+    },
+    /// Diagnose Rebecca cache health and print prune recommendations.
+    Doctor,
+    /// Prune Rebecca cache metadata records. Previews by default.
+    Prune {
+        /// Cache namespace to prune.
+        #[arg(long, value_enum, default_value_t = CacheNamespaceArg::All)]
+        namespace: CacheNamespaceArg,
+        /// Select only stale, corrupt, or orphaned cache records.
+        #[arg(long)]
+        stale_only: bool,
+        /// Maximum number of records to prune.
+        #[arg(long, value_name = "N")]
+        limit: Option<NonZeroUsize>,
+        /// Preview the prune without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Delete selected cache metadata records instead of previewing.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Purge Rebecca's rebuildable cache directory.
     Purge {
         /// Preview the purge without deleting anything.
@@ -594,6 +620,24 @@ pub enum CacheCommand {
         #[arg(long, requires = "yes", conflicts_with = "dry_run")]
         permanent: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum CacheNamespaceArg {
+    #[default]
+    All,
+    ScanCache,
+    NtfsVolumeIndex,
+}
+
+impl From<CacheNamespaceArg> for rebecca::core::cache::CacheNamespace {
+    fn from(namespace: CacheNamespaceArg) -> Self {
+        match namespace {
+            CacheNamespaceArg::All => Self::All,
+            CacheNamespaceArg::ScanCache => Self::ScanCache,
+            CacheNamespaceArg::NtfsVolumeIndex => Self::NtfsVolumeIndex,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]

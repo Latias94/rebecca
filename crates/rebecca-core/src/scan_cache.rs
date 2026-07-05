@@ -93,7 +93,7 @@ impl ScanCacheRecord {
         }
     }
 
-    fn miss_reason(
+    pub(crate) fn miss_reason(
         &self,
         root: &Path,
         snapshot: &ScanCachePathSnapshot,
@@ -493,7 +493,7 @@ impl ScanCacheMiss {
         }
     }
 
-    fn should_prune_cache_file(self) -> bool {
+    pub(crate) fn should_prune_cache_file(self) -> bool {
         matches!(
             self,
             Self::Stale

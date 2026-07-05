@@ -81,6 +81,7 @@ All notable changes to Rebecca will be documented in this file.
 - Cleanup, purge, and `inspect space` outputs now expose additive v1 estimate provenance fields (`estimate_backend`, `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats`) while keeping `estimate_source` stable.
 - `inspect space --scan-backend <BACKEND>` now accepts the same scan backend selectors as cleanup dry-runs for read-only space estimates.
 - Cleanup execution now exposes a shared `execution_report` with per-action status, attempted paths, reclaimed bytes, pending reclaim bytes, skipped/failed/shadowed byte totals, and non-fatal execution warnings; `cache purge` now includes the same execution report alongside its cache-specific summary.
+- `rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune` now expose Rebecca cache inventory, stale/corrupt record recommendations, namespace filtering, dry-run previews, and execution reports for targeted cache metadata pruning.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.

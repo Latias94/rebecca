@@ -228,3 +228,122 @@ fn cache_purge_rejects_overlap_with_state_dir() {
     assert!(stderr.contains("overlaps preserved"));
     assert!(stderr.contains("State dir"));
 }
+
+#[test]
+fn cache_inspect_json_reports_empty_inventory() {
+    let temp = tempfile::tempdir().unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["cache", "inspect", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["namespace"], "all");
+    assert_eq!(value["summary"]["total_entries"], 0);
+    assert_eq!(value["summary"]["prunable_entries"], 0);
+}
+
+#[test]
+fn cache_inspect_json_reports_corrupt_scan_cache_record() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_dir = temp.path().join("rebecca-cache");
+    let corrupt = cache_dir.join("scan").join("bad.json");
+    fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
+    fs::write(&corrupt, "{").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "cache",
+            "inspect",
+            "--namespace",
+            "scan-cache",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["namespace"], "scan-cache");
+    assert_eq!(value["summary"]["corrupt_entries"], 1);
+    assert_eq!(value["summary"]["prunable_entries"], 1);
+    assert_eq!(value["entries"][0]["reason_code"], "scan-cache-corrupt");
+    assert_eq!(value["entries"][0]["display_path"], "scan\\bad.json");
+}
+
+#[test]
+fn cache_doctor_json_recommends_pruning_corrupt_records() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_dir = temp.path().join("rebecca-cache");
+    let corrupt = cache_dir.join("scan").join("bad.json");
+    fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
+    fs::write(&corrupt, "{").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["cache", "doctor", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["inventory"]["summary"]["prunable_entries"], 1);
+    assert_eq!(
+        value["recommendations"][0]["reason_code"],
+        "prunable-cache-records"
+    );
+}
+
+#[test]
+fn cache_prune_yes_deletes_stale_records_with_execution_report() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_dir = temp.path().join("rebecca-cache");
+    let corrupt = cache_dir.join("scan").join("bad.json");
+    fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
+    fs::write(&corrupt, "{").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "cache",
+            "prune",
+            "--namespace",
+            "scan-cache",
+            "--stale-only",
+            "--limit",
+            "1",
+            "--yes",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(!corrupt.exists());
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["selected_entries"].as_array().unwrap().len(), 1);
+    assert_eq!(value["execution_report"]["summary"]["completed_actions"], 1);
+    assert_eq!(
+        value["execution_report"]["summary"]["confirmed_reclaimed_bytes"],
+        1
+    );
+}
