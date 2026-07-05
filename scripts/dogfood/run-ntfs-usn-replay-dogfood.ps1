@@ -142,6 +142,7 @@ function Convert-InspectMapJson {
             actual_backends = @()
             backend_sources = @()
             fallback_reasons = @()
+            caveats = @()
             totals = $null
         }
     }
@@ -157,6 +158,7 @@ function Convert-InspectMapJson {
             actual_backends = @(Find-JsonValues -Node $json -Names @("estimate_backend"))
             backend_sources = @(Find-JsonValues -Node $json -Names @("estimate_backend_source"))
             fallback_reasons = @(Find-JsonValues -Node $json -Names @("estimate_fallback_reason"))
+            caveats = @(Find-JsonValues -Node $json -Names @("estimate_caveats") -Unique $false)
             totals = Get-ObjectProperty -Object $data -Name "totals"
         }
     }
@@ -169,9 +171,76 @@ function Convert-InspectMapJson {
             actual_backends = @()
             backend_sources = @()
             fallback_reasons = @()
+            caveats = @()
             totals = $null
         }
     }
+}
+
+function Get-CaveatCodesFromValue {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return @()
+    }
+    if ($Value -is [string]) {
+        $text = $Value.Trim()
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            return @()
+        }
+        if ($text.StartsWith("{") -or $text.StartsWith("[")) {
+            try {
+                $parsed = $text | ConvertFrom-Json -Depth 32
+                return @(Get-CaveatCodesFromValue -Value $parsed)
+            }
+            catch {
+            }
+        }
+        return @($text)
+    }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        $codes = @()
+        foreach ($item in $Value) {
+            $codes += @(Get-CaveatCodesFromValue -Value $item)
+        }
+        return @($codes)
+    }
+
+    $code = Get-ObjectProperty -Object $Value -Name "code"
+    if ([string]::IsNullOrWhiteSpace([string]$code)) {
+        return @()
+    }
+    return @([string]$code)
+}
+
+function Get-CaveatCodeCounts {
+    param([object[]]$Caveats)
+
+    $counts = @{}
+    foreach ($caveat in @($Caveats)) {
+        foreach ($code in @(Get-CaveatCodesFromValue -Value $caveat)) {
+            if ([string]::IsNullOrWhiteSpace($code)) {
+                continue
+            }
+            if (-not $counts.ContainsKey($code)) {
+                $counts[$code] = 0
+            }
+            $counts[$code] += 1
+        }
+    }
+
+    return @($counts.Keys | Sort-Object | ForEach-Object {
+        [pscustomobject]@{
+            code = [string]$_
+            count = [int]$counts[$_]
+        }
+    })
+}
+
+function Join-CaveatCodeCounts {
+    param([object[]]$Counts)
+
+    return (@($Counts) | ForEach-Object { "$($_.code)=$($_.count)" }) -join ";"
 }
 
 function Get-MetricValue {
@@ -335,6 +404,7 @@ function New-PhaseSummary {
     $actualBackends = @($Probe.actual_backends)
     $actualBackend = if ($actualBackends.Count -eq 1) { $actualBackends[0] } else { "" }
     $totals = $Probe.totals
+    $caveatCodeCounts = @(Get-CaveatCodeCounts -Caveats $Probe.caveats)
 
     return [pscustomobject]@{
         phase = $Phase
@@ -350,6 +420,8 @@ function New-PhaseSummary {
         backend_sources = @($Probe.backend_sources)
         backend_source_kind = Get-BackendSourceKind -Sources $Probe.backend_sources
         fallback_reasons = @($Probe.fallback_reasons)
+        caveat_codes = @($caveatCodeCounts | ForEach-Object { $_.code })
+        caveat_code_counts = $caveatCodeCounts
         logical_bytes = Get-MetricValue -Object $totals -Name "logical_bytes"
         allocated_bytes = Get-MetricValue -Object $totals -Name "allocated_bytes"
         files = Get-MetricValue -Object $totals -Name "files"
@@ -530,10 +602,14 @@ function New-MarkdownSummary {
     $lines.Add("- Commit: $($Report.git_commit)")
     $lines.Add("- Cache root: $($Report.runtime.cache_dir)")
     $lines.Add("")
-    $lines.Add("| Phase | Status | Expectation | Source kind | ms | Logical bytes | Delta | Cache files | Cache bytes |")
-    $lines.Add("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |")
+    $lines.Add("| Phase | Status | Expectation | Source kind | ms | Logical bytes | Delta | Cache files | Cache bytes | Caveats |")
+    $lines.Add("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |")
     foreach ($phase in $Phases) {
-        $lines.Add("| $(Format-MarkdownCell $phase.phase) | $($phase.status) | $($phase.expectation_status) | $(Format-MarkdownCell $phase.backend_source_kind) | $($phase.duration_ms) | $($phase.logical_bytes) | $($phase.logical_delta_from_previous) | $($phase.cache_file_count) | $($phase.cache_total_bytes) |")
+        $caveats = Join-CaveatCodeCounts -Counts $phase.caveat_code_counts
+        if ([string]::IsNullOrWhiteSpace($caveats)) {
+            $caveats = "-"
+        }
+        $lines.Add("| $(Format-MarkdownCell $phase.phase) | $($phase.status) | $($phase.expectation_status) | $(Format-MarkdownCell $phase.backend_source_kind) | $($phase.duration_ms) | $($phase.logical_bytes) | $($phase.logical_delta_from_previous) | $($phase.cache_file_count) | $($phase.cache_total_bytes) | $(Format-MarkdownCell $caveats) |")
     }
     $lines.Add("")
     $lines.Add("## Expectations")
@@ -562,6 +638,7 @@ function Invoke-SelfTest {
                 @{
                     estimate_backend = "windows-ntfs-mft-experimental"
                     estimate_backend_source = "windows-ntfs-mft-experimental-persistent-cache"
+                    estimate_caveats = @()
                 }
             )
         }
@@ -582,6 +659,12 @@ function Invoke-SelfTest {
                 @{
                     estimate_backend = "windows-ntfs-mft-experimental"
                     estimate_backend_source = "windows-ntfs-mft-experimental-sequential"
+                    estimate_caveats = @(
+                        @{
+                            code = "mft-persistent-cache-miss"
+                            message = "persistent NTFS/MFT volume-index cache missed; reason=manifest-missing"
+                        }
+                    )
                 }
             )
         }
@@ -594,6 +677,9 @@ function Invoke-SelfTest {
     }
     if ((Get-BackendSourceKind -Sources $persistentProbe.backend_sources) -ne "ntfs-full-index-persistent-cache") {
         throw "self-test persistent source classification failed"
+    }
+    if (@($rebuildProbe.caveats).Count -ne 1) {
+        throw "self-test caveat extraction failed"
     }
 
     $cacheSnapshot = [pscustomobject]@{
@@ -613,6 +699,9 @@ function Invoke-SelfTest {
     $phases = @(Add-PhaseExpectations -Phases $phases)
     if (@($phases | Where-Object { $_.expectation_status -ne "passed" }).Count -ne 0) {
         throw "self-test expectation pass logic failed"
+    }
+    if ((Join-CaveatCodeCounts -Counts $phases[0].caveat_code_counts) -ne "mft-persistent-cache-miss=1") {
+        throw "self-test caveat code count failed"
     }
 
     $phases[1].backend_source_kind = "ntfs-full-index-sequential"

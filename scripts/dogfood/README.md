@@ -123,6 +123,10 @@ Outputs are local artifacts:
 - `raw/*.stdout.json`
 - `raw/*.stderr.txt`
 
+Phase summaries include caveat code counts. When persistent cache behavior is
+unexpected, check `mft-persistent-cache-miss` and
+`mft-persistent-cache-write-skipped` before inspecting raw stdout.
+
 Run the parser and expectation self-test without invoking Cargo:
 
 ```powershell

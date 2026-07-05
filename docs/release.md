@@ -119,7 +119,9 @@ The USN replay script isolates `REBECCA_CACHE_DIR`, explicitly enables
 subtrees between phases, and should show
 `ntfs-full-index-persistent-cache` for unrelated replay and post-rebuild hits.
 Without that env var, ordinary `inspect map` runs must not create persistent
-MFT payloads.
+MFT payloads. If a phase rebuilds unexpectedly, inspect
+`mft-persistent-cache-miss` and `mft-persistent-cache-write-skipped` caveat code
+counts in the dogfood summary before opening raw stdout.
 
 When a stable `persistent-cache` hit is required, prefer the isolated VHD
 wrapper over a large active workstation volume:

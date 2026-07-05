@@ -201,7 +201,10 @@ Persistent-cache hits expose
 `estimate_backend_source: "windows-ntfs-mft-experimental-persistent-cache"`.
 Payload writes require a stable USN checkpoint before and after the full-index
 build; busy or very large volumes may rebuild successfully but skip persistent
-payload storage.
+payload storage. When the persistent store is enabled, rebuilt estimates expose
+`mft-persistent-cache-miss` caveats for lookup miss reasons and
+`mft-persistent-cache-write-skipped` caveats when the payload could not be
+persisted for the next run.
 
 Explicit full-index diagnostics may emit
 `mft-index-allocation-budget-exhausted` when parsed MFT records are available

@@ -86,6 +86,8 @@ const DEFAULT_LIVE_NTFS_MFT_INDEX_TIMEOUT: Duration = Duration::from_secs(20);
 const MFT_BUILD_TIMING_CAVEAT_CODE: &str = "mft-index-build-timing";
 const MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE: &str =
     "mft-index-allocation-budget-exhausted";
+const MFT_PERSISTENT_CACHE_MISS_CAVEAT_CODE: &str = "mft-persistent-cache-miss";
+const MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE: &str = "mft-persistent-cache-write-skipped";
 const NTFS_VOLUME_INDEX_MANIFEST_VERSION: u32 = 1;
 const NTFS_VOLUME_INDEX_PAYLOAD_VERSION: u32 = 1;
 const NTFS_VOLUME_INDEX_CACHE_DIR: &str = "ntfs-volume-index";
@@ -676,6 +678,16 @@ impl NtfsVolumeIndexManifestMiss {
     fn should_prune(self) -> bool {
         matches!(self, Self::Unreadable | Self::Corrupted | Self::Stale)
     }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Missing => "manifest-missing",
+            Self::Unreadable => "manifest-unreadable",
+            Self::Corrupted => "manifest-corrupted",
+            Self::UnsupportedVersion => "manifest-unsupported-version",
+            Self::Stale => "manifest-stale",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -727,6 +739,25 @@ impl NtfsVolumeIndexPayloadMiss {
             | Self::UsnReplayUnstable
             | Self::UsnAncestryUnavailable
             | Self::UsnTargetChanged => false,
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::Manifest(reason) => reason.label().to_string(),
+            Self::ManifestWithoutPayload => "manifest-without-payload".to_string(),
+            Self::Missing => "payload-missing".to_string(),
+            Self::Unreadable => "payload-unreadable".to_string(),
+            Self::Corrupted => "payload-corrupted".to_string(),
+            Self::UnsupportedVersion => "payload-unsupported-version".to_string(),
+            Self::Stale => "payload-stale".to_string(),
+            Self::ChecksumMismatch => "payload-checksum-mismatch".to_string(),
+            Self::UsnCheckpointMissing => "usn-checkpoint-missing".to_string(),
+            Self::UsnJournalChanged => "usn-journal-changed".to_string(),
+            Self::UsnRangeUnavailable => "usn-range-unavailable".to_string(),
+            Self::UsnReplayUnstable => "usn-replay-unstable".to_string(),
+            Self::UsnAncestryUnavailable => "usn-ancestry-unavailable".to_string(),
+            Self::UsnTargetChanged => "usn-target-changed".to_string(),
         }
     }
 }
@@ -929,6 +960,33 @@ fn validate_ntfs_volume_index_replay_range(
     }
 
     None
+}
+
+fn persistent_cache_miss_caveat(reason: impl AsRef<str>) -> ParseCaveat {
+    ParseCaveat::new(
+        MFT_PERSISTENT_CACHE_MISS_CAVEAT_CODE,
+        format!(
+            "persistent NTFS/MFT volume-index cache missed; reason={}",
+            reason.as_ref()
+        ),
+    )
+}
+
+fn persistent_cache_write_skipped_caveat(reason: impl AsRef<str>) -> ParseCaveat {
+    ParseCaveat::new(
+        MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE,
+        format!(
+            "persistent NTFS/MFT volume-index payload write skipped; reason={}",
+            reason.as_ref()
+        ),
+    )
+}
+
+fn is_transient_persistent_cache_caveat(code: &str) -> bool {
+    matches!(
+        code,
+        MFT_PERSISTENT_CACHE_MISS_CAVEAT_CODE | MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE
+    )
 }
 
 fn stable_ntfs_volume_index_checkpoint(
@@ -1141,6 +1199,32 @@ pub(super) struct WindowsNtfsMftIndexCache {
     volume_changed: Condvar,
 }
 
+#[derive(Debug, Default)]
+struct PersistentIndexLoad {
+    index: Option<CachedNtfsVolumeIndex>,
+    caveats: Vec<ParseCaveat>,
+}
+
+impl PersistentIndexLoad {
+    fn hit(index: CachedNtfsVolumeIndex) -> Self {
+        Self {
+            index: Some(index),
+            caveats: Vec::new(),
+        }
+    }
+
+    fn miss(reason: impl AsRef<str>) -> Self {
+        Self {
+            index: None,
+            caveats: vec![persistent_cache_miss_caveat(reason)],
+        }
+    }
+
+    fn disabled() -> Self {
+        Self::default()
+    }
+}
+
 impl WindowsNtfsMftIndexCache {
     pub(super) fn with_manifest_store(manifest_store: NtfsVolumeIndexManifestStore) -> Self {
         Self {
@@ -1185,23 +1269,29 @@ impl WindowsNtfsMftIndexCache {
         }
         drop(volumes);
 
-        let build_result = match self.load_persistent_index(
+        let persistent_load = self.load_persistent_index(
             capabilities,
             target_record_id,
             target_is_volume_root,
             cancellation,
-        )? {
-            Some(index) => Ok(index),
+        )?;
+        let mut persistent_load_caveats = persistent_load.caveats;
+        let build_result = match persistent_load.index {
+            Some(index) => Ok((index, Vec::new())),
             None => CachedNtfsVolumeIndex::build(
                 capabilities,
                 cancellation,
                 self.manifest_store.is_some(),
-            ),
+            )
+            .map(|index| (index, std::mem::take(&mut persistent_load_caveats))),
         };
         let mut volumes = self.lock_volumes()?;
         let result = match build_result {
-            Ok(index) => {
-                index.store_persistent_payload(self.manifest_store.as_ref());
+            Ok((mut index, mut transient_caveats)) => {
+                if let Some(caveat) = index.store_persistent_payload(self.manifest_store.as_ref()) {
+                    index.caveats.push(caveat);
+                }
+                index.caveats.append(&mut transient_caveats);
                 let index = Arc::new(index);
                 volumes.insert(
                     cache_key,
@@ -1228,9 +1318,9 @@ impl WindowsNtfsMftIndexCache {
         target_record_id: u64,
         target_is_volume_root: bool,
         cancellation: &ScanCancellationToken,
-    ) -> Result<Option<CachedNtfsVolumeIndex>> {
+    ) -> Result<PersistentIndexLoad> {
         let Some(manifest_store) = self.manifest_store.as_ref() else {
-            return Ok(None);
+            return Ok(PersistentIndexLoad::disabled());
         };
         check_not_cancelled(cancellation)?;
 
@@ -1241,7 +1331,7 @@ impl WindowsNtfsMftIndexCache {
                     error = %err,
                     "NTFS persistent volume-index load skipped before open"
                 );
-                return Ok(None);
+                return Ok(PersistentIndexLoad::miss("open-failed"));
             }
         };
         let volume_data = match volume.ntfs_volume_data() {
@@ -1251,7 +1341,7 @@ impl WindowsNtfsMftIndexCache {
                     error = %err,
                     "NTFS persistent volume-index load skipped before volume fingerprint"
                 );
-                return Ok(None);
+                return Ok(PersistentIndexLoad::miss("volume-data-unavailable"));
             }
         };
         let geometry = match NtfsRecordGeometry::from_volume_data(&volume.device_path, &volume_data)
@@ -1262,7 +1352,7 @@ impl WindowsNtfsMftIndexCache {
                     error = %err,
                     "NTFS persistent volume-index load skipped before record geometry"
                 );
-                return Ok(None);
+                return Ok(PersistentIndexLoad::miss("record-geometry-unavailable"));
             }
         };
         let fingerprint =
@@ -1275,7 +1365,7 @@ impl WindowsNtfsMftIndexCache {
                     generation = fingerprint.persistent_generation(),
                     "NTFS persistent volume-index load skipped before USN freshness validation"
                 );
-                return Ok(None);
+                return Ok(PersistentIndexLoad::miss("usn-journal-unavailable"));
             }
         };
 
@@ -1288,7 +1378,7 @@ impl WindowsNtfsMftIndexCache {
                         generation = fingerprint.persistent_generation(),
                         "NTFS persistent volume-index payload miss without USN checkpoint"
                     );
-                    return Ok(None);
+                    return Ok(PersistentIndexLoad::miss("usn-checkpoint-missing"));
                 };
 
                 let mut journal_state = journal_state;
@@ -1307,7 +1397,7 @@ impl WindowsNtfsMftIndexCache {
                                     generation = fingerprint.persistent_generation(),
                                     "NTFS persistent volume-index payload miss because USN replay failed"
                                 );
-                                return Ok(None);
+                                return Ok(PersistentIndexLoad::miss("usn-replay-read-failed"));
                             }
                         };
                         if let Some(reason) = validate_ntfs_volume_index_replay(
@@ -1323,7 +1413,7 @@ impl WindowsNtfsMftIndexCache {
                                 generation = fingerprint.persistent_generation(),
                                 "NTFS persistent volume-index payload miss after USN replay"
                             );
-                            return Ok(None);
+                            return Ok(PersistentIndexLoad::miss(reason.label()));
                         }
                     }
 
@@ -1335,7 +1425,9 @@ impl WindowsNtfsMftIndexCache {
                                 generation = fingerprint.persistent_generation(),
                                 "NTFS persistent volume-index payload miss after replay stability check failed"
                             );
-                            return Ok(None);
+                            return Ok(PersistentIndexLoad::miss(
+                                "usn-replay-stability-check-failed",
+                            ));
                         }
                     };
                     if replay_end_state == journal_state {
@@ -1350,7 +1442,7 @@ impl WindowsNtfsMftIndexCache {
                             generation = fingerprint.persistent_generation(),
                             "NTFS persistent volume-index payload miss after USN replay state changed"
                         );
-                        return Ok(None);
+                        return Ok(PersistentIndexLoad::miss(reason.label()));
                     }
                     replay_attempts += 1;
                     if replay_attempts >= MAX_NTFS_VOLUME_INDEX_USN_REPLAY_ATTEMPTS {
@@ -1360,7 +1452,9 @@ impl WindowsNtfsMftIndexCache {
                             attempts = replay_attempts,
                             "NTFS persistent volume-index payload miss because USN replay did not stabilize"
                         );
-                        return Ok(None);
+                        return Ok(PersistentIndexLoad::miss(
+                            NtfsVolumeIndexPayloadMiss::UsnReplayUnstable.label(),
+                        ));
                     }
                     journal_state = replay_end_state;
                 }
@@ -1368,7 +1462,7 @@ impl WindowsNtfsMftIndexCache {
                     generation = fingerprint.persistent_generation(),
                     "NTFS persistent volume-index payload hit"
                 );
-                Ok(Some(CachedNtfsVolumeIndex {
+                Ok(PersistentIndexLoad::hit(CachedNtfsVolumeIndex {
                     fingerprint,
                     mft_index: payload.mft_index,
                     source_label: PERSISTENT_MFT_SOURCE_LABEL,
@@ -1382,7 +1476,7 @@ impl WindowsNtfsMftIndexCache {
                     generation = fingerprint.persistent_generation(),
                     "NTFS persistent volume-index payload miss"
                 );
-                Ok(None)
+                Ok(PersistentIndexLoad::miss(reason.label()))
             }
         }
     }
@@ -1448,29 +1542,38 @@ impl CachedNtfsVolumeIndex {
         self.fingerprint.is_reusable_for(capabilities)
     }
 
-    fn store_persistent_payload(&self, manifest_store: Option<&NtfsVolumeIndexManifestStore>) {
-        let Some(manifest_store) = manifest_store else {
-            return;
-        };
+    fn store_persistent_payload(
+        &self,
+        manifest_store: Option<&NtfsVolumeIndexManifestStore>,
+    ) -> Option<ParseCaveat> {
+        let manifest_store = manifest_store?;
         let Some(usn_checkpoint) = self.usn_checkpoint.clone() else {
             tracing::debug!(
                 generation = self.fingerprint.persistent_generation(),
                 "NTFS volume-index payload write skipped without stable USN checkpoint"
             );
-            return;
+            return Some(persistent_cache_write_skipped_caveat(
+                "stable-usn-checkpoint-unavailable",
+            ));
         };
         if matches!(
             manifest_store.load_index_payload(&self.fingerprint),
             NtfsVolumeIndexPayloadLookup::Hit { manifest, .. }
                 if manifest.usn_checkpoint.as_ref() == Some(&usn_checkpoint)
         ) {
-            return;
+            return None;
         }
+        let persistent_caveats = self
+            .caveats
+            .iter()
+            .filter(|caveat| !is_transient_persistent_cache_caveat(&caveat.code))
+            .cloned()
+            .collect::<Vec<_>>();
         if let Err(err) = manifest_store.store_index_payload(
             self.fingerprint.clone(),
             self.source_label,
             Some(usn_checkpoint),
-            &self.caveats,
+            &persistent_caveats,
             &self.mft_index,
         ) {
             tracing::debug!(
@@ -1478,7 +1581,9 @@ impl CachedNtfsVolumeIndex {
                 generation = self.fingerprint.persistent_generation(),
                 "NTFS volume-index payload write skipped"
             );
+            return Some(persistent_cache_write_skipped_caveat("write-failed"));
         }
+        None
     }
 
     fn build(
@@ -4330,9 +4435,10 @@ mod tests {
     };
 
     use super::{
-        MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE, MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES,
-        MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE,
-        MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE, MftExtent, MftParseErrorCaveats,
+        CachedNtfsVolumeIndex, MAX_MFT_ESTIMATE_CAVEAT_SAMPLES_PER_CODE,
+        MAX_MFT_PARSE_ERROR_CAVEAT_SAMPLES, MFT_BUILD_TIMING_CAVEAT_CODE, MFT_CAVEAT_SUMMARY_CODE,
+        MFT_INDEX_ALLOCATION_BUDGET_EXHAUSTED_CAVEAT_CODE, MFT_PERSISTENT_CACHE_MISS_CAVEAT_CODE,
+        MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE, MftExtent, MftParseErrorCaveats,
         MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
         NTFS_VOLUME_INDEX_CACHE_DIR, NTFS_VOLUME_INDEX_PAYLOAD_VERSION, NtfsMftBuildMetric,
         NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry, NtfsVolumeCapabilities,
@@ -4341,13 +4447,15 @@ mod tests {
         NtfsVolumeIndexPayload, NtfsVolumeIndexPayloadLookup, NtfsVolumeIndexPayloadMiss,
         NtfsVolumeIndexPayloadRef, NtfsVolumeIndexUsnChange, ParsedNtfsRecords,
         RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
-        ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
-        TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, USN_RECORD_V2,
-        VolumePaths, build_mft_index_from_records, cache_checksum, check_mft_build_progress,
-        collect_mft_disk_map_entry, file_reference_from_number, file_reference_number,
+        SEQUENTIAL_MFT_SOURCE_LABEL, ScanCancellationToken, SequentialMftChunk,
+        SequentialMftMirrorChunk, TargetedMftRecordResolver, TargetedMftTraversal,
+        TargetedMftTraversalLimits, USN_RECORD_V2, VolumePaths, build_mft_index_from_records,
+        cache_checksum, check_mft_build_progress, collect_mft_disk_map_entry,
+        file_reference_from_number, file_reference_number, is_transient_persistent_cache_caveat,
         low_file_reference_number, mft_mirror_read_plan, mirror_for_primary_records,
         next_mft_chunk_len, parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
-        parse_usn_journal_read_buffer, read_mft_records_from_sources,
+        parse_usn_journal_read_buffer, persistent_cache_miss_caveat,
+        persistent_cache_write_skipped_caveat, read_mft_records_from_sources,
         stable_ntfs_volume_index_checkpoint, validate_ntfs_volume_index_replay,
         validate_ntfs_volume_index_replay_range, with_bounded_mft_caveats,
     };
@@ -4809,6 +4917,44 @@ mod tests {
     }
 
     #[test]
+    fn ntfs_volume_index_payload_store_filters_transient_cache_diagnostics() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let checkpoint = ScanCacheUsnCheckpoint {
+            journal_id: 11,
+            next_usn: 200,
+        };
+        let index = CachedNtfsVolumeIndex {
+            fingerprint: fingerprint.clone(),
+            mft_index: fixture_mft_index(),
+            source_label: SEQUENTIAL_MFT_SOURCE_LABEL,
+            caveats: vec![
+                persistent_cache_miss_caveat("manifest-missing"),
+                ParseCaveat::new("durable-caveat", "durable"),
+            ],
+            usn_checkpoint: Some(checkpoint),
+        };
+
+        assert!(index.store_persistent_payload(Some(&store)).is_none());
+
+        match store.load_index_payload(&fingerprint) {
+            NtfsVolumeIndexPayloadLookup::Hit { payload, .. } => {
+                assert_eq!(payload.caveats.len(), 1);
+                assert_eq!(payload.caveats[0].code, "durable-caveat");
+            }
+            lookup => panic!("expected payload hit, got {lookup:?}"),
+        }
+        assert!(is_transient_persistent_cache_caveat(
+            MFT_PERSISTENT_CACHE_MISS_CAVEAT_CODE
+        ));
+        assert!(is_transient_persistent_cache_caveat(
+            MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE
+        ));
+        assert!(!is_transient_persistent_cache_caveat("durable-caveat"));
+    }
+
+    #[test]
     fn ntfs_volume_index_manifest_store_rejects_checkpoint_free_payload_as_not_fresh() {
         let temp = tempfile::tempdir().unwrap();
         let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
@@ -5146,6 +5292,58 @@ mod tests {
                 .manifest_store
                 .is_none()
         );
+    }
+
+    #[test]
+    fn persistent_cache_caveats_use_stable_reason_labels() {
+        let miss = persistent_cache_miss_caveat("manifest-missing");
+        assert_eq!(miss.code, MFT_PERSISTENT_CACHE_MISS_CAVEAT_CODE);
+        assert!(miss.message.contains("reason=manifest-missing"));
+
+        let write_skip = persistent_cache_write_skipped_caveat("write-failed");
+        assert_eq!(
+            write_skip.code,
+            MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE
+        );
+        assert!(write_skip.message.contains("reason=write-failed"));
+    }
+
+    #[test]
+    fn ntfs_volume_index_store_reports_skipped_payload_without_checkpoint() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = NtfsVolumeIndexManifestStore::new(temp.path().join("cache"));
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let index = CachedNtfsVolumeIndex {
+            fingerprint,
+            mft_index: fixture_mft_index(),
+            source_label: SEQUENTIAL_MFT_SOURCE_LABEL,
+            caveats: Vec::new(),
+            usn_checkpoint: None,
+        };
+
+        let caveat = index.store_persistent_payload(Some(&store)).unwrap();
+
+        assert_eq!(caveat.code, MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE);
+        assert!(
+            caveat
+                .message
+                .contains("reason=stable-usn-checkpoint-unavailable")
+        );
+        assert!(!store.cache_file_for(&index.fingerprint).exists());
+    }
+
+    #[test]
+    fn ntfs_volume_index_store_without_manifest_store_stays_quiet() {
+        let fingerprint = ntfs_volume_fingerprint("\\\\.\\C:", 7, 1024, 512, 4096, 8192);
+        let index = CachedNtfsVolumeIndex {
+            fingerprint,
+            mft_index: fixture_mft_index(),
+            source_label: SEQUENTIAL_MFT_SOURCE_LABEL,
+            caveats: Vec::new(),
+            usn_checkpoint: None,
+        };
+
+        assert!(index.store_persistent_payload(None).is_none());
     }
 
     #[test]
