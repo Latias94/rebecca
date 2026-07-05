@@ -68,6 +68,27 @@ fn glob_template_with_no_matches_is_skipped() {
 }
 
 #[test]
+fn glob_template_does_not_traverse_symlinked_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let profiles = root.join("Profiles");
+    let outside = root.join("OutsideProfile");
+    fs::create_dir_all(profiles.join("alice").join("cache2")).unwrap();
+    fs::create_dir_all(outside.join("cache2")).unwrap();
+    create_dir_symlink(&outside, &profiles.join("linked")).unwrap();
+
+    let env = MapEnvironment::new().with_var("ROOT", root.as_os_str().to_os_string());
+    let target = RuleTargetSpec::glob_template("%ROOT%\\Profiles\\*\\cache2");
+
+    let paths = match resolve_rule_target(&target, &env).unwrap() {
+        TargetResolution::Paths(paths) => paths,
+        TargetResolution::Skipped(reason) => panic!("target should resolve: {reason}"),
+    };
+
+    assert_eq!(paths, vec![profiles.join("alice").join("cache2")]);
+}
+
+#[test]
 fn glob_template_shared_index_reuses_compatible_directory_listing() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -446,6 +467,16 @@ fn steam_relative_templates_reject_current_directory_segments() {
     let err = resolve_rule_target_with_applications(&target, &env, &applications).unwrap_err();
 
     assert!(err.to_string().contains("must be a safe relative path"));
+}
+
+#[cfg(unix)]
+fn create_dir_symlink(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_dir_symlink(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
 }
 
 #[test]

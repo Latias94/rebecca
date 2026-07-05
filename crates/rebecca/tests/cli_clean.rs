@@ -993,6 +993,11 @@ fn clean_yes_does_not_write_scan_cache_by_default() {
 
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["mode"], "recycle-bin");
+    assert_eq!(value["execution_report"]["summary"]["completed_actions"], 1);
+    assert_eq!(
+        value["execution_report"]["summary"]["pending_reclaim_bytes"],
+        5
+    );
     assert!(!temp.path().join("rebecca-cache").join("scan").exists());
 }
 

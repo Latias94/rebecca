@@ -39,6 +39,10 @@ fn cache_purge_json_defaults_to_preview_without_deleting() {
     assert_eq!(value["summary"]["pending_reclaim_bytes"], 0);
     assert_eq!(value["summary"]["recoverably_deleted_entries"], 0);
     assert_eq!(value["summary"]["permanently_deleted_entries"], 0);
+    assert_eq!(value["execution_report"]["dry_run"], true);
+    assert_eq!(value["execution_report"]["summary"]["total_actions"], 2);
+    assert_eq!(value["execution_report"]["summary"]["estimated_bytes"], 5);
+    assert_eq!(value["execution_report"]["actions"][0]["status"], "allowed");
     assert!(
         value["summary"]["issue_matrix"]
             .as_array()
@@ -111,6 +115,12 @@ fn cache_purge_yes_moves_direct_contents_to_recycle_bin_by_default() {
     assert_eq!(value["summary"]["permanently_deleted_entries"], 0);
     assert_eq!(value["summary"]["reclaimed_bytes"], 0);
     assert_eq!(value["summary"]["pending_reclaim_bytes"], 5);
+    assert_eq!(value["execution_report"]["dry_run"], false);
+    assert_eq!(value["execution_report"]["summary"]["completed_actions"], 2);
+    assert_eq!(
+        value["execution_report"]["summary"]["pending_reclaim_bytes"],
+        5
+    );
     assert_eq!(value["entries"][0]["status"], "recoverably-deleted");
     assert_eq!(value["entries"][0]["reclaimed_bytes"], 0);
     assert!(
@@ -184,6 +194,11 @@ fn cache_purge_permanent_deletes_direct_contents_but_keeps_cache_dir() {
     assert_eq!(value["summary"]["permanently_deleted_entries"], 2);
     assert_eq!(value["summary"]["reclaimed_bytes"], 5);
     assert_eq!(value["summary"]["pending_reclaim_bytes"], 0);
+    assert_eq!(value["execution_report"]["summary"]["completed_actions"], 2);
+    assert_eq!(
+        value["execution_report"]["summary"]["confirmed_reclaimed_bytes"],
+        5
+    );
     assert_eq!(value["entries"][0]["status"], "permanently-deleted");
     assert!(value["entries"][0]["reclaimed_bytes"].as_u64().unwrap() > 0);
     assert_eq!(value["entries"][0]["pending_reclaim_bytes"], 0);

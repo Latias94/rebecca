@@ -266,6 +266,7 @@ mod tests {
             request: PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun),
             summary: CleanupSummary::default(),
             targets,
+            execution_report: None,
             discovery_diagnostics: Vec::new(),
         };
         plan.recompute_summary();

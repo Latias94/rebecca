@@ -247,17 +247,22 @@ pub(crate) fn run_workflow_with_runtime_config(
         if !protected_paths.is_empty() {
             execution_policy = execution_policy.with_protected_paths(&protected_paths);
         }
-        if let Err(err) =
-            execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy)
-        {
-            return finish_stream_with_error(event_writer, err.into());
-        }
+        let mut execution_report = match execute_cleanup_plan_parallel_with_policy(
+            &mut plan,
+            &backend,
+            execution_policy,
+        ) {
+            Ok(report) => report,
+            Err(err) => return finish_stream_with_error(event_writer, err.into()),
+        };
 
-        if let Err(err) =
-            HistoryStore::new(runtime_config.app_paths.history_file).append_plan(&plan)
-        {
-            return finish_stream_with_error(event_writer, err.into());
+        let history_append =
+            HistoryStore::new(runtime_config.app_paths.history_file).append_plan_report(&plan);
+        if let Some(warning) = history_append.warning {
+            eprintln!("Warning: {}", warning.message);
+            execution_report.push_warning(warning);
         }
+        plan.execution_report = Some(execution_report);
 
         (options.success_renderer)(
             &plan,

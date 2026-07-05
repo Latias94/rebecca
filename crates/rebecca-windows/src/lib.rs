@@ -82,6 +82,7 @@ mod platform {
     use rebecca_core::error::{RebeccaError, Result};
     use rebecca_core::executor::ExecutionOutcome;
     use rebecca_core::plan::{CleanupTarget, CleanupTargetDeletionStyle};
+    use rebecca_core::safety::is_reparse_like;
     use windows::Win32::UI::Shell::IsUserAnAdmin;
 
     struct BatchRecycleTarget {
@@ -111,9 +112,7 @@ mod platform {
             }
             CleanupTargetDeletionStyle::PreserveRootContents => {
                 if path.is_dir() {
-                    let entries = fs::read_dir(path)?
-                        .map(|entry| entry.map(|entry| entry.path()))
-                        .collect::<std::io::Result<Vec<_>>>()?;
+                    let entries = preserve_root_delete_paths(path)?;
                     if !entries.is_empty() {
                         trash::delete_all(entries)
                             .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
@@ -193,15 +192,29 @@ mod platform {
             CleanupTargetDeletionStyle::DeleteWholePath => Ok(vec![target.path.clone()]),
             CleanupTargetDeletionStyle::PreserveRootContents => {
                 if metadata.is_dir() {
-                    fs::read_dir(&target.path)?
-                        .map(|entry| entry.map(|entry| entry.path()))
-                        .collect::<std::io::Result<Vec<_>>>()
-                        .map_err(Into::into)
+                    preserve_root_delete_paths(&target.path)
                 } else {
                     Ok(vec![target.path.clone()])
                 }
             }
         }
+    }
+
+    fn preserve_root_delete_paths(path: &Path) -> Result<Vec<PathBuf>> {
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let child = entry.path();
+            let metadata = fs::symlink_metadata(&child)?;
+            if is_reparse_like(&metadata) {
+                return Err(RebeccaError::ExecutionFailed(format!(
+                    "preserve-root cleanup refused reparse child {}",
+                    child.display()
+                )));
+            }
+            entries.push(child);
+        }
+        Ok(entries)
     }
 
     fn reconstruct_or_fallback_after_batch_failure(

@@ -4,9 +4,10 @@ use rayon::ThreadPool;
 use rayon::prelude::*;
 
 use crate::error::{RebeccaError, Result};
+use crate::execution::ExecutionReport;
 use crate::model::CleanupWorkflow;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
-use crate::path_overlap::paths_overlap;
+use crate::path_overlap::{PathRelation, path_relation, paths_overlap};
 use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{
@@ -34,7 +35,10 @@ pub trait CleanupBackend {
     }
 }
 
-pub fn execute_cleanup_plan<B: CleanupBackend>(plan: &mut CleanupPlan, backend: &B) -> Result<()> {
+pub fn execute_cleanup_plan<B: CleanupBackend>(
+    plan: &mut CleanupPlan,
+    backend: &B,
+) -> Result<ExecutionReport> {
     execute_cleanup_plan_with_policy(plan, backend, ProtectionPolicy::new())
 }
 
@@ -42,14 +46,14 @@ pub fn execute_cleanup_plan_with_policy<B: CleanupBackend>(
     plan: &mut CleanupPlan,
     backend: &B,
     policy: ProtectionPolicy<'_>,
-) -> Result<()> {
+) -> Result<ExecutionReport> {
     execute_cleanup_plan_serially_with_policy(plan, backend, policy)
 }
 
 pub fn execute_cleanup_plan_parallel<B: CleanupBackend + Sync>(
     plan: &mut CleanupPlan,
     backend: &B,
-) -> Result<()> {
+) -> Result<ExecutionReport> {
     execute_cleanup_plan_parallel_with_policy(plan, backend, ProtectionPolicy::new())
 }
 
@@ -57,25 +61,43 @@ pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
     plan: &mut CleanupPlan,
     backend: &B,
     policy: ProtectionPolicy<'_>,
-) -> Result<()> {
+) -> Result<ExecutionReport> {
     if plan.request.mode.is_dry_run() {
         plan.recompute_summary();
-        return Ok(());
+        let report = ExecutionReport::dry_run();
+        plan.execution_report = Some(report.clone());
+        return Ok(report);
     }
 
     if !revalidate_executable_targets(plan, policy) {
         plan.recompute_summary();
-        return Ok(());
+        let report = ExecutionReport::from_targets(&plan.targets);
+        plan.execution_report = Some(report.clone());
+        return Ok(report);
     }
+    normalize_overlapping_executable_targets(plan);
 
     let batches = batch_executable_targets(&plan.targets);
     if batches.is_empty() {
         plan.recompute_summary();
-        return Ok(());
+        let report = ExecutionReport::from_targets(&plan.targets);
+        plan.execution_report = Some(report.clone());
+        return Ok(report);
     }
 
     let batch_delete_supported = backend.supports_batch_delete();
-    for batch in batches {
+    for mut batch in batches {
+        batch.retain(|&index| {
+            execution_target_is_still_allowed(
+                plan.request.workflow,
+                &mut plan.targets[index],
+                policy,
+            )
+        });
+        if batch.is_empty() {
+            continue;
+        }
+
         if batch_delete_supported {
             let outcomes = {
                 let targets = batch
@@ -100,7 +122,9 @@ pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
     }
 
     plan.recompute_summary();
-    Ok(())
+    let report = ExecutionReport::from_targets(&plan.targets);
+    plan.execution_report = Some(report.clone());
+    Ok(report)
 }
 
 fn revalidate_executable_targets(plan: &mut CleanupPlan, policy: ProtectionPolicy<'_>) -> bool {
@@ -123,10 +147,16 @@ fn execute_cleanup_plan_serially_with_policy<B: CleanupBackend>(
     plan: &mut CleanupPlan,
     backend: &B,
     policy: ProtectionPolicy<'_>,
-) -> Result<()> {
+) -> Result<ExecutionReport> {
     if plan.request.mode.is_dry_run() {
         plan.recompute_summary();
-        return Ok(());
+        let report = ExecutionReport::dry_run();
+        plan.execution_report = Some(report.clone());
+        return Ok(report);
+    }
+
+    if revalidate_executable_targets(plan, policy) {
+        normalize_overlapping_executable_targets(plan);
     }
 
     for target in &mut plan.targets {
@@ -143,7 +173,64 @@ fn execute_cleanup_plan_serially_with_policy<B: CleanupBackend>(
     }
 
     plan.recompute_summary();
-    Ok(())
+    let report = ExecutionReport::from_targets(&plan.targets);
+    plan.execution_report = Some(report.clone());
+    Ok(report)
+}
+
+fn normalize_overlapping_executable_targets(plan: &mut CleanupPlan) {
+    let executable_indices = plan
+        .targets
+        .iter()
+        .enumerate()
+        .filter_map(|(index, target)| target.status.is_executable().then_some(index))
+        .collect::<Vec<_>>();
+
+    let mut shadowed_by = vec![None; plan.targets.len()];
+    for &covered_index in &executable_indices {
+        for &candidate_index in &executable_indices {
+            if candidate_index == covered_index {
+                continue;
+            }
+
+            let candidate_covers_target = match path_relation(
+                plan.targets[candidate_index].path.as_path(),
+                plan.targets[covered_index].path.as_path(),
+            ) {
+                PathRelation::Same => candidate_index < covered_index,
+                PathRelation::Ancestor => true,
+                PathRelation::Descendant | PathRelation::Unrelated => false,
+            };
+            if candidate_covers_target
+                && shadow_parent_is_preferred(plan, shadowed_by[covered_index], candidate_index)
+            {
+                shadowed_by[covered_index] = Some(candidate_index);
+            }
+        }
+    }
+
+    for covered_index in executable_indices {
+        let Some(parent_index) = shadowed_by[covered_index] else {
+            continue;
+        };
+        let parent_rule_id = plan.targets[parent_index].rule_id.clone();
+        mark_target_shadowed_before_execution(&mut plan.targets[covered_index], parent_rule_id);
+    }
+}
+
+fn shadow_parent_is_preferred(
+    plan: &CleanupPlan,
+    current_parent: Option<usize>,
+    candidate_parent: usize,
+) -> bool {
+    let Some(current_parent) = current_parent else {
+        return true;
+    };
+
+    let candidate_depth = plan.targets[candidate_parent].path.components().count();
+    let current_depth = plan.targets[current_parent].path.components().count();
+    candidate_depth < current_depth
+        || (candidate_depth == current_depth && candidate_parent < current_parent)
 }
 
 fn execution_target_is_still_allowed(
@@ -189,6 +276,16 @@ fn mark_target_missing_before_execution(target: &mut CleanupTarget) {
     target.status = crate::TargetStatus::Skipped;
     target.reason = Some(PATH_DOES_NOT_EXIST_REASON.to_string());
     target.reason_code = Some(CleanupTargetIssueReason::ExecutionTargetMissing);
+    target.freed_bytes = 0;
+    target.pending_reclaim_bytes = 0;
+}
+
+fn mark_target_shadowed_before_execution(target: &mut CleanupTarget, parent_rule_id: String) {
+    target.status = crate::TargetStatus::Skipped;
+    target.reason = Some(format!(
+        "covered by overlapping cleanup target from {parent_rule_id}"
+    ));
+    target.reason_code = Some(CleanupTargetIssueReason::ExecutionTargetShadowed);
     target.freed_bytes = 0;
     target.pending_reclaim_bytes = 0;
 }

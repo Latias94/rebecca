@@ -63,11 +63,17 @@ fn config_paths_json(paths: &AppPaths) -> serde_json::Value {
 pub fn print_history(output_mode: OutputMode, limit: Option<NonZeroUsize>) -> Result<()> {
     let paths = load_app_paths()?;
     let store = HistoryStore::new(paths.history_file);
-    let entries = match limit {
-        Some(limit) => store.load_tail(limit)?,
-        None => store.load()?,
+    let report = match limit {
+        Some(limit) => store.load_tail_report(limit)?,
+        None => store.load_report()?,
     };
-    let history = HistoryProjection::new(entries, limit);
+    for diagnostic in &report.diagnostics {
+        eprintln!(
+            "History warning: skipped corrupted history line {} ({})",
+            diagnostic.line_number, diagnostic.message
+        );
+    }
+    let history = HistoryProjection::new(report.entries, limit);
 
     crate::output::print_command_success(
         "history",

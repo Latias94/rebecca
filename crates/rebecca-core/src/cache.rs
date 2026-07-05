@@ -3,9 +3,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::TargetStatus;
 use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
 use crate::error::{RebeccaError, Result};
+use crate::execution::{ExecutionActionReport, ExecutionReport};
 use crate::path_overlap::paths_overlap;
+use crate::plan::CleanupTargetDeletionStyle;
 use crate::scan::ScanEngine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +85,7 @@ pub struct CachePurgeReport {
     pub deleted: bool,
     pub summary: CachePurgeSummary,
     pub entries: Vec<CachePurgeEntry>,
+    pub execution_report: ExecutionReport,
 }
 
 impl CachePurgeReport {
@@ -96,11 +100,13 @@ impl CachePurgeReport {
             deleted: mode.deletes(),
             summary: CachePurgeSummary::default(),
             entries: Vec::new(),
+            execution_report: cache_execution_report(mode, &[]),
         }
     }
 
     fn recompute_summary(&mut self) {
         self.summary = CachePurgeSummary::from_entries(&self.entries);
+        self.execution_report = cache_execution_report(self.mode, &self.entries);
     }
 }
 
@@ -499,6 +505,50 @@ fn purge_cache_entry<B: CachePurgeBackend>(
     }
 }
 
+fn cache_execution_report(mode: CachePurgeMode, entries: &[CachePurgeEntry]) -> ExecutionReport {
+    let actions = entries
+        .iter()
+        .enumerate()
+        .map(|(target_index, entry)| ExecutionActionReport {
+            target_index,
+            rule_id: "rebecca.cache-purge".to_string(),
+            path: entry.path.clone(),
+            deletion_style: CleanupTargetDeletionStyle::DeleteWholePath,
+            estimated_bytes: entry.estimated_bytes,
+            status: cache_entry_execution_status(entry.status),
+            reason: entry.reason.clone(),
+            reason_code: entry
+                .reason_code
+                .map(|reason_code| reason_code.label().to_string()),
+            attempted_paths: cache_entry_attempted_paths(entry),
+            confirmed_reclaimed_bytes: entry.reclaimed_bytes,
+            pending_reclaim_bytes: entry.pending_reclaim_bytes,
+        })
+        .collect();
+
+    ExecutionReport::from_actions_with_dry_run(actions, mode == CachePurgeMode::DryRun)
+}
+
+fn cache_entry_execution_status(status: CachePurgeEntryStatus) -> TargetStatus {
+    match status {
+        CachePurgeEntryStatus::WouldDelete => TargetStatus::Allowed,
+        CachePurgeEntryStatus::RecoverablyDeleted | CachePurgeEntryStatus::PermanentlyDeleted => {
+            TargetStatus::Completed
+        }
+        CachePurgeEntryStatus::Skipped => TargetStatus::Skipped,
+        CachePurgeEntryStatus::Failed => TargetStatus::Failed,
+    }
+}
+
+fn cache_entry_attempted_paths(entry: &CachePurgeEntry) -> Vec<PathBuf> {
+    match entry.status {
+        CachePurgeEntryStatus::RecoverablyDeleted
+        | CachePurgeEntryStatus::PermanentlyDeleted
+        | CachePurgeEntryStatus::Failed => vec![entry.path.clone()],
+        CachePurgeEntryStatus::WouldDelete | CachePurgeEntryStatus::Skipped => Vec::new(),
+    }
+}
+
 fn permanently_delete_cache_entry(path: &Path, kind: CachePurgeEntryKind) -> std::io::Result<()> {
     match kind {
         CachePurgeEntryKind::File => std::fs::remove_file(path),
@@ -512,7 +562,7 @@ mod tests {
     use super::{
         CachePurgeBackend, CachePurgeEntry, CachePurgeEntryKind, CachePurgeEntryReason,
         CachePurgeEntryStatus, CachePurgeIssueSummary, CachePurgeMode, CachePurgeOutcome,
-        CachePurgeSummary, permanently_delete_cache_entry, purge_app_cache,
+        CachePurgeSummary, cache_execution_report, permanently_delete_cache_entry, purge_app_cache,
         purge_app_cache_with_backend,
     };
     use crate::config::{AppPaths, AppStorageLifecycle, AppStorageRetention};
@@ -576,6 +626,16 @@ mod tests {
         assert_eq!(report.summary.recoverably_deleted_entries, 0);
         assert_eq!(report.summary.permanently_deleted_entries, 0);
         assert!(report.summary.issue_matrix.is_empty());
+        assert!(report.execution_report.dry_run);
+        assert_eq!(report.execution_report.summary.total_actions, 2);
+        assert_eq!(report.execution_report.summary.estimated_bytes, 5);
+        assert!(
+            report
+                .execution_report
+                .actions
+                .iter()
+                .all(|action| action.status == crate::TargetStatus::Allowed)
+        );
         assert!(paths.cache_dir.join("file.bin").exists());
         assert!(paths.cache_dir.join("nested").join("nested.bin").exists());
         assert!(
@@ -610,6 +670,9 @@ mod tests {
         assert_eq!(report.summary.reclaimed_bytes, 0);
         assert_eq!(report.summary.pending_reclaim_bytes, 5);
         assert!(report.summary.issue_matrix.is_empty());
+        assert!(!report.execution_report.dry_run);
+        assert_eq!(report.execution_report.summary.completed_actions, 2);
+        assert_eq!(report.execution_report.summary.pending_reclaim_bytes, 5);
         assert!(paths.cache_dir.exists());
         assert_eq!(std::fs::read_dir(&paths.cache_dir).unwrap().count(), 0);
         assert!(report.entries.iter().all(|entry| {
@@ -637,6 +700,8 @@ mod tests {
         assert_eq!(report.summary.reclaimed_bytes, 5);
         assert_eq!(report.summary.pending_reclaim_bytes, 0);
         assert!(report.summary.issue_matrix.is_empty());
+        assert_eq!(report.execution_report.summary.completed_actions, 2);
+        assert_eq!(report.execution_report.summary.confirmed_reclaimed_bytes, 5);
         assert!(paths.cache_dir.exists());
         assert_eq!(std::fs::read_dir(&paths.cache_dir).unwrap().count(), 0);
         assert!(
@@ -782,6 +847,16 @@ mod tests {
                     estimated_bytes: 7,
                 },
             ]
+        );
+
+        let execution_report = cache_execution_report(CachePurgeMode::DryRun, &entries);
+        assert_eq!(
+            execution_report.actions[0].reason_code.as_deref(),
+            Some("symlink-skipped")
+        );
+        assert_eq!(
+            execution_report.actions[2].reason_code.as_deref(),
+            Some("measurement-failed")
         );
     }
 }

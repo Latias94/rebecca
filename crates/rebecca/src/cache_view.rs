@@ -232,6 +232,7 @@ mod tests {
             deleted: mode != CachePurgeMode::DryRun,
             summary,
             entries,
+            execution_report: Default::default(),
         }
     }
 

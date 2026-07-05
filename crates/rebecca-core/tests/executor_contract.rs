@@ -41,12 +41,19 @@ fn executor_marks_allowed_targets_completed_and_keeps_blocked_targets() {
     plan.recompute_summary();
 
     let backend = FakeBackend::success();
-    execute_cleanup_plan(&mut plan, &backend).unwrap();
+    let report = execute_cleanup_plan(&mut plan, &backend).unwrap();
 
     assert_eq!(backend.calls.get(), 1);
+    assert_eq!(plan.execution_report.as_ref(), Some(&report));
     assert_eq!(plan.targets[0].status, TargetStatus::Completed);
     assert_eq!(plan.targets[0].pending_reclaim_bytes, 10);
     assert_eq!(plan.targets[1].status, TargetStatus::Blocked);
+    assert_eq!(report.summary.completed_actions, 1);
+    assert_eq!(report.summary.blocked_actions, 1);
+    assert_eq!(
+        report.actions[0].attempted_paths,
+        vec![plan.targets[0].path.clone()]
+    );
 }
 
 #[test]
@@ -79,6 +86,114 @@ fn executor_records_failure_without_aborting_plan() {
         plan.summary.issue_matrix[0].reason_code,
         CleanupTargetIssueReason::ExecutionFailed
     );
+}
+
+#[test]
+fn executor_shadows_child_targets_covered_by_parent_delete() {
+    let temp = tempfile::tempdir().unwrap();
+    let parent = temp.path().join("cache");
+    let child = parent.join("child");
+    fs::create_dir_all(&child).unwrap();
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.parent",
+        parent,
+        100,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.child",
+        child,
+        40,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    let report = execute_cleanup_plan(&mut plan, &backend).unwrap();
+
+    assert_eq!(backend.calls.get(), 1);
+    assert_eq!(plan.execution_report.as_ref(), Some(&report));
+    assert_eq!(plan.targets[0].status, TargetStatus::Completed);
+    assert_eq!(plan.targets[1].status, TargetStatus::Skipped);
+    assert_eq!(
+        plan.targets[1].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    );
+    assert_eq!(plan.summary.completed_targets, 1);
+    assert_eq!(plan.summary.skipped_targets, 1);
+    assert_eq!(report.summary.completed_actions, 1);
+    assert_eq!(report.summary.skipped_actions, 1);
+    assert_eq!(report.summary.shadowed_bytes, 40);
+}
+
+#[test]
+fn executor_shadowing_is_order_independent_for_nested_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let parent = temp.path().join("cache");
+    let child = parent.join("child");
+    let grandchild = child.join("grandchild");
+    fs::create_dir_all(&grandchild).unwrap();
+
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.child",
+        child,
+        10,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.grandchild",
+        grandchild,
+        20,
+        DeleteMode::RecycleBin,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.parent",
+        parent,
+        100,
+        DeleteMode::RecycleBin,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    let report = execute_cleanup_plan(&mut plan, &backend).unwrap();
+
+    assert_eq!(backend.calls.get(), 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
+    assert_eq!(plan.targets[1].status, TargetStatus::Skipped);
+    assert_eq!(plan.targets[2].status, TargetStatus::Completed);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    );
+    assert_eq!(
+        plan.targets[1].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("windows.parent")
+    );
+    assert!(
+        plan.targets[1]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("windows.parent")
+    );
+    assert_eq!(report.summary.completed_actions, 1);
+    assert_eq!(report.summary.skipped_actions, 2);
+    assert_eq!(report.summary.shadowed_bytes, 30);
 }
 
 #[test]
@@ -425,12 +540,20 @@ fn executor_parallel_passes_safe_batches_to_batch_backend() {
         .unwrap();
 
     assert_eq!(backend.single_deletes.load(Ordering::SeqCst), 0);
-    assert_eq!(plan.summary.completed_targets, 3);
+    assert_eq!(plan.summary.completed_targets, 2);
+    assert_eq!(plan.summary.skipped_targets, 1);
     assert_eq!(plan.summary.failed_targets, 0);
+    assert_eq!(
+        plan.targets[1].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    );
     let batches = backend.batches.lock().unwrap().clone();
-    assert_eq!(batches.len(), 2);
-    assert!(batches.contains(&vec![child, sibling]));
-    assert!(batches.contains(&vec![parent]));
+    assert_eq!(batches.len(), 1);
+    let mut actual_batch = batches[0].clone();
+    actual_batch.sort();
+    let mut expected_batch = vec![parent, sibling];
+    expected_batch.sort();
+    assert_eq!(actual_batch, expected_batch);
 }
 
 #[test]

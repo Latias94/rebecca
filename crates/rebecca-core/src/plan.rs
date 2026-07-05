@@ -168,6 +168,7 @@ pub enum CleanupTargetIssueReason {
     DuplicateTargetPath,
     SafetyPolicySkipped,
     ExecutionTargetMissing,
+    ExecutionTargetShadowed,
     SafetyPolicyBlocked,
     ProjectArtifactRecentlyModified,
     ReclaimLimitSatisfied,
@@ -186,6 +187,7 @@ impl CleanupTargetIssueReason {
             Self::DuplicateTargetPath => "duplicate-target-path",
             Self::SafetyPolicySkipped => "safety-policy-skipped",
             Self::ExecutionTargetMissing => "execution-target-missing",
+            Self::ExecutionTargetShadowed => "execution-target-shadowed",
             Self::SafetyPolicyBlocked => "safety-policy-blocked",
             Self::ProjectArtifactRecentlyModified => "project-artifact-recently-modified",
             Self::ReclaimLimitSatisfied => "reclaim-limit-satisfied",
@@ -400,6 +402,8 @@ pub struct CleanupPlan {
     pub request: PlanRequest,
     pub summary: CleanupSummary,
     pub targets: Vec<CleanupTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_report: Option<crate::execution::ExecutionReport>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub discovery_diagnostics: Vec<ProjectArtifactDiscoveryDiagnostic>,
 }
@@ -410,6 +414,7 @@ impl CleanupPlan {
             request,
             summary: CleanupSummary::default(),
             targets: Vec::new(),
+            execution_report: None,
             discovery_diagnostics: Vec::new(),
         }
     }

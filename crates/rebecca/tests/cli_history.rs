@@ -25,6 +25,7 @@ fn completed_history_entry(
             pending_reclaim_bytes,
             DeleteMode::RecycleBin,
         )],
+        execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
@@ -74,6 +75,7 @@ fn protected_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
             CleanupTargetIssueReason::SafetyPolicyBlocked,
             "browser private data is protected",
         )],
+        execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
     plan.recompute_summary();
@@ -94,6 +96,7 @@ fn missing_target_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
             CleanupTargetIssueReason::ExecutionTargetMissing,
             "path does not exist",
         )],
+        execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
     plan.recompute_summary();
@@ -124,6 +127,7 @@ fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
                 "App leftovers will be rebuilt when the app runs again.".to_string(),
             )),
         ],
+        execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
@@ -171,7 +175,7 @@ fn history_human_output_is_empty_when_no_history_file_exists() {
 }
 
 #[test]
-fn history_reports_corrupted_history_file_with_line_number() {
+fn history_skips_corrupted_history_file_with_line_number_warning() {
     let temp = tempfile::tempdir().unwrap();
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
     if let Some(parent) = history_path.parent() {
@@ -184,12 +188,19 @@ fn history_reports_corrupted_history_file_with_line_number() {
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
 
     let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("History warning"));
     assert!(stderr.contains("history record was corrupted"));
     assert!(stderr.contains("line 1"));
     assert!(stderr.contains("history.jsonl"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("No cleanup history found."));
 }
 
 #[test]
@@ -217,6 +228,7 @@ fn history_json_preserves_restore_hints() {
             )
             .with_restore_hint(Some("Temporary files can be recreated.".to_string())),
         ],
+        execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
@@ -391,6 +403,7 @@ fn history_human_output_lists_restore_hints() {
                 "Steam web caches will be rebuilt on launch.".to_string(),
             )),
         ],
+        execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
     plan.targets[0].status = TargetStatus::Completed;
@@ -438,6 +451,7 @@ fn history_human_output_lists_saved_issue_matrix() {
             CleanupTargetIssueReason::DuplicateTargetPath,
             "duplicate target path",
         )],
+        execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
     plan.recompute_summary();

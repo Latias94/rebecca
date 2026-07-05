@@ -11,6 +11,7 @@ use crate::error::{RebeccaError, Result};
 use crate::model::RuleTargetSpec;
 use crate::path_template::expand_template;
 use crate::protection::{ProtectionAssessment, ProtectionPolicy};
+use crate::safety::is_reparse_like;
 
 #[derive(Debug, Default)]
 pub struct DiscoveryIndex {
@@ -197,7 +198,9 @@ fn expand_segments(
     results: &mut Vec<PathBuf>,
 ) -> Result<()> {
     let Some((segment, tail)) = remaining.split_first() else {
-        if current.exists() {
+        if let Some(metadata) = non_reparse_metadata(&current)?
+            && (metadata.is_dir() || metadata.is_file())
+        {
             results.push(current);
         }
         return Ok(());
@@ -206,21 +209,44 @@ fn expand_segments(
     if !has_wildcards(segment) {
         let mut next = current;
         next.push(segment);
+        if !tail.is_empty() && non_reparse_metadata(&next)?.is_none() {
+            return Ok(());
+        }
         return expand_segments(next, tail, discovery_index, results);
     }
 
-    if !current.is_dir() {
+    let Some(metadata) = non_reparse_metadata(&current)? else {
+        return Ok(());
+    };
+    if !metadata.is_dir() {
         return Ok(());
     }
 
     let matcher = segment_matcher(segment)?;
     for entry in read_glob_directory(&current, discovery_index)? {
         if matcher.is_match(&entry.file_name) {
+            if !tail.is_empty() && non_reparse_metadata(&entry.path)?.is_none() {
+                continue;
+            }
             expand_segments(entry.path, tail, discovery_index, results)?;
         }
     }
 
     Ok(())
+}
+
+fn non_reparse_metadata(path: &Path) -> Result<Option<std::fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if is_reparse_like(&metadata) {
+                Ok(None)
+            } else {
+                Ok(Some(metadata))
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
 }
 
 fn read_glob_directory(

@@ -80,6 +80,7 @@ All notable changes to Rebecca will be documented in this file.
 - Cleanup rule targets now expose explicit search semantics in the manifest parser and catalog output, and glob discovery can reuse a per-plan directory enumeration index for compatible rules.
 - Cleanup, purge, and `inspect space` outputs now expose additive v1 estimate provenance fields (`estimate_backend`, `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats`) while keeping `estimate_source` stable.
 - `inspect space --scan-backend <BACKEND>` now accepts the same scan backend selectors as cleanup dry-runs for read-only space estimates.
+- Cleanup execution now exposes a shared `execution_report` with per-action status, attempted paths, reclaimed bytes, pending reclaim bytes, skipped/failed/shadowed byte totals, and non-fatal execution warnings; `cache purge` now includes the same execution report alongside its cache-specific summary.
 
 ### Changed
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.
@@ -118,6 +119,7 @@ All notable changes to Rebecca will be documented in this file.
 - Portable `inspect map` ranking now uses streaming post-order aggregation and a bounded top-entry heap instead of materializing the full directory tree before rendering entries.
 - Portable `inspect map` now returns conservative partial reports with diagnostics when child entries cannot be read, child metadata disappears, child directories are unreadable, or child reparse points are skipped.
 - `inspect space` human output now prints diagnostic grouped counts before bounded raw diagnostic samples.
+- Cleanup execution now revalidates targets immediately before backend dispatch, shadows child targets covered by a parent delete to avoid double counting, skips reparse-point traversal during glob discovery, refuses preserve-root deletion when a child is reparse-like, and reports history write failures as execution warnings instead of failing after deletion.
 - `inspect map` human output now prints diagnostic grouped counts before bounded raw diagnostic samples.
 
 ### Breaking

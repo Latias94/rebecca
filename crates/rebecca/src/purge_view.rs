@@ -521,6 +521,7 @@ mod tests {
                 .with_workflow(CleanupWorkflow::ProjectArtifacts),
             summary: CleanupSummary::default(),
             targets,
+            execution_report: None,
             discovery_diagnostics: Vec::new(),
         };
         plan.recompute_summary();

@@ -79,6 +79,33 @@ fn recycle_bin_backend_preserves_target_directory_after_batching_multiple_entrie
 }
 
 #[test]
+fn recycle_bin_backend_refuses_preserve_root_reparse_children() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache = temp.path().join("cache");
+    let outside = temp.path().join("outside");
+    let normal_child = cache.join("entry.tmp");
+    let linked_child = cache.join("linked");
+    fs::create_dir_all(&cache).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(&normal_child, b"trash").unwrap();
+    std::os::windows::fs::symlink_dir(&outside, &linked_child).unwrap();
+
+    let target = CleanupTarget::allowed(
+        "windows.user-temp",
+        cache.clone(),
+        5,
+        DeleteMode::RecycleBin,
+    );
+    let backend = WindowsRecycleBinBackend::new();
+    let err = backend.delete(&target).unwrap_err();
+
+    assert!(err.to_string().contains("refused reparse child"));
+    assert!(cache.exists());
+    assert!(normal_child.exists());
+    assert!(linked_child.exists());
+}
+
+#[test]
 fn recycle_bin_backend_batch_deletes_multiple_targets() {
     let temp = tempfile::tempdir().unwrap();
     let first = temp.path().join("first.tmp");

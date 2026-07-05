@@ -8,6 +8,7 @@ pub mod discovery;
 pub mod disk_map;
 pub mod environment;
 pub mod error;
+pub mod execution;
 pub mod executor;
 pub mod history;
 pub mod inspect;
@@ -33,6 +34,10 @@ pub use cleanup_advice::{
     CleanupAdviceRelation, CleanupAdviceSource, CleanupAdviceStatus,
 };
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
+pub use execution::{
+    ExecutionActionReport, ExecutionReport, ExecutionSummary, ExecutionWarning,
+    ExecutionWarningKind,
+};
 pub use model::{
     CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
     DeleteMode, PathTemplate, PlanRequest, Platform, RuleDefinition, RuleProvenance,

@@ -140,29 +140,55 @@ fn missing_history_file_loads_as_empty() {
 }
 
 #[test]
-fn malformed_history_line_is_reported() {
+fn malformed_history_line_is_skipped_with_diagnostic() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("history.jsonl");
     fs::write(&path, "{not json}\n").unwrap();
 
     let store = HistoryStore::new(path);
-    let err = store.load().unwrap_err();
+    let report = store.load_report().unwrap();
 
-    assert!(err.to_string().contains("history record was corrupted"));
+    assert!(report.entries.is_empty());
+    assert_eq!(report.diagnostics.len(), 1);
+    assert!(
+        report.diagnostics[0]
+            .message
+            .contains("history record was corrupted")
+    );
 }
 
 #[test]
-fn history_error_mentions_bad_line_number() {
+fn history_diagnostic_mentions_bad_line_number() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("history.jsonl");
     fs::write(&path, "{not json}\n{}\n").unwrap();
 
     let store = HistoryStore::new(path);
-    let err = store.load().unwrap_err();
+    let report = store.load_report().unwrap();
 
-    let message = err.to_string();
+    assert!(report.entries.is_empty());
+    assert_eq!(report.diagnostics.len(), 2);
+    let message = &report.diagnostics[0].message;
     assert!(message.contains("history record was corrupted"));
     assert!(message.contains("line 1"));
+}
+
+#[test]
+fn append_plan_report_converts_write_failure_to_warning() {
+    let temp = tempfile::tempdir().unwrap();
+    let history_path = temp.path().join("history.jsonl");
+    fs::create_dir_all(&history_path).unwrap();
+    let store = HistoryStore::new(history_path);
+
+    let report = store.append_plan_report(&sample_plan());
+
+    assert!(!report.written);
+    let warning = report.warning.expect("expected history warning");
+    assert_eq!(
+        warning.kind,
+        rebecca_core::ExecutionWarningKind::HistoryWriteFailed
+    );
+    assert!(warning.message.contains("cleanup history was not written"));
 }
 
 #[test]
@@ -197,9 +223,13 @@ fn load_tail_reports_original_line_number_for_tail_corruption() {
     fs::write(&path, "{}\n{not json}\n").unwrap();
 
     let store = HistoryStore::new(path);
-    let err = store.load_tail(NonZeroUsize::new(1).unwrap()).unwrap_err();
+    let report = store
+        .load_tail_report(NonZeroUsize::new(1).unwrap())
+        .unwrap();
 
-    let message = err.to_string();
+    assert!(report.entries.is_empty());
+    assert_eq!(report.diagnostics.len(), 1);
+    let message = &report.diagnostics[0].message;
     assert!(message.contains("history record was corrupted"));
     assert!(message.contains("line 2"));
 }

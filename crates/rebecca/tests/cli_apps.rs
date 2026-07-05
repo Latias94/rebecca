@@ -248,6 +248,11 @@ fn apps_clean_yes_deletes_wechat_leftover_cache_contents() {
     assert_eq!(value["request"]["mode"], "recycle-bin");
     assert_eq!(value["summary"]["completed_targets"], 1);
     assert_eq!(value["summary"]["blocked_targets"], 0);
+    assert_eq!(value["execution_report"]["summary"]["completed_actions"], 1);
+    assert_eq!(
+        value["execution_report"]["summary"]["pending_reclaim_bytes"],
+        3
+    );
     assert_eq!(value["targets"].as_array().unwrap().len(), 1);
     assert_eq!(value["targets"][0]["status"], "completed");
     assert_eq!(

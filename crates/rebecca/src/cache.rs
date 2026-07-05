@@ -224,6 +224,7 @@ mod tests {
                 reason: Some("symlink entries are skipped".to_string()),
                 reason_code: Some(CachePurgeEntryReason::SymlinkSkipped),
             }],
+            execution_report: Default::default(),
         };
 
         let rendered = render_cache_purge_report(&report).unwrap();
@@ -249,6 +250,7 @@ mod tests {
             deleted: false,
             summary: CachePurgeSummary::default(),
             entries: Vec::new(),
+            execution_report: Default::default(),
         };
 
         let rendered = render_cache_purge_report(&report).unwrap();
