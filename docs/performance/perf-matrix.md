@@ -63,6 +63,16 @@ The report records scenario name, operation, requested backend, backend-source e
 
 Keep reports under `target/perf/`; they are local measurement artifacts and should not be committed unless a future release process explicitly asks for a checked-in baseline.
 
+For CI evidence, use the manual `Release Gates` workflow instead of committing
+benchmark output. A successful `benchmark=full` run uploads a `release-gates`
+artifact that contains `perf/rebecca-core-perf_matrix-report.json`. Treat one
+successful full run on `main` as the blessed baseline for the next release
+candidate, then pass that run id as `baseline_artifact_run_id` on the next full
+workflow run. The workflow downloads the prior `release-gates` artifact, finds
+the baseline JSON report, and lets the existing comparator classify every
+scenario as pass, regression, improvement, skipped, missing-baseline, or
+missing-current with the normal 10% threshold.
+
 The default matrix does not read a live NTFS volume because that requires host privileges and can make Criterion results depend on the whole workstation disk.
 Use the inspect-map dogfood script for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_backend_source`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios.
 NTFS parser-core performance work should keep the first-party parser path distinguishable from any future external adapter or oracle path in report labels before adding new speed thresholds.

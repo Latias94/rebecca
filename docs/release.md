@@ -2,9 +2,10 @@
 
 Rebecca uses one tag-driven release workflow for crates.io publishing and cargo-dist GitHub Releases. The current downloadable target is Windows x86_64 MSVC.
 
-Release handling is split across three workflows:
+Release handling is split across four workflows:
 
 - `ci.yml` runs formatting, linting, tests, cargo-dist planning, and a Windows release-packaging smoke test on pushes and pull requests;
+- `release-gates.yml` is a manual evidence gate that runs the shared release gate wrapper, uploads dogfood/performance artifacts, and can compare full benchmark output against a prior workflow artifact;
 - `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks crate package file lists, dry-runs the first registry-independent crate publish, and exercises the repository PowerShell release archive scripts;
 - `release.yml` publishes `rebecca-core`, `rebecca-rules`, `rebecca-windows`, and `rebecca` to crates.io in dependency order, then publishes the tag-driven ZIP, PowerShell installer, and checksum files to GitHub Releases.
 
@@ -101,9 +102,24 @@ dogfood according to its parameters. It is the preferred local release-facing
 gate; use the lower-level commands below when diagnosing a single surface or
 collecting additional evidence.
 
-Run the performance matrix directly when you need raw benchmark reports. The
-matrix is report-only until Rebecca has enough stable baseline history for hard
-thresholds.
+The same gate can be run from GitHub Actions with the manual `Release Gates`
+workflow. Its default `benchmark=smoke` and `dogfood=stable` inputs are the
+branch-landing profile. For release-candidate evidence, run it with
+`benchmark=full` and `dogfood=all` on a representative Windows runner. Every
+run uploads a `release-gates` artifact containing the gate report, raw command
+stdout/stderr, benchmark reports, and dogfood reports.
+
+Use a successful full benchmark run on `main` as the blessed baseline for the
+next release-candidate comparison. Pass that workflow run id as
+`baseline_artifact_run_id`; the workflow downloads its `release-gates` artifact,
+locates `rebecca-core-perf_matrix-report.json`, and passes it to
+`-BenchmarkBaselinePath` when the current run uses `benchmark=full`. If no
+baseline run id is provided, the workflow still records full benchmark evidence
+but does not classify performance deltas against a historical run.
+
+Run the performance matrix directly when you need raw benchmark reports. A
+matrix run without a baseline is report-only; a run with `-BaselinePath` is a
+gate and fails on threshold regressions.
 
 ```powershell
 pwsh -File scripts\perf\run-benchmark-matrix.ps1

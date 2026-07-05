@@ -1,0 +1,161 @@
+name: Release Gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Git ref to validate"
+        required: true
+        default: "main"
+        type: string
+      benchmark:
+        description: "Benchmark mode"
+        required: true
+        default: "smoke"
+        type: choice
+        options:
+          - smoke
+          - full
+          - skip
+      dogfood:
+        description: "Dogfood mode"
+        required: true
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - all
+          - self-test
+          - skip
+      dogfood_root:
+        description: "Root used by stable/all inspect-map dogfood"
+        required: true
+        default: 'docs\plans'
+        type: string
+      baseline_artifact_run_id:
+        description: "Optional prior workflow run id containing a release-gates artifact"
+        required: false
+        default: ""
+        type: string
+      baseline_artifact_name:
+        description: "Artifact name from the baseline run"
+        required: true
+        default: "release-gates"
+        type: string
+      allow_dogfood_mismatch:
+        description: "Collect dogfood evidence even when backend comparisons mismatch"
+        required: true
+        default: false
+        type: boolean
+
+run-name: Release gates for ${{ inputs.source_ref }}
+
+concurrency:
+  group: release-gates-${{ inputs.source_ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  gates:
+    name: Release gates
+    runs-on: windows-2025
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: always
+      REBECCA_NTFS_MFT_INDEX_TIMINGS: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt,clippy
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
+      - name: Show Rust toolchain
+        run: rustup show
+
+      - name: Download benchmark baseline artifact
+        if: ${{ inputs.baseline_artifact_run_id != '' }}
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ inputs.baseline_artifact_name }}
+          run-id: ${{ inputs.baseline_artifact_run_id }}
+          github-token: ${{ github.token }}
+          path: target/release-gates/baseline
+
+      - name: Locate benchmark baseline report
+        id: baseline
+        if: ${{ inputs.baseline_artifact_run_id != '' }}
+        shell: pwsh
+        env:
+          BASELINE_ARTIFACT_NAME: ${{ inputs.baseline_artifact_name }}
+        run: |
+          $baselineRoot = "target\release-gates\baseline"
+          $report = Get-ChildItem -LiteralPath $baselineRoot -Recurse -Filter "rebecca-core-perf_matrix-report.json" |
+              Sort-Object -Property FullName |
+              Select-Object -First 1
+          if (-not $report) {
+              throw "Downloaded artifact '$env:BASELINE_ARTIFACT_NAME' did not contain rebecca-core-perf_matrix-report.json."
+          }
+
+          "path=$($report.FullName)" | Out-File -LiteralPath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "Using benchmark baseline report: $($report.FullName)" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Run release gates
+        shell: pwsh
+        env:
+          ALLOW_DOGFOOD_MISMATCH: ${{ inputs.allow_dogfood_mismatch }}
+          BENCHMARK_BASELINE_PATH: ${{ steps.baseline.outputs.path }}
+          BENCHMARK_MODE: ${{ inputs.benchmark }}
+          DOGFOOD_MODE: ${{ inputs.dogfood }}
+          DOGFOOD_ROOT: ${{ inputs.dogfood_root }}
+        run: |
+          $arguments = @(
+              "-File", "scripts\release\run-release-gates.ps1",
+              "-OutputDirectory", "target\release-gates\github",
+              "-Benchmark", $env:BENCHMARK_MODE,
+              "-Dogfood", $env:DOGFOOD_MODE,
+              "-DogfoodRoot", $env:DOGFOOD_ROOT
+          )
+
+          if (-not [string]::IsNullOrWhiteSpace($env:BENCHMARK_BASELINE_PATH) -and $env:BENCHMARK_MODE -eq "full") {
+              $arguments += @("-BenchmarkBaselinePath", $env:BENCHMARK_BASELINE_PATH)
+          }
+          if ($env:ALLOW_DOGFOOD_MISMATCH -eq "true") {
+              $arguments += "-AllowDogfoodMismatch"
+          }
+
+          & pwsh @arguments
+
+      - name: Publish release gate summary
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $summary = "target\release-gates\github\release-gates-summary.md"
+          if (Test-Path -LiteralPath $summary -PathType Leaf) {
+              Get-Content -LiteralPath $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          } else {
+              "Release gate summary was not generated." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload release gate evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-gates
+          path: target/release-gates/github
+          if-no-files-found: warn
+          retention-days: 30
