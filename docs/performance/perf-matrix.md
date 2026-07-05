@@ -40,7 +40,7 @@ The report then includes a `comparison` object and writes comparison JSON, CSV,
 and Markdown artifacts beside the matrix report. Scenario classifications are
 `pass`, `regression`, `improvement`, `skipped`, `missing-baseline`, or
 `missing-current`. Regressions are based on mean Criterion nanoseconds and
-default to a 15% threshold; missing baseline/current scenarios are classified
+default to a 10% threshold; missing baseline/current scenarios are classified
 explicitly instead of being treated as a pass.
 
 The report records scenario name, operation, requested backend, backend-source expectation, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, expected estimate confidence, scan-cache miss/write expectations, per-scenario status, status reason, Criterion mean/median timing estimates when available, and a nested `evidence` object for backend, traversal, cache, delete, and timing evidence. The default scenarios cover:

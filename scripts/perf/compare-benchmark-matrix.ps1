@@ -3,8 +3,8 @@ param(
     [string]$CurrentPath = "",
     [string]$OutputPath = "",
     [string]$OutputDirectory = "",
-    [double]$RegressionThresholdPercent = 15.0,
-    [double]$ImprovementThresholdPercent = 15.0,
+    [double]$RegressionThresholdPercent = 10.0,
+    [double]$ImprovementThresholdPercent = 10.0,
     [switch]$SelfTest
 )
 

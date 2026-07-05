@@ -71,9 +71,39 @@ Local smoke artifacts are not official releases.
 
 ## Performance And Dogfood Preflight
 
-Before a release-facing merge, run the performance matrix or record why it was
-skipped. The matrix is report-only until Rebecca has enough stable baseline
-history for hard thresholds.
+Before a release-facing merge, run the release gate wrapper. It records command
+stdout/stderr, machine JSON payloads, perf artifacts, dogfood artifacts, and a
+single `release-gates-report.json` under `target\release-gates\<run-id>\`.
+
+Fast preflight for ordinary branch landing:
+
+```powershell
+pwsh -File scripts\release\run-release-gates.ps1
+```
+
+Full release evidence with Criterion benchmarks, a local baseline, and the
+experimental NTFS/MFT dogfood backend:
+
+```powershell
+pwsh -File scripts\release\run-release-gates.ps1 -Benchmark full -BenchmarkBaselinePath target\perf\baseline.json -Dogfood all
+```
+
+Use the script's `-SelfTest` mode for a cheap check of the gate harness itself:
+
+```powershell
+pwsh -File scripts\release\run-release-gates.ps1 -SelfTest
+```
+
+The wrapper runs formatting, clippy, workspace tests, dependency policy,
+`catalog validate`, `cache inspect`, a dry-run cleanup preview, the benchmark
+comparator self-test, the benchmark matrix smoke/full path, and inspect-map
+dogfood according to its parameters. It is the preferred local release-facing
+gate; use the lower-level commands below when diagnosing a single surface or
+collecting additional evidence.
+
+Run the performance matrix directly when you need raw benchmark reports. The
+matrix is report-only until Rebecca has enough stable baseline history for hard
+thresholds.
 
 ```powershell
 pwsh -File scripts\perf\run-benchmark-matrix.ps1
@@ -91,7 +121,7 @@ The expected report paths are
 `target\perf\rebecca-core-perf_matrix-report-summary.md`. Baseline runs also
 write comparison JSON, CSV, and Markdown artifacts and classify scenarios as
 pass, regression, improvement, skipped, missing-baseline, or missing-current
-with a default 15% threshold. Use `-SkipRun` for report-generation smoke checks
+with a default 10% threshold. Use `-SkipRun` for report-generation smoke checks
 that should not execute Criterion; missing benchmark artifacts should produce a
 `skipped` or `partial` report instead of a script failure.
 

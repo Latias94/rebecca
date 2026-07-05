@@ -1,5 +1,20 @@
 # Dogfood Scripts
 
+## Release Gate Wrapper
+
+`scripts/release/run-release-gates.ps1` is the preferred local release-facing
+entry point. It runs the reusable dogfood and performance scripts, saves raw
+stdout/stderr plus machine JSON payloads, and writes a single
+`release-gates-report.json` under `target/release-gates/<timestamp-pid>/`.
+
+```powershell
+pwsh -File scripts/release/run-release-gates.ps1
+```
+
+Use `-Benchmark full -BenchmarkBaselinePath <report.json> -Dogfood all` when a
+release candidate needs Criterion comparison and experimental NTFS/MFT dogfood
+evidence. Use `-SelfTest` to test the wrapper without invoking Cargo.
+
 ## Inspect Map Report
 
 `run-inspect-map-report.ps1` runs `rebecca inspect map --format json` once per

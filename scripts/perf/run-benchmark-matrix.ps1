@@ -4,8 +4,8 @@ param(
     [string]$OutputPath = "",
     [string]$OutputDirectory = "",
     [string]$BaselinePath = "",
-    [double]$RegressionThresholdPercent = 15.0,
-    [double]$ImprovementThresholdPercent = 15.0,
+    [double]$RegressionThresholdPercent = 10.0,
+    [double]$ImprovementThresholdPercent = 10.0,
     [switch]$SkipRun
 )
 
