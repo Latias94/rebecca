@@ -121,6 +121,18 @@ subtrees between phases, and should show
 Without that env var, ordinary `inspect map` runs must not create persistent
 MFT payloads.
 
+When a stable `persistent-cache` hit is required, prefer the isolated VHD
+wrapper over a large active workstation volume:
+
+```powershell
+pwsh -File scripts\dogfood\run-ntfs-usn-replay-vhd-dogfood.ps1 -VhdSizeMB 256 -TimeoutSeconds 180 -IndexTimeoutSeconds 30
+```
+
+The wrapper creates and formats a new dynamic VHDX, runs the USN replay dogfood
+on that scratch NTFS volume with a small USN journal, detaches it by default,
+and writes the inner dogfood report under `dogfood\` beside DiskPart and
+`fsutil` logs.
+
 Use a smaller `-Root` such as `docs\plans` when the repository root includes large `target\` or `repo-ref\` trees. The script refuses output directories inside the scanned root unless `-AllowOutputInsideRoot` is passed. Backend mismatches, missing portable baselines, parse failures, and timeouts exit non-zero by default; pass `-AllowMismatch` only when collecting exploratory evidence from a changing tree. The backend has an internal 20 second live metadata budget by default; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` higher for deep diagnosis, or `0` to disable the guard for a single dogfood process. Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture active-stage timeout context and successful `mft-index-build-timing` caveats during release dogfood. Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when you intentionally want to compare targeted traversal against the older full-volume MFT index path.
 
 Run this dogfood checklist on a representative Windows workstation:

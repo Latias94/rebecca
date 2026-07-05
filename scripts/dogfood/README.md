@@ -128,3 +128,41 @@ Run the parser and expectation self-test without invoking Cargo:
 ```powershell
 pwsh -File scripts/dogfood/run-ntfs-usn-replay-dogfood.ps1 -SelfTest
 ```
+
+## NTFS USN Replay VHD Dogfood
+
+Use `run-ntfs-usn-replay-vhd-dogfood.ps1` when release evidence needs a stable
+`persistent-cache` hit. The wrapper creates a new dynamic VHDX, formats that new
+disk as NTFS, creates a small USN journal on the scratch volume, places the
+fixture on the mounted VHD, stores the report outside the VHD, and then detaches
+the VHD by default. It refuses to overwrite an existing VHD path.
+
+```powershell
+pwsh -File scripts/dogfood/run-ntfs-usn-replay-vhd-dogfood.ps1 `
+  -VhdSizeMB 256 `
+  -TimeoutSeconds 180 `
+  -IndexTimeoutSeconds 30
+```
+
+Outputs are written under
+`target/ntfs-usn-replay-vhd-dogfood/<timestamp-pid>/`:
+
+- `ntfs-usn-replay-vhd-report.json`
+- `ntfs-usn-replay-vhd-summary.md`
+- `scratch.vhdx`
+- `diskpart-create.log`
+- `diskpart-detach.log`
+- `fsutil-usn-createjournal.log`
+- `dogfood/ntfs-usn-replay-report.json`
+- `dogfood/ntfs-usn-replay-summary.md`
+
+The wrapper keeps the detached VHD file by default for evidence. Add
+`-RemoveVhd` only when the run output is disposable; removal is skipped unless
+the VHD was detached and the VHD path is under the wrapper output directory.
+Add `-KeepMounted` only when you want to inspect the mounted scratch volume.
+
+Run the wrapper self-test without creating a VHD:
+
+```powershell
+pwsh -File scripts/dogfood/run-ntfs-usn-replay-vhd-dogfood.ps1 -SelfTest
+```
