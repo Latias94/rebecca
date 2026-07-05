@@ -549,6 +549,52 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
 }
 
 #[test]
+fn inspect_map_human_summarizes_cleanup_advice_and_next_command() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
+    let root = local.join("npm-cache");
+    let target = root.join("_cacache");
+    write_fixture_file(target.join("content.bin"), b"abcdef");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--max-depth",
+            "1",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            "_cacache",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Cleanup advice summary:"));
+    assert!(stdout.contains("- maybe-cleanable: 1 entry, 6 (6 B)"));
+    assert!(stdout.contains("Suggested cleanup commands:"));
+    assert!(stdout.contains("rebecca clean --dry-run --rule windows.npm-cache --allow-moderate"));
+    assert!(
+        stdout
+            .contains("Cleanup advice is read-only; rerun a suggested command to preview cleanup.")
+    );
+}
+
+#[test]
 fn inspect_map_json_reports_project_artifact_cleanup_advice() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

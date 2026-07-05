@@ -709,9 +709,29 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
     format!("{value:.2} {}", UNITS[unit_index])
 }
 
+pub(crate) fn format_shell_command(command: &str, args: &[String]) -> String {
+    std::iter::once(command)
+        .chain(args.iter().map(String::as_str))
+        .map(format_shell_argument)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(crate) fn format_shell_argument(value: &str) -> String {
+    if !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '\\')
+        })
+    {
+        return value.to_string();
+    }
+
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::restore_hint_suffix;
+    use super::{format_shell_command, restore_hint_suffix};
 
     #[test]
     fn restore_hint_suffix_deduplicates_and_formats_hints() {
@@ -722,6 +742,21 @@ mod tests {
                 "Steam download staging data will be recreated if needed.",
             ]),
             " [restore: Steam web caches will be rebuilt on launch.; Steam download staging data will be recreated if needed.]"
+        );
+    }
+
+    #[test]
+    fn format_shell_command_quotes_powershell_arguments_when_needed() {
+        assert_eq!(
+            format_shell_command(
+                "rebecca",
+                &[
+                    "clean".to_string(),
+                    "--root".to_string(),
+                    "C:\\Users\\Ada Lovelace\\Temp".to_string(),
+                ],
+            ),
+            "rebecca clean --root 'C:\\Users\\Ada Lovelace\\Temp'"
         );
     }
 }

@@ -10,7 +10,7 @@ use rebecca::core::config::{load_app_paths, load_runtime_config};
 
 use crate::cache_view::CachePurgeProjection;
 use crate::cli::OutputMode;
-use crate::output::format_bytes;
+use crate::output::{format_bytes, format_shell_command};
 
 #[derive(Debug)]
 pub struct CachePurgeOptions {
@@ -315,7 +315,27 @@ fn render_cache_inventory(inventory: &CacheInventory) -> Result<String> {
 }
 
 fn render_cache_doctor_report(report: &CacheDoctorReport) -> Result<String> {
-    let mut output = render_cache_inventory(&report.inventory)?;
+    let mut output = String::new();
+    writeln!(output, "Cache health: {}", cache_health_label(report))?;
+    writeln!(
+        output,
+        "Prunable records: {}",
+        report.inventory.summary.prunable_entries
+    )?;
+    if let Some(parts) = report
+        .recommendations
+        .iter()
+        .filter_map(|recommendation| recommendation.suggested_command.as_ref())
+        .next()
+    {
+        writeln!(
+            output,
+            "Recommended next command: {}",
+            format_shell_command("rebecca", parts)
+        )?;
+    }
+    writeln!(output)?;
+    output.push_str(&render_cache_inventory(&report.inventory)?);
     if report.recommendations.is_empty() {
         writeln!(output, "Recommendations: none")?;
     } else {
@@ -334,6 +354,16 @@ fn render_cache_doctor_report(report: &CacheDoctorReport) -> Result<String> {
         }
     }
     Ok(output)
+}
+
+fn cache_health_label(report: &CacheDoctorReport) -> &'static str {
+    if report.inventory.summary.prunable_entries > 0 {
+        "needs pruning"
+    } else if report.recommendations.is_empty() {
+        "healthy"
+    } else {
+        "review recommended"
+    }
 }
 
 fn render_cache_prune_report(report: &CachePruneReport) -> Result<String> {

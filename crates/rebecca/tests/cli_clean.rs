@@ -676,6 +676,8 @@ fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Decision: preview only; no files were deleted."));
+    assert!(stdout.contains("Next command: rebecca clean --yes --category system"));
     assert!(stdout.contains("Issue matrix:"));
     assert!(stdout.contains("- skipped duplicate-target-path: 1 target, 0 (0 B)"));
 }
@@ -705,6 +707,12 @@ fn clean_human_output_reports_slack_cache_rule() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Reclaimable now: 9 (9 B)"));
+    assert!(stdout.contains("Execution: would move allowed targets to the Recycle Bin."));
+    assert!(stdout.contains(
+        "Next command: rebecca clean --yes --rule windows.slack-cache --allow-warning active-process"
+    ));
+    assert!(stdout.contains("Warning gates in plan: active-process."));
     assert!(stdout.contains("Targets: 3"));
     assert!(stdout.contains("Allowed: 3"));
     assert!(stdout.contains("Target details:"));

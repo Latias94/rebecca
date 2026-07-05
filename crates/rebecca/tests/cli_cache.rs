@@ -309,6 +309,31 @@ fn cache_doctor_json_recommends_pruning_corrupt_records() {
 }
 
 #[test]
+fn cache_doctor_human_output_prioritizes_prune_command() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache_dir = temp.path().join("rebecca-cache");
+    let corrupt = cache_dir.join("scan").join("bad.json");
+    fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
+    fs::write(&corrupt, "{").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args(["cache", "doctor"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Cache health: needs pruning"));
+    assert!(stdout.contains("Prunable records: 1"));
+    assert!(stdout.contains("Recommended next command: rebecca cache prune --stale-only"));
+    assert!(stdout.contains("Recommendations:"));
+}
+
+#[test]
 fn cache_prune_yes_deletes_stale_records_with_execution_report() {
     let temp = tempfile::tempdir().unwrap();
     let cache_dir = temp.path().join("rebecca-cache");

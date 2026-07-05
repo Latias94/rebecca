@@ -32,7 +32,7 @@ use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::{OutputMode, ProgressDetail, ScanBackendArg};
 use crate::output::{
     CliApiContract, HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
-    print_command_success_with_contract, print_workflow_success_payload,
+    format_shell_command, print_command_success_with_contract, print_workflow_success_payload,
 };
 use crate::purge::resolve_roots;
 use crate::purge_view::ProjectArtifactInsightReport;
@@ -690,30 +690,8 @@ fn format_advice_command(advice: &CleanupAdvice) -> String {
     advice
         .suggested_command
         .as_ref()
-        .map(|command| {
-            std::iter::once(format_powershell_argument(&command.command))
-                .chain(
-                    command
-                        .args
-                        .iter()
-                        .map(|arg| format_powershell_argument(arg)),
-                )
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
+        .map(|command| format_shell_command(&command.command, &command.args))
         .unwrap_or_default()
-}
-
-fn format_powershell_argument(value: &str) -> String {
-    if !value.is_empty()
-        && value.chars().all(|ch| {
-            ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '\\')
-        })
-    {
-        return value.to_string();
-    }
-
-    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn includes_table_row(

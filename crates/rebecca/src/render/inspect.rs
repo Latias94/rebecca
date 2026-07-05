@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
+
 use anyhow::Result;
-use rebecca::core::cleanup_advice::CleanupAdvice;
+use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
 use rebecca::core::disk_map::DiskMapReport;
 use rebecca::core::inspect::SpaceInsightReport;
 use rebecca::core::lint::LintReport;
 
-use crate::output::format_bytes;
+use crate::output::{format_bytes, format_shell_command};
 use crate::render::{estimate_provenance_suffix, format_count};
 
 pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
@@ -155,6 +157,8 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
         }
     }
 
+    print_cleanup_advice_summary(report);
+
     if !report.groups.is_empty() {
         println!();
         println!("Map groups:");
@@ -238,6 +242,88 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_cleanup_advice_summary(report: &DiskMapReport) {
+    let advised_entries = report
+        .top_entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .cleanup_advice
+                .as_ref()
+                .map(|advice| (advice, entry.logical_bytes))
+        })
+        .collect::<Vec<_>>();
+
+    if advised_entries.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Cleanup advice summary:");
+    for status in [
+        CleanupAdviceStatus::Cleanable,
+        CleanupAdviceStatus::MaybeCleanable,
+        CleanupAdviceStatus::ContainsCleanable,
+        CleanupAdviceStatus::Protected,
+        CleanupAdviceStatus::Unknown,
+    ] {
+        let (entries, bytes) = cleanup_advice_totals(&advised_entries, status);
+        if entries > 0 {
+            println!(
+                "- {}: {}, {} ({})",
+                status.label(),
+                format_count(entries, "entry", "entries"),
+                bytes,
+                format_bytes(bytes)
+            );
+        }
+    }
+
+    let commands = advised_entries
+        .iter()
+        .filter_map(|(advice, _)| cleanup_advice_command(advice))
+        .collect::<BTreeSet<_>>();
+
+    if !commands.is_empty() {
+        println!("Suggested cleanup commands:");
+        for command in commands {
+            println!("- {command}");
+        }
+        println!("Cleanup advice is read-only; rerun a suggested command to preview cleanup.");
+    } else {
+        println!("Suggested cleanup commands: none");
+        println!("Cleanup advice is read-only; no cleanup rule matched the ranked entries.");
+    }
+}
+
+fn cleanup_advice_totals(
+    advised_entries: &[(&CleanupAdvice, u64)],
+    status: CleanupAdviceStatus,
+) -> (u64, u64) {
+    advised_entries
+        .iter()
+        .filter(|(advice, _)| advice.status == status)
+        .fold((0_u64, 0_u64), |(entries, bytes), (_, entry_bytes)| {
+            (
+                entries.saturating_add(1),
+                bytes.saturating_add(*entry_bytes),
+            )
+        })
+}
+
+fn cleanup_advice_command(advice: &CleanupAdvice) -> Option<String> {
+    let command = advice.suggested_command.as_ref()?;
+    let mut args = command.args.clone();
+    for flag in &advice.required_flags {
+        args.extend(flag.split_whitespace().map(str::to_string));
+    }
+    for warning in &advice.required_warnings {
+        args.push("--allow-warning".to_string());
+        args.push(warning.clone());
+    }
+    Some(format_shell_command(&command.command, &args))
 }
 
 fn cleanup_advice_suffix(advice: Option<&CleanupAdvice>) -> String {

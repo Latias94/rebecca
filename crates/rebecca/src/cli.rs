@@ -33,8 +33,10 @@ impl std::fmt::Display for OutputMode {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum ProgressDetail {
+    /// Target-level progress events. This is the default for compact terminal output.
     #[default]
     Target,
+    /// Include throttled file-level scan progress for long-running scans.
     File,
 }
 
@@ -273,7 +275,7 @@ pub enum InspectCommand {
 
 #[derive(Debug, Args)]
 pub struct InspectSpaceArgs {
-    /// Disable human progress output while building the insight report.
+    /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
     pub no_progress: bool,
     /// Use the rebuildable scan cache for eligible entry estimates.
@@ -347,10 +349,10 @@ pub struct InspectMapArgs {
 
 #[derive(Debug, Args)]
 pub struct InspectArtifactsArgs {
-    /// Disable human progress output while building the insight report.
+    /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
     pub no_progress: bool,
-    /// Select progress detail for supported NDJSON and human plan-building updates.
+    /// Select target-level or throttled file-level progress detail.
     #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
     pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
@@ -441,10 +443,10 @@ pub struct CleanupSelectionArgs {
 
 #[derive(Debug, Args)]
 pub struct CleanupExecutionArgs {
-    /// Disable human progress output while building the cleanup plan.
+    /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
     pub no_progress: bool,
-    /// Select progress detail for supported NDJSON and human plan-building updates.
+    /// Select target-level or throttled file-level progress detail.
     #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
     pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
@@ -501,10 +503,10 @@ pub struct PurgeArgs {
     /// Delete project artifacts instead of previewing them.
     #[arg(long)]
     pub yes: bool,
-    /// Disable human progress output while building the purge plan.
+    /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
     pub no_progress: bool,
-    /// Select progress detail for supported NDJSON and human plan-building updates.
+    /// Select target-level or throttled file-level progress detail.
     #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
     pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
@@ -544,10 +546,10 @@ pub enum PurgeCommand {
 
 #[derive(Debug, Args)]
 pub struct PurgeInspectArgs {
-    /// Disable human progress output while building the insight report.
+    /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
     pub no_progress: bool,
-    /// Select progress detail for supported NDJSON and human plan-building updates.
+    /// Select target-level or throttled file-level progress detail.
     #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
     pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible target estimates.
@@ -644,10 +646,10 @@ impl From<CacheNamespaceArg> for rebecca::core::cache::CacheNamespace {
 pub enum AppsCommand {
     /// Preview leftover app cache data discovered from installed applications.
     Scan {
-        /// Disable human progress output while building the app leftovers plan.
+        /// Disable the stderr progress spinner; useful for scripts and captured logs.
         #[arg(long)]
         no_progress: bool,
-        /// Select progress detail for supported NDJSON and human plan-building updates.
+        /// Select target-level or throttled file-level progress detail.
         #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
         progress_detail: ProgressDetail,
         /// Use the rebuildable scan cache for eligible target estimates.
@@ -668,10 +670,10 @@ pub enum AppsCommand {
         /// Delete leftover app cache data instead of previewing it.
         #[arg(long)]
         yes: bool,
-        /// Disable human progress output while building the app leftovers plan.
+        /// Disable the stderr progress spinner; useful for scripts and captured logs.
         #[arg(long)]
         no_progress: bool,
-        /// Select progress detail for supported NDJSON and human plan-building updates.
+        /// Select target-level or throttled file-level progress detail.
         #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
         progress_detail: ProgressDetail,
         /// Use the rebuildable scan cache for eligible target estimates.

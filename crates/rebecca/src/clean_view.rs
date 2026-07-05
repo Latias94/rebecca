@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
-use rebecca::core::{DeleteMode, EstimateProvenance, EstimateSource, TargetStatus};
+use rebecca::core::{DeleteMode, EstimateProvenance, EstimateSource, PlanRequest, TargetStatus};
 
 use crate::text::format_count;
 
@@ -9,7 +9,9 @@ const LARGEST_TARGET_LIMIT: usize = 5;
 
 #[derive(Debug, Clone)]
 pub(crate) struct CleanPlanProjection<'a> {
+    pub(crate) request: &'a PlanRequest,
     pub(crate) workflow_title: &'static str,
+    pub(crate) mode: DeleteMode,
     pub(crate) mode_label: &'static str,
     pub(crate) summary: CleanPlanSummary,
     issue_matrix: Vec<CleanIssueRow>,
@@ -87,7 +89,9 @@ impl<'a> CleanPlanProjection<'a> {
         scan_cache_summary: Option<ScanCacheProgressSummary>,
     ) -> Self {
         Self {
+            request: &plan.request,
             workflow_title: plan.request.workflow.title(),
+            mode: plan.request.mode,
             mode_label: cleanup_mode_label(plan.request.mode),
             summary: CleanPlanSummary::from(&plan.summary),
             issue_matrix: issue_matrix_rows(plan),

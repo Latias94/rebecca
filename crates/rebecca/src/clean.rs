@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -324,7 +325,7 @@ struct PlanProgressReporter {
 
 impl PlanProgressReporter {
     fn new(enabled: bool, detail: ProgressDetail, event_writer: Option<NdjsonEventWriter>) -> Self {
-        let bar = enabled.then(|| {
+        let bar = (enabled && std::io::stderr().is_terminal()).then(|| {
             let bar = ProgressBar::new_spinner();
             bar.enable_steady_tick(Duration::from_millis(120));
             bar.set_message("Building cleanup plan");
