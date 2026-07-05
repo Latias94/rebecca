@@ -84,3 +84,47 @@ Run the fixture builder self-test without invoking the CLI report:
 ```powershell
 pwsh -File scripts/dogfood/run-ntfs-fixture-dogfood.ps1 -SelfTest
 ```
+
+## NTFS USN Replay Dogfood
+
+`run-ntfs-usn-replay-dogfood.ps1` creates a target subtree and an unrelated
+same-volume subtree, then runs the real `inspect map` CLI path through four
+cache phases:
+
+- `warm-build`: build a persistent full-index payload from an isolated cache.
+- `unrelated-replay`: mutate the unrelated subtree and expect a
+  `persistent-cache` hit with unchanged target bytes.
+- `target-invalidates`: mutate the target subtree and expect a rebuild plus
+  increased target bytes.
+- `post-rebuild-hit`: repeat without more mutations and expect another
+  `persistent-cache` hit.
+
+The script sets `REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE=1`,
+`REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1`,
+`REBECCA_NTFS_MFT_INDEX_TIMINGS=1`, and an isolated `REBECCA_CACHE_DIR` for the
+dogfood process. Default CLI scans do not enable this persistent MFT payload
+store. Persistent writes require a stable USN checkpoint before and after the
+full-index build, so large or busy volumes can produce useful rebuild/timeout
+evidence without producing a `persistent-cache` hit.
+
+```powershell
+pwsh -File scripts/dogfood/run-ntfs-usn-replay-dogfood.ps1 `
+  -Top 20 `
+  -DiagnosticLimit 0 `
+  -IndexTimeoutSeconds 60
+```
+
+Outputs are local artifacts:
+
+- fixture: `target/ntfs-usn-replay-fixtures/<timestamp-pid>/`
+- report: `target/ntfs-usn-replay-dogfood/<timestamp-pid>/`
+- `ntfs-usn-replay-report.json`
+- `ntfs-usn-replay-summary.md`
+- `raw/*.stdout.json`
+- `raw/*.stderr.txt`
+
+Run the parser and expectation self-test without invoking Cargo:
+
+```powershell
+pwsh -File scripts/dogfood/run-ntfs-usn-replay-dogfood.ps1 -SelfTest
+```

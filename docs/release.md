@@ -108,6 +108,19 @@ Review the fixture `ntfs-fixture-manifest.json` before treating the report as
 evidence. Hardlink, sparse, and compression support can be unavailable on some
 hosts or filesystems; those gaps should appear as manifest caveats.
 
+For persistent NTFS/MFT payload and USN replay evidence, run:
+
+```powershell
+pwsh -File scripts\dogfood\run-ntfs-usn-replay-dogfood.ps1 -Top 20 -DiagnosticLimit 0 -IndexTimeoutSeconds 60
+```
+
+The USN replay script isolates `REBECCA_CACHE_DIR`, explicitly enables
+`REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE=1`, mutates unrelated and target fixture
+subtrees between phases, and should show
+`ntfs-full-index-persistent-cache` for unrelated replay and post-rebuild hits.
+Without that env var, ordinary `inspect map` runs must not create persistent
+MFT payloads.
+
 Use a smaller `-Root` such as `docs\plans` when the repository root includes large `target\` or `repo-ref\` trees. The script refuses output directories inside the scanned root unless `-AllowOutputInsideRoot` is passed. Backend mismatches, missing portable baselines, parse failures, and timeouts exit non-zero by default; pass `-AllowMismatch` only when collecting exploratory evidence from a changing tree. The backend has an internal 20 second live metadata budget by default; set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` higher for deep diagnosis, or `0` to disable the guard for a single dogfood process. Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture active-stage timeout context and successful `mft-index-build-timing` caveats during release dogfood. Set `REBECCA_NTFS_MFT_FULL_INDEX_FALLBACK=1` only when you intentionally want to compare targeted traversal against the older full-volume MFT index path.
 
 Run this dogfood checklist on a representative Windows workstation:
@@ -163,6 +176,9 @@ show `"windows-ntfs-mft-experimental-sequential"` or
 `"windows-ntfs-mft-experimental-fsctl-record"`; those runs may also report a
 budget or command timeout on large live volumes, which should be captured as
 backend performance evidence rather than treated as a dogfood script failure.
+Explicit persistent-cache diagnostics may instead show
+`"windows-ntfs-mft-experimental-persistent-cache"` after the cache has been
+warmed and USN replay proves the target subtree is unchanged.
 Unsupported hosts should report a clear fallback reason, no backend source, and
 `experimental-ntfs-mft-fallback` caveat. Successful NTFS/MFT dogfood should also
 review any parser caveats for sequence mismatches, hardlink path candidates,

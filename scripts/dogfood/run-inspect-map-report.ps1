@@ -384,6 +384,9 @@ function Get-BackendSourceKind {
     if ($sourceValues -contains "windows-ntfs-mft-experimental-fsctl-record") {
         return "ntfs-full-index-fsctl-record"
     }
+    if ($sourceValues -contains "windows-ntfs-mft-experimental-persistent-cache") {
+        return "ntfs-full-index-persistent-cache"
+    }
     if ($sourceValues.Count -gt 0) {
         return "other"
     }
@@ -571,7 +574,7 @@ function New-RunSummary {
     $caveats = @($Probe.caveats)
     $caveatCodeCounts = @(Get-CaveatCodeCounts -Caveats $caveats)
     $backendSourceKind = Get-BackendSourceKind -Sources $Probe.backend_sources
-    $ntfsFullIndexSource = $backendSourceKind -in @("ntfs-full-index-sequential", "ntfs-full-index-fsctl-record")
+    $ntfsFullIndexSource = $backendSourceKind -in @("ntfs-full-index-sequential", "ntfs-full-index-fsctl-record", "ntfs-full-index-persistent-cache")
     $mftMirrorRecordUsedCount = Get-CaveatCodeCount -Counts $caveatCodeCounts -Code "mft-mirror-record-used"
     $mftMirrorReadFailedCount = Get-CaveatCodeCount -Counts $caveatCodeCounts -Code "mft-mirror-read-failed"
     $ntfsEvidenceValues = @($caveats) + @($Probe.fallback_reasons)
@@ -1030,6 +1033,9 @@ function Invoke-SelfTest {
     }
     if ($portable.backend_source_kind -ne "ntfs-full-index-sequential") {
         throw "self-test backend source kind failed"
+    }
+    if ((Get-BackendSourceKind -Sources @("windows-ntfs-mft-experimental-persistent-cache")) -ne "ntfs-full-index-persistent-cache") {
+        throw "self-test persistent-cache source kind failed"
     }
     if (-not $portable.ntfs_full_index_source) {
         throw "self-test full-index source failed"

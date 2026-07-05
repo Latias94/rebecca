@@ -192,6 +192,17 @@ Timeout fallback reasons then include the active build stage and completed
 timings, and successful experimental estimates include an opt-in
 `mft-index-build-timing` caveat with stage timings.
 
+Set `REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE=1` only for diagnostic
+`inspect map --scan-backend windows-ntfs-mft-experimental` runs that should use
+the app cache directory as a persistent NTFS/MFT volume-index store. This is
+off by default so ordinary read-only disk-map scans do not write long-lived MFT
+payloads. Combine it with an isolated `REBECCA_CACHE_DIR` in dogfood scripts.
+Persistent-cache hits expose
+`estimate_backend_source: "windows-ntfs-mft-experimental-persistent-cache"`.
+Payload writes require a stable USN checkpoint before and after the full-index
+build; busy or very large volumes may rebuild successfully but skip persistent
+payload storage.
+
 Explicit full-index diagnostics may emit
 `mft-index-allocation-budget-exhausted` when parsed MFT records are available
 but stream-backed `$INDEX_ALLOCATION:$I30` expansion crosses the live metadata
@@ -212,7 +223,9 @@ through optional `estimate_backend_source`, and parser or ambiguity notes throug
 `windows-ntfs-mft-experimental-targeted-fsctl` for targeted estimates and
 scoped disk maps. Sequential and per-record full-index source labels are
 reserved for drive-root disk maps, explicit full-index fallback, or diagnostic
-paths. Sequential full-index reads can use bounded `$MFTMirr` system-record
+paths. Persistent diagnostic hits report
+`windows-ntfs-mft-experimental-persistent-cache`. Sequential full-index reads
+can use bounded `$MFTMirr` system-record
 bytes as best-effort recovery evidence; recovered records carry
 `mft-mirror-record-used`, while `mft-mirror-read-failed` means mirror recovery
 bytes were unavailable and primary `$MFT` records remained authoritative.

@@ -31,6 +31,7 @@ pub struct DiskMapRequest {
     pub group_sort: DiskMapSortField,
     pub max_depth: Option<usize>,
     pub scan_backend: ScanBackendKind,
+    pub ntfs_mft_manifest_cache_root: Option<PathBuf>,
 }
 
 impl DiskMapRequest {
@@ -46,6 +47,7 @@ impl DiskMapRequest {
             group_sort: DiskMapSortField::Logical,
             max_depth: None,
             scan_backend: ScanBackendKind::PortableRecursive,
+            ntfs_mft_manifest_cache_root: None,
         }
     }
 
@@ -103,6 +105,11 @@ impl DiskMapRequest {
 
     pub fn with_scan_backend(mut self, scan_backend: ScanBackendKind) -> Self {
         self.scan_backend = scan_backend;
+        self
+    }
+
+    pub fn with_ntfs_mft_manifest_cache_root(mut self, cache_root: impl Into<PathBuf>) -> Self {
+        self.ntfs_mft_manifest_cache_root = Some(cache_root.into());
         self
     }
 }
@@ -421,7 +428,7 @@ pub fn inspect_map(
 ) -> Result<DiskMapReport> {
     let mut state = DiskMapInspectionState::new(request);
     let mut unique_files = DiskMapUniqueFiles::default();
-    let scan_engine = ScanEngine::new();
+    let scan_engine = scan_engine_for_disk_map(request);
 
     for root in &request.roots {
         check_cancelled(cancellation)?;
@@ -435,6 +442,22 @@ pub fn inspect_map(
     }
 
     Ok(state.finish(unique_files))
+}
+
+fn scan_engine_for_disk_map(request: &DiskMapRequest) -> ScanEngine {
+    #[cfg(windows)]
+    {
+        if let Some(cache_root) = &request.ntfs_mft_manifest_cache_root {
+            return ScanEngine::with_ntfs_mft_manifest_cache_root(cache_root.clone());
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = &request.ntfs_mft_manifest_cache_root;
+    }
+
+    ScanEngine::new()
 }
 
 #[derive(Debug)]
@@ -2108,6 +2131,15 @@ mod tests {
     use std::io;
 
     use super::*;
+
+    #[test]
+    fn disk_map_request_can_carry_ntfs_mft_manifest_cache_root() {
+        let cache_root = PathBuf::from(r"C:\cache\rebecca");
+        let request = DiskMapRequest::new(vec![PathBuf::from(r"C:\target")])
+            .with_ntfs_mft_manifest_cache_root(cache_root.clone());
+
+        assert_eq!(request.ntfs_mft_manifest_cache_root, Some(cache_root));
+    }
 
     #[derive(Debug, Clone)]
     enum FakeEntry {

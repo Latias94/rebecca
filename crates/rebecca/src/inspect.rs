@@ -39,6 +39,8 @@ use crate::purge_view::ProjectArtifactInsightReport;
 use crate::render;
 use crate::runtime::CliRuntime;
 
+const NTFS_MFT_VOLUME_INDEX_CACHE_ENV: &str = "REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE";
+
 #[derive(Debug)]
 pub struct InspectSpaceOptions {
     pub output_mode: OutputMode,
@@ -150,8 +152,18 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
         );
     }
 
+    let cleanup_advice_enabled = options.cleanup_advice || options.advice_status.is_some();
+    let ntfs_volume_index_cache_enabled = options.scan_backend
+        == ScanBackendArg::WindowsNtfsMftExperimental
+        && ntfs_mft_volume_index_cache_enabled();
+    let runtime_config = if cleanup_advice_enabled || ntfs_volume_index_cache_enabled {
+        Some(load_runtime_config()?)
+    } else {
+        None
+    };
+
     let roots = resolve_space_roots(options.roots)?;
-    let request = DiskMapRequest::new(roots)
+    let mut request = DiskMapRequest::new(roots)
         .with_top_limit(options.top_limit)
         .with_top_sort(options.sort)
         .with_min_logical_bytes(options.min_logical_bytes)
@@ -163,14 +175,22 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
         .with_diagnostic_limit(options.diagnostic_limit)
         .with_max_depth(options.max_depth)
         .with_scan_backend(options.scan_backend.into());
+    if ntfs_volume_index_cache_enabled {
+        let runtime_config = runtime_config
+            .as_ref()
+            .expect("runtime config is loaded when NTFS volume-index cache is enabled");
+        request =
+            request.with_ntfs_mft_manifest_cache_root(runtime_config.app_paths.cache_dir.clone());
+    }
 
-    let cleanup_advice_enabled = options.cleanup_advice || options.advice_status.is_some();
     let mut report = inspect_map_core(&request, runtime.cancellation())?;
     if cleanup_advice_enabled {
-        let runtime_config = load_runtime_config()?;
+        let runtime_config = runtime_config
+            .as_ref()
+            .expect("runtime config is loaded when cleanup advice is enabled");
         annotate_map_report_with_cleanup_advice(
             &mut report,
-            &runtime_config,
+            runtime_config,
             options.advice_status,
             runtime.cancellation(),
         )?;
@@ -194,6 +214,21 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
             || render::inspect::print_map_report(&report),
         ),
     }
+}
+
+fn ntfs_mft_volume_index_cache_enabled() -> bool {
+    std::env::var_os(NTFS_MFT_VOLUME_INDEX_CACHE_ENV).is_some_and(|raw| {
+        ntfs_mft_volume_index_cache_env_enabled(Some(raw.to_string_lossy().as_ref()))
+    })
+}
+
+fn ntfs_mft_volume_index_cache_env_enabled(value: Option<&str>) -> bool {
+    value.is_some_and(|raw| {
+        matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 fn annotate_map_report_with_cleanup_advice(
@@ -923,5 +958,28 @@ fn same_lint_root(left: &Path, right: &Path) -> bool {
         left.eq_ignore_ascii_case(&right)
     } else {
         left == right
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ntfs_mft_volume_index_cache_env_accepts_only_truthy_values() {
+        for value in ["1", "true", "TRUE", " yes ", "on"] {
+            assert!(ntfs_mft_volume_index_cache_env_enabled(Some(value)));
+        }
+
+        for value in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("false"),
+            Some("off"),
+            Some("maybe"),
+        ] {
+            assert!(!ntfs_mft_volume_index_cache_env_enabled(value));
+        }
     }
 }
