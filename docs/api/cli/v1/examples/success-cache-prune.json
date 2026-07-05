@@ -1,0 +1,60 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "cache prune",
+  "payload_kind": "cache-prune-report",
+  "generated_at_unix_seconds": 1782660000,
+  "data": {
+    "cache_dir": "C:\\Users\\example\\AppData\\Local\\Rebecca\\cache",
+    "namespace": "scan-cache",
+    "stale_only": true,
+    "limit": null,
+    "dry_run": true,
+    "selected_entries": [
+      {
+        "namespace": "scan-cache",
+        "kind": "scan-cache-record",
+        "status": "stale",
+        "prunable": true,
+        "absolute_path": "C:\\Users\\example\\AppData\\Local\\Rebecca\\cache\\scan\\0000000000000001.json",
+        "display_path": "scan\\0000000000000001.json",
+        "bytes": 360,
+        "record_root": "C:\\Users\\example\\AppData\\Local\\Temp",
+        "record_root_display": "%LOCALAPPDATA%\\Temp",
+        "backend": "portable-recursive",
+        "confidence": "exact",
+        "age_seconds": 600,
+        "reason_code": "expired"
+      }
+    ],
+    "execution_report": {
+      "dry_run": true,
+      "summary": {
+        "total_actions": 1,
+        "completed_actions": 0,
+        "skipped_actions": 0,
+        "blocked_actions": 0,
+        "failed_actions": 0,
+        "estimated_bytes": 360,
+        "confirmed_reclaimed_bytes": 0,
+        "pending_reclaim_bytes": 0,
+        "skipped_bytes": 0,
+        "failed_bytes": 0,
+        "shadowed_bytes": 0
+      },
+      "actions": [
+        {
+          "target_index": 0,
+          "rule_id": "rebecca.cache-prune",
+          "path": "C:\\Users\\example\\AppData\\Local\\Rebecca\\cache\\scan\\0000000000000001.json",
+          "deletion_style": "delete-whole-path",
+          "estimated_bytes": 360,
+          "status": "allowed",
+          "reason": "expired",
+          "confirmed_reclaimed_bytes": 0,
+          "pending_reclaim_bytes": 0
+        }
+      ]
+    }
+  }
+}

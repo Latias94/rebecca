@@ -39,6 +39,15 @@ files. Keep each rule small, explicit, and easy to audit.
 - `manifest_version = 1`.
 - Stable env-variable templates only.
 - Use `glob-template` only for bounded profile or filename discovery.
+- Built-in catalog validation derives a positive target-shape basis from each
+  target. A built-in target must prove it is a cache/temp/log/package-store,
+  approved Steam maintenance path, approved browser cache boundary, or other
+  approved maintenance shape. Do not add broad user folders and rely on prose
+  to justify them.
+- Shape-derived warnings are mandatory: multi-wildcard glob discovery requires
+  `broad-discovery`, `%WINDIR%` maintenance targets require
+  `privileged-location`, and Steam install/library discovery targets require
+  `source-boundary`.
 - Prefer paths that Windows users recognize immediately.
 
 ## Required Fields

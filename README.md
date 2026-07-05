@@ -107,6 +107,7 @@ Reference material under `repo-ref/` is for behavior research only; Rebecca owns
 - `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the Recycle Bin, and `cache purge --yes --permanent` opts into irreversible deletion.
 - Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API.
 - Use `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
+- Use `cache inspect`, `cache doctor`, and `cache prune` when you need Rebecca cache inventory, recommendations, or targeted stale-record cleanup.
 - Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the Recycle Bin.
 - Use `--format json` or `--format ndjson` when Rebecca is being driven by another tool.
 - `history` is the fastest way to review what was planned and what actually happened.
@@ -172,6 +173,9 @@ cargo run -p rebecca -- history --limit 10
 cargo run -p rebecca -- history --format json
 
 cargo run -p rebecca -- config paths
+cargo run -p rebecca -- cache inspect --format json
+cargo run -p rebecca -- cache doctor --format json
+cargo run -p rebecca -- cache prune --format json --namespace scan-cache --stale-only
 cargo run -p rebecca -- cache purge --format json
 cargo run -p rebecca -- cache purge --yes
 cargo run -p rebecca -- cache purge --yes --permanent
@@ -269,6 +273,8 @@ The full schema, path precedence, migration, and local-state ownership contract 
 | state dir | durable-state | preserve |
 | history file | append-only-history | preserve |
 | cache dir | rebuildable-cache | rebuildable |
+
+`rebecca cache inspect` inventories Rebecca-owned rebuildable cache metadata without deleting anything. Use `--namespace scan-cache`, `--namespace ntfs-volume-index`, or `--namespace all` to narrow the report. `rebecca cache doctor` adds stale/corrupt/missing-payload recommendations, and `rebecca cache prune --stale-only` previews targeted cache metadata cleanup before `--yes` executes it through the same cleanup execution report model as other deletion workflows. JSON inventory entries include `absolute_path` for local authority and `display_path` for safer reports; review absolute local paths before sharing diagnostics.
 
 `rebecca cache purge` operates only on Rebecca's configured rebuildable cache directory. It previews by default, moves direct cache contents to the Recycle Bin with `--yes`, permanently deletes them only with `--yes --permanent`, keeps the cache directory itself, reports lifecycle, entry-status, pending-reclaim, reclaimed-byte, and issue-matrix details in human output and `--format json`, and refuses to run if the cache path overlaps preserved configuration, state, or history paths.
 

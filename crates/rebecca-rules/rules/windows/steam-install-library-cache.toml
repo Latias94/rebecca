@@ -5,6 +5,7 @@ category = "application"
 name = "Steam install library cache"
 safety_level = "safe"
 restore_hint = "Steam library artwork and metadata will be rebuilt on launch."
+warnings = ["source-boundary"]
 
 [[targets]]
 kind = "steam-install-template"

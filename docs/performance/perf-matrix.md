@@ -17,13 +17,33 @@ pwsh -File scripts/perf/run-benchmark-matrix.ps1
 
 The script runs `cargo bench -p rebecca-core --bench perf_matrix`, reads Criterion estimates from `target/criterion/perf_matrix`, combines them with scenario metadata from `target/perf/perf_matrix-scenarios.json`, and writes `target/perf/rebecca-core-perf_matrix-report.json`, `target/perf/rebecca-core-perf_matrix-report-scenarios.csv`, and `target/perf/rebecca-core-perf_matrix-report-summary.md`.
 
-For verification jobs that should not execute Criterion, use `-SkipRun`. If the manifest or Criterion output is absent, the script still writes a schema-v3 report with `status: "skipped"` or `status: "partial"` and exits successfully; that keeps report generation itself testable without pretending a benchmark was run.
+For verification jobs that should not execute Criterion, use `-SkipRun`. If the manifest or Criterion output is absent, the script still writes a schema-v4 report with `status: "skipped"` or `status: "partial"` and exits successfully; that keeps report generation itself testable without pretending a benchmark was run.
 
 ```powershell
 pwsh -File scripts/perf/run-benchmark-matrix.ps1 -SkipRun
 ```
 
-The report records scenario name, operation, requested backend, backend-source expectation, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, per-scenario status, status reason, and Criterion mean/median timing estimates when available. The default scenarios cover:
+Run the comparison self-test before using a benchmark report as a gate:
+
+```powershell
+pwsh -File scripts/perf/compare-benchmark-matrix.ps1 -SelfTest
+```
+
+To compare a fresh report against a local baseline, pass the baseline report to
+the matrix runner:
+
+```powershell
+pwsh -File scripts/perf/run-benchmark-matrix.ps1 -BaselinePath target/perf/baseline.json
+```
+
+The report then includes a `comparison` object and writes comparison JSON, CSV,
+and Markdown artifacts beside the matrix report. Scenario classifications are
+`pass`, `regression`, `improvement`, `skipped`, `missing-baseline`, or
+`missing-current`. Regressions are based on mean Criterion nanoseconds and
+default to a 15% threshold; missing baseline/current scenarios are classified
+explicitly instead of being treated as a pass.
+
+The report records scenario name, operation, requested backend, backend-source expectation, fixture shape, physical files and directories, expected bytes, progress-event count, target count, cache mode, delete mode, expected estimate confidence, scan-cache miss/write expectations, per-scenario status, status reason, Criterion mean/median timing estimates when available, and a nested `evidence` object for backend, traversal, cache, delete, and timing evidence. The default scenarios cover:
 
 - cold recursive scan over many small files
 - Windows native directory scan selection over many small files

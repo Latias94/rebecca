@@ -19,6 +19,9 @@ const CATALOG_VALIDATION_CHECKS: &[&str] = &[
     "restricted reference provenance is no-copy",
     "protected target shapes are blocked",
     "browser rules stay inside regenerable cache boundaries",
+    "built-in target shapes have positive cleanup basis",
+    "built-in glob discovery is bounded",
+    "shape-derived warning gates are declared",
     "safety catalog knowledge loads",
 ];
 

@@ -5,6 +5,7 @@ category = "system"
 name = "Windows temp files"
 safety_level = "moderate"
 restore_hint = "Windows temporary files will be recreated as needed."
+warnings = ["privileged-location"]
 
 [[targets]]
 kind = "template"

@@ -5,6 +5,7 @@ category = "application"
 name = "Steam library temp cache"
 safety_level = "moderate"
 restore_hint = "Steam temporary staging data will be recreated if needed."
+warnings = ["source-boundary"]
 
 [[targets]]
 kind = "steam-library-template"

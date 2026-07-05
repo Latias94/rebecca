@@ -584,9 +584,12 @@ fn measure_entry(
     cancellation: &ScanCancellationToken,
     scan_engine: &ScanEngine,
 ) -> Result<SpaceInsightMeasurement> {
+    let mut cache_miss_reason = None;
     if let Some(scan_cache) = &request.scan_cache {
         match scan_cache.store.load_with_policy(path, scan_cache.policy) {
             ScanCacheLookup::Hit(hit) => {
+                let mut evidence = hit.backend_evidence;
+                evidence.record_cache_event("scan-cache", "hit", None);
                 return Ok(SpaceInsightMeasurement {
                     report: hit.report,
                     estimate_source: EstimateSource::ScanCache,
@@ -594,29 +597,47 @@ fn measure_entry(
                         hit.backend,
                         hit.confidence,
                         hit.backend_source,
-                    ),
+                    )
+                    .with_backend_evidence(evidence),
                 });
             }
-            ScanCacheLookup::Miss(_) => {}
+            ScanCacheLookup::Miss(outcome) => {
+                cache_miss_reason = Some(outcome.reason);
+            }
         }
     }
 
     let measured_scan =
         scan_engine.measure_scan_with_backend(path, cancellation, request.scan_backend, |_| {})?;
     let report = measured_scan.report;
-    let estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
+    let mut estimate_backend_evidence = measured_scan.backend_evidence.clone();
+    if let Some(reason) = cache_miss_reason {
+        estimate_backend_evidence.record_cache_event(
+            "scan-cache",
+            "miss",
+            Some(reason.label().to_string()),
+        );
+    }
     if let Some(scan_cache) = &request.scan_cache
-        && let Err(err) =
-            scan_cache
-                .store
-                .store_measured_scan_with_policy(path, measured_scan, scan_cache.policy)
+        && let Err(err) = scan_cache.store.store_measured_scan_with_policy(
+            path,
+            measured_scan.clone(),
+            scan_cache.policy,
+        )
     {
         tracing::debug!(
             path = %path.display(),
             error = %err,
             "inspect scan cache write skipped"
         );
+        estimate_backend_evidence.record_cache_event(
+            "scan-cache",
+            "write-skipped",
+            Some("write-failed".to_string()),
+        );
     }
+    let mut estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
+    estimate_provenance.estimate_backend_evidence = estimate_backend_evidence;
 
     Ok(SpaceInsightMeasurement {
         report,

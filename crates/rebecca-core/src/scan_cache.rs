@@ -4,7 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{RebeccaError, Result};
-use crate::scan::{MeasuredScan, ScanBackendKind, ScanEstimateConfidence, ScanReport};
+use crate::scan::{
+    MeasuredScan, ScanBackendEvidence, ScanBackendKind, ScanEstimateConfidence, ScanReport,
+};
 
 pub const SCAN_CACHE_VERSION: u32 = 1;
 pub const DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS: u64 = 5 * 60;
@@ -67,6 +69,8 @@ pub struct ScanCacheRecord {
     pub backend_source: Option<String>,
     #[serde(default = "default_scan_cache_confidence")]
     pub confidence: ScanEstimateConfidence,
+    #[serde(default, skip_serializing_if = "ScanBackendEvidence::is_empty")]
+    pub backend_evidence: ScanBackendEvidence,
     #[serde(default)]
     pub identity: ScanCacheIdentity,
     pub fingerprint: ScanCacheFingerprint,
@@ -86,6 +90,7 @@ impl ScanCacheRecord {
             backend: measured_scan.backend,
             backend_source: measured_scan.backend_source,
             confidence: measured_scan.confidence,
+            backend_evidence: measured_scan.backend_evidence,
             identity: snapshot.identity,
             fingerprint: snapshot.fingerprint,
             report: measured_scan.report,
@@ -419,6 +424,7 @@ pub struct ScanCacheHit {
     pub backend: ScanBackendKind,
     pub backend_source: Option<String>,
     pub confidence: ScanEstimateConfidence,
+    pub backend_evidence: ScanBackendEvidence,
 }
 
 impl ScanCacheHit {
@@ -428,6 +434,7 @@ impl ScanCacheHit {
             backend: record.backend,
             backend_source: record.backend_source.clone(),
             confidence: record.confidence,
+            backend_evidence: record.backend_evidence.clone(),
         }
     }
 }

@@ -5,6 +5,7 @@ category = "application"
 name = "Enterprise WeChat cache"
 safety_level = "safe"
 restore_hint = "Enterprise WeChat caches will be rebuilt on launch."
+warnings = ["broad-discovery"]
 
 [[targets]]
 kind = "glob-template"

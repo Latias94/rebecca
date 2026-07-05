@@ -544,6 +544,9 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
         .collect::<Vec<_>>();
     assert!(payload_kinds.contains(&"catalog"));
     assert!(payload_kinds.contains(&"catalog-validation"));
+    assert!(payload_kinds.contains(&"cache-doctor"));
+    assert!(payload_kinds.contains(&"cache-inventory"));
+    assert!(payload_kinds.contains(&"cache-prune-report"));
     assert!(payload_kinds.contains(&"inspect-artifacts"));
     assert!(payload_kinds.contains(&"inspect-lint"));
     assert!(payload_kinds.contains(&"inspect-map"));
@@ -559,6 +562,9 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert_eq!(payloads["$defs"]["inspectMap"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectMapEntryEvent"]["type"], "object");
     assert_eq!(payloads["$defs"]["inspectMapGroupEvent"]["type"], "object");
+    assert_eq!(payloads["$defs"]["cacheInventory"]["type"], "object");
+    assert_eq!(payloads["$defs"]["cacheDoctor"]["type"], "object");
+    assert_eq!(payloads["$defs"]["cachePruneReport"]["type"], "object");
 
     let event = read_doc_json("event.schema.json");
     assert_eq!(
@@ -606,6 +612,9 @@ fn cli_api_examples_match_documented_envelope_shapes() {
     success_payload_kinds.sort();
 
     assert!(success_payload_kinds.contains(&"cleanup-plan".to_string()));
+    assert!(success_payload_kinds.contains(&"cache-doctor".to_string()));
+    assert!(success_payload_kinds.contains(&"cache-inventory".to_string()));
+    assert!(success_payload_kinds.contains(&"cache-prune-report".to_string()));
     assert!(success_payload_kinds.contains(&"project-artifact-cleanup-plan".to_string()));
     assert!(!success_payload_kinds.contains(&"project-artifact-insight".to_string()));
 }
@@ -656,5 +665,29 @@ fn cli_api_inspect_examples_validate_against_payload_schema() {
     assert_eq!(lint["payload_kind"], "inspect-lint");
     validator_for_payload_def("inspectLint")
         .validate(&lint["data"])
+        .unwrap();
+}
+
+#[test]
+fn cli_api_cache_examples_validate_against_payload_schema() {
+    let inspect = read_doc_json("examples/success-cache-inspect.json");
+    assert_success_schema(&inspect);
+    assert_eq!(inspect["payload_kind"], "cache-inventory");
+    validator_for_payload_def("cacheInventory")
+        .validate(&inspect["data"])
+        .unwrap();
+
+    let doctor = read_doc_json("examples/success-cache-doctor.json");
+    assert_success_schema(&doctor);
+    assert_eq!(doctor["payload_kind"], "cache-doctor");
+    validator_for_payload_def("cacheDoctor")
+        .validate(&doctor["data"])
+        .unwrap();
+
+    let prune = read_doc_json("examples/success-cache-prune.json");
+    assert_success_schema(&prune);
+    assert_eq!(prune["payload_kind"], "cache-prune-report");
+    validator_for_payload_def("cachePruneReport")
+        .validate(&prune["data"])
         .unwrap();
 }

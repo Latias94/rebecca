@@ -5,6 +5,7 @@ category = "application"
 name = "WPS cache"
 safety_level = "safe"
 restore_hint = "WPS caches will be rebuilt when needed."
+warnings = ["broad-discovery"]
 
 [[targets]]
 kind = "glob-template"

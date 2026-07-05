@@ -2215,6 +2215,7 @@ fn steam_plan(
     let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     request.selected_rule_ids = vec![rule_id.to_string()];
     request.allow_moderate = allow_moderate;
+    request.add_allowed_warning("source-boundary");
 
     build_cleanup_plan_with_environment_and_applications(
         &request,
@@ -2272,6 +2273,7 @@ fn steam_rules_skip_without_application_discovery() {
         "windows.user-temp".to_string(),
         "windows.steam-install-library-cache".to_string(),
     ];
+    request.add_allowed_warning("source-boundary");
 
     let plan = build_cleanup_plan_with_environment(&request, &rules, &fixture.env).unwrap();
 

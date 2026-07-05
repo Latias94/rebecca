@@ -1,0 +1,42 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "cache inspect",
+  "payload_kind": "cache-inventory",
+  "generated_at_unix_seconds": 1782660000,
+  "data": {
+    "cache_dir": "C:\\Users\\example\\AppData\\Local\\Rebecca\\cache",
+    "namespace": "scan-cache",
+    "summary": {
+      "total_entries": 1,
+      "scan_cache_records": 1,
+      "ntfs_volume_index_manifests": 0,
+      "ntfs_volume_index_payloads": 0,
+      "bytes": 360,
+      "valid_entries": 0,
+      "stale_entries": 1,
+      "corrupt_entries": 0,
+      "missing_payloads": 0,
+      "prunable_entries": 1,
+      "diagnostics": 0
+    },
+    "entries": [
+      {
+        "namespace": "scan-cache",
+        "kind": "scan-cache-record",
+        "status": "stale",
+        "prunable": true,
+        "absolute_path": "C:\\Users\\example\\AppData\\Local\\Rebecca\\cache\\scan\\0000000000000001.json",
+        "display_path": "scan\\0000000000000001.json",
+        "bytes": 360,
+        "record_root": "C:\\Users\\example\\AppData\\Local\\Temp",
+        "record_root_display": "%LOCALAPPDATA%\\Temp",
+        "backend": "portable-recursive",
+        "confidence": "exact",
+        "age_seconds": 600,
+        "reason_code": "expired"
+      }
+    ],
+    "diagnostics": []
+  }
+}

@@ -19,7 +19,7 @@ kind = "glob-template"
 value = "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\multitab_*\\Cache\\Cache_Data"
 
 [[targets]]
-kind = "glob-template"
+kind = "template"
 value = "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\web_shell\\Cache\\Cache_Data"
 
 [provenance]

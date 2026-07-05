@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use rebecca_core::{
-    Platform, RebeccaError, Result, RuleDefinition, RuleSource, SafetyLevel,
+    Platform, RebeccaError, Result, RuleDefinition, RuleSource, RuleTargetSpec, SafetyLevel,
     manifest::parse_cleaner_manifest_file_with_safety_knowledge,
     planner::validate_rule_catalog,
     protection::{
@@ -230,6 +230,10 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                     block.message
                 )));
             }
+
+            validate_builtin_target_shape_basis(rule, spec)?;
+            validate_builtin_glob_shape(rule, spec)?;
+            validate_builtin_required_shape_warnings(rule, spec)?;
         }
     }
 
@@ -377,10 +381,7 @@ fn validate_builtin_rule_warnings(
     Ok(())
 }
 
-fn validate_browser_cache_target_shape(
-    rule: &RuleDefinition,
-    spec: &rebecca_core::RuleTargetSpec,
-) -> Result<()> {
+fn validate_browser_cache_target_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> Result<()> {
     if is_regenerable_browser_cache_target_shape(spec) {
         return Ok(());
     }
@@ -390,6 +391,264 @@ fn validate_browser_cache_target_shape(
         rule.id,
         spec.placeholder_path().display()
     )))
+}
+
+fn validate_builtin_target_shape_basis(rule: &RuleDefinition, spec: &RuleTargetSpec) -> Result<()> {
+    if matches!(
+        spec,
+        RuleTargetSpec::SteamInstallTemplate(_) | RuleTargetSpec::SteamLibraryTemplate(_)
+    ) {
+        return Ok(());
+    }
+
+    if rule.category.eq_ignore_ascii_case("browser")
+        && is_regenerable_browser_cache_target_shape(spec)
+    {
+        return Ok(());
+    }
+
+    let raw = raw_target_shape(spec);
+    if has_positive_cleanup_basis(&raw) {
+        return Ok(());
+    }
+
+    Err(RebeccaError::RuleCatalogInvalid(format!(
+        "built-in rule {} target {} must have a positive cleanup basis such as a cache, temp, log, package-store, shader, download, or approved maintenance shape",
+        rule.id,
+        spec.placeholder_path().display()
+    )))
+}
+
+fn validate_builtin_glob_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> Result<()> {
+    let RuleTargetSpec::GlobTemplate(template) = spec else {
+        return Ok(());
+    };
+    let raw = normalize_rule_shape(template.raw());
+    let segments = shape_segments(&raw);
+    let wildcard_segments = segments
+        .iter()
+        .filter(|segment| contains_glob_wildcard(segment))
+        .count();
+
+    if wildcard_segments == 0 {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} glob target {} must contain an explicit wildcard",
+            rule.id,
+            spec.placeholder_path().display()
+        )));
+    }
+    if wildcard_segments > 3 {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} glob target {} uses too many wildcard segments; keep discovery bounded",
+            rule.id,
+            spec.placeholder_path().display()
+        )));
+    }
+
+    if wildcard_appears_at_profile_root(&segments) || wildcard_appears_at_drive_root(&segments) {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} glob target {} starts discovery from a profile or drive root",
+            rule.id,
+            spec.placeholder_path().display()
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_builtin_required_shape_warnings(
+    rule: &RuleDefinition,
+    spec: &RuleTargetSpec,
+) -> Result<()> {
+    for warning in required_shape_warnings(spec) {
+        if !rule.warnings.iter().any(|known| known == warning) {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule {} target {} requires warning kind {}",
+                rule.id,
+                spec.placeholder_path().display(),
+                warning
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn required_shape_warnings(spec: &RuleTargetSpec) -> Vec<&'static str> {
+    let mut warnings = Vec::new();
+
+    if matches!(
+        spec,
+        RuleTargetSpec::SteamInstallTemplate(_) | RuleTargetSpec::SteamLibraryTemplate(_)
+    ) {
+        warnings.push("source-boundary");
+    }
+
+    let raw = normalize_rule_shape(&raw_target_shape(spec));
+    if raw.starts_with("%windir%/") {
+        warnings.push("privileged-location");
+    }
+
+    if matches!(spec, RuleTargetSpec::GlobTemplate(_)) {
+        let segments = shape_segments(&raw);
+        if wildcard_requires_broad_discovery_warning(&segments) {
+            warnings.push("broad-discovery");
+        }
+    }
+
+    warnings
+}
+
+fn raw_target_shape(spec: &RuleTargetSpec) -> String {
+    match spec {
+        RuleTargetSpec::Template(template)
+        | RuleTargetSpec::GlobTemplate(template)
+        | RuleTargetSpec::SteamInstallTemplate(template)
+        | RuleTargetSpec::SteamLibraryTemplate(template) => template.raw().to_string(),
+        RuleTargetSpec::ExactPath(path) => path.to_string_lossy().into_owned(),
+    }
+}
+
+fn normalize_rule_shape(raw: &str) -> String {
+    raw.trim()
+        .replace('\\', "/")
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+        .to_ascii_lowercase()
+}
+
+fn shape_segments(normalized: &str) -> Vec<&str> {
+    normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+fn contains_glob_wildcard(segment: &str) -> bool {
+    segment.contains('*') || segment.contains('?') || segment.contains('[')
+}
+
+fn wildcard_appears_at_profile_root(segments: &[&str]) -> bool {
+    matches!(segments.first(), Some(root) if *root == "%userprofile%")
+        && segments
+            .get(1)
+            .is_some_and(|segment| contains_glob_wildcard(segment))
+}
+
+fn wildcard_appears_at_drive_root(segments: &[&str]) -> bool {
+    segments
+        .first()
+        .is_some_and(|segment| segment.ends_with(':') && segment.len() == 2)
+        && segments
+            .get(1)
+            .is_some_and(|segment| contains_glob_wildcard(segment))
+}
+
+fn wildcard_requires_broad_discovery_warning(segments: &[&str]) -> bool {
+    if star_wildcard_segment_count(segments) >= 2 {
+        return true;
+    }
+
+    let mut fixed_before_first_wildcard = 0usize;
+    let first_wildcard = segments
+        .iter()
+        .skip_while(|segment| segment.starts_with('%') && segment.ends_with('%'))
+        .find(|segment| {
+            if contains_glob_wildcard(segment) {
+                true
+            } else {
+                fixed_before_first_wildcard += 1;
+                false
+            }
+        });
+
+    fixed_before_first_wildcard == 0
+        && first_wildcard.is_some_and(|segment| *segment == "*" || *segment == "?")
+}
+
+fn star_wildcard_segment_count(segments: &[&str]) -> usize {
+    segments
+        .iter()
+        .filter(|segment| segment.contains('*') || segment.contains('?'))
+        .count()
+}
+
+fn has_positive_cleanup_basis(raw: &str) -> bool {
+    let normalized = normalize_rule_shape(raw);
+    let segments = shape_segments(&normalized);
+    let leaf = segments.last().copied().unwrap_or_default();
+
+    if [
+        "cache",
+        "caches",
+        "cache2",
+        "startupcache",
+        "offlinecache",
+        "code cache",
+        "codecache",
+        "gpucache",
+        "dawncache",
+        "graphitedawncache",
+        "grshadercache",
+        "shadercache",
+        "d3dscache",
+        "htmlcache",
+        "httpcache",
+        "filecache",
+        "resource_cache",
+        "musiccache",
+        "updatecache",
+        "whirlcache",
+        "tmp",
+        "temp",
+        "%temp%",
+        "logs",
+        "crashdump",
+        "corepack",
+        "notifications",
+        "image",
+        "installer.txt",
+        "pkgs",
+        "packages",
+        "repository",
+        "store",
+        "hub",
+        "datasets",
+        "assets",
+        "artistalbum",
+        "xet",
+        "prefetch",
+    ]
+    .contains(&leaf)
+    {
+        return true;
+    }
+
+    normalized.contains("cache")
+        || normalized.contains("thumbcache_")
+        || normalized.contains("*.idx")
+        || normalized.contains("iconcache_")
+        || normalized.contains("_cacache")
+        || normalized.contains("logfile.log")
+        || normalized.contains("reportarchive")
+        || normalized.contains("reportqueue")
+        || normalized.contains("%rustup_home%/downloads")
+        || normalized.contains(".rustup/downloads")
+        || normalized.contains("appcache/download")
+        || normalized.contains("steamapps/downloading")
+        || normalized.contains("softwaredistribution/download")
+        || normalized.contains("registry/cache")
+        || normalized.contains("registry/index")
+        || normalized.contains("registry/src")
+        || normalized.contains("git/db")
+        || normalized.contains("git/checkouts")
+        || normalized.contains("go-build")
+        || normalized.contains("pkg/mod")
+        || normalized.contains("[0-9a-f]/[0-9a-f]")
+        || normalized.contains("dynamicresource")
+        || normalized.contains("transcoded files cache")
 }
 
 #[cfg(test)]
@@ -728,6 +987,93 @@ mod tests {
         .expect_err("duplicate warning ids should be rejected");
 
         assert!(err.to_string().contains("duplicate warning kind"));
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_targets_without_positive_cleanup_basis() {
+        let err = super::validate_builtin_rule_catalog(&[rule_with_target(
+            RuleTargetSpec::template("%USERPROFILE%\\Downloads"),
+        )])
+        .expect_err("built-in targets need a positive cleanup basis");
+
+        assert!(err.to_string().contains("positive cleanup basis"), "{err}");
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_wide_profile_root_globs() {
+        let err = super::validate_builtin_rule_catalog(&[rule_with_target(
+            RuleTargetSpec::glob_template("%USERPROFILE%\\*\\Cache"),
+        )])
+        .expect_err("profile-root wildcard discovery should be rejected");
+
+        assert!(
+            err.to_string()
+                .contains("starts discovery from a profile or drive root"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn builtin_catalog_requires_shape_implied_warnings() {
+        let broad = super::validate_builtin_rule_catalog(&[rule_with_target(
+            RuleTargetSpec::glob_template("%APPDATA%\\Vendor\\*\\Cache\\*\\file.tmp"),
+        )])
+        .expect_err("multi-wildcard glob should require broad-discovery");
+        assert!(broad.to_string().contains("broad-discovery"), "{broad}");
+
+        let mut broad_rule = rule_with_target(RuleTargetSpec::glob_template(
+            "%APPDATA%\\Vendor\\*\\Cache\\*\\file.tmp",
+        ));
+        broad_rule.warnings = vec!["broad-discovery".to_string()];
+        super::validate_builtin_rule_catalog(&[broad_rule])
+            .expect("broad-discovery warning should satisfy the shape gate");
+
+        let source = super::validate_builtin_rule_catalog(&[rule_with_target(
+            RuleTargetSpec::steam_install_template("appcache\\httpcache"),
+        )])
+        .expect_err("Steam discovery should require source-boundary");
+        assert!(source.to_string().contains("source-boundary"), "{source}");
+
+        let mut source_rule = rule_with_target(RuleTargetSpec::steam_install_template(
+            "appcache\\httpcache",
+        ));
+        source_rule.warnings = vec!["source-boundary".to_string()];
+        super::validate_builtin_rule_catalog(&[source_rule])
+            .expect("source-boundary warning should satisfy Steam discovery");
+
+        let privileged = super::validate_builtin_rule_catalog(&[rule_with_target(
+            RuleTargetSpec::template("%WINDIR%\\Temp"),
+        )])
+        .expect_err("Windows root maintenance targets should require privileged-location");
+        assert!(
+            privileged.to_string().contains("privileged-location"),
+            "{privileged}"
+        );
+
+        let mut privileged_rule = rule_with_target(RuleTargetSpec::template("%WINDIR%\\Temp"));
+        privileged_rule.warnings = vec!["privileged-location".to_string()];
+        super::validate_builtin_rule_catalog(&[privileged_rule])
+            .expect("privileged-location warning should satisfy Windows maintenance targets");
+    }
+
+    #[test]
+    fn builtin_rule_fixture_matrix_catches_positive_and_near_miss_shapes() {
+        super::validate_builtin_rule_catalog(&[rule_with_target(RuleTargetSpec::template(
+            "%APPDATA%\\Slack\\Cache",
+        ))])
+        .expect("positive cache target should pass");
+
+        let durable = super::validate_builtin_rule_catalog(&[rule_with_target(
+            RuleTargetSpec::template("%APPDATA%\\Slack\\Local Storage"),
+        )])
+        .expect_err("durable app state near a cache should be blocked");
+        assert!(durable.to_string().contains("application-durable-data"));
+
+        let protected = super::validate_builtin_rule_catalog(&[rule_with_target(
+            RuleTargetSpec::template("%USERPROFILE%\\.ssh"),
+        )])
+        .expect_err("protected user credential path should be blocked");
+        assert!(protected.to_string().contains("credentials"));
     }
 
     #[test]

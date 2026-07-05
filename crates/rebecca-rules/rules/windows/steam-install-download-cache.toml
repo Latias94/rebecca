@@ -5,6 +5,7 @@ category = "application"
 name = "Steam install download cache"
 safety_level = "moderate"
 restore_hint = "Steam download staging data will be recreated if needed."
+warnings = ["source-boundary"]
 
 [[targets]]
 kind = "steam-install-template"

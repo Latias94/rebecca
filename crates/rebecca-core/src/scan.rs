@@ -14,8 +14,8 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub use backend::{
-    MeasuredScan, ScanBackend, ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence,
-    ScanRequest,
+    MeasuredScan, ScanBackend, ScanBackendEvidence, ScanBackendKind, ScanCacheEvidenceEvent,
+    ScanEstimateCaveat, ScanEstimateConfidence, ScanRequest,
 };
 pub use portable::PortableRecursiveScanBackend;
 pub use progress::{ScanCancellationToken, ScanProgressEvent};

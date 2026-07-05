@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use rebecca_core::plan::{
@@ -6,7 +7,9 @@ use rebecca_core::plan::{
 use rebecca_core::project_artifacts::{
     ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
 };
-use rebecca_core::scan::{ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence};
+use rebecca_core::scan::{
+    ScanBackendEvidence, ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence,
+};
 use rebecca_core::{
     CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance,
     RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel,
@@ -214,6 +217,20 @@ fn cleanup_plan_serialization_preserves_estimate_source_contract() {
 fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     let mut plan = CleanupPlan::empty(request);
+    let mut timings_ms = BTreeMap::new();
+    timings_ms.insert("read-volume-data".to_string(), 7);
+    let mut counters = BTreeMap::new();
+    counters.insert("parsed-records".to_string(), 42);
+    let mut evidence = ScanBackendEvidence {
+        timings_ms,
+        counters,
+        cache_events: Vec::new(),
+    };
+    evidence.record_cache_event(
+        "ntfs-volume-index",
+        "miss",
+        Some("manifest-missing".to_string()),
+    );
     plan.targets.push(
         CleanupTarget::allowed(
             "windows.user-temp",
@@ -230,6 +247,7 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
                 code: "native-fallback".to_string(),
                 message: "native backend fell back to portable scanning".to_string(),
             }],
+            estimate_backend_evidence: evidence,
         }),
     );
     plan.recompute_summary();
@@ -249,6 +267,18 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
     assert_eq!(
         json["targets"][0]["estimate_caveats"][0]["code"],
         "native-fallback"
+    );
+    assert_eq!(
+        json["targets"][0]["estimate_backend_evidence"]["timings_ms"]["read-volume-data"],
+        7
+    );
+    assert_eq!(
+        json["targets"][0]["estimate_backend_evidence"]["counters"]["parsed-records"],
+        42
+    );
+    assert_eq!(
+        json["targets"][0]["estimate_backend_evidence"]["cache_events"][0]["reason"],
+        "manifest-missing"
     );
 
     let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
@@ -273,6 +303,14 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
     assert_eq!(
         decoded.targets[0].estimate_provenance.estimate_caveats[0].code,
         "native-fallback"
+    );
+    assert_eq!(
+        decoded.targets[0]
+            .estimate_provenance
+            .estimate_backend_evidence
+            .counters
+            .get("parsed-records"),
+        Some(&42)
     );
 }
 

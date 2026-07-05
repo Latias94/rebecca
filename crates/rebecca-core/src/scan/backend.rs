@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,49 @@ pub struct ScanEstimateCaveat {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanBackendEvidence {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub timings_ms: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub counters: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cache_events: Vec<ScanCacheEvidenceEvent>,
+}
+
+impl ScanBackendEvidence {
+    pub fn is_empty(&self) -> bool {
+        self.timings_ms.is_empty() && self.counters.is_empty() && self.cache_events.is_empty()
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.timings_ms.extend(other.timings_ms);
+        self.counters.extend(other.counters);
+        self.cache_events.extend(other.cache_events);
+    }
+
+    pub fn record_cache_event(
+        &mut self,
+        cache: impl Into<String>,
+        outcome: impl Into<String>,
+        reason: Option<String>,
+    ) {
+        self.cache_events.push(ScanCacheEvidenceEvent {
+            cache: cache.into(),
+            outcome: outcome.into(),
+            reason,
+        });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanCacheEvidenceEvent {
+    pub cache: String,
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeasuredScan {
     pub report: ScanReport,
@@ -55,6 +99,8 @@ pub struct MeasuredScan {
     pub fallback_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub caveats: Vec<ScanEstimateCaveat>,
+    #[serde(default, skip_serializing_if = "ScanBackendEvidence::is_empty")]
+    pub backend_evidence: ScanBackendEvidence,
 }
 
 impl MeasuredScan {
@@ -66,6 +112,7 @@ impl MeasuredScan {
             backend_source: None,
             fallback_reason: None,
             caveats: Vec::new(),
+            backend_evidence: ScanBackendEvidence::default(),
         }
     }
 
@@ -92,6 +139,11 @@ impl MeasuredScan {
             code: code.into(),
             message: message.into(),
         });
+        self
+    }
+
+    pub(crate) fn with_backend_evidence(mut self, evidence: ScanBackendEvidence) -> Self {
+        self.backend_evidence.merge(evidence);
         self
     }
 }

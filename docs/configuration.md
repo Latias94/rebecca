@@ -425,6 +425,15 @@ Scan-cache records may store target paths, metadata fingerprints, filesystem
 identity fields, scan backend/source/confidence metadata, scan reports, and
 write times. They are rebuildable optimization data, not an audit log.
 
+Machine-readable diagnostics distinguish fields meant for local authority from
+fields meant for sharing. `absolute_path`, `record_root`, history target paths,
+and NTFS/cache metadata can expose usernames, project names, drive layout, or
+local cache identities. `display_path` and `record_root_display` are the
+preferred fields for human reports, examples, and issue templates. Do not paste
+full JSON diagnostics into public issues without reviewing those local fields;
+debug and dogfood artifacts should redact or replace them unless the local path
+is necessary evidence.
+
 ## CLI Contract
 
 `rebecca config paths --format json` is the stable machine-readable surface for storage

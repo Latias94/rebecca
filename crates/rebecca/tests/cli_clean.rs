@@ -18,6 +18,8 @@ fn steam_dry_run_json_output(
         "--dry-run",
         "--format",
         "json",
+        "--allow-warning",
+        "source-boundary",
         "--rule",
         case.rule_id,
     ]);
@@ -1081,6 +1083,18 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
         "portable-recursive"
     );
     assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
+    assert_eq!(
+        value["targets"][0]["estimate_backend_evidence"]["cache_events"][0]["cache"],
+        "scan-cache"
+    );
+    assert_eq!(
+        value["targets"][0]["estimate_backend_evidence"]["cache_events"][0]["outcome"],
+        "miss"
+    );
+    assert_eq!(
+        value["targets"][0]["estimate_backend_evidence"]["cache_events"][0]["reason"],
+        "missing"
+    );
     assert!(
         value["targets"][0]
             .get("estimate_fallback_reason")
@@ -1476,6 +1490,8 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
             "--dry-run",
             "--format",
             "json",
+            "--allow-warning",
+            "source-boundary",
             "--rule",
             "windows.steam-install-cache",
         ])

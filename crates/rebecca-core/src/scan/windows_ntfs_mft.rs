@@ -52,7 +52,8 @@ use crate::safety::is_reparse_like;
 use crate::scan_cache::{ScanCacheUsnCheckpoint, ScanCacheUsnJournalState};
 
 use super::backend::{
-    MeasuredScan, ScanBackend, ScanBackendKind, ScanEstimateConfidence, ScanRequest,
+    MeasuredScan, ScanBackend, ScanBackendEvidence, ScanBackendKind, ScanEstimateConfidence,
+    ScanRequest,
 };
 use super::progress::{ScanProgressEvent, check_not_cancelled};
 use super::{ScanCancellationToken, ScanReport};
@@ -262,6 +263,29 @@ impl NtfsMftBuildMonitor {
     fn build_summary(&self) -> Option<String> {
         let state = self.state.borrow();
         format_build_summary(&state.timings, &state.metrics)
+    }
+
+    fn evidence(&self) -> ScanBackendEvidence {
+        let state = self.state.borrow();
+        ScanBackendEvidence {
+            timings_ms: state
+                .timings
+                .iter()
+                .map(|(stage, duration)| {
+                    (
+                        stage.label().to_string(),
+                        u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
+                    )
+                })
+                .collect(),
+            counters: state
+                .metrics
+                .iter()
+                .filter(|(_, value)| **value > 0)
+                .map(|(metric, value)| (metric.label().to_string(), *value))
+                .collect(),
+            cache_events: Vec::new(),
+        }
     }
 
     fn add_metric(&self, metric: NtfsMftBuildMetric, value: u64) {
@@ -1203,20 +1227,28 @@ pub(super) struct WindowsNtfsMftIndexCache {
 struct PersistentIndexLoad {
     index: Option<CachedNtfsVolumeIndex>,
     caveats: Vec<ParseCaveat>,
+    backend_evidence: ScanBackendEvidence,
 }
 
 impl PersistentIndexLoad {
     fn hit(index: CachedNtfsVolumeIndex) -> Self {
+        let mut backend_evidence = ScanBackendEvidence::default();
+        backend_evidence.record_cache_event("ntfs-volume-index", "hit", None);
         Self {
             index: Some(index),
             caveats: Vec::new(),
+            backend_evidence,
         }
     }
 
     fn miss(reason: impl AsRef<str>) -> Self {
+        let reason = reason.as_ref();
+        let mut backend_evidence = ScanBackendEvidence::default();
+        backend_evidence.record_cache_event("ntfs-volume-index", "miss", Some(reason.to_string()));
         Self {
             index: None,
             caveats: vec![persistent_cache_miss_caveat(reason)],
+            backend_evidence,
         }
     }
 
@@ -1276,6 +1308,7 @@ impl WindowsNtfsMftIndexCache {
             cancellation,
         )?;
         let mut persistent_load_caveats = persistent_load.caveats;
+        let persistent_load_evidence = persistent_load.backend_evidence;
         let build_result = match persistent_load.index {
             Some(index) => Ok((index, Vec::new())),
             None => CachedNtfsVolumeIndex::build(
@@ -1288,8 +1321,16 @@ impl WindowsNtfsMftIndexCache {
         let mut volumes = self.lock_volumes()?;
         let result = match build_result {
             Ok((mut index, mut transient_caveats)) => {
-                if let Some(caveat) = index.store_persistent_payload(self.manifest_store.as_ref()) {
+                index.backend_evidence.merge(persistent_load_evidence);
+                if let Some((caveat, reason)) =
+                    index.store_persistent_payload(self.manifest_store.as_ref())
+                {
                     index.caveats.push(caveat);
+                    index.backend_evidence.record_cache_event(
+                        "ntfs-volume-index",
+                        "write-skipped",
+                        Some(reason.to_string()),
+                    );
                 }
                 index.caveats.append(&mut transient_caveats);
                 let index = Arc::new(index);
@@ -1467,6 +1508,7 @@ impl WindowsNtfsMftIndexCache {
                     mft_index: payload.mft_index,
                     source_label: PERSISTENT_MFT_SOURCE_LABEL,
                     caveats: payload.caveats,
+                    backend_evidence: ScanBackendEvidence::default(),
                     usn_checkpoint: Some(usn_checkpoint),
                 }))
             }
@@ -1534,6 +1576,7 @@ struct CachedNtfsVolumeIndex {
     mft_index: MftIndex,
     source_label: &'static str,
     caveats: Vec<ParseCaveat>,
+    backend_evidence: ScanBackendEvidence,
     usn_checkpoint: Option<ScanCacheUsnCheckpoint>,
 }
 
@@ -1545,16 +1588,15 @@ impl CachedNtfsVolumeIndex {
     fn store_persistent_payload(
         &self,
         manifest_store: Option<&NtfsVolumeIndexManifestStore>,
-    ) -> Option<ParseCaveat> {
+    ) -> Option<(ParseCaveat, &'static str)> {
         let manifest_store = manifest_store?;
         let Some(usn_checkpoint) = self.usn_checkpoint.clone() else {
             tracing::debug!(
                 generation = self.fingerprint.persistent_generation(),
                 "NTFS volume-index payload write skipped without stable USN checkpoint"
             );
-            return Some(persistent_cache_write_skipped_caveat(
-                "stable-usn-checkpoint-unavailable",
-            ));
+            let reason = "stable-usn-checkpoint-unavailable";
+            return Some((persistent_cache_write_skipped_caveat(reason), reason));
         };
         if matches!(
             manifest_store.load_index_payload(&self.fingerprint),
@@ -1581,7 +1623,8 @@ impl CachedNtfsVolumeIndex {
                 generation = self.fingerprint.persistent_generation(),
                 "NTFS volume-index payload write skipped"
             );
-            return Some(persistent_cache_write_skipped_caveat("write-failed"));
+            let reason = "write-failed";
+            return Some((persistent_cache_write_skipped_caveat(reason), reason));
         }
         None
     }
@@ -1640,6 +1683,7 @@ impl CachedNtfsVolumeIndex {
             mft_index,
             source_label,
             caveats,
+            backend_evidence: monitor.evidence(),
             usn_checkpoint,
         })
     }
@@ -1704,47 +1748,56 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
         }
 
         let target_record_id = target_identity.file_reference.record_id;
-        let (summary, source_label, shared_caveats) = match build_targeted_mft_summary(
-            &capabilities,
-            target_identity.file_reference,
-            request.cancellation,
-        ) {
-            Ok((summary, caveats)) => (summary, TARGETED_MFT_SOURCE_LABEL, caveats),
-            Err(err)
-                if live_ntfs_mft_full_index_fallback_enabled()
-                    && mft_record_source_error_can_fallback(&err) =>
-            {
-                let index = self.cache.load_or_build(
-                    &capabilities,
-                    target_record_id,
-                    is_volume_root_path(request.path, &capabilities.root_path),
-                    request.cancellation,
-                )?;
-                let Some(_) = index.mft_index.get(target_record_id) else {
-                    return Err(RebeccaError::PlatformUnavailable(format!(
-                        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not map {} to MFT record {}",
-                        request.path.display(),
-                        target_record_id
-                    )));
-                };
-                let mut summary = index.mft_index.aggregate_subtree(target_record_id);
-                summary.caveats.push(ParseCaveat::new(
+        let (summary, source_label, shared_caveats, backend_evidence) =
+            match build_targeted_mft_summary(
+                &capabilities,
+                target_identity.file_reference,
+                request.cancellation,
+            ) {
+                Ok((summary, caveats, evidence)) => {
+                    (summary, TARGETED_MFT_SOURCE_LABEL, caveats, evidence)
+                }
+                Err(err)
+                    if live_ntfs_mft_full_index_fallback_enabled()
+                        && mft_record_source_error_can_fallback(&err) =>
+                {
+                    let index = self.cache.load_or_build(
+                        &capabilities,
+                        target_record_id,
+                        is_volume_root_path(request.path, &capabilities.root_path),
+                        request.cancellation,
+                    )?;
+                    let Some(_) = index.mft_index.get(target_record_id) else {
+                        return Err(RebeccaError::PlatformUnavailable(format!(
+                            "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} could not map {} to MFT record {}",
+                            request.path.display(),
+                            target_record_id
+                        )));
+                    };
+                    let mut summary = index.mft_index.aggregate_subtree(target_record_id);
+                    summary.caveats.push(ParseCaveat::new(
                     "mft-targeted-full-index-fallback",
                     format!(
                         "targeted NTFS/MFT traversal was unavailable ({err}); full-volume MFT index fallback was enabled by {LIVE_NTFS_MFT_FULL_INDEX_FALLBACK_ENV}"
                     ),
                 ));
-                (summary, index.source_label, index.caveats.clone())
-            }
-            Err(err) => return Err(err),
-        };
+                    (
+                        summary,
+                        index.source_label,
+                        index.caveats.clone(),
+                        index.backend_evidence.clone(),
+                    )
+                }
+                Err(err) => return Err(err),
+            };
         let report = ScanReport {
             bytes_scanned: summary.bytes,
             files_scanned: summary.files,
             directories_scanned: summary.directories,
         };
         let measured = MeasuredScan::exact(report, self.kind())
-            .with_backend_source(mft_backend_source_label(source_label));
+            .with_backend_source(mft_backend_source_label(source_label))
+            .with_backend_evidence(backend_evidence);
 
         Ok(with_bounded_mft_caveats(
             measured,
@@ -1883,7 +1936,8 @@ pub(super) fn inspect_disk_map(
         },
         ScanBackendKind::WindowsNtfsMftExperimental,
     )
-    .with_backend_source(backend_source);
+    .with_backend_source(backend_source)
+    .with_backend_evidence(index.backend_evidence.clone());
     let measured =
         with_bounded_mft_caveats(measured, index.caveats.clone().into_iter().chain(caveats));
 
@@ -2539,7 +2593,7 @@ fn build_targeted_mft_summary(
     capabilities: &NtfsVolumeCapabilities,
     target_reference: NtfsFileReference,
     cancellation: &ScanCancellationToken,
-) -> Result<(SubtreeSummary, Vec<ParseCaveat>)> {
+) -> Result<(SubtreeSummary, Vec<ParseCaveat>, ScanBackendEvidence)> {
     let monitor = NtfsMftBuildMonitor::from_environment();
     check_mft_build_progress(cancellation, &monitor)?;
     let volume = monitor.measure_checked(NtfsMftBuildStage::OpenVolume, cancellation, || {
@@ -2574,7 +2628,7 @@ fn build_targeted_mft_summary(
     if let Some(caveat) = monitor.timing_caveat() {
         caveats.push(caveat);
     }
-    Ok((summary, caveats))
+    Ok((summary, caveats, monitor.evidence()))
 }
 
 fn build_targeted_mft_disk_map(
@@ -2640,7 +2694,8 @@ fn build_targeted_mft_disk_map(
         },
         ScanBackendKind::WindowsNtfsMftExperimental,
     )
-    .with_backend_source(mft_backend_source_label(TARGETED_MFT_SOURCE_LABEL));
+    .with_backend_source(mft_backend_source_label(TARGETED_MFT_SOURCE_LABEL))
+    .with_backend_evidence(monitor.evidence());
     let measured = with_bounded_mft_caveats(measured, caveats);
 
     Ok(DiskMapBackendRoot {
@@ -4446,15 +4501,15 @@ mod tests {
         NtfsVolumeIndexManifestLookup, NtfsVolumeIndexManifestMiss, NtfsVolumeIndexManifestStore,
         NtfsVolumeIndexPayload, NtfsVolumeIndexPayloadLookup, NtfsVolumeIndexPayloadMiss,
         NtfsVolumeIndexPayloadRef, NtfsVolumeIndexUsnChange, ParsedNtfsRecords,
-        RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES,
-        SEQUENTIAL_MFT_SOURCE_LABEL, ScanCancellationToken, SequentialMftChunk,
-        SequentialMftMirrorChunk, TargetedMftRecordResolver, TargetedMftTraversal,
-        TargetedMftTraversalLimits, USN_RECORD_V2, VolumePaths, build_mft_index_from_records,
-        cache_checksum, check_mft_build_progress, collect_mft_disk_map_entry,
-        file_reference_from_number, file_reference_number, is_transient_persistent_cache_caveat,
-        low_file_reference_number, mft_mirror_read_plan, mirror_for_primary_records,
-        next_mft_chunk_len, parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
-        parse_usn_journal_read_buffer, persistent_cache_miss_caveat,
+        PersistentIndexLoad, RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0,
+        SEQUENTIAL_MFT_CHUNK_BYTES, SEQUENTIAL_MFT_SOURCE_LABEL, ScanBackendEvidence,
+        ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
+        TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, USN_RECORD_V2,
+        VolumePaths, build_mft_index_from_records, cache_checksum, check_mft_build_progress,
+        collect_mft_disk_map_entry, file_reference_from_number, file_reference_number,
+        is_transient_persistent_cache_caveat, low_file_reference_number, mft_mirror_read_plan,
+        mirror_for_primary_records, next_mft_chunk_len, parse_retrieval_pointer_extents,
+        parse_sequential_mft_chunks, parse_usn_journal_read_buffer, persistent_cache_miss_caveat,
         persistent_cache_write_skipped_caveat, read_mft_records_from_sources,
         stable_ntfs_volume_index_checkpoint, validate_ntfs_volume_index_replay,
         validate_ntfs_volume_index_replay_range, with_bounded_mft_caveats,
@@ -4933,6 +4988,7 @@ mod tests {
                 persistent_cache_miss_caveat("manifest-missing"),
                 ParseCaveat::new("durable-caveat", "durable"),
             ],
+            backend_evidence: ScanBackendEvidence::default(),
             usn_checkpoint: Some(checkpoint),
         };
 
@@ -5299,6 +5355,16 @@ mod tests {
         let miss = persistent_cache_miss_caveat("manifest-missing");
         assert_eq!(miss.code, MFT_PERSISTENT_CACHE_MISS_CAVEAT_CODE);
         assert!(miss.message.contains("reason=manifest-missing"));
+        let load = PersistentIndexLoad::miss("manifest-missing");
+        assert_eq!(
+            load.backend_evidence.cache_events[0].cache,
+            "ntfs-volume-index"
+        );
+        assert_eq!(load.backend_evidence.cache_events[0].outcome, "miss");
+        assert_eq!(
+            load.backend_evidence.cache_events[0].reason.as_deref(),
+            Some("manifest-missing")
+        );
 
         let write_skip = persistent_cache_write_skipped_caveat("write-failed");
         assert_eq!(
@@ -5318,12 +5384,14 @@ mod tests {
             mft_index: fixture_mft_index(),
             source_label: SEQUENTIAL_MFT_SOURCE_LABEL,
             caveats: Vec::new(),
+            backend_evidence: ScanBackendEvidence::default(),
             usn_checkpoint: None,
         };
 
-        let caveat = index.store_persistent_payload(Some(&store)).unwrap();
+        let (caveat, reason) = index.store_persistent_payload(Some(&store)).unwrap();
 
         assert_eq!(caveat.code, MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE);
+        assert_eq!(reason, "stable-usn-checkpoint-unavailable");
         assert!(
             caveat
                 .message
@@ -5340,6 +5408,7 @@ mod tests {
             mft_index: fixture_mft_index(),
             source_label: SEQUENTIAL_MFT_SOURCE_LABEL,
             caveats: Vec::new(),
+            backend_evidence: ScanBackendEvidence::default(),
             usn_checkpoint: None,
         };
 
@@ -6486,8 +6555,19 @@ mod tests {
         monitor.add_metric(NtfsMftBuildMetric::SequentialMftReadBytes, 4096);
         monitor.add_metric(NtfsMftBuildMetric::SequentialMftReadChunks, 1);
         monitor.add_metric(NtfsMftBuildMetric::ParsedRecords, 4);
+        let evidence = monitor.evidence();
         let caveat = monitor.timing_caveat().unwrap();
 
+        assert!(
+            evidence
+                .timings_ms
+                .contains_key("sequential-read-mft-bytes")
+        );
+        assert!(evidence.timings_ms.contains_key("sequential-parse-records"));
+        assert!(evidence.timings_ms.contains_key("build-mft-index"));
+        assert_eq!(evidence.counters["parsed-records"], 4);
+        assert_eq!(evidence.counters["sequential-mft-read-bytes"], 4096);
+        assert_eq!(evidence.counters["sequential-mft-read-chunks"], 1);
         assert_eq!(caveat.code, MFT_BUILD_TIMING_CAVEAT_CODE);
         assert!(caveat.message.contains("sequential-read-mft-bytes="));
         assert!(caveat.message.contains("sequential-parse-records="));

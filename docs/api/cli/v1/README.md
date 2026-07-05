@@ -80,6 +80,9 @@ The `payload_kind` field identifies the shape under `data`:
 - `project-artifact-catalog`
 - `catalog`
 - `catalog-validation`
+- `cache-inventory`
+- `cache-doctor`
+- `cache-prune-report`
 - `inspect-space`
 - `inspect-map`
 - `inspect-map-entry`
@@ -116,7 +119,10 @@ When known, targets also include:
   `windows-ntfs-mft-experimental-fsctl-record`;
 - `estimate_confidence`: estimate confidence, currently `exact`;
 - `estimate_fallback_reason`: why Rebecca fell back from a requested backend;
-- `estimate_caveats`: structured caveats with `code` and `message`.
+- `estimate_caveats`: structured caveats with `code` and `message`;
+- `estimate_backend_evidence`: optional structured evidence with `timings_ms`,
+  `counters`, and `cache_events`. Consumers should prefer this object over
+  parsing human caveat text when comparing scan/cache behavior.
 
 The `windows-ntfs-mft-experimental` backend is read-only and opt-in. When live
 NTFS metadata is available, `estimate_backend_source` distinguishes the
@@ -151,6 +157,15 @@ that match cleanup rules carrying the `active-process` warning.
 cleanup rules, project artifact policies, warning gates, safety categories, and
 supported action kinds. `catalog-validation` is emitted by
 `rebecca catalog validate`.
+
+`cache-inventory`, `cache-doctor`, and `cache-prune-report` are emitted by
+`rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune`.
+Inventory entries intentionally expose both `absolute_path` and `display_path`.
+`absolute_path` is a local machine path and may include usernames or disk
+layout; `display_path` is the value Rebecca uses for human-oriented diagnostics
+and examples. `record_root` and NTFS cache identifiers are also local metadata.
+Issue reports and dogfood artifacts should prefer display fields unless the
+user explicitly needs full local evidence.
 
 `inspect-space`, `inspect-map`, `inspect-artifacts`, and `inspect-lint` are
 read-only cleanup intelligence reports. They inventory top-level space, ranked
@@ -235,6 +250,9 @@ rebecca clean --format ndjson --progress-detail file --rule windows.user-temp
 rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
 rebecca catalog --format json --kind warning
+rebecca cache inspect --format json --namespace scan-cache
+rebecca cache doctor --format json
+rebecca cache prune --format json --namespace scan-cache --stale-only
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
 rebecca inspect map --format ndjson --root . --top 20 --group-by extension

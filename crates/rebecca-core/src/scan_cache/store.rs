@@ -380,6 +380,7 @@ mod tests {
             backend,
             backend_source: None,
             confidence: ScanEstimateConfidence::Exact,
+            backend_evidence: crate::scan::ScanBackendEvidence::default(),
         })
     }
 
@@ -484,6 +485,7 @@ mod tests {
                 backend: ScanBackendKind::WindowsNtfsMftExperimental,
                 backend_source: Some("windows-ntfs-mft-experimental-sequential".to_string()),
                 confidence: ScanEstimateConfidence::Exact,
+                backend_evidence: crate::scan::ScanBackendEvidence::default(),
             })
         );
     }

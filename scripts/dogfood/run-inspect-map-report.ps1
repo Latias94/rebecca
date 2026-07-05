@@ -371,6 +371,32 @@ function Get-NtfsEvidenceSegments {
     return @($segments | Select-Object -Unique)
 }
 
+function Get-StructuredEvidenceSegments {
+    param(
+        [object[]]$EvidenceValues,
+        [string]$PropertyName,
+        [string]$UnitSuffix = ""
+    )
+
+    $segments = [System.Collections.Generic.List[string]]::new()
+    foreach ($evidence in @($EvidenceValues)) {
+        if ($null -eq $evidence) {
+            continue
+        }
+        $map = Get-ObjectProperty -Object $evidence -Name $PropertyName
+        if ($null -eq $map) {
+            continue
+        }
+        foreach ($property in @($map.PSObject.Properties | Sort-Object Name)) {
+            if ($null -eq $property.Value) {
+                continue
+            }
+            $segments.Add("$($property.Name)=$($property.Value)$UnitSuffix")
+        }
+    }
+    return @($segments | Select-Object -Unique)
+}
+
 function Get-BackendSourceKind {
     param([object[]]$Sources)
 
@@ -437,6 +463,7 @@ function Convert-InspectMapJson {
             backend_sources = @()
             fallback_reasons = @()
             caveats = @()
+            backend_evidence = @()
             totals = $null
             diagnostic_summary = $null
         }
@@ -454,6 +481,7 @@ function Convert-InspectMapJson {
             backend_sources = @(Find-JsonValues -Node $json -Names @("estimate_backend_source"))
             fallback_reasons = @(Find-JsonValues -Node $json -Names @("estimate_fallback_reason"))
             caveats = @(Find-JsonValues -Node $json -Names @("estimate_caveats") -Unique $false)
+            backend_evidence = @(Find-JsonValues -Node $json -Names @("estimate_backend_evidence") -Unique $false)
             totals = Get-ObjectProperty -Object $data -Name "totals"
             diagnostic_summary = Get-ObjectProperty -Object $data -Name "diagnostic_summary"
         }
@@ -468,6 +496,7 @@ function Convert-InspectMapJson {
             backend_sources = @()
             fallback_reasons = @()
             caveats = @()
+            backend_evidence = @()
             totals = $null
             diagnostic_summary = $null
         }
@@ -578,8 +607,20 @@ function New-RunSummary {
     $mftMirrorRecordUsedCount = Get-CaveatCodeCount -Counts $caveatCodeCounts -Code "mft-mirror-record-used"
     $mftMirrorReadFailedCount = Get-CaveatCodeCount -Counts $caveatCodeCounts -Code "mft-mirror-read-failed"
     $ntfsEvidenceValues = @($caveats) + @($Probe.fallback_reasons)
-    $ntfsMftStageTimings = Join-ReportValues @(Get-NtfsEvidenceSegments -Values $ntfsEvidenceValues -Name "completed_timings")
-    $ntfsMftBuildMetrics = Join-ReportValues @(Get-NtfsEvidenceSegments -Values $ntfsEvidenceValues -Name "metrics")
+    $structuredStageTimings = @(Get-StructuredEvidenceSegments -EvidenceValues $Probe.backend_evidence -PropertyName "timings_ms" -UnitSuffix "ms")
+    $structuredBuildMetrics = @(Get-StructuredEvidenceSegments -EvidenceValues $Probe.backend_evidence -PropertyName "counters")
+    $ntfsMftStageTimings = if ($structuredStageTimings.Count -gt 0) {
+        Join-ReportValues $structuredStageTimings
+    }
+    else {
+        Join-ReportValues @(Get-NtfsEvidenceSegments -Values $ntfsEvidenceValues -Name "completed_timings")
+    }
+    $ntfsMftBuildMetrics = if ($structuredBuildMetrics.Count -gt 0) {
+        Join-ReportValues $structuredBuildMetrics
+    }
+    else {
+        Join-ReportValues @(Get-NtfsEvidenceSegments -Values $ntfsEvidenceValues -Name "metrics")
+    }
 
     return [pscustomobject]@{
         run_id = $RunId
@@ -964,6 +1005,17 @@ function Invoke-SelfTest {
                     estimate_backend = "portable-recursive"
                     estimate_backend_source = "windows-ntfs-mft-experimental-sequential"
                     estimate_confidence = "exact"
+                    estimate_backend_evidence = @{
+                        timings_ms = @{
+                            "open-volume" = 1
+                            "sequential-read-mft-bytes" = 2
+                        }
+                        counters = @{
+                            "parsed-records" = 4
+                            "sequential-mft-read-bytes" = 8192
+                            "stream-reads" = 2
+                        }
+                    }
                     estimate_caveats = @(
                         @{
                             code = "mft-mirror-record-used"

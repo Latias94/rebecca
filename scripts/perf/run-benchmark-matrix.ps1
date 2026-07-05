@@ -3,6 +3,9 @@ param(
     [string]$Bench = "perf_matrix",
     [string]$OutputPath = "",
     [string]$OutputDirectory = "",
+    [string]$BaselinePath = "",
+    [double]$RegressionThresholdPercent = 15.0,
+    [double]$ImprovementThresholdPercent = 15.0,
     [switch]$SkipRun
 )
 
@@ -60,6 +63,7 @@ function Get-OutputPaths {
         json = $jsonPath
         csv = Join-Path $outputParent "$stem-scenarios.csv"
         markdown = Join-Path $outputParent "$stem-summary.md"
+        comparison = Join-Path $outputParent "$stem-comparison.json"
     }
 }
 
@@ -168,24 +172,74 @@ function Convert-Estimate {
         [string]$StatusReason
     )
 
+    $meanNs = Get-EstimatePoint -Estimate $Estimate -PropertyName "mean"
+    $medianNs = Get-EstimatePoint -Estimate $Estimate -PropertyName "median"
+    $meanConfidenceIntervalNs = Get-EstimateConfidenceInterval -Estimate $Estimate -PropertyName "mean"
+    $backend = Get-ScenarioText -Scenario $Scenario -PropertyName "backend"
+    $backendSourceExpectation = Get-ScenarioText -Scenario $Scenario -PropertyName "backend_source_expectation"
+    $fixture = Get-ScenarioText -Scenario $Scenario -PropertyName "fixture"
+    $physicalFiles = Get-ScenarioNumber -Scenario $Scenario -PropertyName "physical_files"
+    $physicalDirectories = Get-ScenarioNumber -Scenario $Scenario -PropertyName "physical_directories"
+    $expectedBytes = Get-ScenarioNumber -Scenario $Scenario -PropertyName "expected_bytes"
+    $progressEvents = Get-ScenarioNumber -Scenario $Scenario -PropertyName "progress_events"
+    $targetCount = Get-ScenarioNumber -Scenario $Scenario -PropertyName "target_count"
+    $cacheMode = Get-ScenarioText -Scenario $Scenario -PropertyName "cache_mode"
+    $deleteMode = Get-ScenarioText -Scenario $Scenario -PropertyName "delete_mode"
+    $scanCacheMissReason = if ($cacheMode -eq "miss-store") { "missing" } else { "" }
+    $scanCacheWrite = if ($cacheMode -eq "miss-store") { "store" } else { "none" }
+
     return [pscustomobject]@{
         scenario = Get-ScenarioText -Scenario $Scenario -PropertyName "scenario"
         operation = Get-ScenarioText -Scenario $Scenario -PropertyName "operation"
-        backend = Get-ScenarioText -Scenario $Scenario -PropertyName "backend"
-        backend_source_expectation = Get-ScenarioText -Scenario $Scenario -PropertyName "backend_source_expectation"
-        fixture = Get-ScenarioText -Scenario $Scenario -PropertyName "fixture"
-        physical_files = Get-ScenarioNumber -Scenario $Scenario -PropertyName "physical_files"
-        physical_directories = Get-ScenarioNumber -Scenario $Scenario -PropertyName "physical_directories"
-        expected_bytes = Get-ScenarioNumber -Scenario $Scenario -PropertyName "expected_bytes"
-        progress_events = Get-ScenarioNumber -Scenario $Scenario -PropertyName "progress_events"
-        target_count = Get-ScenarioNumber -Scenario $Scenario -PropertyName "target_count"
-        cache_mode = Get-ScenarioText -Scenario $Scenario -PropertyName "cache_mode"
-        delete_mode = Get-ScenarioText -Scenario $Scenario -PropertyName "delete_mode"
+        backend = $backend
+        backend_source_expectation = $backendSourceExpectation
+        fixture = $fixture
+        physical_files = $physicalFiles
+        physical_directories = $physicalDirectories
+        expected_bytes = $expectedBytes
+        progress_events = $progressEvents
+        target_count = $targetCount
+        cache_mode = $cacheMode
+        delete_mode = $deleteMode
+        estimate_confidence = "exact"
+        scan_cache_miss_reason = $scanCacheMissReason
+        scan_cache_write = $scanCacheWrite
         status = $Status
         status_reason = $StatusReason
-        mean_ns = Get-EstimatePoint -Estimate $Estimate -PropertyName "mean"
-        median_ns = Get-EstimatePoint -Estimate $Estimate -PropertyName "median"
-        mean_confidence_interval_ns = Get-EstimateConfidenceInterval -Estimate $Estimate -PropertyName "mean"
+        mean_ns = $meanNs
+        median_ns = $medianNs
+        mean_confidence_interval_ns = $meanConfidenceIntervalNs
+        evidence = [pscustomobject]@{
+            backend = [pscustomobject]@{
+                requested = $backend
+                source_expectation = $backendSourceExpectation
+                estimate_confidence = "exact"
+            }
+            traversal = [pscustomobject]@{
+                fixture = $fixture
+                physical_files = $physicalFiles
+                physical_directories = $physicalDirectories
+                expected_bytes = $expectedBytes
+                progress_events = $progressEvents
+                target_count = $targetCount
+            }
+            cache = [pscustomobject]@{
+                mode = $cacheMode
+                hit_expected = $cacheMode -eq "hit"
+                miss_reason_expected = $scanCacheMissReason
+                write_expected = $scanCacheWrite
+            }
+            delete = [pscustomobject]@{
+                mode = $deleteMode
+                target_count = $targetCount
+            }
+            timing = [pscustomobject]@{
+                measurement = "criterion"
+                mean_ns = $meanNs
+                median_ns = $medianNs
+                mean_confidence_interval_ns = $meanConfidenceIntervalNs
+            }
+        }
     }
 }
 
@@ -205,6 +259,9 @@ function Convert-ScenarioForCsv {
         target_count = $Scenario.target_count
         cache_mode = $Scenario.cache_mode
         delete_mode = $Scenario.delete_mode
+        estimate_confidence = $Scenario.estimate_confidence
+        scan_cache_miss_reason = $Scenario.scan_cache_miss_reason
+        scan_cache_write = $Scenario.scan_cache_write
         status = $Scenario.status
         status_reason = $Scenario.status_reason
         mean_ns = $Scenario.mean_ns
@@ -235,6 +292,10 @@ function New-MarkdownReport {
     $lines += "- Git commit: $($Report.git_commit)"
     $lines += "- Scenario manifest: $($Report.scenario_manifest)"
     $lines += "- Criterion root: $($Report.criterion_root)"
+    if ($null -ne $Report.comparison -and $Report.comparison.status -ne "not-requested") {
+        $lines += "- Baseline comparison: $($Report.comparison.status)"
+        $lines += "- Baseline comparison report: $($Report.report_artifacts.comparison)"
+    }
     if (-not [string]::IsNullOrWhiteSpace($Report.status_reason)) {
         $lines += "- Status reason: $($Report.status_reason)"
     }
@@ -259,14 +320,14 @@ function Write-ReportArtifacts {
     $outputParent = Split-Path -Parent $Paths.json
     New-Item -ItemType Directory -Force -Path $outputParent | Out-Null
 
-    $Report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $Paths.json -Encoding utf8
+    $Report | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $Paths.json -Encoding utf8
 
     $csvRows = @($Report.scenarios | ForEach-Object { Convert-ScenarioForCsv -Scenario $_ })
     if ($csvRows.Count -gt 0) {
         $csvRows | Export-Csv -LiteralPath $Paths.csv -NoTypeInformation -Encoding utf8
     }
     else {
-        "scenario,operation,backend,backend_source_expectation,fixture,physical_files,physical_directories,expected_bytes,progress_events,target_count,cache_mode,delete_mode,status,status_reason,mean_ns,median_ns,mean_ci_lower_ns,mean_ci_upper_ns" |
+        "scenario,operation,backend,backend_source_expectation,fixture,physical_files,physical_directories,expected_bytes,progress_events,target_count,cache_mode,delete_mode,estimate_confidence,scan_cache_miss_reason,scan_cache_write,status,status_reason,mean_ns,median_ns,mean_ci_lower_ns,mean_ci_upper_ns" |
             Set-Content -LiteralPath $Paths.csv -Encoding utf8
     }
 
@@ -347,7 +408,7 @@ try {
     }
 
     $report = [pscustomobject]@{
-        schema_version = 3
+        schema_version = 4
         generated_at_unix_seconds = Get-UnixTimeSeconds
         status = Get-ReportStatus -Scenarios @($scenarios)
         status_reason = $statusReason
@@ -361,14 +422,41 @@ try {
             json = $outputPaths.json
             csv = $outputPaths.csv
             markdown = $outputPaths.markdown
+            comparison = $outputPaths.comparison
+        }
+        comparison = [pscustomobject]@{
+            status = "not-requested"
+            status_reason = "baseline report not provided"
         }
         scenarios = @($scenarios)
     }
 
     Write-ReportArtifacts -Report $report -Paths $outputPaths
+    if (-not [string]::IsNullOrWhiteSpace($BaselinePath)) {
+        $comparisonScript = Join-Path $PSScriptRoot "compare-benchmark-matrix.ps1"
+        & pwsh -File $comparisonScript `
+            -BaselinePath $BaselinePath `
+            -CurrentPath $outputPaths.json `
+            -OutputPath $outputPaths.comparison `
+            -RegressionThresholdPercent ([string]$RegressionThresholdPercent) `
+            -ImprovementThresholdPercent ([string]$ImprovementThresholdPercent)
+        $comparisonExitCode = $LASTEXITCODE
+        if ($comparisonExitCode -ne 0 -and $comparisonExitCode -ne 2) {
+            throw "Benchmark comparison failed with exit code $comparisonExitCode"
+        }
+        $report.comparison = Get-Content -LiteralPath $outputPaths.comparison -Raw |
+            ConvertFrom-Json -Depth 64
+        Write-ReportArtifacts -Report $report -Paths $outputPaths
+        if ($comparisonExitCode -eq 2) {
+            throw "Benchmark comparison detected a regression. See $($outputPaths.comparison)."
+        }
+    }
     Write-Host "Wrote benchmark matrix JSON report to $($outputPaths.json)"
     Write-Host "Wrote benchmark matrix CSV report to $($outputPaths.csv)"
     Write-Host "Wrote benchmark matrix Markdown report to $($outputPaths.markdown)"
+    if (-not [string]::IsNullOrWhiteSpace($BaselinePath)) {
+        Write-Host "Wrote benchmark matrix comparison report to $($outputPaths.comparison)"
+    }
 }
 finally {
     Pop-Location

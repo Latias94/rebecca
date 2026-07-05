@@ -98,6 +98,8 @@ fn catalog_validate_human_output_reports_builtin_catalog_health() {
     assert!(stdout.contains("built-in metadata gates pass"));
     assert!(stdout.contains("restricted reference provenance is no-copy"));
     assert!(stdout.contains("browser rules stay inside regenerable cache boundaries"));
+    assert!(stdout.contains("built-in target shapes have positive cleanup basis"));
+    assert!(stdout.contains("shape-derived warning gates are declared"));
 }
 
 #[test]
@@ -137,6 +139,16 @@ fn catalog_validate_json_reports_machine_readable_health_summary() {
         checks
             .iter()
             .any(|check| check == "protected target shapes are blocked")
+    );
+    assert!(
+        checks
+            .iter()
+            .any(|check| check == "built-in glob discovery is bounded")
+    );
+    assert!(
+        checks
+            .iter()
+            .any(|check| check == "shape-derived warning gates are declared")
     );
 }
 

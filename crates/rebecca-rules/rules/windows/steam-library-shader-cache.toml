@@ -5,6 +5,7 @@ category = "application"
 name = "Steam library shader cache"
 safety_level = "safe"
 restore_hint = "Steam shader caches will be rebuilt by Steam and games."
+warnings = ["source-boundary"]
 
 [[targets]]
 kind = "steam-library-template"

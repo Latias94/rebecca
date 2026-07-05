@@ -5,6 +5,7 @@ category = "application"
 name = "Steam install logs"
 safety_level = "safe"
 restore_hint = "Steam logs will be recreated when Steam runs again."
+warnings = ["source-boundary"]
 
 [[targets]]
 kind = "steam-install-template"

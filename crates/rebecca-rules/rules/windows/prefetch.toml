@@ -5,6 +5,7 @@ category = "system"
 name = "Windows Prefetch"
 safety_level = "moderate"
 restore_hint = "Prefetch data will be rebuilt by Windows."
+warnings = ["privileged-location"]
 
 [[targets]]
 kind = "template"

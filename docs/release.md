@@ -79,13 +79,21 @@ history for hard thresholds.
 pwsh -File scripts\perf\run-benchmark-matrix.ps1
 ```
 
+When a prior report is available, compare the current report against it:
+
+```powershell
+pwsh -File scripts\perf\run-benchmark-matrix.ps1 -BaselinePath target\perf\baseline.json
+```
+
 The expected report paths are
 `target\perf\rebecca-core-perf_matrix-report.json`,
 `target\perf\rebecca-core-perf_matrix-report-scenarios.csv`, and
-`target\perf\rebecca-core-perf_matrix-report-summary.md`. Use `-SkipRun` for
-report-generation smoke checks that should not execute Criterion; missing
-benchmark artifacts should produce a `skipped` or `partial` report instead of a
-script failure.
+`target\perf\rebecca-core-perf_matrix-report-summary.md`. Baseline runs also
+write comparison JSON, CSV, and Markdown artifacts and classify scenarios as
+pass, regression, improvement, skipped, missing-baseline, or missing-current
+with a default 15% threshold. Use `-SkipRun` for report-generation smoke checks
+that should not execute Criterion; missing benchmark artifacts should produce a
+`skipped` or `partial` report instead of a script failure.
 
 Collect live NTFS/MFT evidence with the inspect-map dogfood script. It isolates
 Rebecca config, state, cache, and history under

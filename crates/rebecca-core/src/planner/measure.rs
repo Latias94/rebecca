@@ -385,10 +385,13 @@ where
     }
 
     let cacheable_target = context.scan_cache().is_some() && is_cacheable_scan_target(path);
+    let mut cache_miss_reason = None;
     if cacheable_target && let Some(store) = context.scan_cache() {
         match store.load_with_policy(path, context.scan_cache_policy()) {
             ScanCacheLookup::Hit(hit) => {
                 progress(PathMeasureProgressEvent::ScanCacheHit { report: hit.report });
+                let mut evidence = hit.backend_evidence;
+                evidence.record_cache_event("scan-cache", "hit", None);
                 return Ok(MeasuredPath {
                     report: hit.report,
                     estimate_source: EstimateSource::ScanCache,
@@ -396,7 +399,8 @@ where
                         hit.backend,
                         hit.confidence,
                         hit.backend_source,
-                    ),
+                    )
+                    .with_backend_evidence(evidence),
                 });
             }
             ScanCacheLookup::Miss(outcome) => {
@@ -404,6 +408,7 @@ where
                     reason: outcome.reason,
                     pruned: outcome.pruned,
                 });
+                cache_miss_reason = Some(outcome.reason);
             }
         }
     }
@@ -417,12 +422,23 @@ where
         },
     )?;
     let report = measured_scan.report;
-    let estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
+    let mut estimate_backend_evidence = measured_scan.backend_evidence.clone();
+
+    if let Some(reason) = cache_miss_reason {
+        estimate_backend_evidence.record_cache_event(
+            "scan-cache",
+            "miss",
+            Some(reason.label().to_string()),
+        );
+    }
 
     if cacheable_target
         && let Some(store) = context.scan_cache()
-        && let Err(err) =
-            store.store_measured_scan_with_policy(path, measured_scan, context.scan_cache_policy())
+        && let Err(err) = store.store_measured_scan_with_policy(
+            path,
+            measured_scan.clone(),
+            context.scan_cache_policy(),
+        )
     {
         tracing::debug!(
             path = %path.display(),
@@ -430,7 +446,15 @@ where
             "scan cache write skipped"
         );
         progress(PathMeasureProgressEvent::ScanCacheWriteSkipped);
+        estimate_backend_evidence.record_cache_event(
+            "scan-cache",
+            "write-skipped",
+            Some("write-failed".to_string()),
+        );
     }
+
+    let mut estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
+    estimate_provenance.estimate_backend_evidence = estimate_backend_evidence;
 
     Ok(MeasuredPath {
         report,

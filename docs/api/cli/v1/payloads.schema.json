@@ -9,7 +9,10 @@
       "enum": [
         "active-process-diagnostic",
         "app-leftovers-cleanup-plan",
+        "cache-doctor",
+        "cache-inventory",
         "cache-purge-report",
+        "cache-prune-report",
         "catalog",
         "catalog-validation",
         "cleanup-plan",
@@ -73,6 +76,52 @@
         "message": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "scanCacheEvidenceEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache",
+        "outcome"
+      ],
+      "properties": {
+        "cache": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "estimateBackendEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timings_ms": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nonNegativeInteger"
+          }
+        },
+        "counters": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nonNegativeInteger"
+          }
+        },
+        "cache_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scanCacheEvidenceEvent"
+          }
         }
       }
     },
@@ -581,6 +630,312 @@
         }
       }
     },
+    "cacheNamespace": {
+      "type": "string",
+      "enum": [
+        "all",
+        "scan-cache",
+        "ntfs-volume-index"
+      ]
+    },
+    "cacheInventoryEntryKind": {
+      "type": "string",
+      "enum": [
+        "scan-cache-record",
+        "ntfs-volume-index-manifest",
+        "ntfs-volume-index-payload"
+      ]
+    },
+    "cacheInventoryEntryStatus": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "stale",
+        "corrupt",
+        "unreadable",
+        "missing-payload",
+        "payload",
+        "unknown"
+      ]
+    },
+    "cacheInventorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_entries",
+        "scan_cache_records",
+        "ntfs_volume_index_manifests",
+        "ntfs_volume_index_payloads",
+        "bytes",
+        "valid_entries",
+        "stale_entries",
+        "corrupt_entries",
+        "missing_payloads",
+        "prunable_entries",
+        "diagnostics"
+      ],
+      "properties": {
+        "total_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "scan_cache_records": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "ntfs_volume_index_manifests": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "ntfs_volume_index_payloads": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "valid_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "stale_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "corrupt_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "missing_payloads": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "prunable_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "cacheInventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "kind",
+        "status",
+        "prunable",
+        "absolute_path",
+        "display_path",
+        "bytes"
+      ],
+      "properties": {
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "kind": {
+          "$ref": "#/$defs/cacheInventoryEntryKind"
+        },
+        "status": {
+          "$ref": "#/$defs/cacheInventoryEntryStatus"
+        },
+        "prunable": {
+          "type": "boolean"
+        },
+        "absolute_path": {
+          "type": "string"
+        },
+        "display_path": {
+          "type": "string"
+        },
+        "bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "record_root": {
+          "type": "string"
+        },
+        "record_root_display": {
+          "type": "string"
+        },
+        "backend": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend_source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "age_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload_file_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cacheInventoryDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "absolute_path",
+        "display_path",
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "absolute_path": {
+          "type": "string"
+        },
+        "display_path": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cacheInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache_dir",
+        "namespace",
+        "summary",
+        "entries"
+      ],
+      "properties": {
+        "cache_dir": {
+          "type": "string"
+        },
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "summary": {
+          "$ref": "#/$defs/cacheInventorySummary"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheInventoryEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheInventoryDiagnostic"
+          }
+        }
+      }
+    },
+    "cacheDoctorSeverity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning"
+      ]
+    },
+    "cacheDoctorRecommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "$ref": "#/$defs/cacheDoctorSeverity"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suggested_command": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "cacheDoctor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory",
+        "recommendations"
+      ],
+      "properties": {
+        "inventory": {
+          "$ref": "#/$defs/cacheInventory"
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheDoctorRecommendation"
+          }
+        }
+      }
+    },
+    "cachePruneReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache_dir",
+        "namespace",
+        "stale_only",
+        "limit",
+        "dry_run",
+        "selected_entries",
+        "execution_report"
+      ],
+      "properties": {
+        "cache_dir": {
+          "type": "string"
+        },
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "stale_only": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "selected_entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheInventoryEntry"
+          }
+        },
+        "execution_report": {
+          "type": "object"
+        }
+      }
+    },
     "spaceInsightMetrics": {
       "type": "object",
       "additionalProperties": false,
@@ -704,6 +1059,9 @@
           "items": {
             "$ref": "#/$defs/estimateCaveat"
           }
+        },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
         }
       }
     },
@@ -1101,6 +1459,9 @@
             "$ref": "#/$defs/estimateCaveat"
           }
         },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
+        },
         "reason": {
           "type": "string"
         }
@@ -1186,6 +1547,9 @@
           "items": {
             "$ref": "#/$defs/estimateCaveat"
           }
+        },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
         },
         "cleanup_advice": {
           "$ref": "#/$defs/cleanupAdvice"
@@ -1686,6 +2050,9 @@
           "items": {
             "$ref": "#/$defs/estimateCaveat"
           }
+        },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
         },
         "reason": {
           "type": [
