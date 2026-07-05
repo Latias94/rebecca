@@ -2,12 +2,20 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
-use rebecca::core::disk_map::DiskMapReport;
+use rebecca::core::disk_map::{DiskMapEntry, DiskMapReport};
 use rebecca::core::inspect::SpaceInsightReport;
 use rebecca::core::lint::LintReport;
 
 use crate::output::{format_bytes, format_shell_command};
 use crate::render::{estimate_provenance_suffix, format_count};
+
+const MAP_ENTRY_BAR_WIDTH: usize = 20;
+const MAP_ENTRY_PATH_MAX_CHARS: usize = 96;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct InspectMapRenderOptions {
+    pub(crate) screen_reader: bool,
+}
 
 pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
     println!("Space insight");
@@ -90,7 +98,10 @@ pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
+pub(crate) fn print_map_report(
+    report: &DiskMapReport,
+    options: InspectMapRenderOptions,
+) -> Result<()> {
     println!("Disk map");
     println!("Roots: {}", report.roots.len());
     println!(
@@ -125,36 +136,7 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
 
     if !report.top_entries.is_empty() {
         println!();
-        println!("Top map entries:");
-        for entry in &report.top_entries {
-            let allocated = entry
-                .allocated_bytes
-                .map(|bytes| format!(", allocated {} ({})", bytes, format_bytes(bytes)))
-                .unwrap_or_default();
-            let unique_logical = entry
-                .unique_logical_bytes
-                .map(|bytes| format!(", unique logical {} ({})", bytes, format_bytes(bytes)))
-                .unwrap_or_default();
-            let unique_allocated = entry
-                .unique_allocated_bytes
-                .map(|bytes| format!(", unique allocated {} ({})", bytes, format_bytes(bytes)))
-                .unwrap_or_default();
-            println!(
-                "  - {} [{} depth={}] {} bytes ({}){}{}{}{} - {} files, {} dirs{}",
-                entry.path.display(),
-                entry.kind.label(),
-                entry.depth,
-                entry.logical_bytes,
-                format_bytes(entry.logical_bytes),
-                allocated,
-                unique_logical,
-                unique_allocated,
-                estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance),
-                entry.files,
-                entry.directories,
-                cleanup_advice_suffix(entry.cleanup_advice.as_ref())
-            );
-        }
+        print_top_map_entries(report, options);
     }
 
     print_cleanup_advice_summary(report);
@@ -242,6 +224,158 @@ pub(crate) fn print_map_report(report: &DiskMapReport) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_top_map_entries(report: &DiskMapReport, options: InspectMapRenderOptions) {
+    if options.screen_reader {
+        println!("Top map entries (screen-reader):");
+        for (index, entry) in report.top_entries.iter().enumerate() {
+            print_screen_reader_map_entry(index + 1, entry, report.totals.logical_bytes);
+        }
+    } else {
+        println!("Top map entries:");
+        for (index, entry) in report.top_entries.iter().enumerate() {
+            print_visual_map_entry(index + 1, entry, report.totals.logical_bytes);
+        }
+    }
+}
+
+fn print_visual_map_entry(rank: usize, entry: &DiskMapEntry, total_logical_bytes: u64) {
+    let share_percent = share_percent(entry.logical_bytes, total_logical_bytes);
+    println!(
+        "  #{rank:<2} {} bytes ({}) {:>5.1}% {} {} [{} depth={}]{} - {}, {}{}",
+        entry.logical_bytes,
+        format_bytes(entry.logical_bytes),
+        share_percent,
+        usage_bar(share_percent, MAP_ENTRY_BAR_WIDTH),
+        compact_path(entry, MAP_ENTRY_PATH_MAX_CHARS),
+        entry.kind.label(),
+        entry.depth,
+        map_entry_metric_suffix(entry),
+        format_count(entry.files, "file", "files"),
+        format_count(entry.directories, "dir", "dirs"),
+        cleanup_advice_suffix(entry.cleanup_advice.as_ref())
+    );
+}
+
+fn print_screen_reader_map_entry(rank: usize, entry: &DiskMapEntry, total_logical_bytes: u64) {
+    let share_percent = share_percent(entry.logical_bytes, total_logical_bytes);
+    println!(
+        "  #{rank}: {} bytes ({}); share {:.1}%; path {}; kind {}; depth {}; {}; {}{}{}",
+        entry.logical_bytes,
+        format_bytes(entry.logical_bytes),
+        share_percent,
+        entry.path.display(),
+        entry.kind.label(),
+        entry.depth,
+        format_count(entry.files, "file", "files"),
+        format_count(entry.directories, "directory", "directories"),
+        screen_reader_metric_suffix(entry),
+        cleanup_advice_screen_reader_suffix(entry.cleanup_advice.as_ref())
+    );
+}
+
+fn share_percent(bytes: u64, total_bytes: u64) -> f64 {
+    if total_bytes == 0 {
+        return 0.0;
+    }
+
+    ((bytes as f64 / total_bytes as f64) * 100.0).clamp(0.0, 100.0)
+}
+
+fn usage_bar(share_percent: f64, width: usize) -> String {
+    let clamped = share_percent.clamp(0.0, 100.0);
+    let filled = ((clamped / 100.0) * width as f64).round() as usize;
+    let filled = filled.min(width);
+    format!("[{}{}]", "#".repeat(filled), "-".repeat(width - filled))
+}
+
+fn compact_path(entry: &DiskMapEntry, max_chars: usize) -> String {
+    let display = entry.path.display().to_string();
+    let char_count = display.chars().count();
+    if char_count <= max_chars {
+        return display;
+    }
+
+    let marker = "...";
+    let marker_chars = marker.chars().count();
+    if max_chars <= marker_chars + 2 {
+        return marker.to_string();
+    }
+
+    let visible_chars = max_chars - marker_chars;
+    let prefix_chars = visible_chars / 3;
+    let suffix_chars = visible_chars - prefix_chars;
+    let prefix = display.chars().take(prefix_chars).collect::<String>();
+    let suffix = display
+        .chars()
+        .skip(char_count.saturating_sub(suffix_chars))
+        .collect::<String>();
+    format!("{prefix}{marker}{suffix}")
+}
+
+fn map_entry_metric_suffix(entry: &DiskMapEntry) -> String {
+    let allocated = entry
+        .allocated_bytes
+        .map(|bytes| format!(", allocated {} ({})", bytes, format_bytes(bytes)))
+        .unwrap_or_default();
+    let unique_logical = entry
+        .unique_logical_bytes
+        .map(|bytes| format!(", unique logical {} ({})", bytes, format_bytes(bytes)))
+        .unwrap_or_default();
+    let unique_allocated = entry
+        .unique_allocated_bytes
+        .map(|bytes| format!(", unique allocated {} ({})", bytes, format_bytes(bytes)))
+        .unwrap_or_default();
+    format!(
+        "{allocated}{unique_logical}{unique_allocated}{}",
+        estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance)
+    )
+}
+
+fn screen_reader_metric_suffix(entry: &DiskMapEntry) -> String {
+    let mut parts = Vec::new();
+    if let Some(bytes) = entry.allocated_bytes {
+        parts.push(format!("allocated {} ({})", bytes, format_bytes(bytes)));
+    }
+    if let Some(bytes) = entry.unique_logical_bytes {
+        parts.push(format!(
+            "unique logical {} ({})",
+            bytes,
+            format_bytes(bytes)
+        ));
+    }
+    if let Some(bytes) = entry.unique_allocated_bytes {
+        parts.push(format!(
+            "unique allocated {} ({})",
+            bytes,
+            format_bytes(bytes)
+        ));
+    }
+
+    let provenance = estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance);
+    if !provenance.is_empty() {
+        parts.push(
+            provenance
+                .trim()
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_string(),
+        );
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("; {}", parts.join("; "))
+    }
+}
+
+fn cleanup_advice_screen_reader_suffix(advice: Option<&CleanupAdvice>) -> String {
+    cleanup_advice_suffix(advice)
+        .strip_prefix(" - ")
+        .map(|suffix| format!("; {suffix}"))
+        .unwrap_or_default()
 }
 
 fn print_cleanup_advice_summary(report: &DiskMapReport) {

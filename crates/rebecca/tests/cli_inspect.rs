@@ -1249,6 +1249,119 @@ fn inspect_map_json_top_zero_preserves_totals_without_entries() {
 }
 
 #[test]
+fn inspect_map_human_ranks_entries_with_share_and_bars() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("large.bin"), b"abcdefgh");
+    write_fixture_file(root.join("small.bin"), b"xy");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "2",
+            "--entry-kind",
+            "file",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Top map entries:"));
+    assert!(stdout.contains("  #1 "));
+    assert!(stdout.contains("8 bytes (8 B)"));
+    assert!(stdout.contains("80.0%"));
+    assert!(stdout.contains("[################----]"));
+    assert!(stdout.contains("large.bin"));
+}
+
+#[test]
+fn inspect_map_human_screen_reader_omits_visual_bars() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("large.bin"), b"abcdefgh");
+    write_fixture_file(root.join("small.bin"), b"xy");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--screen-reader",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "2",
+            "--entry-kind",
+            "file",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Top map entries (screen-reader):"));
+    assert!(stdout.contains("#1: 8 bytes (8 B); share 80.0%;"));
+    assert!(stdout.contains("kind file; depth 1; 1 file; 0 directories"));
+    assert!(!stdout.contains("[################----]"));
+}
+
+#[test]
+fn inspect_map_human_compacts_very_long_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let long_path = root
+        .join("very-long-directory-name-for-human-map-rendering")
+        .join("another-long-directory-name-for-human-map-rendering")
+        .join("yet-another-long-directory-name-for-human-map-rendering")
+        .join("final-large-cache-entry.bin");
+    write_fixture_file(&long_path, b"abcdefgh");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "1",
+            "--entry-kind",
+            "file",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("..."));
+    assert!(stdout.contains("final-large-cache-entry.bin"));
+}
+
+#[test]
 fn inspect_map_json_diagnostic_limit_zero_keeps_summary_only() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

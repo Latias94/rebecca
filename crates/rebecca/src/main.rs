@@ -184,6 +184,7 @@ fn run_inspect(
                 entry_kind: args.entry_kind.map(Into::into),
                 path_contains: args.path_contains,
                 cleanup_advice: args.cleanup_advice,
+                screen_reader: args.screen_reader,
                 advice_status: args.advice_status.map(Into::into),
                 group_kinds: args.group_kinds.into_iter().map(Into::into).collect(),
                 group_limit: args.group_limit,

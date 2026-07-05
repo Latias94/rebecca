@@ -63,6 +63,7 @@ pub struct InspectMapOptions {
     pub entry_kind: Option<rebecca::core::disk_map::DiskMapEntryKind>,
     pub path_contains: Option<String>,
     pub cleanup_advice: bool,
+    pub screen_reader: bool,
     pub advice_status: Option<CleanupAdviceStatus>,
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
@@ -211,7 +212,14 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
             contract,
             options.output_mode,
             || &report,
-            || render::inspect::print_map_report(&report),
+            || {
+                render::inspect::print_map_report(
+                    &report,
+                    render::inspect::InspectMapRenderOptions {
+                        screen_reader: options.screen_reader,
+                    },
+                )
+            },
         ),
     }
 }

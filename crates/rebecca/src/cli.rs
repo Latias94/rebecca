@@ -321,6 +321,9 @@ pub struct InspectMapArgs {
     /// Add read-only cleanup advice to ranked entries.
     #[arg(long = "cleanup-advice")]
     pub cleanup_advice: bool,
+    /// Render ranked entries without visual bars, optimized for screen readers and logs.
+    #[arg(long = "screen-reader")]
+    pub screen_reader: bool,
     /// Keep only ranked entries with this cleanup advice status. Implies --cleanup-advice.
     #[arg(long = "advice-status", value_enum, value_name = "STATUS")]
     pub advice_status: Option<CleanupAdviceStatusArg>,
