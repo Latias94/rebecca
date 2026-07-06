@@ -106,6 +106,7 @@ fn clean_format_json_returns_success_envelope_without_human_text() {
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args(["clean", "--format", "json", "--category", "system"])
         .output()
         .unwrap();
@@ -237,6 +238,7 @@ fn clean_format_ndjson_emits_lifecycle_events() {
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--format",
@@ -302,13 +304,14 @@ fn clean_format_ndjson_omits_file_measured_events_by_default() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--format",
             "ndjson",
             "--no-scan-cache",
             "--rule",
-            "windows.user-temp",
+            common::support::current_platform_user_temp_rule_id(),
         ])
         .output()
         .unwrap();
@@ -350,6 +353,7 @@ fn clean_format_ndjson_file_progress_detail_emits_file_measured_events() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--format",
@@ -358,7 +362,7 @@ fn clean_format_ndjson_file_progress_detail_emits_file_measured_events() {
             "file",
             "--no-scan-cache",
             "--rule",
-            "windows.user-temp",
+            common::support::current_platform_user_temp_rule_id(),
         ])
         .output()
         .unwrap();

@@ -286,7 +286,7 @@ The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/c
 
 ## Built-In Rules
 
-Rebecca ships a conservative Windows catalog under `crates/rebecca-rules/rules/windows/`.
+Rebecca ships conservative platform-scoped cleanup rules under `crates/rebecca-rules/rules/<platform>/`. The Windows catalog is the largest built-in set today, and Linux currently includes a safe `linux.user-temp` rule for the current user's temporary directory environment.
 
 - System and browser caches: temp files, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, thumbnail cache, DirectX shader cache, and Windows Error Reporting data.
 - App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video.

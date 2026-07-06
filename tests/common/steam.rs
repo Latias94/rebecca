@@ -42,6 +42,7 @@ impl SteamRuleCase {
 }
 
 pub const BUILTIN_RULE_IDS: &[&str] = &[
+    "linux.user-temp",
     "windows.brave-cache",
     "windows.bun-cache",
     "windows.chrome-cache",

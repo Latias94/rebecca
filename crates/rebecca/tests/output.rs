@@ -30,7 +30,13 @@ fn clean_human_output_uses_lowercase_status_labels() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
-        .args(["clean", "--dry-run", "--rule", "windows.user-temp"])
+        .env("TMPDIR", &temp_cache)
+        .args([
+            "clean",
+            "--dry-run",
+            "--rule",
+            common::support::current_platform_user_temp_rule_id(),
+        ])
         .output()
         .unwrap();
 

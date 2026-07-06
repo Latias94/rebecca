@@ -1,10 +1,12 @@
 use std::fs;
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
 
 mod common;
 #[path = "common/isolated.rs"]
 mod isolated;
 
+#[cfg(windows)]
 fn steam_dry_run_json_output(
     temp: &tempfile::TempDir,
     case: &common::steam::SteamRuleCase,
@@ -38,6 +40,7 @@ fn steam_dry_run_json_output(
     common::support::api_data(&output.stdout)
 }
 
+#[cfg(windows)]
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -46,6 +49,7 @@ fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
 }
 
+#[cfg(windows)]
 fn write_slack_cache_fixture(temp: &tempfile::TempDir) {
     let slack = temp.path().join("roaming").join("Slack");
     write_fixture_file(slack.join("Cache").join("cache.bin"), b"ab");
@@ -71,6 +75,7 @@ fn write_slack_cache_fixture(temp: &tempfile::TempDir) {
     );
 }
 
+#[cfg(windows)]
 fn write_wechat_cache_fixture(temp: &tempfile::TempDir) {
     let wechat = temp.path().join("roaming").join("Tencent").join("WeChat");
     write_fixture_file(wechat.join("radium").join("cache").join("cache.bin"), b"ab");
@@ -111,6 +116,7 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .env("LOCALAPPDATA", temp.path().join("local"))
         .env("APPDATA", temp.path().join("roaming"))
         .args([
@@ -145,6 +151,8 @@ fn clean_dry_run_accepts_windows_native_scan_backend() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--dry-run",
@@ -178,6 +186,8 @@ fn clean_dry_run_accepts_windows_ntfs_mft_experimental_scan_backend() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--dry-run",
@@ -214,6 +224,7 @@ fn clean_defaults_to_preview_without_deleting() {
     let output = isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args(["clean", "--format", "json", "--category", "system"])
         .output()
         .unwrap();
@@ -230,6 +241,7 @@ fn clean_defaults_to_preview_without_deleting() {
     assert!(value["summary"]["allowed_targets"].as_u64().unwrap() >= 1);
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_reports_slack_cache_rule() {
     let temp = tempfile::tempdir().unwrap();
@@ -285,6 +297,7 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
     }));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_skips_warning_rule_without_named_gate() {
     let temp = tempfile::tempdir().unwrap();
@@ -325,6 +338,7 @@ fn clean_dry_run_json_skips_warning_rule_without_named_gate() {
     }));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_reports_wechat_cache_rule() {
     let temp = tempfile::tempdir().unwrap();
@@ -395,6 +409,7 @@ fn clean_dry_run_json_reports_wechat_cache_rule() {
     }
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_honors_exclude_flag() {
     let temp = tempfile::tempdir().unwrap();
@@ -449,6 +464,7 @@ fn clean_dry_run_json_honors_exclude_flag() {
     );
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_honors_config_protected_paths() {
     let temp = tempfile::tempdir().unwrap();
@@ -514,7 +530,7 @@ fn clean_exclude_rejects_relative_paths() {
             "--format",
             "json",
             "--rule",
-            "windows.user-temp",
+            common::support::current_platform_user_temp_rule_id(),
             "--exclude",
             "relative/cache",
         ])
@@ -537,6 +553,7 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", temp.path().join("roaming"))
         .args([
@@ -545,7 +562,7 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
             "--format",
             "json",
             "--rule",
-            "windows.user-temp",
+            common::support::current_platform_user_temp_rule_id(),
         ])
         .output()
         .unwrap();
@@ -608,13 +625,14 @@ cache_dir = '{}'
     let output = isolated::isolated_rebecca(&temp)
         .env_remove("REBECCA_CACHE_DIR")
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--dry-run",
             "--format",
             "json",
             "--rule",
-            "windows.user-temp",
+            common::support::current_platform_user_temp_rule_id(),
         ])
         .output()
         .unwrap();
@@ -663,6 +681,7 @@ fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", temp.path().join("roaming"))
         .args(["clean", "--dry-run", "--category", "system"])
@@ -682,6 +701,7 @@ fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
     assert!(stdout.contains("- skipped duplicate-target-path: 1 target, 0 (0 B)"));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_human_output_reports_slack_cache_rule() {
     let temp = tempfile::tempdir().unwrap();
@@ -729,6 +749,7 @@ fn clean_human_output_reports_slack_cache_rule() {
     assert!(!stdout.contains("Service Worker"));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_human_output_explains_skipped_safety_opt_in() {
     let temp = tempfile::tempdir().unwrap();
@@ -796,12 +817,13 @@ cache_dir = '{}'
     let output = isolated::isolated_rebecca(&temp)
         .env_remove("REBECCA_CACHE_DIR")
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--dry-run",
             "--no-progress",
             "--rule",
-            "windows.user-temp",
+            common::support::current_platform_user_temp_rule_id(),
         ])
         .output()
         .unwrap();
@@ -817,11 +839,12 @@ cache_dir = '{}'
     assert!(stdout.contains("- blocked safety-policy-blocked: 1 target, 0 (0 B)"));
     assert!(stdout.contains("Target details:"));
     assert!(stdout.contains("blocked (1)"));
-    assert!(stdout.contains("windows.user-temp"));
+    assert!(stdout.contains(common::support::current_platform_user_temp_rule_id()));
     assert!(stdout.contains(&temp_cache.display().to_string()));
     assert!(stdout.contains("Rebecca-owned Cache dir"));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_human_output_highlights_largest_targets_by_size() {
     let temp = tempfile::tempdir().unwrap();
@@ -885,12 +908,13 @@ fn clean_dry_run_accepts_no_progress_flag() {
 
     let output = isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
         .args([
             "clean",
             "--dry-run",
             "--no-progress",
             "--rule",
-            "windows.user-temp",
+            common::support::current_platform_user_temp_rule_id(),
         ])
         .output()
         .unwrap();
@@ -940,6 +964,7 @@ fn clean_scan_cache_flags_conflict() {
     assert!(stderr.contains("--no-scan-cache"));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_writes_scan_cache_by_default_for_file_targets() {
     let temp = tempfile::tempdir().unwrap();
@@ -978,6 +1003,7 @@ fn clean_dry_run_writes_scan_cache_by_default_for_file_targets() {
     assert_eq!(cache_entries, 1);
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_no_scan_cache_does_not_write_file_target_cache() {
     let temp = tempfile::tempdir().unwrap();
@@ -1055,6 +1081,7 @@ fn clean_yes_does_not_write_scan_cache_by_default() {
     assert!(!temp.path().join("rebecca-cache").join("scan").exists());
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {
     let temp = tempfile::tempdir().unwrap();
@@ -1094,6 +1121,7 @@ fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {
     assert_eq!(cache_entries, 1);
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
     let temp = tempfile::tempdir().unwrap();
@@ -1202,6 +1230,7 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
     assert!(value["summary"].get("scan_cache").is_none());
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_scan_cache_policy_expires_directory_records_from_config() {
     let temp = tempfile::tempdir().unwrap();
@@ -1290,6 +1319,7 @@ directory_record_max_age_seconds = 1
     assert_eq!(value["targets"][0]["estimate_source"], "fresh-scan");
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_scan_cache_reports_invalid_policy_config() {
     let temp = tempfile::tempdir().unwrap();
@@ -1325,6 +1355,7 @@ directory_record_max_age_seconds = 0
     assert!(stderr.contains("config.toml"));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_human_output_summarizes_scan_cache_activity() {
     let temp = tempfile::tempdir().unwrap();
@@ -1383,6 +1414,7 @@ fn clean_human_output_summarizes_scan_cache_activity() {
     assert!(stdout.contains("[estimate: scan-cache, portable-recursive, exact]"));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_human_output_reports_scan_cache_prune_activity() {
     let temp = tempfile::tempdir().unwrap();
@@ -1493,6 +1525,7 @@ directory_record_max_age_seconds = 1
     );
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
     for case in common::steam::STEAM_INSTALL_RULE_CASES {
@@ -1525,6 +1558,7 @@ fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
     }
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
     let temp = tempfile::tempdir().unwrap();
@@ -1574,6 +1608,7 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
     );
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     let temp = tempfile::tempdir().unwrap();
@@ -1618,6 +1653,7 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     }));
 }
 
+#[cfg(windows)]
 #[test]
 fn clean_dry_run_json_accepts_allow_risky_flag() {
     let temp = tempfile::tempdir().unwrap();
@@ -1703,14 +1739,40 @@ fn clean_unknown_category_returns_clear_error() {
 
 #[cfg(not(windows))]
 #[test]
-fn non_windows_execution_is_reported_as_unsupported() {
+fn non_windows_execution_uses_recoverable_trash_backend() {
     let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    fs::create_dir_all(&temp_cache).unwrap();
+    let file = temp_cache.join("cache.tmp");
+    fs::write(&file, b"cache").unwrap();
+
     let output = isolated::isolated_rebecca(&temp)
-        .env("TEMP", temp.path().join("temp"))
-        .args(["clean", "--yes"])
+        .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
+        .args([
+            "clean",
+            "--yes",
+            "--format",
+            "json",
+            "--rule",
+            common::support::current_platform_user_temp_rule_id(),
+        ])
         .output()
         .unwrap();
 
-    assert!(!output.status.success());
-    assert!(common::support::stderr(&output).contains("Windows-only"));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(temp_cache.exists(), "clean should preserve the temp root");
+    assert!(!file.exists(), "clean should move temp contents to trash");
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["request"]["mode"], "recoverable-delete");
+    assert_eq!(value["execution_report"]["summary"]["completed_actions"], 1);
+    assert_eq!(
+        value["execution_report"]["summary"]["pending_reclaim_bytes"],
+        5
+    );
 }

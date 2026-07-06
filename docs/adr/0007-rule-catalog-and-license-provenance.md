@@ -2,7 +2,7 @@
 title: "Rule Catalog and License Provenance"
 status: "accepted"
 created: "2026-06-23"
-last_updated: "2026-06-23"
+last_updated: "2026-07-06"
 ---
 
 # Context
@@ -21,10 +21,11 @@ flowchart TD
 
 Maintain an owned rule catalog with explicit provenance metadata.
 
-The built-in catalog is stored as TOML files under
-`crates/rebecca-rules/rules/windows/` and embedded into the `rebecca-rules`
-crate at build time. The Rust code is responsible for parsing, validation, and
-conversion into the shared core model.
+The built-in catalog is stored as platform-scoped TOML files under
+`crates/rebecca-rules/rules/<platform>/` and embedded into the `rebecca-rules`
+crate at build time. The Rust code is responsible for parsing, validation,
+checking that file path, `platform`, and rule id prefix agree, and conversion
+into the shared core model.
 
 Each built-in rule must record:
 
@@ -79,7 +80,7 @@ GPL reference projects may inform behavior and safety analysis, but their code a
 
 | Risk | Severity | Likelihood | Mitigation |
 |------|----------|------------|------------|
-| Rule growth is slower than competitors | Medium | Medium | Prioritize high-value Windows cache categories first |
+| Rule growth is slower than competitors | Medium | Medium | Prioritize high-value platform cache categories first |
 | Provenance metadata becomes stale | Medium | Medium | Add catalog validation and review checklist |
 | Developers accidentally copy GPL snippets | High | Low | Document provenance policy and require review |
 

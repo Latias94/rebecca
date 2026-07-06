@@ -24,6 +24,7 @@ macro_rules! builtin_rule_files {
 }
 
 const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
+    "rules/linux/user-temp.toml",
     "rules/windows/user-temp.toml",
     "rules/windows/edge-cache.toml",
     "rules/windows/firefox-profile-cache.toml",
@@ -138,12 +139,12 @@ fn parse_rule_file(
 }
 
 fn validate_builtin_rule_file(path: &str, rules: &[RuleDefinition]) -> Result<()> {
-    let Some(stem) = builtin_rule_file_stem(path) else {
+    let Some(file) = builtin_rule_file(path) else {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule file {path} must be a .toml file"
+            "built-in rule file {path} must be a rules/<platform>/<slug>.toml file"
         )));
     };
-    let expected_id = format!("windows.{stem}");
+    let expected_id = format!("{}.{}", file.platform_prefix, file.stem);
     let option_id_prefix = format!("{expected_id}.");
 
     if rules.is_empty() {
@@ -153,6 +154,15 @@ fn validate_builtin_rule_file(path: &str, rules: &[RuleDefinition]) -> Result<()
     }
 
     for rule in rules {
+        if rule.platform != file.platform {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "built-in rule file {path} produced rule {} for platform {}; expected {}",
+                rule.id,
+                rule.platform.label(),
+                file.platform.label()
+            )));
+        }
+
         if rule.id != expected_id && !rule.id.starts_with(&option_id_prefix) {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
                 "built-in rule file {path} produced rule {}; expected {expected_id} or {option_id_prefix}*",
@@ -164,8 +174,46 @@ fn validate_builtin_rule_file(path: &str, rules: &[RuleDefinition]) -> Result<()
     Ok(())
 }
 
-fn builtin_rule_file_stem(path: &str) -> Option<&str> {
-    path.rsplit(['/', '\\']).next()?.strip_suffix(".toml")
+#[derive(Debug, Clone, Copy)]
+struct BuiltinRuleFile<'a> {
+    platform: Platform,
+    platform_prefix: &'a str,
+    stem: &'a str,
+}
+
+fn builtin_rule_file(path: &str) -> Option<BuiltinRuleFile<'_>> {
+    let parts = path.split(['/', '\\']).collect::<Vec<_>>();
+    let [rules_dir, platform_prefix, file_name] = parts.as_slice() else {
+        return None;
+    };
+    let rules_dir = *rules_dir;
+    let platform_prefix = *platform_prefix;
+    let file_name = *file_name;
+
+    if rules_dir != "rules" {
+        return None;
+    }
+
+    let platform = platform_from_rule_prefix(platform_prefix)?;
+    let stem = file_name.strip_suffix(".toml")?;
+    if stem.is_empty() {
+        return None;
+    }
+
+    Some(BuiltinRuleFile {
+        platform,
+        platform_prefix,
+        stem,
+    })
+}
+
+fn platform_from_rule_prefix(prefix: &str) -> Option<Platform> {
+    match prefix {
+        "windows" => Some(Platform::Windows),
+        "linux" => Some(Platform::Linux),
+        "macos" => Some(Platform::Macos),
+        _ => None,
+    }
 }
 
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
@@ -173,17 +221,19 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
     let policy = ProtectionPolicy::new().with_safety_knowledge(&safety_knowledge);
 
     for rule in rules {
-        if rule.platform != Platform::Windows {
+        if rule.platform == Platform::Unknown {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
-                "built-in rule {} must target the Windows platform",
+                "built-in rule {} must target a supported platform",
                 rule.id
             )));
         }
 
-        if !rule.id.starts_with("windows.") {
+        let platform_prefix = rule.platform.label();
+        let expected_id_prefix = format!("{platform_prefix}.");
+        if !rule.id.starts_with(&expected_id_prefix) {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
-                "built-in rule {} must use a windows. rule id prefix",
-                rule.id
+                "built-in rule {} must use a {} rule id prefix matching platform {}",
+                rule.id, expected_id_prefix, platform_prefix
             )));
         }
 
@@ -254,10 +304,11 @@ fn validate_builtin_rule_metadata(
     validate_trimmed_rule_metadata(rule, "provenance notes", &rule.provenance.notes)?;
     validate_builtin_rule_provenance_notes(rule)?;
 
-    if !is_canonical_windows_rule_id(&rule.id) {
+    let platform_prefix = rule.platform.label();
+    if !is_canonical_platform_rule_id(&rule.id, platform_prefix) {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule {} must use canonical lowercase windows.<slug> rule id syntax",
-            rule.id
+            "built-in rule {} must use canonical lowercase {}.<slug> rule id syntax",
+            rule.id, platform_prefix
         )));
     }
 
@@ -334,8 +385,11 @@ fn validate_builtin_rule_provenance_notes(rule: &RuleDefinition) -> Result<()> {
     Ok(())
 }
 
-fn is_canonical_windows_rule_id(id: &str) -> bool {
-    let Some(rest) = id.strip_prefix("windows.") else {
+fn is_canonical_platform_rule_id(id: &str, platform_prefix: &str) -> bool {
+    let Some(rest) = id.strip_prefix(platform_prefix) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix('.') else {
         return false;
     };
 
@@ -603,6 +657,8 @@ fn has_positive_cleanup_basis(raw: &str) -> bool {
         "whirlcache",
         "tmp",
         "temp",
+        "%tmp%",
+        "%tmpdir%",
         "%temp%",
         "logs",
         "crashdump",
@@ -760,37 +816,62 @@ mod tests {
         let user_temp = rules
             .iter()
             .find(|rule| rule.id == "windows.user-temp")
-            .expect("user temp rule should exist");
+            .expect("Windows user temp rule should exist");
 
         assert_eq!(user_temp.platform, rebecca_core::Platform::Windows);
         assert_eq!(user_temp.category, "system");
         assert_eq!(user_temp.path_templates.len(), 2);
         assert_eq!(user_temp.provenance.source, RuleSource::Owned);
+
+        let linux_user_temp = rules
+            .iter()
+            .find(|rule| rule.id == "linux.user-temp")
+            .expect("Linux user temp rule should exist");
+
+        assert_eq!(linux_user_temp.platform, rebecca_core::Platform::Linux);
+        assert_eq!(linux_user_temp.category, "system");
+        assert_eq!(linux_user_temp.path_templates.len(), 2);
+        assert_eq!(linux_user_temp.provenance.source, RuleSource::Owned);
     }
 
     #[test]
     fn builtin_rule_files_match_rule_directory() {
-        let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("rules/windows");
-        let mut discovered = fs::read_dir(rules_dir)
-            .expect("built-in rule directory should be readable")
-            .map(|entry| {
-                entry
+        let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("rules");
+        let mut discovered = Vec::new();
+
+        for platform_entry in fs::read_dir(rules_dir).expect("rules directory should be readable") {
+            let platform_entry =
+                platform_entry.expect("platform directory entry should be readable");
+            let platform_path = platform_entry.path();
+            if !platform_path.is_dir() {
+                continue;
+            }
+
+            let platform = platform_path
+                .file_name()
+                .expect("platform directory should have a name")
+                .to_string_lossy();
+
+            for rule_entry in
+                fs::read_dir(&platform_path).expect("platform rule directory should be readable")
+            {
+                let rule_path = rule_entry
                     .expect("rule directory entry should be readable")
-                    .path()
-            })
-            .filter(|path| {
-                path.extension()
+                    .path();
+                if rule_path
+                    .extension()
                     .is_some_and(|extension| extension == "toml")
-            })
-            .map(|path| {
-                format!(
-                    "rules/windows/{}",
-                    path.file_name()
-                        .expect("rule file should have a file name")
-                        .to_string_lossy()
-                )
-            })
-            .collect::<Vec<_>>();
+                {
+                    discovered.push(format!(
+                        "rules/{platform}/{}",
+                        rule_path
+                            .file_name()
+                            .expect("rule file should have a file name")
+                            .to_string_lossy()
+                    ));
+                }
+            }
+        }
         discovered.sort();
 
         let mut embedded = super::BUILTIN_RULE_FILES
@@ -847,6 +928,25 @@ mod tests {
         };
         super::validate_builtin_rule_file("rules\\windows\\user-temp.toml", &[backslash_path_rule])
             .expect("catalog path validation should accept Windows separators");
+
+        let linux_rule = RuleDefinition {
+            id: "linux.user-temp".to_string(),
+            platform: Platform::Linux,
+            ..rule_with_target(RuleTargetSpec::template("%TMPDIR%"))
+        };
+        super::validate_builtin_rule_file("rules/linux/user-temp.toml", &[linux_rule])
+            .expect("catalog path validation should accept Linux platform directories");
+
+        let platform_mismatch_rule = RuleDefinition {
+            id: "linux.user-temp".to_string(),
+            ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
+        };
+        let err = super::validate_builtin_rule_file(
+            "rules/linux/user-temp.toml",
+            &[platform_mismatch_rule],
+        )
+        .expect_err("file platform should constrain manifest platform");
+        assert!(err.to_string().contains("expected linux"));
     }
 
     #[test]
@@ -1085,6 +1185,7 @@ mod tests {
             .collect::<HashSet<_>>();
 
         for expected in [
+            "linux.user-temp",
             "windows.chrome-cache",
             "windows.chromium-cache",
             "windows.android-cache",
@@ -1363,7 +1464,7 @@ notes = "test"
     }
 
     #[test]
-    fn builtin_catalog_rejects_non_windows_id_prefixes() {
+    fn builtin_catalog_rejects_platform_id_prefix_mismatches() {
         let err = super::validate_builtin_rule_catalog(&[RuleDefinition {
             id: "linux.test".to_string(),
             platform: Platform::Windows,
@@ -1381,7 +1482,10 @@ notes = "test"
         }])
         .unwrap_err();
 
-        assert!(err.to_string().contains("windows. rule id prefix"));
+        assert!(
+            err.to_string()
+                .contains("rule id prefix matching platform windows")
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Rule Authoring
 
-Built-in Rebecca rules live under `crates/rebecca-rules/rules/windows/` as TOML
-files. Keep each rule small, explicit, and easy to audit.
+Built-in Rebecca rules live under `crates/rebecca-rules/rules/<platform>/` as
+TOML files. Keep each rule small, explicit, and easy to audit.
 
 ## Cleaner Manifest v1
 
@@ -37,6 +37,10 @@ files. Keep each rule small, explicit, and easy to audit.
 
 - One file per rule.
 - `manifest_version = 1`.
+- The rule file path, `platform`, and rule id prefix must agree. For example,
+  `rules/linux/user-temp.toml` must produce `platform = "linux"` rules with
+  `linux.` ids, while `rules/windows/user-temp.toml` must produce
+  `platform = "windows"` rules with `windows.` ids.
 - Stable env-variable templates only.
 - Use `glob-template` only for bounded profile or filename discovery.
 - Built-in catalog validation derives a positive target-shape basis from each
@@ -48,7 +52,8 @@ files. Keep each rule small, explicit, and easy to audit.
   `broad-discovery`, `%WINDIR%` maintenance targets require
   `privileged-location`, and Steam install/library discovery targets require
   `source-boundary`.
-- Prefer paths that Windows users recognize immediately.
+- Prefer platform-native environment variables and paths that users recognize
+  immediately.
 
 ## Required Fields
 
@@ -213,7 +218,7 @@ files. Keep each rule small, explicit, and easy to audit.
 ## Provenance
 
 - Do not copy GPL rule definitions or code into the catalog.
-- Built-in rules must use `platform = "windows"`, a `windows.` rule id prefix,
+- Built-in rules must use a platform id prefix matching their `platform`,
   `source = "owned"`, and `license = "project-owned"`.
 - Built-in rules must include a concise non-empty `restore_hint`, because dry-run,
   history, and grouped human output surface it as part of the safety contract.

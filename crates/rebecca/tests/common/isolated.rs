@@ -22,6 +22,8 @@ pub fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
         .env("XDG_DATA_HOME", data)
         .env("XDG_CACHE_HOME", cache)
         .env("TEMP", temp_dir)
+        .env("TMP", temp.path().join("temp"))
+        .env("TMPDIR", temp.path().join("temp"))
         .env("REBECCA_CONFIG_DIR", temp.path().join("rebecca-config"))
         .env("REBECCA_STATE_DIR", temp.path().join("rebecca-state"))
         .env("REBECCA_CACHE_DIR", temp.path().join("rebecca-cache"))
