@@ -1,12 +1,17 @@
 use rebecca_core::Platform;
 use rebecca_core::safety_catalog::{
-    SafetyCategory, default_safety_knowledge, parse_safety_catalog_file,
+    SafetyCategory, default_safety_catalog, default_safety_knowledge,
+    default_safety_knowledge_for_platform, parse_safety_catalog_file,
 };
 
 #[test]
-fn default_safety_catalog_loads_auditable_windows_knowledge() {
+fn default_safety_catalog_loads_auditable_platform_knowledge() {
+    let catalog = default_safety_catalog();
     let knowledge = default_safety_knowledge();
 
+    assert_eq!(catalog.default_platform(), Platform::Windows);
+    assert!(catalog.knowledge_for_platform(Platform::Linux).is_some());
+    assert!(catalog.knowledge_for_platform(Platform::Macos).is_some());
     assert_eq!(knowledge.platform(), Platform::Windows);
     assert!(
         knowledge
@@ -26,6 +31,24 @@ fn default_safety_catalog_loads_auditable_windows_knowledge() {
     );
     assert!(knowledge.is_allowed_steam_install_target("appcache/httpcache"));
     assert!(knowledge.is_allowed_steam_library_target("steamapps/shadercache"));
+
+    let linux = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should load");
+    assert!(
+        linux
+            .critical_path_prefixes()
+            .iter()
+            .any(|prefix| prefix == "/etc")
+    );
+
+    let macos = default_safety_knowledge_for_platform(Platform::Macos)
+        .expect("macOS safety knowledge should load");
+    assert!(
+        macos
+            .critical_path_prefixes()
+            .iter()
+            .any(|prefix| prefix == "/system")
+    );
 }
 
 #[test]
@@ -34,6 +57,9 @@ fn safety_catalog_rejects_unsupported_version() {
         "test.toml",
         r#"
 catalog_version = 2
+default_platform = "windows"
+
+[[platforms]]
 platform = "windows"
 critical_path_prefixes = ["C:/Windows"]
 "#,
@@ -52,6 +78,9 @@ fn safety_catalog_rejects_duplicate_warning_kinds() {
         "test.toml",
         r#"
 catalog_version = 1
+default_platform = "windows"
+
+[[platforms]]
 platform = "windows"
 critical_path_prefixes = ["C:/Windows"]
 
@@ -78,6 +107,9 @@ fn safety_catalog_requires_complete_category_descriptions() {
         "test.toml",
         r#"
 catalog_version = 1
+default_platform = "windows"
+
+[[platforms]]
 platform = "windows"
 critical_path_prefixes = ["C:/Windows"]
 

@@ -38,11 +38,23 @@ impl SafetyCategory {
 #[serde(deny_unknown_fields)]
 struct SafetyCatalogFile {
     catalog_version: u16,
-    platform: Platform,
+    default_platform: Platform,
     #[serde(default)]
     warning_kinds: Vec<WarningKindDefinition>,
     #[serde(default)]
     protected_categories: Vec<ProtectedCategoryDefinition>,
+    #[serde(default)]
+    maintenance_allowlist: SafetyPatternSetFile,
+    #[serde(default)]
+    protected_patterns: Vec<ProtectedPatternDefinition>,
+    #[serde(default)]
+    platforms: Vec<PlatformSafetyDefinition>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlatformSafetyDefinition {
+    platform: Platform,
     #[serde(default)]
     critical_path_prefixes: Vec<String>,
     #[serde(default)]
@@ -102,6 +114,12 @@ pub struct SafetyKnowledge {
     steam_library_allowlist: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SafetyCatalog {
+    default_platform: Platform,
+    platform_knowledge: Vec<SafetyKnowledge>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WarningKind {
     id: String,
@@ -143,6 +161,23 @@ pub struct SafetyPatternSet {
 impl SafetyPatternSet {
     pub fn matches(&self, segments: &[&str]) -> bool {
         self.has_any_segment(segments) || self.has_any_sequence(segments)
+    }
+
+    fn merged(&self, other: Self) -> Self {
+        let mut segment_matches = self.segment_matches.clone();
+        segment_matches.extend(other.segment_matches);
+        segment_matches.sort();
+        segment_matches.dedup();
+
+        let mut sequence_matches = self.sequence_matches.clone();
+        sequence_matches.extend(other.sequence_matches);
+        sequence_matches.sort();
+        sequence_matches.dedup();
+
+        Self {
+            segment_matches,
+            sequence_matches,
+        }
     }
 
     fn has_any_segment(&self, segments: &[&str]) -> bool {
@@ -241,25 +276,84 @@ impl SafetyKnowledge {
     }
 }
 
-pub fn parse_safety_catalog_file(path: &str, raw: &str) -> Result<SafetyKnowledge> {
+impl SafetyCatalog {
+    pub fn default_platform(&self) -> Platform {
+        self.default_platform
+    }
+
+    pub fn platform_knowledge(&self) -> &[SafetyKnowledge] {
+        &self.platform_knowledge
+    }
+
+    pub fn default_knowledge(&self) -> Option<&SafetyKnowledge> {
+        self.knowledge_for_platform(self.default_platform)
+    }
+
+    pub fn knowledge_for_platform(&self, platform: Platform) -> Option<&SafetyKnowledge> {
+        self.platform_knowledge
+            .iter()
+            .find(|knowledge| knowledge.platform == platform)
+    }
+}
+
+pub fn parse_safety_catalog(path: &str, raw: &str) -> Result<SafetyCatalog> {
     let catalog = toml::from_str::<SafetyCatalogFile>(raw).map_err(|err| {
         RebeccaError::SafetyCatalogInvalid(format!("{path} is invalid safety catalog data: {err}"))
     })?;
     compile_safety_catalog(path, catalog)
 }
 
-pub fn default_safety_knowledge() -> &'static SafetyKnowledge {
-    static DEFAULT: OnceLock<SafetyKnowledge> = OnceLock::new();
+pub fn parse_safety_catalog_file(path: &str, raw: &str) -> Result<SafetyKnowledge> {
+    let catalog = parse_safety_catalog(path, raw)?;
+    catalog.default_knowledge().cloned().ok_or_else(|| {
+        RebeccaError::SafetyCatalogInvalid(format!(
+            "{path} default platform {} has no platform safety block",
+            catalog.default_platform().label()
+        ))
+    })
+}
+
+pub fn parse_safety_catalog_file_for_platform(
+    path: &str,
+    raw: &str,
+    platform: Platform,
+) -> Result<SafetyKnowledge> {
+    let catalog = parse_safety_catalog(path, raw)?;
+    catalog
+        .knowledge_for_platform(platform)
+        .cloned()
+        .ok_or_else(|| {
+            RebeccaError::SafetyCatalogInvalid(format!(
+                "{path} has no safety knowledge for platform {}",
+                platform.label()
+            ))
+        })
+}
+
+pub fn default_safety_catalog() -> &'static SafetyCatalog {
+    static DEFAULT: OnceLock<SafetyCatalog> = OnceLock::new();
     DEFAULT.get_or_init(|| {
-        parse_safety_catalog_file(
-            "crates/rebecca-core/safety/windows.toml",
-            include_str!("../safety/windows.toml"),
+        parse_safety_catalog(
+            "crates/rebecca-core/safety/cleanup.toml",
+            include_str!("../safety/cleanup.toml"),
         )
         .expect("embedded default safety catalog should be valid")
     })
 }
 
-fn compile_safety_catalog(path: &str, catalog: SafetyCatalogFile) -> Result<SafetyKnowledge> {
+pub fn default_safety_knowledge() -> &'static SafetyKnowledge {
+    default_safety_catalog()
+        .default_knowledge()
+        .expect("embedded default safety catalog should define its default platform")
+}
+
+pub fn default_safety_knowledge_for_platform(
+    platform: Platform,
+) -> Option<&'static SafetyKnowledge> {
+    default_safety_catalog().knowledge_for_platform(platform)
+}
+
+fn compile_safety_catalog(path: &str, catalog: SafetyCatalogFile) -> Result<SafetyCatalog> {
     if catalog.catalog_version != SAFETY_CATALOG_VERSION {
         return Err(RebeccaError::SafetyCatalogInvalid(format!(
             "{path} uses unsupported safety catalog version {}; expected {SAFETY_CATALOG_VERSION}",
@@ -267,11 +361,17 @@ fn compile_safety_catalog(path: &str, catalog: SafetyCatalogFile) -> Result<Safe
         )));
     }
 
-    validate_non_empty(
-        path,
-        "critical_path_prefixes",
-        &catalog.critical_path_prefixes,
-    )?;
+    if catalog.default_platform == Platform::Unknown {
+        return Err(RebeccaError::SafetyCatalogInvalid(format!(
+            "{path} default_platform must target a supported platform"
+        )));
+    }
+
+    if catalog.platforms.is_empty() {
+        return Err(RebeccaError::SafetyCatalogInvalid(format!(
+            "{path} must define at least one platform safety block"
+        )));
+    }
 
     let warning_kinds = catalog
         .warning_kinds
@@ -299,38 +399,111 @@ fn compile_safety_catalog(path: &str, catalog: SafetyCatalogFile) -> Result<Safe
         .collect::<Result<Vec<_>>>()?;
     validate_complete_categories(path, &categories)?;
 
-    let critical_path_prefixes = catalog
-        .critical_path_prefixes
-        .into_iter()
-        .map(|prefix| normalize_pathish(path, "critical_path_prefixes", prefix))
-        .collect::<Result<Vec<_>>>()?;
-    validate_unique_strings(path, "critical_path_prefixes", &critical_path_prefixes)?;
-
     let maintenance_allowlist =
         compile_pattern_set(path, "maintenance_allowlist", catalog.maintenance_allowlist)?;
 
-    let protected_patterns = catalog
+    let shared_protected_patterns = catalog
         .protected_patterns
         .into_iter()
         .map(|entry| compile_protected_pattern(path, entry))
         .collect::<Result<Vec<_>>>()?;
+
+    let mut platform_knowledge = Vec::with_capacity(catalog.platforms.len());
+    for platform in catalog.platforms {
+        platform_knowledge.push(compile_platform_safety_knowledge(
+            path,
+            &warning_kinds,
+            &categories,
+            &maintenance_allowlist,
+            &shared_protected_patterns,
+            platform,
+        )?);
+    }
+
+    validate_unique_platforms(path, &platform_knowledge)?;
+
+    if !platform_knowledge
+        .iter()
+        .any(|knowledge| knowledge.platform == catalog.default_platform)
+    {
+        return Err(RebeccaError::SafetyCatalogInvalid(format!(
+            "{path} default platform {} has no platform safety block",
+            catalog.default_platform.label()
+        )));
+    }
+
+    Ok(SafetyCatalog {
+        default_platform: catalog.default_platform,
+        platform_knowledge,
+    })
+}
+
+fn compile_platform_safety_knowledge(
+    path: &str,
+    warning_kinds: &[WarningKind],
+    categories: &[ProtectedCategoryKnowledge],
+    shared_maintenance_allowlist: &SafetyPatternSet,
+    shared_protected_patterns: &[ProtectedPattern],
+    platform: PlatformSafetyDefinition,
+) -> Result<SafetyKnowledge> {
+    if platform.platform == Platform::Unknown {
+        return Err(RebeccaError::SafetyCatalogInvalid(format!(
+            "{path} platform safety block must target a supported platform"
+        )));
+    }
+
+    validate_non_empty(
+        path,
+        &format!(
+            "platforms.{}.critical_path_prefixes",
+            platform.platform.label()
+        ),
+        &platform.critical_path_prefixes,
+    )?;
+
+    let critical_path_prefixes = platform
+        .critical_path_prefixes
+        .into_iter()
+        .map(|prefix| normalize_pathish(path, "platforms.critical_path_prefixes", prefix))
+        .collect::<Result<Vec<_>>>()?;
+    validate_unique_strings(
+        path,
+        "platforms.critical_path_prefixes",
+        &critical_path_prefixes,
+    )?;
+
+    let platform_maintenance_allowlist = compile_pattern_set(
+        path,
+        "platforms.maintenance_allowlist",
+        platform.maintenance_allowlist,
+    )?;
+    let maintenance_allowlist = shared_maintenance_allowlist.merged(platform_maintenance_allowlist);
+
+    let mut protected_patterns = shared_protected_patterns.to_vec();
+    protected_patterns.extend(
+        platform
+            .protected_patterns
+            .into_iter()
+            .map(|entry| compile_protected_pattern(path, entry))
+            .collect::<Result<Vec<_>>>()?,
+    );
     validate_non_empty_patterns(path, "protected_patterns", &protected_patterns)?;
 
     let steam_install_allowlist = normalize_pathish_list(
         path,
-        "steam_install_allowlist",
-        catalog.steam_install_allowlist,
+        "platforms.steam_install_allowlist",
+        platform.steam_install_allowlist,
     )?;
     let steam_library_allowlist = normalize_pathish_list(
         path,
-        "steam_library_allowlist",
-        catalog.steam_library_allowlist,
+        "platforms.steam_library_allowlist",
+        platform.steam_library_allowlist,
     )?;
 
     Ok(SafetyKnowledge {
-        platform: catalog.platform,
-        warning_kinds,
-        categories,
+        platform: platform.platform,
+        warning_kinds: warning_kinds.to_vec(),
+        categories: categories.to_vec(),
         critical_path_prefixes,
         maintenance_allowlist,
         protected_patterns,
@@ -500,6 +673,23 @@ where
         if window[0] == window[1] {
             return Err(RebeccaError::SafetyCatalogInvalid(format!(
                 "{path} {field} contains duplicate value {}",
+                window[0]
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_unique_platforms(path: &str, values: &[SafetyKnowledge]) -> Result<()> {
+    let mut labels = values
+        .iter()
+        .map(|knowledge| knowledge.platform.label().to_string())
+        .collect::<Vec<_>>();
+    labels.sort();
+    for window in labels.windows(2) {
+        if window[0] == window[1] {
+            return Err(RebeccaError::SafetyCatalogInvalid(format!(
+                "{path} platforms contains duplicate platform {}",
                 window[0]
             )));
         }

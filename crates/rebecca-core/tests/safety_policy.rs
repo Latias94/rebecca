@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use rebecca_core::RuleTargetSpec;
 use rebecca_core::config::AppPaths;
 use rebecca_core::protection::{
     ProtectedCategory, ProtectionAssessment, ProtectionBlockKind, ProtectionPolicy,
     is_regenerable_browser_cache_target_shape,
 };
 use rebecca_core::safety::{PathDisposition, assess_existing_path, assess_path};
+use rebecca_core::safety_catalog::default_safety_knowledge_for_platform;
+use rebecca_core::{Platform, RuleTargetSpec};
 
 #[test]
 fn allows_user_cache_subdirectories() {
@@ -34,6 +35,62 @@ fn blocks_traversal_drive_roots_and_system_paths() {
             "{case} should be blocked, got {disposition:?}"
         );
     }
+}
+
+#[test]
+fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
+    let linux_knowledge = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should exist");
+    let linux_policy = ProtectionPolicy::new().with_safety_knowledge(linux_knowledge);
+
+    for path in ["/etc/passwd", "/usr/bin/bash", "/var/lib/docker"] {
+        assert!(
+            matches!(
+                linux_policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Blocked(block)
+                    if block.kind == ProtectionBlockKind::CriticalPath
+            ),
+            "{path} should be blocked as a Linux critical path"
+        );
+    }
+    assert!(matches!(
+        linux_policy.assess_path(&PathBuf::from("/home/alice")),
+        ProtectionAssessment::Blocked(block) if block.kind == ProtectionBlockKind::UserProfileRoot
+    ));
+    assert!(matches!(
+        linux_policy.assess_path(&PathBuf::from("/home/alice/.ssh/config")),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::Credentials)
+    ));
+    assert!(matches!(
+        linux_policy.assess_path(&PathBuf::from("/home/alice/.config/autostart/app.desktop")),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::StartupAutomation)
+    ));
+    assert!(matches!(
+        linux_policy.assess_path(&PathBuf::from("/home/alice/.cache/pip/http")),
+        ProtectionAssessment::Allowed
+    ));
+
+    let macos_knowledge = default_safety_knowledge_for_platform(Platform::Macos)
+        .expect("macOS safety knowledge should exist");
+    let macos_policy = ProtectionPolicy::new().with_safety_knowledge(macos_knowledge);
+
+    assert!(matches!(
+        macos_policy.assess_path(&PathBuf::from("/System/Library")),
+        ProtectionAssessment::Blocked(block) if block.kind == ProtectionBlockKind::CriticalPath
+    ));
+    assert!(matches!(
+        macos_policy.assess_path(&PathBuf::from("/Users/alice")),
+        ProtectionAssessment::Blocked(block) if block.kind == ProtectionBlockKind::UserProfileRoot
+    ));
+    assert!(matches!(
+        macos_policy.assess_path(&PathBuf::from(
+            "/Users/alice/Library/LaunchAgents/com.example.agent.plist"
+        )),
+        ProtectionAssessment::Blocked(block)
+            if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::StartupAutomation)
+    ));
 }
 
 #[test]

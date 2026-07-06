@@ -2,7 +2,7 @@
 title: "Rebecca Cleanup Safety Audit"
 status: "active"
 created: "2026-06-24"
-last_updated: "2026-06-28"
+last_updated: "2026-07-06"
 ---
 
 # Rebecca Cleanup Safety Audit
@@ -39,12 +39,12 @@ The current design is safety-first:
   become `safety-policy-blocked`, disappeared targets become
   `execution-target-missing`, and backend permission or IO errors become
   `execution-failed`.
-- Empty paths, traversal, filesystem roots, critical Windows paths, user profile
+- Empty paths, traversal, filesystem roots, critical platform paths, user profile
   roots, protected categories, Rebecca-owned storage, and existing reparse-like
   paths are blocked.
-- Built-in cleanup rules are currently Windows-scoped Cleaner Manifest v1 TOML,
-  project-owned, and validated against the shared protection model and safety
-  catalog at load time.
+- Built-in cleanup rules are shared Cleaner Manifest v1 TOML families with
+  platform blocks, project-owned provenance, and validation against the shared
+  protection model and platform safety catalog at load time.
 - Default execution moves files, or direct child entries of directory targets,
   to the platform trash through Rebecca's shared recoverable backend.
 - History stores request metadata, target paths, byte counts, statuses, reason
@@ -82,18 +82,20 @@ flows, optimize flows, disk mapping, and broad orphan-data cleanup.
 Cleanup planning routes target paths through `ProtectionPolicy`, with
 `crates/rebecca-core/src/safety.rs` preserving the older compatibility wrapper.
 The policy consumes compiled `SafetyKnowledge` from
-`crates/rebecca-rules/safety/windows.toml`; `rebecca-core` also embeds the same
-catalog shape so library callers get safe defaults without the rules crate.
+`crates/rebecca-rules/safety/cleanup.toml`; `rebecca-core` also embeds the same
+catalog shape so library callers get safe defaults without the rules crate. The
+catalog has shared warning/category knowledge plus explicit platform blocks for
+Windows, Linux, and macOS protected roots and patterns.
 
 The policy blocks:
 
 - empty paths;
 - path traversal segments such as `..`;
 - filesystem roots including drive roots and UNC share roots;
-- critical Windows paths such as `C:\Windows`, `C:\Program Files`,
-  `C:\ProgramData`, `$Recycle.Bin`, `C:\Recovery`, and
-  `C:\System Volume Information`;
-- Windows user profile roots such as `C:\Users\Alice`;
+- critical platform paths such as `C:\Windows`, `C:\Program Files`, `/etc`,
+  `/usr`, `/System`, and `/Library`;
+- user profile roots such as `C:\Users\Alice`, `/home/alice`, and
+  `/Users/alice`;
 - Rebecca-owned config, state, history, and cache paths from
   `AppPaths::storage_entries()`;
 - existing symlinks, junctions, and other reparse-like paths through the safety
@@ -204,7 +206,7 @@ delete durable user data are not.
 Built-in cleanup rule families live under `crates/rebecca-rules/rules/cleanup/`
 and are embedded from Cleaner Manifest v1 TOML files with shared metadata plus
 explicit `[[platforms]]` blocks. The safety catalog lives under
-`crates/rebecca-rules/safety/windows.toml`. The loaders and validators enforce:
+`crates/rebecca-rules/safety/cleanup.toml`. The loaders and validators enforce:
 
 - `manifest_version = 1` for rule manifests and `catalog_version = 1` for the
   safety catalog;

@@ -5,10 +5,10 @@ mod patterns;
 
 use self::patterns::{
     NormalizedPath, contains_relative_control_segment, contains_traversal,
-    is_allowlisted_maintenance_path, is_app_leftover_cache_path,
+    is_allowlisted_maintenance_path, is_app_leftover_cache_path, is_critical_path,
     is_regenerable_browser_cache_target_shape as is_regenerable_browser_cache_target_shape_impl,
-    is_root, is_user_profile_root, is_windows_critical_path, looks_absolute_shape,
-    normalize_raw_shape, normalize_shape_path, protected_category,
+    is_root, is_user_profile_root, looks_absolute_shape, normalize_raw_shape, normalize_shape_path,
+    protected_category,
 };
 
 use crate::config::AppStorageEntry;
@@ -115,10 +115,13 @@ impl<'a> ProtectionPolicy<'a> {
             return ProtectionAssessment::Allowed;
         }
 
-        if is_windows_critical_path(&normalized.lower, self.safety_knowledge) {
+        if is_critical_path(&normalized.lower, self.safety_knowledge) {
             return blocked(
-                ProtectionBlockKind::WindowsCriticalPath,
-                "critical Windows path is protected".to_string(),
+                ProtectionBlockKind::CriticalPath,
+                format!(
+                    "critical {} path is protected",
+                    self.safety_knowledge.platform().label()
+                ),
             );
         }
 
@@ -331,7 +334,7 @@ pub enum ProtectionBlockKind {
     PathTraversal,
     FilesystemRoot,
     ReparsePoint,
-    WindowsCriticalPath,
+    CriticalPath,
     UserProfileRoot,
     RebeccaOwnedStorage,
     UserProtectedPath,
@@ -347,7 +350,7 @@ impl ProtectionBlockKind {
             Self::PathTraversal => "path-traversal",
             Self::FilesystemRoot => "filesystem-root",
             Self::ReparsePoint => "reparse-point",
-            Self::WindowsCriticalPath => "windows-critical-path",
+            Self::CriticalPath => "critical-path",
             Self::UserProfileRoot => "user-profile-root",
             Self::RebeccaOwnedStorage => "rebecca-owned-storage",
             Self::UserProtectedPath => "user-protected-path",

@@ -103,7 +103,7 @@ pub(super) fn is_root(normalized: &str) -> bool {
     false
 }
 
-pub(super) fn is_windows_critical_path(lower: &str, knowledge: &SafetyKnowledge) -> bool {
+pub(super) fn is_critical_path(lower: &str, knowledge: &SafetyKnowledge) -> bool {
     knowledge
         .critical_path_prefixes()
         .iter()
@@ -112,10 +112,13 @@ pub(super) fn is_windows_critical_path(lower: &str, knowledge: &SafetyKnowledge)
 
 pub(super) fn is_user_profile_root(lower: &str) -> bool {
     let mut parts = lower.split('/').filter(|segment| !segment.is_empty());
-    matches!(
-        (parts.next(), parts.next(), parts.next(), parts.next()),
-        (Some(drive), Some("users"), Some(_name), None) if drive.ends_with(':')
-    )
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(drive), Some("users"), Some(_name), None) if drive.ends_with(':') => true,
+        (Some("home"), Some(_name), None, None) => true,
+        (Some("users"), Some(_name), None, None) => true,
+        (Some("root"), None, None, None) => true,
+        _ => false,
+    }
 }
 
 pub(super) fn is_allowlisted_maintenance_path(

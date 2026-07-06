@@ -7,7 +7,7 @@ use rebecca_core::{
     protection::{
         ProtectionAssessment, ProtectionPolicy, is_regenerable_browser_cache_target_shape,
     },
-    safety_catalog::{SafetyKnowledge, parse_safety_catalog_file},
+    safety_catalog::{SafetyCatalog, SafetyKnowledge, parse_safety_catalog},
 };
 
 macro_rules! builtin_rule_files {
@@ -100,8 +100,8 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
 );
 
 const BUILTIN_SAFETY_CATALOG: (&str, &str) = (
-    "safety/windows.toml",
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/safety/windows.toml")),
+    "safety/cleanup.toml",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/safety/cleanup.toml")),
 );
 
 const BUILTIN_RULE_CATEGORIES: &[&str] = &["application", "browser", "development", "system"];
@@ -122,7 +122,18 @@ pub fn builtin_rules() -> Result<Vec<RuleDefinition>> {
 }
 
 pub fn builtin_safety_knowledge() -> Result<SafetyKnowledge> {
-    parse_safety_catalog_file(BUILTIN_SAFETY_CATALOG.0, BUILTIN_SAFETY_CATALOG.1)
+    builtin_safety_catalog()?
+        .default_knowledge()
+        .cloned()
+        .ok_or_else(|| {
+            RebeccaError::SafetyCatalogInvalid(
+                "built-in safety catalog default platform is missing".to_string(),
+            )
+        })
+}
+
+pub fn builtin_safety_catalog() -> Result<SafetyCatalog> {
+    parse_safety_catalog(BUILTIN_SAFETY_CATALOG.0, BUILTIN_SAFETY_CATALOG.1)
 }
 
 pub fn validate_builtin_rules() -> Result<()> {
@@ -198,8 +209,7 @@ fn builtin_rule_file(path: &str) -> Option<BuiltinRuleFile<'_>> {
 }
 
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
-    let safety_knowledge = builtin_safety_knowledge()?;
-    let policy = ProtectionPolicy::new().with_safety_knowledge(&safety_knowledge);
+    let safety_catalog = builtin_safety_catalog()?;
 
     for rule in rules {
         if rule.platform == Platform::Unknown {
@@ -208,6 +218,16 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                 rule.id
             )));
         }
+        let safety_knowledge = safety_catalog
+            .knowledge_for_platform(rule.platform)
+            .ok_or_else(|| {
+                RebeccaError::RuleCatalogInvalid(format!(
+                    "built-in rule {} targets platform {} without safety knowledge",
+                    rule.id,
+                    rule.platform.label()
+                ))
+            })?;
+        let policy = ProtectionPolicy::new().with_safety_knowledge(safety_knowledge);
 
         let platform_prefix = rule.platform.label();
         let expected_id_prefix = format!("{platform_prefix}.");
@@ -218,7 +238,7 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
             )));
         }
 
-        validate_builtin_rule_metadata(rule, &safety_knowledge)?;
+        validate_builtin_rule_metadata(rule, safety_knowledge)?;
 
         if rule
             .restore_hint
@@ -692,7 +712,7 @@ fn has_positive_cleanup_basis(raw: &str) -> bool {
 mod tests {
     use std::{collections::HashSet, fs, path::Path};
 
-    use rebecca_core::safety_catalog::default_safety_knowledge;
+    use rebecca_core::safety_catalog::{default_safety_catalog, default_safety_knowledge};
     use rebecca_core::{
         Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel,
     };
@@ -725,7 +745,10 @@ mod tests {
 
     #[test]
     fn builtin_safety_catalog_exposes_warning_and_category_knowledge() {
-        let knowledge = builtin_safety_knowledge().expect("built-in safety catalog should load");
+        let catalog = super::builtin_safety_catalog().expect("built-in safety catalog should load");
+        let knowledge = catalog
+            .default_knowledge()
+            .expect("built-in safety catalog should have default knowledge");
 
         assert!(
             knowledge
@@ -741,13 +764,30 @@ mod tests {
         );
         assert!(knowledge.is_allowed_steam_install_target("appcache/httpcache"));
         assert!(knowledge.is_allowed_steam_library_target("steamapps/downloading"));
+        assert!(catalog.knowledge_for_platform(Platform::Linux).is_some());
+        assert!(catalog.knowledge_for_platform(Platform::Macos).is_some());
     }
 
     #[test]
     fn builtin_safety_catalog_matches_core_default_catalog() {
         let builtin = builtin_safety_knowledge().expect("built-in safety catalog should load");
+        let builtin_catalog =
+            super::builtin_safety_catalog().expect("built-in safety catalog should load");
+        let core_catalog = default_safety_catalog();
         let core_default = default_safety_knowledge();
 
+        assert_eq!(
+            builtin_catalog
+                .platform_knowledge()
+                .iter()
+                .map(|knowledge| knowledge.platform().label())
+                .collect::<Vec<_>>(),
+            core_catalog
+                .platform_knowledge()
+                .iter()
+                .map(|knowledge| knowledge.platform().label())
+                .collect::<Vec<_>>()
+        );
         assert_eq!(builtin.platform(), core_default.platform());
         assert_eq!(
             builtin

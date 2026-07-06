@@ -32,7 +32,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "rules")]
-    pub use rebecca_rules::{builtin_rules, builtin_safety_knowledge};
+    pub use rebecca_rules::{builtin_rules, builtin_safety_catalog, builtin_safety_knowledge};
 }
 
 pub use rebecca_core::{
@@ -41,7 +41,7 @@ pub use rebecca_core::{
 };
 
 #[cfg(feature = "rules")]
-pub use rebecca_rules::{builtin_rules, builtin_safety_knowledge};
+pub use rebecca_rules::{builtin_rules, builtin_safety_catalog, builtin_safety_knowledge};
 
 #[cfg(test)]
 mod tests {

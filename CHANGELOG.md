@@ -6,6 +6,7 @@ All notable changes to Rebecca will be documented in this file.
 
 ### Breaking
 - Built-in cleanup rule manifests now use shared `rules/cleanup/<id>.toml` family files with `[[platforms]]` blocks. Runtime rule ids are generated as `<platform>.<id>` from platform blocks, and the old top-level `platform` plus `[[targets]]` source shape is intentionally unsupported.
+- Safety catalog source now uses shared `safety/cleanup.toml` metadata with platform safety blocks for Windows, Linux, and macOS, and protected critical paths now report the generic `critical-path` reason code instead of the Windows-specific code.
 
 ### Added
 - Added the first Linux built-in cleanup rule, `linux.user-temp`, for current-user temporary directories through `%TMPDIR%`/`%TEMP%` templates without targeting `/tmp` directly.
