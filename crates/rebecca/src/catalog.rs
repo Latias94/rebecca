@@ -5,7 +5,7 @@ use rebecca::core::catalog::{
     filter_catalog_items,
 };
 use rebecca::core::project_artifacts::all_project_artifact_policies;
-use rebecca::core::{RuleDefinition, SafetyLevel};
+use rebecca::core::{Platform, RuleDefinition, SafetyLevel};
 use serde::Serialize;
 use std::collections::BTreeSet;
 
@@ -34,6 +34,7 @@ pub struct CatalogOptions {
     pub artifacts: Vec<String>,
     pub warnings: Vec<String>,
     pub safety_level: Option<SafetyLevel>,
+    pub platform: Option<Platform>,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,6 +171,7 @@ fn catalog_query(options: &CatalogOptions) -> CatalogQuery {
         artifacts: options.artifacts.clone(),
         warnings: options.warnings.clone(),
         safety_level: options.safety_level,
+        platform: options.platform,
     }
 }
 
@@ -179,6 +181,7 @@ fn validate_catalog_selection(items: &[CatalogItem], options: &CatalogOptions) -
         + options.artifacts.len()
         + options.warnings.len()
         + usize::from(options.safety_level.is_some())
+        + usize::from(options.platform.is_some())
         + usize::from(options.kind.is_some());
 
     if filters > 0 && items.is_empty() {

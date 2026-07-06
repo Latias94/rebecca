@@ -266,6 +266,7 @@ fn run_catalog(args: CatalogArgs, global_mode: OutputMode) -> Result<()> {
         artifacts,
         warnings,
         safety_level,
+        platform,
     } = args;
 
     if let Some(CatalogCommand::Validate) = command {
@@ -280,6 +281,7 @@ fn run_catalog(args: CatalogArgs, global_mode: OutputMode) -> Result<()> {
         artifacts,
         warnings,
         safety_level: safety_level.map(Into::into),
+        platform: platform.map(Into::into),
     })
 }
 

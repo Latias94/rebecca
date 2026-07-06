@@ -162,6 +162,13 @@ pub enum CatalogKindArg {
     ActionKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PlatformArg {
+    Windows,
+    Linux,
+    Macos,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
 pub enum CatalogCommand {
     /// Validate the built-in rule and safety catalogs.
@@ -176,6 +183,16 @@ impl From<CatalogKindArg> for rebecca::core::catalog::CatalogItemKind {
             CatalogKindArg::Warning => Self::Warning,
             CatalogKindArg::SafetyCategory => Self::SafetyCategory,
             CatalogKindArg::ActionKind => Self::ActionKind,
+        }
+    }
+}
+
+impl From<PlatformArg> for rebecca::core::Platform {
+    fn from(platform: PlatformArg) -> Self {
+        match platform {
+            PlatformArg::Windows => Self::Windows,
+            PlatformArg::Linux => Self::Linux,
+            PlatformArg::Macos => Self::Macos,
         }
     }
 }
@@ -440,6 +457,9 @@ pub struct CatalogArgs {
     /// Include cleanup rules at a safety level.
     #[arg(long = "safety-level", value_enum)]
     pub safety_level: Option<SafetyLevelArg>,
+    /// Include cleanup rules for a platform.
+    #[arg(long, value_enum)]
+    pub platform: Option<PlatformArg>,
 }
 
 #[derive(Debug, Args)]

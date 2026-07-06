@@ -47,6 +47,7 @@ fn catalog_help_lists_validate_subcommand_without_hiding_filters() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("validate"));
     assert!(stdout.contains("--kind"));
+    assert!(stdout.contains("--platform"));
     assert!(stdout.contains("--warning"));
 }
 
@@ -181,9 +182,81 @@ fn catalog_filters_cleanup_rules_by_category_safety_and_rule() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["kind"], "cleanup-rule");
     assert_eq!(items[0]["id"], "windows.npm-cache");
+    assert_eq!(items[0]["platform"], "windows");
     assert_eq!(items[0]["category"], "development");
     assert_eq!(items[0]["safety_level"], "moderate");
     assert_eq!(items[0]["search_kinds"], serde_json::json!(["file"]));
+}
+
+#[test]
+fn catalog_filters_cleanup_rules_by_platform() {
+    let linux = common::command::rebecca()
+        .args([
+            "catalog",
+            "--format",
+            "json",
+            "--kind",
+            "cleanup-rule",
+            "--platform",
+            "linux",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        linux.status.success(),
+        "stderr: {}",
+        common::support::stderr(&linux)
+    );
+
+    let linux_items = catalog_data(&linux.stdout).as_array().unwrap().clone();
+    assert!(!linux_items.is_empty());
+    assert!(
+        linux_items
+            .iter()
+            .all(|item| item["kind"] == "cleanup-rule" && item["platform"] == "linux")
+    );
+    assert!(
+        linux_items
+            .iter()
+            .any(|item| item["id"] == "linux.apt-cache")
+    );
+    assert!(
+        !linux_items
+            .iter()
+            .any(|item| item["id"].as_str().unwrap().starts_with("windows."))
+    );
+
+    let windows = common::command::rebecca()
+        .args([
+            "catalog",
+            "--format",
+            "json",
+            "--kind",
+            "cleanup-rule",
+            "--platform",
+            "windows",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        windows.status.success(),
+        "stderr: {}",
+        common::support::stderr(&windows)
+    );
+    let windows_items = catalog_data(&windows.stdout).as_array().unwrap().clone();
+    assert!(!windows_items.is_empty());
+    assert!(
+        windows_items
+            .iter()
+            .all(|item| item["kind"] == "cleanup-rule" && item["platform"] == "windows")
+    );
+    assert!(
+        windows_items
+            .iter()
+            .any(|item| item["id"] == "windows.npm-cache")
+    );
 }
 
 #[test]

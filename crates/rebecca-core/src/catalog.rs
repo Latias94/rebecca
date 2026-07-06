@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::project_artifacts::ProjectArtifactPolicy;
 use crate::safety_catalog::{ProtectedCategoryKnowledge, WarningKind};
-use crate::{RuleDefinition, SafetyLevel};
+use crate::{Platform, RuleDefinition, SafetyLevel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -94,6 +94,7 @@ impl CatalogItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CleanupRuleCatalogItem {
     pub id: String,
+    pub platform: Platform,
     pub category: String,
     pub name: String,
     pub safety_level: SafetyLevel,
@@ -107,6 +108,7 @@ impl From<&RuleDefinition> for CleanupRuleCatalogItem {
     fn from(rule: &RuleDefinition) -> Self {
         Self {
             id: rule.id.clone(),
+            platform: rule.platform,
             category: rule.category.clone(),
             name: rule.name.clone(),
             safety_level: rule.safety_level,
@@ -207,6 +209,7 @@ impl ActionKindCatalogItem {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CatalogQuery {
     pub kind: Option<CatalogItemKind>,
+    pub platform: Option<Platform>,
     pub categories: Vec<String>,
     pub rule_ids: Vec<String>,
     pub artifacts: Vec<String>,
@@ -216,7 +219,9 @@ pub struct CatalogQuery {
 
 impl CatalogQuery {
     pub fn matches_cleanup_rule(&self, item: &CleanupRuleCatalogItem) -> bool {
-        matches_any(&self.categories, &item.category)
+        self.platform
+            .is_none_or(|platform| item.platform == platform)
+            && matches_any(&self.categories, &item.category)
             && matches_any(&self.rule_ids, &item.id)
             && (self.warnings.is_empty()
                 || self.warnings.iter().any(|warning| {
@@ -242,6 +247,7 @@ impl CatalogQuery {
                         .any(|alias| alias.eq_ignore_ascii_case(artifact))
             }))
             && self.categories.is_empty()
+            && self.platform.is_none()
             && matches_any(&self.rule_ids, &item.rule_id)
             && self.warnings.is_empty()
             && self.safety_level.is_none()
@@ -256,6 +262,7 @@ impl CatalogQuery {
                 .chain(&self.rule_ids)
                 .any(|warning| item.id.eq_ignore_ascii_case(warning))
         }) && self.categories.is_empty()
+            && self.platform.is_none()
             && self.artifacts.is_empty()
             && self.safety_level.is_none()
     }
@@ -269,6 +276,7 @@ impl CatalogQuery {
                 .chain(&self.rule_ids)
                 .any(|category| item.id.eq_ignore_ascii_case(category))
         }) && self.artifacts.is_empty()
+            && self.platform.is_none()
             && self.warnings.is_empty()
             && self.safety_level.is_none()
     }
@@ -276,6 +284,7 @@ impl CatalogQuery {
     pub fn matches_action_kind(&self, item: &ActionKindCatalogItem) -> bool {
         matches_any(&self.rule_ids, &item.id)
             && self.categories.is_empty()
+            && self.platform.is_none()
             && self.artifacts.is_empty()
             && self.warnings.is_empty()
             && self.safety_level.is_none()

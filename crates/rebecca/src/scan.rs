@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rebecca::core::RuleSelection;
 use rebecca::core::catalog::{CatalogItem, CatalogQuery, filter_catalog_items};
+use rebecca::core::{Platform, RuleSelection};
 
 use crate::cli::OutputMode;
 
@@ -8,6 +8,7 @@ pub fn run(output_mode: OutputMode, categories: Vec<String>, rules: Vec<String>)
     let catalog = rebecca::rules::builtin_rules()?;
     let item_query = CatalogQuery {
         kind: Some(rebecca::core::catalog::CatalogItemKind::CleanupRule),
+        platform: Some(Platform::current()),
         categories: categories.clone(),
         rule_ids: rules.clone(),
         artifacts: Vec::new(),
@@ -24,8 +25,13 @@ pub fn run(output_mode: OutputMode, categories: Vec<String>, rules: Vec<String>)
         .collect::<std::collections::BTreeSet<_>>();
 
     let selection = RuleSelection::new(categories, rules);
-    selection.validate_against_rules(&catalog)?;
-    let filtered = catalog
+    let platform_catalog = catalog
+        .iter()
+        .filter(|rule| rule.platform == Platform::current())
+        .cloned()
+        .collect::<Vec<_>>();
+    selection.validate_against_rules(&platform_catalog)?;
+    let filtered = platform_catalog
         .iter()
         .filter(|rule| matching_rule_ids.contains(&rule.id) && selection.matches_rule(rule))
         .collect::<Vec<_>>();
