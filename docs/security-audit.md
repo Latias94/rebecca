@@ -201,17 +201,20 @@ delete durable user data are not.
 
 ## Rule Catalog Governance
 
-Built-in rules live under `crates/rebecca-rules/rules/windows/` and are embedded
-from Cleaner Manifest v1 TOML files. The safety catalog lives under
+Built-in cleanup rule families live under `crates/rebecca-rules/rules/cleanup/`
+and are embedded from Cleaner Manifest v1 TOML files with shared metadata plus
+explicit `[[platforms]]` blocks. The safety catalog lives under
 `crates/rebecca-rules/safety/windows.toml`. The loaders and validators enforce:
 
 - `manifest_version = 1` for rule manifests and `catalog_version = 1` for the
   safety catalog;
 - valid TOML with unknown fields rejected;
-- non-empty rule id, category, name, provenance, and target path;
+- non-empty family id, generated rule id, category, name, provenance, and target
+  path;
 - rule warning kinds that exist in the safety catalog;
 - unique rule ids and target specs;
-- Windows platform and `windows.` id prefix for built-ins;
+- supported platform blocks and generated `<platform>.<family>` id prefixes for
+  built-ins;
 - non-empty restore hints;
 - owned source and `project-owned` provenance license;
 - target shapes that overlap protected categories or unallowlisted Steam

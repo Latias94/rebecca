@@ -1,0 +1,18 @@
+manifest_version = 1
+id = "go-module-cache"
+category = "development"
+name = "Go module cache"
+safety_level = "moderate"
+restore_hint = "Go may need to redownload modules into the module cache."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\go\\pkg\\mod"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Go's default GOPATH module cache only, avoiding GOPATH bin, src, and compiled package output directories."

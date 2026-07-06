@@ -1,0 +1,42 @@
+manifest_version = 1
+id = "android-cache"
+category = "development"
+name = "Android development cache"
+safety_level = "moderate"
+restore_hint = "Android build and IDE caches will be rebuilt when needed."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_USER_HOME%\\cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_USER_HOME%\\build-cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_SDK_HOME%\\.android\\cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_SDK_HOME%\\.android\\build-cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.android\\cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.android\\build-cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\AndroidStudio*\\caches"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against null-e (repo-ref/null-e, WTFPL-2.0, 079a038f71159dab07c4d2bd8bd700cb5647972d), Android tool environment variable documentation, and JetBrains IDE cache directory behavior. Targets rebuildable Android user and Android Studio cache leaves only; AVDs, SDK packages, licenses, keys, and IDE settings are excluded."

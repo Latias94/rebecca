@@ -1,0 +1,22 @@
+manifest_version = 1
+id = "sccache-cache"
+category = "development"
+name = "sccache compiler cache"
+safety_level = "moderate"
+restore_hint = "sccache will rebuild cached compilation results on demand."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Mozilla\\sccache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%SCCACHE_DIR%"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on sccache local storage docs. The rule targets the Windows default %LOCALAPPDATA%\\Mozilla\\sccache cache root and the configurable SCCACHE_DIR cache root, and intentionally avoids wrapper binaries, logs, and config state."

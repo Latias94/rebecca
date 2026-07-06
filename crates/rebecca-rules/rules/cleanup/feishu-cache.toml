@@ -1,0 +1,46 @@
+manifest_version = 1
+id = "feishu-cache"
+category = "application"
+name = "Feishu cache"
+safety_level = "safe"
+restore_hint = "Feishu caches will be rebuilt on launch."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\CodeCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\GraphiteDawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\GrShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\LarkShell\\ShaderCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against Mole Feishu behavior as behavior reference only, no rule data copied, plus independent Windows LarkShell cache-directory inspection. Cache leaves only; intentionally avoids sdk_storage, Local Storage, IndexedDB, Session Storage, account data, and document data."

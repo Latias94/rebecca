@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "steam-install-avatar-cache"
+category = "application"
+name = "Steam install avatar cache"
+safety_level = "safe"
+restore_hint = "Steam avatar images will be rebuilt when needed."
+warnings = ["source-boundary"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "config\\avatarcache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the Steam install root config\\avatarcache folder. The rule targets only disposable cached avatar images and intentionally avoids userdata, steamapps, and broader config state."

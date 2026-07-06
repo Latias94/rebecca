@@ -4,6 +4,9 @@ All notable changes to Rebecca will be documented in this file.
 
 ## [Unreleased]
 
+### Breaking
+- Built-in cleanup rule manifests now use shared `rules/cleanup/<id>.toml` family files with `[[platforms]]` blocks. Runtime rule ids are generated as `<platform>.<id>` from platform blocks, and the old top-level `platform` plus `[[targets]]` source shape is intentionally unsupported.
+
 ### Added
 - Added the first Linux built-in cleanup rule, `linux.user-temp`, for current-user temporary directories through `%TMPDIR%`/`%TEMP%` templates without targeting `/tmp` directly.
 - Added `skills/validate.py` and a CI skills job so shipped Codex skills have frontmatter, preview-first, and installer smoke coverage on Windows and Linux.

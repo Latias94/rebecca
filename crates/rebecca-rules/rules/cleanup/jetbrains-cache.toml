@@ -1,0 +1,50 @@
+manifest_version = 1
+id = "jetbrains-cache"
+category = "development"
+name = "JetBrains IDE cache"
+safety_level = "moderate"
+restore_hint = "JetBrains IDE caches will be rebuilt."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\IntelliJIdea*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\PyCharm*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\WebStorm*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\Rider*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\CLion*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\GoLand*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\DataGrip*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\PhpStorm*\\caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\JetBrains\\RustRover*\\caches"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on JetBrains IDE system directory documentation for Windows caches under %LOCALAPPDATA%\\JetBrains\\<product><version>."

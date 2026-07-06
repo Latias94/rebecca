@@ -1,0 +1,26 @@
+manifest_version = 1
+id = "steam-cache"
+category = "application"
+name = "Steam cache"
+safety_level = "safe"
+restore_hint = "Steam web caches will be rebuilt on launch."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Steam\\htmlcache\\Default\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Steam\\htmlcache\\Default\\Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Steam\\htmlcache\\Default\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the local Steam client Chromium cache layout under %LOCALAPPDATA%\\Steam\\htmlcache\\Default. The rule targets only disposable browser cache subdirectories and intentionally avoids userdata, steamapps, download state, Service Worker state, Network cache state, and account metadata."

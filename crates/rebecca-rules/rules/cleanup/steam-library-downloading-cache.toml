@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "steam-library-downloading-cache"
+category = "application"
+name = "Steam library downloading cache"
+safety_level = "moderate"
+restore_hint = "Steam download staging data will be recreated if needed."
+warnings = ["source-boundary"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "steam-library-template"
+value = "steamapps\\downloading"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the Steam library layout next to common game installs. The rule targets only the download staging directory and intentionally avoids common game content, workshop data, and account metadata."

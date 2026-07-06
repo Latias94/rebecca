@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "steam-install-shader-cache"
+category = "application"
+name = "Steam install shader cache"
+safety_level = "safe"
+restore_hint = "Steam shader caches will be rebuilt on launch."
+warnings = ["source-boundary"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "appcache\\shadercache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the Steam install root appcache\\shadercache folder. The rule targets only disposable shader cache data and intentionally avoids user data, download state, and library content."

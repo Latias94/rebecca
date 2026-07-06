@@ -1,0 +1,18 @@
+manifest_version = 1
+id = "pip-cache"
+category = "development"
+name = "pip cache"
+safety_level = "moderate"
+restore_hint = "Python packages may need to be downloaded again."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\pip\\Cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

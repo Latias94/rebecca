@@ -21,11 +21,12 @@ flowchart TD
 
 Maintain an owned rule catalog with explicit provenance metadata.
 
-The built-in catalog is stored as platform-scoped TOML files under
-`crates/rebecca-rules/rules/<platform>/` and embedded into the `rebecca-rules`
-crate at build time. The Rust code is responsible for parsing, validation,
-checking that file path, `platform`, and rule id prefix agree, and conversion
-into the shared core model.
+The built-in catalog is stored as cleanup-family TOML files under
+`crates/rebecca-rules/rules/cleanup/` and embedded into the `rebecca-rules`
+crate at build time. Each manifest owns shared metadata plus one or more
+`[[platforms]]` blocks. The Rust code is responsible for parsing, validation,
+checking that file path, family id, platform blocks, and generated rule id
+prefixes agree, and conversion into the shared core model.
 
 Each built-in rule must record:
 

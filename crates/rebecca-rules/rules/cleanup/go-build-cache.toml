@@ -1,0 +1,18 @@
+manifest_version = 1
+id = "go-build-cache"
+category = "development"
+name = "Go build cache"
+safety_level = "moderate"
+restore_hint = "Go may need to rebuild cached package and test outputs."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\go-build"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Go's default Windows build cache under the standard user cache directory only."

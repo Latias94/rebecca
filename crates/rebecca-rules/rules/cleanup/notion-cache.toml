@@ -1,0 +1,26 @@
+manifest_version = 1
+id = "notion-cache"
+category = "application"
+name = "Notion cache"
+safety_level = "safe"
+restore_hint = "Notion caches will be rebuilt on launch."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Notion\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Notion\\Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Notion\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on Notion's Windows Roaming app data layout and common Electron cache directory conventions, with null-e's Electron app list used as behavior-only reference. The rule targets cache subdirectories only and intentionally avoids Local Storage, IndexedDB, Service Worker, cookies, settings, workspace data, and session data."

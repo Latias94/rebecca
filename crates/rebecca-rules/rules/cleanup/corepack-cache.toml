@@ -1,0 +1,18 @@
+manifest_version = 1
+id = "corepack-cache"
+category = "development"
+name = "Corepack cache"
+safety_level = "moderate"
+restore_hint = "Corepack may need to redownload package-manager shims."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\node\\corepack"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Corepack's default Windows cache under Local AppData and avoids Node.js installations or project dependencies."

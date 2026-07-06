@@ -1,0 +1,30 @@
+manifest_version = 1
+id = "rustup-cache"
+category = "development"
+name = "Rustup download cache"
+safety_level = "moderate"
+restore_hint = "rustup may need to redownload toolchain archives."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%RUSTUP_HOME%\\downloads"
+
+[[platforms.targets]]
+kind = "template"
+value = "%RUSTUP_HOME%\\tmp"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.rustup\\downloads"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.rustup\\tmp"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets rustup download and temporary cache directories only, avoiding toolchains, settings, overrides, and installed components."

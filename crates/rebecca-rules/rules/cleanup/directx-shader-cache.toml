@@ -1,0 +1,18 @@
+manifest_version = 1
+id = "directx-shader-cache"
+category = "system"
+name = "DirectX shader cache"
+safety_level = "safe"
+restore_hint = "Shader cache that will be regenerated."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\D3DSCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

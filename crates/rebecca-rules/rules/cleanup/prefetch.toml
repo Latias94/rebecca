@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "prefetch"
+category = "system"
+name = "Windows Prefetch"
+safety_level = "moderate"
+restore_hint = "Prefetch data will be rebuilt by Windows."
+warnings = ["privileged-location"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%WINDIR%\\Prefetch"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against windows-cleaner-cli prefetch behavior (src/scanners/prefetch.ts and src/utils/paths.ts, MIT, ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5). Rebecca targets the Windows Prefetch cache directory through its own safety boundary."

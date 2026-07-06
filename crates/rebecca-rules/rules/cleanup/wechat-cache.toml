@@ -1,0 +1,30 @@
+manifest_version = 1
+id = "wechat-cache"
+category = "application"
+name = "WeChat cache"
+safety_level = "safe"
+restore_hint = "WeChat caches will be rebuilt when needed."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\WeChat\\radium\\cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\WeChat\\WmpfCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\multitab_*\\Cache\\Cache_Data"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\WeChat\\radium\\web\\profiles\\web_shell\\Cache\\Cache_Data"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Uses Winapp2 Tencent WeChat entry as discovery index only, no rule data copied; cross-checked against Mole WeChat behavior as behavior reference only, no rule data copied; also based on independent Windows WeChat radium cache-path observations. Cache leaves only; intentionally avoids account, backup, document, Local Storage, IndexedDB, and session data."

@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "steam-install-download-cache"
+category = "application"
+name = "Steam install download cache"
+safety_level = "moderate"
+restore_hint = "Steam download staging data will be recreated if needed."
+warnings = ["source-boundary"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "appcache\\download"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the Steam install root cache layout exposed through the Windows registry. The rule targets only a disposable download staging directory and intentionally avoids userdata, game content, and broader appcache metadata."

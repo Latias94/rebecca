@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "steam-install-library-cache"
+category = "application"
+name = "Steam install library cache"
+safety_level = "safe"
+restore_hint = "Steam library artwork and metadata will be rebuilt on launch."
+warnings = ["source-boundary"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "appcache\\librarycache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the Steam install root appcache\\librarycache folder. The rule targets only disposable library artwork and metadata caches and intentionally avoids user data, downloads, and app library content."

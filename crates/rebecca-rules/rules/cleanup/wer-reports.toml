@@ -1,0 +1,22 @@
+manifest_version = 1
+id = "wer-reports"
+category = "system"
+name = "Windows Error Reporting data"
+safety_level = "moderate"
+restore_hint = "Crash reports can be recreated by future failures."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Windows\\WER\\ReportArchive"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Windows\\WER\\ReportQueue"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

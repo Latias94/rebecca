@@ -1,0 +1,33 @@
+manifest_version = 1
+id = "user-temp"
+category = "system"
+name = "User temporary files"
+safety_level = "safe"
+restore_hint = "Temporary files owned by the current user."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%TEMP%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Temp"
+
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%TMPDIR%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%TEMP%"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common user temporary directory environment variables. Rebecca does not target shared temporary roots directly."

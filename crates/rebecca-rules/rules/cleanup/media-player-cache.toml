@@ -1,0 +1,26 @@
+manifest_version = 1
+id = "media-player-cache"
+category = "application"
+name = "Windows Media Player cache"
+safety_level = "safe"
+restore_hint = "Windows Media Player caches will be rebuilt on launch."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Media Player\\Cache*"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Media Player\\Grafikcache\\LocalMLS"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Media Player\\Transcoded Files Cache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against BleachBit windows_media_player cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets regenerated Windows Media Player cache leaves only."

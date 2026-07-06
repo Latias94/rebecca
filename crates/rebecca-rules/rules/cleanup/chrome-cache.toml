@@ -1,0 +1,74 @@
+manifest_version = 1
+id = "chrome-cache"
+category = "browser"
+name = "Google Chrome cache"
+safety_level = "safe"
+restore_hint = "Browser cache that can be regenerated."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Media Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Code Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\GPUCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\DawnCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile *\\Media Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\component_crx_cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\extensions_crx_cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\GraphiteDawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\GrShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\ShaderCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against BleachBit google_chrome cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets only regenerable Chromium-family cache directories and intentionally excludes Network state, Safe Browsing journals, Preferences JSON edits, cookies, history, sync, passwords, Local Storage, IndexedDB, Service Worker, sessions, and profile databases."

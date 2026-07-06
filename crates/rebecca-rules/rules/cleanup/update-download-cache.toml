@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "update-download-cache"
+category = "system"
+name = "Windows Update download cache"
+safety_level = "moderate"
+restore_hint = "Windows Update will download replacement files when needed."
+warnings = ["privileged-location"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%WINDIR%\\SoftwareDistribution\\Download"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against windows-cleaner-cli Windows Update cache behavior (src/scanners/windows-update.ts and src/utils/paths.ts, MIT, ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5). Rebecca targets the update download cache through its own safety boundary."

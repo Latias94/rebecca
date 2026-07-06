@@ -1,0 +1,22 @@
+manifest_version = 1
+id = "thumbnail-cache"
+category = "system"
+name = "Windows thumbnail and icon cache"
+safety_level = "safe"
+restore_hint = "Windows thumbnail and icon caches will be regenerated."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Windows\\Explorer\\thumbcache_*.db"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Windows\\Explorer\\iconcache_*.db"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

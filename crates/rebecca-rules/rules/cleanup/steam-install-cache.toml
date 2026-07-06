@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "steam-install-cache"
+category = "application"
+name = "Steam install cache"
+safety_level = "safe"
+restore_hint = "Steam client cache will be rebuilt on launch."
+warnings = ["source-boundary"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "appcache\\httpcache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on the Steam install root cache layout exposed through the Windows registry. The rule targets only a disposable client cache subdirectory and intentionally avoids user data, downloads, and app library content."

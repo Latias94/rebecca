@@ -1,0 +1,30 @@
+manifest_version = 1
+id = "vscode-cache"
+category = "development"
+name = "Visual Studio Code cache"
+safety_level = "moderate"
+restore_hint = "Editor caches will be rebuilt on launch."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Code\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Code\\Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Code\\GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Code\\CachedData"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Initial owned catalog based on common Windows cache conventions."

@@ -24,80 +24,79 @@ macro_rules! builtin_rule_files {
 }
 
 const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
-    "rules/linux/user-temp.toml",
-    "rules/windows/user-temp.toml",
-    "rules/windows/edge-cache.toml",
-    "rules/windows/firefox-profile-cache.toml",
-    "rules/windows/chrome-cache.toml",
-    "rules/windows/chromium-cache.toml",
-    "rules/windows/brave-cache.toml",
-    "rules/windows/waterfox-cache.toml",
-    "rules/windows/zen-browser-cache.toml",
-    "rules/windows/directx-shader-cache.toml",
-    "rules/windows/discord-cache.toml",
-    "rules/windows/wechat-cache.toml",
-    "rules/windows/wxwork-cache.toml",
-    "rules/windows/qq-cache.toml",
-    "rules/windows/feishu-cache.toml",
-    "rules/windows/dingtalk-cache.toml",
-    "rules/windows/wps-cache.toml",
-    "rules/windows/baidunetdisk-cache.toml",
-    "rules/windows/tencent-meeting-cache.toml",
-    "rules/windows/qqmusic-cache.toml",
-    "rules/windows/tencent-video-cache.toml",
-    "rules/windows/postman-cache.toml",
-    "rules/windows/notion-cache.toml",
-    "rules/windows/figma-cache.toml",
-    "rules/windows/slack-cache.toml",
-    "rules/windows/zoom-logs.toml",
-    "rules/windows/teamviewer-logs.toml",
-    "rules/windows/vlc-cache.toml",
-    "rules/windows/thunderbird-cache.toml",
-    "rules/windows/adobe-reader-cache.toml",
-    "rules/windows/steam-cache.toml",
-    "rules/windows/steam-install-cache.toml",
-    "rules/windows/steam-install-depot-cache.toml",
-    "rules/windows/steam-install-logs.toml",
-    "rules/windows/steam-install-avatar-cache.toml",
-    "rules/windows/steam-install-stats-cache.toml",
-    "rules/windows/steam-install-appinfo-cache.toml",
-    "rules/windows/steam-install-localization-cache.toml",
-    "rules/windows/steam-install-packageinfo-cache.toml",
-    "rules/windows/steam-install-download-cache.toml",
-    "rules/windows/steam-install-library-cache.toml",
-    "rules/windows/steam-install-shader-cache.toml",
-    "rules/windows/steam-library-shader-cache.toml",
-    "rules/windows/steam-library-downloading-cache.toml",
-    "rules/windows/steam-library-temp-cache.toml",
-    "rules/windows/npm-cache.toml",
-    "rules/windows/pnpm-cache.toml",
-    "rules/windows/yarn-cache.toml",
-    "rules/windows/bun-cache.toml",
-    "rules/windows/corepack-cache.toml",
-    "rules/windows/gradle-cache.toml",
-    "rules/windows/android-cache.toml",
-    "rules/windows/nuget-cache.toml",
-    "rules/windows/maven-cache.toml",
-    "rules/windows/pip-cache.toml",
-    "rules/windows/uv-cache.toml",
-    "rules/windows/poetry-cache.toml",
-    "rules/windows/conda-cache.toml",
-    "rules/windows/go-build-cache.toml",
-    "rules/windows/go-module-cache.toml",
-    "rules/windows/cargo-cache.toml",
-    "rules/windows/rustup-cache.toml",
-    "rules/windows/ccache-cache.toml",
-    "rules/windows/sccache-cache.toml",
-    "rules/windows/huggingface-cache.toml",
-    "rules/windows/pytorch-cache.toml",
-    "rules/windows/jetbrains-cache.toml",
-    "rules/windows/thumbnail-cache.toml",
-    "rules/windows/vscode-cache.toml",
-    "rules/windows/wer-reports.toml",
-    "rules/windows/system-temp.toml",
-    "rules/windows/prefetch.toml",
-    "rules/windows/update-download-cache.toml",
-    "rules/windows/media-player-cache.toml",
+    "rules/cleanup/user-temp.toml",
+    "rules/cleanup/edge-cache.toml",
+    "rules/cleanup/firefox-profile-cache.toml",
+    "rules/cleanup/chrome-cache.toml",
+    "rules/cleanup/chromium-cache.toml",
+    "rules/cleanup/brave-cache.toml",
+    "rules/cleanup/waterfox-cache.toml",
+    "rules/cleanup/zen-browser-cache.toml",
+    "rules/cleanup/directx-shader-cache.toml",
+    "rules/cleanup/discord-cache.toml",
+    "rules/cleanup/wechat-cache.toml",
+    "rules/cleanup/wxwork-cache.toml",
+    "rules/cleanup/qq-cache.toml",
+    "rules/cleanup/feishu-cache.toml",
+    "rules/cleanup/dingtalk-cache.toml",
+    "rules/cleanup/wps-cache.toml",
+    "rules/cleanup/baidunetdisk-cache.toml",
+    "rules/cleanup/tencent-meeting-cache.toml",
+    "rules/cleanup/qqmusic-cache.toml",
+    "rules/cleanup/tencent-video-cache.toml",
+    "rules/cleanup/postman-cache.toml",
+    "rules/cleanup/notion-cache.toml",
+    "rules/cleanup/figma-cache.toml",
+    "rules/cleanup/slack-cache.toml",
+    "rules/cleanup/zoom-logs.toml",
+    "rules/cleanup/teamviewer-logs.toml",
+    "rules/cleanup/vlc-cache.toml",
+    "rules/cleanup/thunderbird-cache.toml",
+    "rules/cleanup/adobe-reader-cache.toml",
+    "rules/cleanup/steam-cache.toml",
+    "rules/cleanup/steam-install-cache.toml",
+    "rules/cleanup/steam-install-depot-cache.toml",
+    "rules/cleanup/steam-install-logs.toml",
+    "rules/cleanup/steam-install-avatar-cache.toml",
+    "rules/cleanup/steam-install-stats-cache.toml",
+    "rules/cleanup/steam-install-appinfo-cache.toml",
+    "rules/cleanup/steam-install-localization-cache.toml",
+    "rules/cleanup/steam-install-packageinfo-cache.toml",
+    "rules/cleanup/steam-install-download-cache.toml",
+    "rules/cleanup/steam-install-library-cache.toml",
+    "rules/cleanup/steam-install-shader-cache.toml",
+    "rules/cleanup/steam-library-shader-cache.toml",
+    "rules/cleanup/steam-library-downloading-cache.toml",
+    "rules/cleanup/steam-library-temp-cache.toml",
+    "rules/cleanup/npm-cache.toml",
+    "rules/cleanup/pnpm-cache.toml",
+    "rules/cleanup/yarn-cache.toml",
+    "rules/cleanup/bun-cache.toml",
+    "rules/cleanup/corepack-cache.toml",
+    "rules/cleanup/gradle-cache.toml",
+    "rules/cleanup/android-cache.toml",
+    "rules/cleanup/nuget-cache.toml",
+    "rules/cleanup/maven-cache.toml",
+    "rules/cleanup/pip-cache.toml",
+    "rules/cleanup/uv-cache.toml",
+    "rules/cleanup/poetry-cache.toml",
+    "rules/cleanup/conda-cache.toml",
+    "rules/cleanup/go-build-cache.toml",
+    "rules/cleanup/go-module-cache.toml",
+    "rules/cleanup/cargo-cache.toml",
+    "rules/cleanup/rustup-cache.toml",
+    "rules/cleanup/ccache-cache.toml",
+    "rules/cleanup/sccache-cache.toml",
+    "rules/cleanup/huggingface-cache.toml",
+    "rules/cleanup/pytorch-cache.toml",
+    "rules/cleanup/jetbrains-cache.toml",
+    "rules/cleanup/thumbnail-cache.toml",
+    "rules/cleanup/vscode-cache.toml",
+    "rules/cleanup/wer-reports.toml",
+    "rules/cleanup/system-temp.toml",
+    "rules/cleanup/prefetch.toml",
+    "rules/cleanup/update-download-cache.toml",
+    "rules/cleanup/media-player-cache.toml",
 );
 
 const BUILTIN_SAFETY_CATALOG: (&str, &str) = (
@@ -141,11 +140,9 @@ fn parse_rule_file(
 fn validate_builtin_rule_file(path: &str, rules: &[RuleDefinition]) -> Result<()> {
     let Some(file) = builtin_rule_file(path) else {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule file {path} must be a rules/<platform>/<slug>.toml file"
+            "built-in rule file {path} must be a rules/cleanup/<slug>.toml file"
         )));
     };
-    let expected_id = format!("{}.{}", file.platform_prefix, file.stem);
-    let option_id_prefix = format!("{expected_id}.");
 
     if rules.is_empty() {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
@@ -154,15 +151,16 @@ fn validate_builtin_rule_file(path: &str, rules: &[RuleDefinition]) -> Result<()
     }
 
     for rule in rules {
-        if rule.platform != file.platform {
+        if rule.platform == Platform::Unknown {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
-                "built-in rule file {path} produced rule {} for platform {}; expected {}",
+                "built-in rule file {path} produced rule {} for unsupported platform {}",
                 rule.id,
-                rule.platform.label(),
-                file.platform.label()
+                rule.platform.label()
             )));
         }
 
+        let expected_id = format!("{}.{}", rule.platform.label(), file.stem);
+        let option_id_prefix = format!("{expected_id}.");
         if rule.id != expected_id && !rule.id.starts_with(&option_id_prefix) {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
                 "built-in rule file {path} produced rule {}; expected {expected_id} or {option_id_prefix}*",
@@ -176,44 +174,27 @@ fn validate_builtin_rule_file(path: &str, rules: &[RuleDefinition]) -> Result<()
 
 #[derive(Debug, Clone, Copy)]
 struct BuiltinRuleFile<'a> {
-    platform: Platform,
-    platform_prefix: &'a str,
     stem: &'a str,
 }
 
 fn builtin_rule_file(path: &str) -> Option<BuiltinRuleFile<'_>> {
     let parts = path.split(['/', '\\']).collect::<Vec<_>>();
-    let [rules_dir, platform_prefix, file_name] = parts.as_slice() else {
+    let [rules_dir, cleanup_dir, file_name] = parts.as_slice() else {
         return None;
     };
     let rules_dir = *rules_dir;
-    let platform_prefix = *platform_prefix;
+    let cleanup_dir = *cleanup_dir;
     let file_name = *file_name;
 
-    if rules_dir != "rules" {
+    if rules_dir != "rules" || cleanup_dir != "cleanup" {
         return None;
     }
-
-    let platform = platform_from_rule_prefix(platform_prefix)?;
     let stem = file_name.strip_suffix(".toml")?;
     if stem.is_empty() {
         return None;
     }
 
-    Some(BuiltinRuleFile {
-        platform,
-        platform_prefix,
-        stem,
-    })
-}
-
-fn platform_from_rule_prefix(prefix: &str) -> Option<Platform> {
-    match prefix {
-        "windows" => Some(Platform::Windows),
-        "linux" => Some(Platform::Linux),
-        "macos" => Some(Platform::Macos),
-        _ => None,
-    }
+    Some(BuiltinRuleFile { stem })
 }
 
 fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
@@ -836,40 +817,26 @@ mod tests {
 
     #[test]
     fn builtin_rule_files_match_rule_directory() {
-        let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("rules");
+        let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("rules/cleanup");
         let mut discovered = Vec::new();
 
-        for platform_entry in fs::read_dir(rules_dir).expect("rules directory should be readable") {
-            let platform_entry =
-                platform_entry.expect("platform directory entry should be readable");
-            let platform_path = platform_entry.path();
-            if !platform_path.is_dir() {
-                continue;
-            }
-
-            let platform = platform_path
-                .file_name()
-                .expect("platform directory should have a name")
-                .to_string_lossy();
-
-            for rule_entry in
-                fs::read_dir(&platform_path).expect("platform rule directory should be readable")
+        for rule_entry in
+            fs::read_dir(rules_dir).expect("cleanup rule directory should be readable")
+        {
+            let rule_path = rule_entry
+                .expect("rule directory entry should be readable")
+                .path();
+            if rule_path
+                .extension()
+                .is_some_and(|extension| extension == "toml")
             {
-                let rule_path = rule_entry
-                    .expect("rule directory entry should be readable")
-                    .path();
-                if rule_path
-                    .extension()
-                    .is_some_and(|extension| extension == "toml")
-                {
-                    discovered.push(format!(
-                        "rules/{platform}/{}",
-                        rule_path
-                            .file_name()
-                            .expect("rule file should have a file name")
-                            .to_string_lossy()
-                    ));
-                }
+                discovered.push(format!(
+                    "rules/cleanup/{}",
+                    rule_path
+                        .file_name()
+                        .expect("rule file should have a file name")
+                        .to_string_lossy()
+                ));
             }
         }
         discovered.sort();
@@ -908,7 +875,7 @@ mod tests {
     #[test]
     fn builtin_rule_file_rejects_rule_ids_that_drift_from_file_name() {
         let err = super::validate_builtin_rule_file(
-            "rules/windows/user-temp.toml",
+            "rules/cleanup/user-temp.toml",
             &[rule_with_target(RuleTargetSpec::template("%TEMP%"))],
         )
         .expect_err("file name should constrain the produced rule id");
@@ -919,34 +886,39 @@ mod tests {
             id: "windows.user-temp.option".to_string(),
             ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
         };
-        super::validate_builtin_rule_file("rules/windows/user-temp.toml", &[option_rule])
+        super::validate_builtin_rule_file("rules/cleanup/user-temp.toml", &[option_rule])
             .expect("option rule ids should be allowed under the file id prefix");
 
         let backslash_path_rule = RuleDefinition {
             id: "windows.user-temp".to_string(),
             ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
         };
-        super::validate_builtin_rule_file("rules\\windows\\user-temp.toml", &[backslash_path_rule])
-            .expect("catalog path validation should accept Windows separators");
+        super::validate_builtin_rule_file(
+            "rules\\cleanup\\user-temp.toml",
+            std::slice::from_ref(&backslash_path_rule),
+        )
+        .expect("catalog path validation should accept Windows separators");
 
         let linux_rule = RuleDefinition {
             id: "linux.user-temp".to_string(),
             platform: Platform::Linux,
             ..rule_with_target(RuleTargetSpec::template("%TMPDIR%"))
         };
-        super::validate_builtin_rule_file("rules/linux/user-temp.toml", &[linux_rule])
-            .expect("catalog path validation should accept Linux platform directories");
+        super::validate_builtin_rule_file(
+            "rules/cleanup/user-temp.toml",
+            &[backslash_path_rule, linux_rule],
+        )
+        .expect("shared catalog files should accept multiple supported platforms");
 
-        let platform_mismatch_rule = RuleDefinition {
-            id: "linux.user-temp".to_string(),
+        let id_mismatch_rule = RuleDefinition {
+            id: "linux.other-temp".to_string(),
+            platform: Platform::Linux,
             ..rule_with_target(RuleTargetSpec::template("%TEMP%"))
         };
-        let err = super::validate_builtin_rule_file(
-            "rules/linux/user-temp.toml",
-            &[platform_mismatch_rule],
-        )
-        .expect_err("file platform should constrain manifest platform");
-        assert!(err.to_string().contains("expected linux"));
+        let err =
+            super::validate_builtin_rule_file("rules/cleanup/user-temp.toml", &[id_mismatch_rule])
+                .expect_err("file family id should constrain generated rule ids");
+        assert!(err.to_string().contains("expected linux.user-temp"));
     }
 
     #[test]
@@ -1268,14 +1240,16 @@ mod tests {
             "test.toml",
             r#"
 manifest_version = 1
-id = "windows.test"
-platform = "windows"
+id = "test"
 category = "system"
 name = "Test"
 safety_level = "safe"
 unexpected = "field"
 
-[[targets]]
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
 kind = "template"
 value = "%TEMP%"
 
@@ -1297,13 +1271,15 @@ notes = "test"
             "test.toml",
             r#"
 manifest_version = 1
-id = "windows.exact"
-platform = "windows"
+id = "exact"
 category = "system"
 name = "Exact"
 safety_level = "safe"
 
-[[targets]]
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
 kind = "exact-path"
 value = "C:\\Users\\Example\\Cache"
 
@@ -1327,13 +1303,15 @@ notes = "test"
             "test.toml",
             r#"
 manifest_version = 1
-id = "windows.glob"
-platform = "windows"
+id = "glob"
 category = "browser"
 name = "Glob"
 safety_level = "safe"
 
-[[targets]]
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
 kind = "glob-template"
 value = "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"
 
@@ -1356,17 +1334,19 @@ notes = "test"
             "test.toml",
             r#"
 manifest_version = 1
-id = "windows.steam-test"
-platform = "windows"
+id = "steam-test"
 category = "application"
 name = "Steam test"
 safety_level = "safe"
 
-[[targets]]
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
 kind = "steam-install-template"
 value = "appcache\\httpcache"
 
-[[targets]]
+[[platforms.targets]]
 kind = "steam-library-template"
 value = "steamapps\\shadercache"
 
@@ -1439,13 +1419,15 @@ notes = "test"
             "test.toml",
             r#"
 manifest_version = 1
-id = "linux.test"
-platform = "linux"
+id = "test"
 category = "system"
 name = "Test"
 safety_level = "safe"
 
-[[targets]]
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
 kind = "template"
 value = "/tmp"
 

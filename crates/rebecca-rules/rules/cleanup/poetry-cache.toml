@@ -1,0 +1,22 @@
+manifest_version = 1
+id = "poetry-cache"
+category = "development"
+name = "Poetry package cache"
+safety_level = "moderate"
+restore_hint = "Poetry may need to redownload package metadata and artifacts."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\pypoetry\\Cache\\cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\pypoetry\\Cache\\artifacts"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Poetry's package metadata and artifact cache subdirectories only, intentionally avoiding virtualenvs and configuration."

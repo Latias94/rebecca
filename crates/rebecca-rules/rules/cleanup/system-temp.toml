@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "system-temp"
+category = "system"
+name = "Windows temp files"
+safety_level = "moderate"
+restore_hint = "Windows temporary files will be recreated as needed."
+warnings = ["privileged-location"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%WINDIR%\\Temp"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against windows-cleaner-cli temp-file behavior (src/scanners/temp-files.ts and src/utils/paths.ts, MIT, ee03ebd94ee1bc6de32fc226ecef488c7bbfd7c5). Rebecca targets the Windows temp directory through its own safety boundary."

@@ -1,17 +1,28 @@
 # Rule Authoring
 
-Built-in Rebecca rules live under `crates/rebecca-rules/rules/<platform>/` as
-TOML files. Keep each rule small, explicit, and easy to audit.
+Built-in Rebecca cleanup rule families live under
+`crates/rebecca-rules/rules/cleanup/` as TOML files. A file is a
+platform-neutral cleanup family; the manifest compiler expands each platform
+block into runtime rules such as `windows.user-temp` or `linux.user-temp`.
+Keep each family small, explicit, and easy to audit.
 
 ## Cleaner Manifest v1
 
 - Every built-in rule file is a Cleaner Manifest v1 document and must start
   with `manifest_version = 1`.
-- The current built-in catalog still uses the one-file/one-rule compatibility
-  shape: top-level metadata plus top-level `[[targets]]`.
-- Manifest v1 also supports future cleaner-style `[[options]]` with
-  `[[options.actions]]`. A file must choose top-level `targets` or `options`,
-  never both.
+- Top-level fields are shared family metadata: `id`, `category`, `name`,
+  `safety_level`, `restore_hint`, optional `warnings`, and `provenance`.
+  Top-level `id` is a platform-neutral slug without a `windows.` or `linux.`
+  prefix.
+- Each family must define one or more `[[platforms]]` blocks. A platform block
+  has `platform = "windows"`, `platform = "linux"`, or another supported
+  platform, plus either `[[platforms.targets]]` or `[[platforms.options]]` with
+  `[[platforms.options.actions]]`. A platform block must choose targets or
+  options, never both.
+- Platform blocks may override `safety_level`, `restore_hint`, and `warnings`
+  when the same family has different platform risk or rebuild behavior.
+  Warnings merge from shared metadata, platform metadata, and option metadata
+  without duplicates.
 - Warnings are declared as stable warning-kind strings in `warnings = [...]`.
   They are part of the planner-ready rule definition and should be reserved for
   user-visible gates such as active-process checks or broad-discovery notices.
@@ -35,12 +46,12 @@ TOML files. Keep each rule small, explicit, and easy to audit.
 
 ## Current Built-in Shape
 
-- One file per rule.
+- One file per cleanup family.
 - `manifest_version = 1`.
-- The rule file path, `platform`, and rule id prefix must agree. For example,
-  `rules/linux/user-temp.toml` must produce `platform = "linux"` rules with
-  `linux.` ids, while `rules/windows/user-temp.toml` must produce
-  `platform = "windows"` rules with `windows.` ids.
+- The rule file path, family id, and generated rule ids must agree. For
+  example, `rules/cleanup/user-temp.toml` uses `id = "user-temp"` and may
+  produce `windows.user-temp` and `linux.user-temp` from separate platform
+  blocks.
 - Stable env-variable templates only.
 - Use `glob-template` only for bounded profile or filename discovery.
 - Built-in catalog validation derives a positive target-shape basis from each
@@ -59,12 +70,11 @@ TOML files. Keep each rule small, explicit, and easy to audit.
 
 - `manifest_version`
 - `id`
-- `platform`
 - `category`
 - `name`
 - `safety_level`
 - `restore_hint`
-- `targets`
+- `platforms`
 - `provenance`
 
 ## Target Guidance
@@ -218,8 +228,9 @@ TOML files. Keep each rule small, explicit, and easy to audit.
 ## Provenance
 
 - Do not copy GPL rule definitions or code into the catalog.
-- Built-in rules must use a platform id prefix matching their `platform`,
-  `source = "owned"`, and `license = "project-owned"`.
+- Built-in rules must compile to ids with a platform prefix matching each
+  `[[platforms]]` block, and must use `source = "owned"` plus
+  `license = "project-owned"`.
 - Built-in rules must include a concise non-empty `restore_hint`, because dry-run,
   history, and grouped human output surface it as part of the safety contract.
 - Document the source of each rule in `provenance.notes`.

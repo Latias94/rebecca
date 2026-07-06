@@ -1,0 +1,34 @@
+manifest_version = 1
+id = "conda-cache"
+category = "development"
+name = "Conda package cache"
+safety_level = "moderate"
+restore_hint = "Conda may need to redownload packages and metadata."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.conda\\pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\anaconda3\\pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\miniconda3\\pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\miniforge3\\pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\mambaforge\\pkgs"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Conda package caches in common user-scoped Windows install locations only."

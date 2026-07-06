@@ -1,0 +1,23 @@
+manifest_version = 1
+id = "thunderbird-cache"
+category = "application"
+name = "Thunderbird cache"
+safety_level = "safe"
+restore_hint = "Thunderbird profile caches will be regenerated."
+warnings = ["active-process"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Thunderbird\\Profiles\\*\\cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Thunderbird\\Profiles\\*\\startupCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against BleachBit thunderbird cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets only local profile cache leaves and intentionally excludes mail stores, message indexes, cookies, passwords, session restore, profile configuration, and SQLite vacuum actions."

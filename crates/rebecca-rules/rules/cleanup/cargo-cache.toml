@@ -1,0 +1,54 @@
+manifest_version = 1
+id = "cargo-cache"
+category = "development"
+name = "Cargo dependency cache"
+safety_level = "moderate"
+restore_hint = "Cargo may need to redownload registry and git dependencies."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%\\registry\\cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%\\registry\\index"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%\\registry\\src"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%\\git\\db"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%\\git\\checkouts"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\registry\\cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\registry\\index"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\registry\\src"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\git\\db"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cargo\\git\\checkouts"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on Cargo's documented home layout. The rule targets cache subdirectories only and intentionally avoids bin, config.toml, credentials.toml, and install tracking files."

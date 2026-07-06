@@ -1,0 +1,30 @@
+manifest_version = 1
+id = "waterfox-cache"
+category = "browser"
+name = "Waterfox cache"
+safety_level = "safe"
+restore_hint = "Waterfox profile caches will be regenerated."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\startupCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\jumpListCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\OfflineCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against BleachBit waterfox cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets only Gecko profile cache leaves and intentionally excludes cookies, history, passwords, session restore, site data, site preferences, bookmark backups, crash reports, and profile configuration."

@@ -286,14 +286,14 @@ The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/c
 
 ## Built-In Rules
 
-Rebecca ships conservative platform-scoped cleanup rules under `crates/rebecca-rules/rules/<platform>/`. The Windows catalog is the largest built-in set today, and Linux currently includes a safe `linux.user-temp` rule for the current user's temporary directory environment.
+Rebecca ships conservative cleanup rule families under `crates/rebecca-rules/rules/cleanup/`. Each TOML file owns shared metadata and one or more platform blocks; the compiler expands those blocks into runtime rule ids such as `windows.user-temp` and `linux.user-temp`. The Windows catalog is the largest built-in set today, and Linux currently includes a safe `linux.user-temp` rule for the current user's temporary directory environment.
 
 - System and browser caches: temp files, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, thumbnail cache, DirectX shader cache, and Windows Error Reporting data.
 - App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video.
 - Developer caches: pip, uv, Poetry, Conda, Go, Cargo, ccache, rustup, sccache, JetBrains, npm, pnpm, yarn, bun, corepack, Gradle, Android, NuGet, Maven, and VS Code.
 - Steam caches: the Steam client cache plus install-root and library-root cache leaves.
 
-Rule metadata includes platform, category, safety level, restore hint, and provenance. Built-in rules use `source = "owned"` with `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface restore hints when available, and `--format json` preserves those fields under the CLI API envelope.
+Rule metadata includes generated platform rule ids, category, safety level, restore hint, warnings, and provenance. Built-in rules use `source = "owned"` with `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface restore hints when available, and `--format json` preserves those fields under the CLI API envelope.
 
 Rule authoring notes live in [docs/rule-authoring.md](docs/rule-authoring.md).
 

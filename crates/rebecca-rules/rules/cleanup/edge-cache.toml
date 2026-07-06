@@ -1,0 +1,74 @@
+manifest_version = 1
+id = "edge-cache"
+category = "browser"
+name = "Microsoft Edge cache"
+safety_level = "safe"
+restore_hint = "Browser cache that can be regenerated."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Media Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\Code Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\GPUCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\DawnCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Profile *\\Media Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\component_crx_cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\extensions_crx_cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\GraphiteDawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\GrShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\ShaderCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Owned Edge adaptation of the Chromium-family cache boundary, cross-checked against BleachBit Chromium/Chrome behavior as behavior reference only, no rule data copied. The rule targets only regenerable cache directories and intentionally excludes Network state, Safe Browsing journals, Preferences JSON edits, cookies, history, sync, passwords, Local Storage, IndexedDB, Service Worker, sessions, and profile databases."

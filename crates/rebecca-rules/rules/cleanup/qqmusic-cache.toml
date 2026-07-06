@@ -1,0 +1,30 @@
+manifest_version = 1
+id = "qqmusic-cache"
+category = "application"
+name = "QQ Music cache"
+safety_level = "safe"
+restore_hint = "QQ Music caches will be rebuilt on launch."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\QQMusic\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\QQMusic\\musiccache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\QQMusic\\updatecache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Tencent\\QQMusic\\WhirlCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on independent public Windows QQ Music cache-path observations and local directory inspection, cross-checked against Mole QQ Music behavior as behavior reference only, no rule data copied. Cache leaves only; intentionally avoids mmkv state, cookie-like files, WebkitCache local-storage data, library data, downloaded music, and account data."

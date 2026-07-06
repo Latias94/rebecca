@@ -1,0 +1,18 @@
+manifest_version = 1
+id = "pnpm-cache"
+category = "development"
+name = "pnpm store cache"
+safety_level = "moderate"
+restore_hint = "pnpm may need to redownload packages into the store."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%LOCALAPPDATA%\\pnpm\\store"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets pnpm's default Windows store cache under Local AppData only; project node_modules directories are handled by the purge workflow."

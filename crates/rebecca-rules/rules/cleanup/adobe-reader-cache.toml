@@ -1,0 +1,23 @@
+manifest_version = 1
+id = "adobe-reader-cache"
+category = "application"
+name = "Adobe Reader cache"
+safety_level = "safe"
+restore_hint = "Adobe Reader cache files will be regenerated."
+warnings = ["active-process"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%LOCALAPPDATA%\\Adobe\\Acrobat\\*\\Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%USERPROFILE%\\AppData\\LocalLow\\Adobe\\Acrobat\\9.0\\Search\\*.idx"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against BleachBit adobe_reader cleaner behavior as behavior reference only, no rule data copied. Rebecca independently targets only local Acrobat cache/search-index files and intentionally excludes MRU registry entries, document history, preferences, and document files."

@@ -1,0 +1,27 @@
+manifest_version = 1
+id = "slack-cache"
+category = "application"
+name = "Slack cache"
+safety_level = "safe"
+restore_hint = "Slack caches will be rebuilt on launch."
+warnings = ["active-process"]
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Slack\\Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Slack\\Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%APPDATA%\\Slack\\GPUCache"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Based on Slack's Windows Roaming app data layout and common Electron cache directory conventions. The rule targets cache subdirectories only and intentionally avoids Local Storage, IndexedDB, Service Worker, cookies, settings, workspace data, and session data."

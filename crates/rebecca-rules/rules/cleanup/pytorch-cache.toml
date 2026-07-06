@@ -1,0 +1,22 @@
+manifest_version = 1
+id = "pytorch-cache"
+category = "development"
+name = "PyTorch hub cache"
+safety_level = "moderate"
+restore_hint = "PyTorch may need to redownload cached models and weights."
+
+[[platforms]]
+platform = "windows"
+
+[[platforms.targets]]
+kind = "template"
+value = "%TORCH_HOME%\\hub"
+
+[[platforms.targets]]
+kind = "template"
+value = "%USERPROFILE%\\.cache\\torch\\hub"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Cross-checked against null-e (repo-ref/null-e, WTFPL-2.0, 079a038f71159dab07c4d2bd8bd700cb5647972d) and verified against PyTorch torch.hub documentation and load_state_dict_from_url behavior. Targets the hub cache root only; the default hub/checkpoints cache lives beneath that root."
