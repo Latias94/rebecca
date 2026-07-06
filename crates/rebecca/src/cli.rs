@@ -324,6 +324,15 @@ pub struct InspectMapArgs {
     /// Render ranked entries without visual bars, optimized for screen readers and logs.
     #[arg(long = "screen-reader")]
     pub screen_reader: bool,
+    /// Print full paths in human ranked output instead of compacting long paths.
+    #[arg(long = "full-path")]
+    pub full_path: bool,
+    /// Hide visual usage bars in human ranked output.
+    #[arg(long = "no-bars")]
+    pub no_bars: bool,
+    /// Set the visual usage bar width for human ranked output.
+    #[arg(long = "bar-width", value_name = "COLUMNS")]
+    pub bar_width: Option<usize>,
     /// Keep only ranked entries with this cleanup advice status. Implies --cleanup-advice.
     #[arg(long = "advice-status", value_enum, value_name = "STATUS")]
     pub advice_status: Option<CleanupAdviceStatusArg>,

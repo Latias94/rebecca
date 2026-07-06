@@ -1362,6 +1362,157 @@ fn inspect_map_human_compacts_very_long_paths() {
 }
 
 #[test]
+fn inspect_map_human_full_path_disables_compaction() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let long_path = root
+        .join("very-long-directory-name-for-human-map-rendering")
+        .join("another-long-directory-name-for-human-map-rendering")
+        .join("yet-another-long-directory-name-for-human-map-rendering")
+        .join("final-large-cache-entry.bin");
+    write_fixture_file(&long_path, b"abcdefgh");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--full-path",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "1",
+            "--entry-kind",
+            "file",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&long_path.display().to_string()));
+    assert!(!stdout.contains("..."));
+}
+
+#[test]
+fn inspect_map_human_no_bars_hides_visual_bars() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("large.bin"), b"abcdefgh");
+    write_fixture_file(root.join("small.bin"), b"xy");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--no-bars",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "2",
+            "--entry-kind",
+            "file",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Top map entries:"));
+    assert!(stdout.contains("80.0%"));
+    assert!(stdout.contains("large.bin"));
+    assert!(!stdout.contains("[################----]"));
+}
+
+#[test]
+fn inspect_map_human_bar_width_controls_visual_bars() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("large.bin"), b"abcdefgh");
+    write_fixture_file(root.join("small.bin"), b"xy");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--bar-width",
+            "8",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "2",
+            "--entry-kind",
+            "file",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[######--]"));
+    assert!(!stdout.contains("[################----]"));
+}
+
+#[test]
+fn inspect_map_human_groups_show_rank_share_and_bars() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("large.bin"), b"abcdefgh");
+    write_fixture_file(root.join("small.txt"), b"xy");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "0",
+            "--group-by",
+            "extension",
+            "--group-limit",
+            "2",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Map groups:"));
+    assert!(stdout.contains("  #1 "));
+    assert!(stdout.contains("80.0%"));
+    assert!(stdout.contains("[################----]"));
+    assert!(stdout.contains(".bin [extension]"));
+}
+
+#[test]
 fn inspect_map_json_diagnostic_limit_zero_keeps_summary_only() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

@@ -64,6 +64,9 @@ pub struct InspectMapOptions {
     pub path_contains: Option<String>,
     pub cleanup_advice: bool,
     pub screen_reader: bool,
+    pub full_path: bool,
+    pub no_bars: bool,
+    pub bar_width: Option<usize>,
     pub advice_status: Option<CleanupAdviceStatus>,
     pub group_kinds: Vec<DiskMapGroupKind>,
     pub group_limit: usize,
@@ -217,6 +220,9 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
                     &report,
                     render::inspect::InspectMapRenderOptions {
                         screen_reader: options.screen_reader,
+                        full_path: options.full_path,
+                        no_bars: options.no_bars,
+                        bar_width: options.bar_width,
                     },
                 )
             },

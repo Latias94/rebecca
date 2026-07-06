@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use anyhow::Result;
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::{
@@ -117,6 +119,10 @@ fn print_plan_decision(projection: &CleanPlanProjection<'_>) {
             "Next command: {}",
             suggested_execution_command(projection.request)
         );
+        let opt_ins = required_opt_in_flags(projection.request);
+        if !opt_ins.is_empty() {
+            println!("Required opt-ins in next command: {}.", opt_ins.join(", "));
+        }
     }
 
     if !projection.warning_matrix().is_empty() {
@@ -127,6 +133,20 @@ fn print_plan_decision(projection: &CleanPlanProjection<'_>) {
             .collect::<Vec<_>>()
             .join(", ");
         println!("Warning gates in plan: {warnings}.");
+    }
+
+    if projection.mode.is_dry_run() {
+        let guidance = pre_execution_guidance(projection);
+        if !guidance.is_empty() {
+            println!("Resolve before execution:");
+            for line in guidance {
+                println!("- {line}");
+            }
+        }
+
+        for hint in doctor_hints(projection) {
+            println!("Doctor hint: {hint}");
+        }
     }
 }
 
@@ -216,6 +236,89 @@ fn suggested_execution_command(request: &PlanRequest) -> String {
     }
 
     format_shell_command("rebecca", &args)
+}
+
+fn required_opt_in_flags(request: &PlanRequest) -> Vec<String> {
+    let mut flags = Vec::new();
+    if request.allow_risky {
+        flags.push("--allow-risky".to_string());
+    } else if request.allow_moderate {
+        flags.push("--allow-moderate".to_string());
+    }
+
+    flags.extend(
+        request
+            .allowed_warnings
+            .iter()
+            .map(|warning| format!("--allow-warning {warning}")),
+    );
+    flags
+}
+
+fn pre_execution_guidance(projection: &CleanPlanProjection<'_>) -> Vec<String> {
+    let mut guidance = BTreeSet::new();
+    for issue in projection.issue_matrix() {
+        if let Some(message) = issue_resolution_hint(issue.reason_label) {
+            guidance.insert(format!(
+                "{} {}: {message}",
+                issue.status_label, issue.reason_label
+            ));
+        }
+    }
+    guidance.into_iter().collect()
+}
+
+fn issue_resolution_hint(reason_label: &str) -> Option<&'static str> {
+    match reason_label {
+        "safety-opt-in-required" => {
+            Some("add --allow-moderate or --allow-risky after reviewing the rule.")
+        }
+        "warning-gate-required" => Some(
+            "add the named --allow-warning flag after checking active processes and app state.",
+        ),
+        "safety-policy-blocked" => {
+            Some("blocked by protection policy; adjust --exclude or config only if intentional.")
+        }
+        "safety-policy-skipped" => Some(
+            "excluded by protection policy; remove the matching exclude or protection only if intentional.",
+        ),
+        "duplicate-target-path" => {
+            Some("already covered by another target; execute the allowed parent target instead.")
+        }
+        "target-discovery-skipped" => {
+            Some("narrow the selection or fix discovery prerequisites before executing.")
+        }
+        "target-discovery-failed" | "scan-failed" => {
+            Some("fix the scan error or narrow the selected rules before executing.")
+        }
+        "execution-target-missing" => {
+            Some("the path disappeared; rerun the preview before executing.")
+        }
+        "execution-target-shadowed" => {
+            Some("the path changed during validation; rerun the preview before executing.")
+        }
+        "project-artifact-recently-modified" => {
+            Some("lower --min-age-days only if the artifact is inactive.")
+        }
+        "reclaim-limit-satisfied" => {
+            Some("raise --reclaim-limit-bytes if more artifacts should be considered.")
+        }
+        "execution-failed" => Some("review the failure, fix the path or permissions, and rerun."),
+        "unclassified" => Some("review target details before executing."),
+        _ => None,
+    }
+}
+
+fn doctor_hints(projection: &CleanPlanProjection<'_>) -> Vec<&'static str> {
+    if projection
+        .warning_matrix()
+        .iter()
+        .any(|warning| warning.warning == "active-process")
+    {
+        vec!["rebecca doctor active-processes"]
+    } else {
+        Vec::new()
+    }
 }
 
 fn push_repeated_option(args: &mut Vec<String>, flag: &str, values: &[String]) {

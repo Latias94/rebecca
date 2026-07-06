@@ -54,20 +54,25 @@ cargo run -p rebecca -- scan
 cargo run -p rebecca -- catalog
 cargo run -p rebecca -- inspect space --root .
 cargo run -p rebecca -- inspect map --root . --top 20 --max-depth 3
+cargo run -p rebecca -- inspect map --root . --top 20 --full-path --bar-width 32
 cargo run -p rebecca -- inspect map --root . --top 20 --cleanup-advice
 cargo run -p rebecca -- inspect map --root . --table csv --table-row entry --top 20 --group-by extension
 cargo run -p rebecca -- inspect artifacts --root .
 cargo run -p rebecca -- inspect lint --root .
 cargo run -p rebecca -- clean --dry-run
+cargo run -p rebecca -- doctor active-processes
 cargo run -p rebecca -- apps scan
 cargo run -p rebecca -- purge --list-artifacts
+cargo run -p rebecca -- cache doctor
 ```
 
 **Preview safely**
 
 ```powershell
 cargo run -p rebecca -- clean --dry-run
+cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.slack-cache --allow-warning active-process
 cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
+cargo run -p rebecca -- doctor active-processes
 cargo run -p rebecca -- apps clean --dry-run
 cargo run -p rebecca -- purge --dry-run
 cargo run -p rebecca -- history --limit 10
@@ -90,7 +95,7 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
 - Moderate rules require `--allow-moderate`; risky and dangerous rules require `--allow-risky`.
 - Use `--exclude <PATH>` or `[protection].protected_paths` to keep a path out of a run.
-- Dry-run human output highlights the largest estimated targets first and then groups the full target list by status.
+- Dry-run human output highlights the largest estimated targets first, groups the full target list by status, prints a copyable next command, lists required opt-ins already present in that command, explains skipped or blocked pre-execution issues, and points active-process warning runs at `rebecca doctor active-processes`.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for eligible targets.
 - Human `clean` runs show target-level progress by default and honor `Ctrl+C` for cancellation; use `--no-progress` for quiet logs.
 - `--format ndjson` keeps machine output clean for long-running cleanup workflows. It emits target-level progress by default; add `--progress-detail file` only when a wrapper needs per-file scan events.
@@ -127,6 +132,9 @@ cargo run -p rebecca -- catalog --format json --kind project-artifact --artifact
 cargo run -p rebecca -- inspect space --root .
 cargo run -p rebecca -- inspect space --root . --format json --top 20
 cargo run -p rebecca -- inspect map --root . --format json --top 20 --max-depth 3
+cargo run -p rebecca -- inspect map --root . --top 20 --full-path --bar-width 32
+cargo run -p rebecca -- inspect map --root . --top 20 --no-bars
+cargo run -p rebecca -- inspect map --root . --top 20 --screen-reader
 cargo run -p rebecca -- inspect map --root . --format json --top 20 --cleanup-advice
 cargo run -p rebecca -- inspect map --root . --format ndjson --top 20 --advice-status cleanable
 cargo run -p rebecca -- inspect map --root . --format ndjson --top 20 --group-by extension
@@ -174,6 +182,7 @@ cargo run -p rebecca -- history --format json
 
 cargo run -p rebecca -- config paths
 cargo run -p rebecca -- cache inspect --format json
+cargo run -p rebecca -- cache doctor
 cargo run -p rebecca -- cache doctor --format json
 cargo run -p rebecca -- cache prune --format json --namespace scan-cache --stale-only
 cargo run -p rebecca -- cache purge --format json
@@ -190,6 +199,8 @@ Use `--format ndjson` for long-running cleanup workflows that need progress even
 Machine-readable success responses use the unified `rebecca.cli.v1` envelope. Every envelope includes `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero.
 
 Cleanup, purge, `inspect space`, and `inspect map` targets expose estimate provenance. `estimate_source` remains stable, while `estimate_backend`, optional `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` explain backend selection, cache reuse, actual NTFS source selection, parser caveats, and fallback without changing deletion safety. `inspect map` reports path-ranked `logical_bytes`, nullable `allocated_bytes`, and nullable `unique_logical_bytes` / `unique_allocated_bytes` when a backend can deduplicate stable file identities. It can also emit bounded file distribution `groups` when requested with `--group-by extension`, `--group-by depth`, or `--group-by age`; use `--sort logical|allocated|files|unique` and `--group-sort logical|allocated|files|unique` when the most useful ordering is not logical bytes. In NDJSON mode, `inspect map` streams ranked `map-entry` and `map-group` events before the final full `inspect-map` completed event, which makes the same bounded map useful for scripts and future TUI views. With `--cleanup-advice`, ranked map entries include `cleanup_advice` with `cleanable`, `maybe-cleanable`, `contains-cleanable`, `protected`, or `unknown` status plus matched rule, project artifact, app-leftover, or protection facts and a dry-run command hint; actual deletion still goes through `clean`, `apps clean`, or `purge` planning. In table mode, `inspect map --table csv|tsv` writes flat `total`, `root`, `entry`, and `group` rows with one header and no JSON envelope; empty cells mean the column is not applicable to that row type or the metric is unknown, repeated `--table-row` flags can narrow the row set, and `--cleanup-advice` appends cleanup advice columns plus `cleanup_app_*` columns for app-leftover context. Windows native map inventory fills `allocated_bytes` from Windows file allocation metadata when available, deduplicates hardlinked files by native file id for the unique fields, and caveats compressed, sparse, hardlinked, or skipped reparse entries. Portable inventory leaves allocation and unique accounting unknown. Experimental NTFS/MFT map inventory fills logical, allocated, unique logical, and unique allocated values from parser-backed record and stream evidence when available, keeps unknowns nullable, preserves directory-edge provenance from `$FILE_NAME` and `$I30`, and reports parser caveats instead of treating ambiguous metadata as deletion authority.
+
+Human `inspect map` output ranks top entries and requested groups with logical-size share and ASCII usage bars. Use `--full-path` when terminal width is less important than exact paths, `--no-bars` for plain logs, `--bar-width <COLUMNS>` for denser or wider maps, and `--screen-reader` for semicolon-separated lines without visual bars.
 
 The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
 
@@ -232,7 +243,7 @@ Use `rebecca inspect artifacts` when you want a read-only project artifact repor
 
 `rebecca inspect lint` provides report-only duplicate, large-file, empty-file, and empty-directory findings. It computes conservative reclaim estimates, treats `--reference` roots and protected paths as keep candidates, and intentionally does not perform duplicate remediation or write cleanup history.
 
-`rebecca inspect map` provides a read-only ranked disk map for a requested root. It is designed for "what is using space here?" questions, returns bounded top entries with `--top` and optional `--max-depth`, and never creates cleanup plans or authorizes deletion. The default portable inventory streams directory aggregation into a bounded top-entry heap instead of building a full report tree in memory, and it returns conservative partial diagnostics when child entries disappear, child directories are unreadable, or child reparse points are skipped. Raw diagnostic samples are bounded by `--diagnostic-limit` while `diagnostic_summary` keeps complete counts; use `--diagnostic-limit 0` for summary-only machine output. Use `--min-logical-bytes`, `--entry-kind file|directory|other`, and `--path-contains` to filter ranked entries without changing root totals. Use `--cleanup-advice` to annotate ranked entries with read-only cleanup status from the rule catalog, project artifact policy, app-leftover discovery, and protection policy; use `--advice-status cleanable|maybe-cleanable|contains-cleanable|protected|unknown` to keep only entries with one status. Use `--sort logical|allocated|files|unique` when file count, allocation, or unique logical usage is a better top-entry ordering than logical bytes. Use repeated `--group-by extension|depth|age` plus `--group-limit` to add bounded file distribution groups without running a second scan, and `--group-sort logical|allocated|files|unique` to rank those groups. Use `--table csv|tsv` to export one flat table containing `total`, `root`, `entry`, and `group` rows for spreadsheet or query tooling; use repeated `--table-row total|root|entry|group` to export only selected row kinds. Use `--scan-backend windows-native` when you want Windows native directory enumeration provenance, file allocation bytes, and file-id-deduplicated unique bytes when the host API exposes them. Use `--scan-backend windows-ntfs-mft-experimental` when you want read-only NTFS/MFT provenance and MFT-native grouped disk maps; scoped roots use targeted traversal, while drive roots or explicit full-index diagnostics may use full-volume MFT inventory.
+`rebecca inspect map` provides a read-only ranked disk map for a requested root. It is designed for "what is using space here?" questions, returns bounded top entries with `--top` and optional `--max-depth`, and never creates cleanup plans or authorizes deletion. The default portable inventory streams directory aggregation into a bounded top-entry heap instead of building a full report tree in memory, and it returns conservative partial diagnostics when child entries disappear, child directories are unreadable, or child reparse points are skipped. Raw diagnostic samples are bounded by `--diagnostic-limit` while `diagnostic_summary` keeps complete counts; use `--diagnostic-limit 0` for summary-only machine output. Use `--min-logical-bytes`, `--entry-kind file|directory|other`, and `--path-contains` to filter ranked entries without changing root totals. Use `--cleanup-advice` to annotate ranked entries with read-only cleanup status from the rule catalog, project artifact policy, app-leftover discovery, and protection policy; use `--advice-status cleanable|maybe-cleanable|contains-cleanable|protected|unknown` to keep only entries with one status. Use `--sort logical|allocated|files|unique` when file count, allocation, or unique logical usage is a better top-entry ordering than logical bytes. Use repeated `--group-by extension|depth|age` plus `--group-limit` to add bounded file distribution groups without running a second scan, and `--group-sort logical|allocated|files|unique` to rank those groups. Human output compacts long top-entry paths by default and can be tuned with `--full-path`, `--no-bars`, `--bar-width <COLUMNS>`, or `--screen-reader`. Use `--table csv|tsv` to export one flat table containing `total`, `root`, `entry`, and `group` rows for spreadsheet or query tooling; use repeated `--table-row total|root|entry|group` to export only selected row kinds. Use `--scan-backend windows-native` when you want Windows native directory enumeration provenance, file allocation bytes, and file-id-deduplicated unique bytes when the host API exposes them. Use `--scan-backend windows-ntfs-mft-experimental` when you want read-only NTFS/MFT provenance and MFT-native grouped disk maps; scoped roots use targeted traversal, while drive roots or explicit full-index diagnostics may use full-volume MFT inventory.
 
 Long-lived purge defaults belong in `config.toml`:
 

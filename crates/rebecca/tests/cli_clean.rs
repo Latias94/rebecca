@@ -712,7 +712,9 @@ fn clean_human_output_reports_slack_cache_rule() {
     assert!(stdout.contains(
         "Next command: rebecca clean --yes --rule windows.slack-cache --allow-warning active-process"
     ));
+    assert!(stdout.contains("Required opt-ins in next command: --allow-warning active-process."));
     assert!(stdout.contains("Warning gates in plan: active-process."));
+    assert!(stdout.contains("Doctor hint: rebecca doctor active-processes"));
     assert!(stdout.contains("Targets: 3"));
     assert!(stdout.contains("Allowed: 3"));
     assert!(stdout.contains("Target details:"));
@@ -725,6 +727,48 @@ fn clean_human_output_reports_slack_cache_rule() {
     assert!(!stdout.contains("Local Storage"));
     assert!(!stdout.contains("IndexedDB"));
     assert!(!stdout.contains("Service Worker"));
+}
+
+#[test]
+fn clean_human_output_explains_skipped_safety_opt_in() {
+    let temp = tempfile::tempdir().unwrap();
+    let local = temp.path().join("local");
+    let roaming = temp.path().join("roaming");
+    let local_npm_cache = local.join("npm-cache").join("_cacache");
+    let npm_cache = roaming.join("npm-cache").join("_cacache");
+    fs::create_dir_all(&local_npm_cache).unwrap();
+    fs::create_dir_all(&npm_cache).unwrap();
+    fs::write(local_npm_cache.join("index.bin"), b"abcd").unwrap();
+    fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
+
+    let output = isolated::isolated_rebecca(&temp)
+        .env("LOCALAPPDATA", &local)
+        .env("APPDATA", &roaming)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-progress",
+            "--rule",
+            "windows.npm-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Execution: no eligible target would be deleted."));
+    assert!(stdout.contains("Resolve before execution:"));
+    assert!(stdout.contains(
+        "- skipped safety-opt-in-required: add --allow-moderate or --allow-risky after reviewing the rule."
+    ));
+    assert!(stdout.contains("Issue matrix:"));
+    assert!(stdout.contains("- skipped safety-opt-in-required: 2 targets, 0 (0 B)"));
+    assert!(!stdout.contains("Next command:"));
 }
 
 #[test]

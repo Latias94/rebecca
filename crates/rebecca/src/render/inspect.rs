@@ -2,19 +2,24 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
-use rebecca::core::disk_map::{DiskMapEntry, DiskMapReport};
+use rebecca::core::disk_map::{DiskMapEntry, DiskMapMetrics, DiskMapReport};
 use rebecca::core::inspect::SpaceInsightReport;
 use rebecca::core::lint::LintReport;
 
 use crate::output::{format_bytes, format_shell_command};
 use crate::render::{estimate_provenance_suffix, format_count};
 
-const MAP_ENTRY_BAR_WIDTH: usize = 20;
+const MAP_ENTRY_DEFAULT_BAR_WIDTH: usize = 20;
+const MAP_ENTRY_MIN_BAR_WIDTH: usize = 4;
+const MAP_ENTRY_MAX_BAR_WIDTH: usize = 80;
 const MAP_ENTRY_PATH_MAX_CHARS: usize = 96;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct InspectMapRenderOptions {
     pub(crate) screen_reader: bool,
+    pub(crate) full_path: bool,
+    pub(crate) no_bars: bool,
+    pub(crate) bar_width: Option<usize>,
 }
 
 pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
@@ -143,35 +148,7 @@ pub(crate) fn print_map_report(
 
     if !report.groups.is_empty() {
         println!();
-        println!("Map groups:");
-        for group in &report.groups {
-            let allocated = group
-                .metrics
-                .allocated_bytes
-                .map(|bytes| format!(", allocated {} ({})", bytes, format_bytes(bytes)))
-                .unwrap_or_default();
-            let unique_logical = group
-                .metrics
-                .unique_logical_bytes
-                .map(|bytes| format!(", unique logical {} ({})", bytes, format_bytes(bytes)))
-                .unwrap_or_default();
-            let unique_allocated = group
-                .metrics
-                .unique_allocated_bytes
-                .map(|bytes| format!(", unique allocated {} ({})", bytes, format_bytes(bytes)))
-                .unwrap_or_default();
-            println!(
-                "  - {} [{}] {} bytes ({}){}{}{} - {} files",
-                group.label,
-                group.kind.label(),
-                group.metrics.logical_bytes,
-                format_bytes(group.metrics.logical_bytes),
-                allocated,
-                unique_logical,
-                unique_allocated,
-                group.metrics.files
-            );
-        }
+        print_map_groups(report, options);
     }
 
     if report.diagnostic_summary.total > 0 {
@@ -235,20 +212,25 @@ fn print_top_map_entries(report: &DiskMapReport, options: InspectMapRenderOption
     } else {
         println!("Top map entries:");
         for (index, entry) in report.top_entries.iter().enumerate() {
-            print_visual_map_entry(index + 1, entry, report.totals.logical_bytes);
+            print_visual_map_entry(index + 1, entry, report.totals.logical_bytes, options);
         }
     }
 }
 
-fn print_visual_map_entry(rank: usize, entry: &DiskMapEntry, total_logical_bytes: u64) {
+fn print_visual_map_entry(
+    rank: usize,
+    entry: &DiskMapEntry,
+    total_logical_bytes: u64,
+    options: InspectMapRenderOptions,
+) {
     let share_percent = share_percent(entry.logical_bytes, total_logical_bytes);
     println!(
-        "  #{rank:<2} {} bytes ({}) {:>5.1}% {} {} [{} depth={}]{} - {}, {}{}",
+        "  #{rank:<2} {} bytes ({}) {:>5.1}%{} {} [{} depth={}]{} - {}, {}{}",
         entry.logical_bytes,
         format_bytes(entry.logical_bytes),
         share_percent,
-        usage_bar(share_percent, MAP_ENTRY_BAR_WIDTH),
-        compact_path(entry, MAP_ENTRY_PATH_MAX_CHARS),
+        visual_usage_bar_suffix(share_percent, options),
+        map_entry_path(entry, options),
         entry.kind.label(),
         entry.depth,
         map_entry_metric_suffix(entry),
@@ -256,6 +238,45 @@ fn print_visual_map_entry(rank: usize, entry: &DiskMapEntry, total_logical_bytes
         format_count(entry.directories, "dir", "dirs"),
         cleanup_advice_suffix(entry.cleanup_advice.as_ref())
     );
+}
+
+fn print_map_groups(report: &DiskMapReport, options: InspectMapRenderOptions) {
+    if options.screen_reader {
+        println!("Map groups (screen-reader):");
+        for (index, group) in report.groups.iter().enumerate() {
+            let share_percent =
+                share_percent(group.metrics.logical_bytes, report.totals.logical_bytes);
+            println!(
+                "  #{}: {} [{}]; {} bytes ({}); share {:.1}%; {}{}",
+                index + 1,
+                group.label,
+                group.kind.label(),
+                group.metrics.logical_bytes,
+                format_bytes(group.metrics.logical_bytes),
+                share_percent,
+                format_count(group.metrics.files, "file", "files"),
+                screen_reader_metrics_suffix(&group.metrics)
+            );
+        }
+        return;
+    }
+
+    println!("Map groups:");
+    for (index, group) in report.groups.iter().enumerate() {
+        let share_percent = share_percent(group.metrics.logical_bytes, report.totals.logical_bytes);
+        println!(
+            "  #{:<2} {} bytes ({}) {:>5.1}%{} {} [{}]{} - {}",
+            index + 1,
+            group.metrics.logical_bytes,
+            format_bytes(group.metrics.logical_bytes),
+            share_percent,
+            visual_usage_bar_suffix(share_percent, options),
+            group.label,
+            group.kind.label(),
+            map_metrics_suffix(&group.metrics),
+            format_count(group.metrics.files, "file", "files")
+        );
+    }
 }
 
 fn print_screen_reader_map_entry(rank: usize, entry: &DiskMapEntry, total_logical_bytes: u64) {
@@ -290,6 +311,29 @@ fn usage_bar(share_percent: f64, width: usize) -> String {
     format!("[{}{}]", "#".repeat(filled), "-".repeat(width - filled))
 }
 
+fn visual_usage_bar_suffix(share_percent: f64, options: InspectMapRenderOptions) -> String {
+    if options.screen_reader || options.no_bars {
+        return String::new();
+    }
+
+    format!(" {}", usage_bar(share_percent, map_bar_width(options)))
+}
+
+fn map_bar_width(options: InspectMapRenderOptions) -> usize {
+    options
+        .bar_width
+        .unwrap_or(MAP_ENTRY_DEFAULT_BAR_WIDTH)
+        .clamp(MAP_ENTRY_MIN_BAR_WIDTH, MAP_ENTRY_MAX_BAR_WIDTH)
+}
+
+fn map_entry_path(entry: &DiskMapEntry, options: InspectMapRenderOptions) -> String {
+    if options.full_path {
+        entry.path.display().to_string()
+    } else {
+        compact_path(entry, MAP_ENTRY_PATH_MAX_CHARS)
+    }
+}
+
 fn compact_path(entry: &DiskMapEntry, max_chars: usize) -> String {
     let display = entry.path.display().to_string();
     let char_count = display.chars().count();
@@ -314,6 +358,22 @@ fn compact_path(entry: &DiskMapEntry, max_chars: usize) -> String {
     format!("{prefix}{marker}{suffix}")
 }
 
+fn map_metrics_suffix(metrics: &DiskMapMetrics) -> String {
+    let allocated = metrics
+        .allocated_bytes
+        .map(|bytes| format!(", allocated {} ({})", bytes, format_bytes(bytes)))
+        .unwrap_or_default();
+    let unique_logical = metrics
+        .unique_logical_bytes
+        .map(|bytes| format!(", unique logical {} ({})", bytes, format_bytes(bytes)))
+        .unwrap_or_default();
+    let unique_allocated = metrics
+        .unique_allocated_bytes
+        .map(|bytes| format!(", unique allocated {} ({})", bytes, format_bytes(bytes)))
+        .unwrap_or_default();
+    format!("{allocated}{unique_logical}{unique_allocated}")
+}
+
 fn map_entry_metric_suffix(entry: &DiskMapEntry) -> String {
     let allocated = entry
         .allocated_bytes
@@ -331,6 +391,33 @@ fn map_entry_metric_suffix(entry: &DiskMapEntry) -> String {
         "{allocated}{unique_logical}{unique_allocated}{}",
         estimate_provenance_suffix(entry.estimate_source, &entry.estimate_provenance)
     )
+}
+
+fn screen_reader_metrics_suffix(metrics: &DiskMapMetrics) -> String {
+    let mut parts = Vec::new();
+    if let Some(bytes) = metrics.allocated_bytes {
+        parts.push(format!("allocated {} ({})", bytes, format_bytes(bytes)));
+    }
+    if let Some(bytes) = metrics.unique_logical_bytes {
+        parts.push(format!(
+            "unique logical {} ({})",
+            bytes,
+            format_bytes(bytes)
+        ));
+    }
+    if let Some(bytes) = metrics.unique_allocated_bytes {
+        parts.push(format!(
+            "unique allocated {} ({})",
+            bytes,
+            format_bytes(bytes)
+        ));
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("; {}", parts.join("; "))
+    }
 }
 
 fn screen_reader_metric_suffix(entry: &DiskMapEntry) -> String {
