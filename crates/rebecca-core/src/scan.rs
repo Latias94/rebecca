@@ -7,7 +7,9 @@ pub(crate) mod windows_native;
 mod windows_ntfs_mft;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+#[cfg(windows)]
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use rayon::ThreadPool;
 use rayon::prelude::*;
@@ -22,11 +24,13 @@ pub use progress::{ScanCancellationToken, ScanProgressEvent};
 #[cfg(windows)]
 pub use windows_native::WindowsNativeDirectoryScanBackend;
 
+#[cfg(windows)]
 use crate::disk_map::{DiskMapBackendOptions, DiskMapBackendRoot};
 use crate::error::Result;
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
+#[cfg(windows)]
 use crate::progress::{InspectProgressEvent, InspectProgressResult};
 use crate::safety::{PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path};
 
@@ -54,12 +58,13 @@ impl ScanReport {
 
 #[derive(Debug, Clone)]
 pub struct ScanEngine {
+    #[cfg(windows)]
     context: Arc<ScanEngineContext>,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Default)]
 struct ScanEngineContext {
-    #[cfg(windows)]
     ntfs_mft_cache: windows_ntfs_mft::WindowsNtfsMftIndexCache,
 }
 
@@ -72,6 +77,7 @@ impl Default for ScanEngine {
 impl ScanEngine {
     pub fn new() -> Self {
         Self {
+            #[cfg(windows)]
             context: Arc::new(ScanEngineContext::default()),
         }
     }
@@ -96,6 +102,7 @@ impl ScanEngine {
         self.measure_scan_with_progress(path, &ScanCancellationToken::new(), |_| {})
     }
 
+    #[cfg(windows)]
     pub(crate) fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
         &self,
         path: &Path,
@@ -381,22 +388,6 @@ where
     ))
 }
 
-#[cfg(not(windows))]
-fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
-    _engine: &ScanEngine,
-    _path: &Path,
-    _options: DiskMapBackendOptions,
-    _cancellation: &ScanCancellationToken,
-    _progress: &mut F,
-) -> Result<DiskMapBackendRoot>
-where
-    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
-{
-    Err(crate::error::RebeccaError::PlatformUnavailable(
-        "windows-ntfs-mft-experimental disk-map inventory requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
-    ))
-}
-
 pub fn scan_parallelism_budget() -> usize {
     bounded_parallelism_budget()
 }
@@ -411,10 +402,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ScanBackendKind, ScanCancellationToken, ScanEngine, run_scoped_scan,
-        scan_parallelism_budget,
-    };
+    #[cfg(windows)]
+    use super::{ScanBackendKind, ScanCancellationToken, ScanEngine};
+    use super::{run_scoped_scan, scan_parallelism_budget};
     use crate::executor::cleanup_parallelism_budget;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};

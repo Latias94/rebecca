@@ -8,6 +8,8 @@ All notable changes to Rebecca will be documented in this file.
 - Added `skills/validate.py` and a CI skills job so shipped Codex skills have frontmatter, preview-first, and installer smoke coverage on Windows and Linux.
 - Added a `rebecca-disk-cleaner` Codex skill under `skills/`, plus a cross-platform Python installer, so agents can install Rebecca and run a preview-first cleanup workflow with the CLI.
 - Added a shared `RecoverableTrashBackend` in `rebecca-core` so `clean --yes`, `purge --yes`, and default `cache purge --yes` execution use the platform trash backend instead of a Windows-only execution adapter.
+- Unix portable `inspect map` now reports allocated bytes from filesystem block metadata and deduplicates hardlinked files by stable `st_dev`/`st_ino` identity, making Linux and macOS disk maps more informative without requiring a platform-specific backend.
+- Added `scripts/ci/run-linux-target-clippy.ps1` so Windows developers can run Linux-target clippy with Zig instead of installing a GNU cross compiler.
 - Human CLI output now surfaces decision summaries, reclaimable bytes, copyable next commands, cleanup-advice command summaries, cache-doctor health, and stderr-only TTY progress behavior so dry-run, inspect, and doctor flows are easier to act on.
 - Human cleanup progress now uses compact phase, counter, cache, byte, and throughput messages while keeping spinner output on stderr and machine progress events unchanged.
 - `rebecca inspect map` human output now ranks top entries with logical-size share, ASCII usage bars, compact long paths, and a `--screen-reader` mode that keeps the same facts without visual bars.
@@ -107,6 +109,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.
 - Project artifact rule IDs now use the portable `portable.project-artifact-*` namespace instead of the misleading Windows-prefixed namespace.
 - Cleanup, purge, and cache purge execution now use the core recoverable trash backend; `rebecca-windows` is reserved for Windows discovery and host-capability adapters.
+- Disk-map filesystem semantic caveats now use backend-neutral codes such as `compressed-file`, `sparse-file`, `hardlink-file`, and `reparse-skipped` instead of Windows-prefixed caveat codes.
 - cleanup workflow internals now use explicit command/payload output contracts, shared CLI runtime cancellation, and dedicated human renderers instead of workflow-specific transport branches.
 - planner and project artifact internals were split into focused modules, and configured purge roots now report stale or unreadable workspace entries as diagnostics while explicit `--root` values remain strict.
 - project artifact discovery now applies policy ranking before reclaim-limit measurement so large cleanup plans can stop sizing lower-ranked candidates once the requested reclaim target is satisfied.
@@ -156,6 +159,7 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect-space` and `inspect-map` machine payloads now include `diagnostic_summary`; `diagnostics` is a bounded raw sample list rather than the authoritative count of all diagnostic observations.
 
 ### Fixed
+- Ubuntu clippy builds no longer see Windows-only NTFS/MFT disk-map support structures or scan evidence builders as unused portable code.
 - Machine JSON and NDJSON output now treats closed stdout pipes as a clean exit instead of panicking, so wrappers can safely stop reading early.
 - `FSCTL_GET_NTFS_FILE_RECORD` outputs with kernel-deprotected or already-applied NTFS update-sequence fixups now parse correctly, allowing targeted live MFT estimates to use per-record FSCTL data without falling back to directory scanners on valid records.
 - Experimental NTFS/MFT full-index diagnostics no longer discard parsed MFT evidence solely because stream-backed `$INDEX_ALLOCATION:$I30` expansion crosses the live build budget after records are available; those runs now stop further stream reads, keep cancellation as a hard error, and emit `mft-index-allocation-budget-exhausted`.

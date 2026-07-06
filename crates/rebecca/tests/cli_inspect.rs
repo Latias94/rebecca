@@ -1206,7 +1206,7 @@ fn inspect_map_json_windows_native_reports_hardlink_caveat() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|caveat| caveat["code"] == "windows-native-hardlink-file")
+            .any(|caveat| caveat["code"] == "hardlink-file")
     );
     assert!(
         value["top_entries"]
@@ -1217,7 +1217,7 @@ fn inspect_map_json_windows_native_reports_hardlink_caveat() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|caveat| caveat["code"] == "windows-native-hardlink-file"))
+                .any(|caveat| caveat["code"] == "hardlink-file"))
     );
 }
 

@@ -230,10 +230,9 @@ should show `estimate_backend: "windows-native"` and non-null `allocated_bytes`
 on supported local roots. When hardlinks or other repeated file ids are present,
 the same run should keep path-ranked bytes unchanged while reporting non-null
 `unique_logical_bytes` and `unique_allocated_bytes` if file identity metadata is
-available. Windows native runs may also report
-`windows-native-compressed-file`, `windows-native-sparse-file`,
-`windows-native-hardlink-file`, or `windows-native-reparse-skipped` caveats when
-those filesystem semantics are present. A grouped map run with `--group-by extension --group-by depth --group-by age --sort files --group-sort files`
+available. Windows native runs may also report `compressed-file`, `sparse-file`,
+`hardlink-file`, or `reparse-skipped` caveats when those filesystem semantics
+are present. A grouped map run with `--group-by extension --group-by depth --group-by age --sort files --group-sort files`
 should emit bounded `groups` with logical bytes and file counts from the same
 traversal, and should reorder top entries/groups by file count. The experimental NTFS/MFT run should either show
 `estimate_backend: "windows-ntfs-mft-experimental"` with

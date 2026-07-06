@@ -462,16 +462,10 @@ mod tests {
             directories_scanned: 1,
         };
 
-        let record = store
-            .store_measured_scan(
-                &root,
-                crate::scan::MeasuredScan::exact(
-                    report,
-                    ScanBackendKind::WindowsNtfsMftExperimental,
-                )
-                .with_backend_source("windows-ntfs-mft-experimental-sequential"),
-            )
-            .unwrap();
+        let mut measured =
+            crate::scan::MeasuredScan::exact(report, ScanBackendKind::WindowsNtfsMftExperimental);
+        measured.backend_source = Some("windows-ntfs-mft-experimental-sequential".to_string());
+        let record = store.store_measured_scan(&root, measured).unwrap();
         let lookup = store.load(&root);
 
         assert_eq!(

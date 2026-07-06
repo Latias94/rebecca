@@ -1,6 +1,6 @@
 ---
 name: rebecca-disk-cleaner
-description: Use when the user wants to install Rebecca, clean disk space with Rebecca, inspect large folders, remove safe caches, purge project artifacts, clean app leftovers, or run a preview-first Windows cleanup workflow.
+description: Use when the user wants to install Rebecca, clean disk space with Rebecca, inspect large folders, remove safe caches, purge project artifacts, clean app leftovers, or run a preview-first cleanup workflow.
 ---
 
 # Rebecca Disk Cleaner

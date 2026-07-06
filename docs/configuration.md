@@ -238,11 +238,12 @@ bytes were unavailable and primary `$MFT` records remained authoritative.
 
 The v1 cleanup estimate remains logical bytes from the unnamed `$DATA` stream.
 `inspect map` reports path-ranked `logical_bytes`, nullable `allocated_bytes`,
-and nullable `unique_logical_bytes` / `unique_allocated_bytes`; portable
-inventory leaves allocation and unique accounting unknown, Windows native
-inventory fills file allocation bytes and file-id-deduplicated unique bytes
-through the host API when available, and NTFS/MFT inventory can fill allocated
-bytes when the unnamed `$DATA` stream exposes them. When NTFS/MFT allocated
+and nullable `unique_logical_bytes` / `unique_allocated_bytes`; Unix portable
+inventory fills allocation from `st_blocks` and deduplicates hardlinks by
+`st_dev`/`st_ino`, Windows native inventory fills file allocation bytes and
+file-id-deduplicated unique bytes through the host API when available, and
+NTFS/MFT inventory can fill allocated bytes when the unnamed `$DATA` stream
+exposes them. When NTFS/MFT allocated
 bytes come from covering data runs instead of the attribute header value, the
 backend emits `mft-data-run-allocated-by-cluster`; that caveat means the value is
 cluster-allocation evidence and may differ from Windows native file allocation

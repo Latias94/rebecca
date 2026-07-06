@@ -1,5 +1,7 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -527,6 +529,7 @@ impl DiskMapInspectionState {
         self.report
     }
 
+    #[cfg(windows)]
     fn backend_options(&self, request: &DiskMapRequest) -> DiskMapBackendOptions {
         DiskMapBackendOptions {
             top_limit: request.top_limit,
@@ -569,6 +572,7 @@ impl DiskMapDiagnostics {
         self.push_with_priority(diagnostic, true);
     }
 
+    #[cfg(windows)]
     fn extend(&mut self, diagnostics: Vec<DiskMapDiagnostic>) {
         for diagnostic in diagnostics {
             self.push(diagnostic);
@@ -911,6 +915,7 @@ impl Default for DiskMapUniqueFiles {
 }
 
 impl DiskMapUniqueFiles {
+    #[cfg(windows)]
     fn unavailable_for_files(files: u64) -> Self {
         Self {
             unidentified_files: files,
@@ -1035,6 +1040,7 @@ impl DiskMapGroupAccumulator {
         self.unique_files.apply_to_metrics(&mut self.metrics);
     }
 
+    #[cfg(windows)]
     fn merge(&mut self, other: Self) {
         self.metrics.add(other.metrics);
         self.unique_files.merge(other.unique_files);
@@ -1078,6 +1084,7 @@ impl DiskMapGroupCollector {
         }
     }
 
+    #[cfg(windows)]
     pub(crate) fn now(&self) -> SystemTime {
         self.now
     }
@@ -1112,6 +1119,7 @@ impl DiskMapGroupCollector {
         }
     }
 
+    #[cfg(windows)]
     pub(crate) fn merge(&mut self, other: Self) {
         for (map_key, accumulator) in other.groups {
             match self.groups.entry(map_key) {
@@ -1222,25 +1230,25 @@ impl DiskMapSemanticCaveats {
     fn apply_to_root_provenance(&self, mut provenance: EstimateProvenance) -> EstimateProvenance {
         if self.compressed_files > 0 {
             provenance.estimate_caveats.push(disk_map_caveat(
-                "windows-native-compressed-file",
+                "compressed-file",
                 format!(
-                    "{} compressed file(s) were seen; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+                    "{} compressed file(s) were seen; allocated_bytes may be lower than logical_bytes",
                     self.compressed_files
                 ),
             ));
         }
         if self.sparse_files > 0 {
             provenance.estimate_caveats.push(disk_map_caveat(
-                "windows-native-sparse-file",
+                "sparse-file",
                 format!(
-                    "{} sparse file(s) were seen; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+                    "{} sparse file(s) were seen; allocated_bytes may be lower than logical_bytes",
                     self.sparse_files
                 ),
             ));
         }
         if self.hardlinked_files > 0 {
             provenance.estimate_caveats.push(disk_map_caveat(
-                "windows-native-hardlink-file",
+                "hardlink-file",
                 format!(
                     "{} file path(s) reported multiple hard links; path-ranked bytes may overstate unique physical bytes when another link points to the same file",
                     self.hardlinked_files
@@ -1249,7 +1257,7 @@ impl DiskMapSemanticCaveats {
         }
         if self.reparse_entries > 0 {
             provenance.estimate_caveats.push(disk_map_caveat(
-                "windows-native-reparse-skipped",
+                "reparse-skipped",
                 format!(
                     "{} reparse point(s) were skipped; target allocation is not included",
                     self.reparse_entries
@@ -1269,20 +1277,20 @@ fn estimate_provenance_with_entry_semantics(
     let mut provenance = provenance.clone();
     if kind == DiskMapEntryKind::File && semantics.compressed {
         provenance.estimate_caveats.push(disk_map_caveat(
-            "windows-native-compressed-file",
-            "file is compressed; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+            "compressed-file",
+            "file is compressed; allocated_bytes may be lower than logical_bytes",
         ));
     }
     if kind == DiskMapEntryKind::File && semantics.sparse {
         provenance.estimate_caveats.push(disk_map_caveat(
-            "windows-native-sparse-file",
-            "file is sparse; allocated_bytes uses Windows-reported allocation and may be lower than logical_bytes",
+            "sparse-file",
+            "file is sparse; allocated_bytes may be lower than logical_bytes",
         ));
     }
     if kind == DiskMapEntryKind::File && semantics.is_hardlinked() {
         let link_count = semantics.hardlink_count.unwrap_or(0);
         provenance.estimate_caveats.push(disk_map_caveat(
-            "windows-native-hardlink-file",
+            "hardlink-file",
             format!(
                 "file reports {link_count} hard links; path-ranked bytes may overstate unique physical bytes when another link points to the same file"
             ),
@@ -1290,7 +1298,7 @@ fn estimate_provenance_with_entry_semantics(
     }
     if semantics.reparse_like {
         provenance.estimate_caveats.push(disk_map_caveat(
-            "windows-native-reparse-skipped",
+            "reparse-skipped",
             "reparse point was skipped; target allocation is not included",
         ));
     }
@@ -1319,6 +1327,7 @@ impl<M> DiskMapWalkerEntry<M> {
         }
     }
 
+    #[cfg(windows)]
     fn with_metadata(path: PathBuf, metadata: M) -> Self {
         Self {
             path,
@@ -1348,6 +1357,37 @@ trait DiskMapWalker {
 #[derive(Debug, Default)]
 struct FsPortableDiskMapWalker;
 
+#[cfg(unix)]
+fn portable_allocated_len(metadata: &std::fs::Metadata) -> Option<u64> {
+    metadata.blocks().checked_mul(512)
+}
+
+#[cfg(not(unix))]
+fn portable_allocated_len(_metadata: &std::fs::Metadata) -> Option<u64> {
+    None
+}
+
+#[cfg(unix)]
+fn portable_metadata_semantics(metadata: &std::fs::Metadata) -> DiskMapMetadataSemantics {
+    if !metadata.is_file() {
+        return DiskMapMetadataSemantics::default();
+    }
+
+    let allocated_len = portable_allocated_len(metadata);
+    let mut semantics = DiskMapMetadataSemantics::with_file_identity(DiskMapFileIdentity::new(
+        metadata.dev(),
+        metadata.ino(),
+    ));
+    semantics.sparse = allocated_len.is_some_and(|allocated| allocated < metadata.len());
+    semantics.hardlink_count = Some(metadata.nlink().min(u64::from(u32::MAX)) as u32);
+    semantics
+}
+
+#[cfg(not(unix))]
+fn portable_metadata_semantics(_metadata: &std::fs::Metadata) -> DiskMapMetadataSemantics {
+    DiskMapMetadataSemantics::default()
+}
+
 impl DiskMapWalker for FsPortableDiskMapWalker {
     type Metadata = std::fs::Metadata;
     type ReadDir = std::fs::ReadDir;
@@ -1370,16 +1410,16 @@ impl DiskMapWalker for FsPortableDiskMapWalker {
         metadata.len()
     }
 
-    fn metadata_allocated_len(&self, _metadata: &Self::Metadata) -> Option<u64> {
-        None
+    fn metadata_allocated_len(&self, metadata: &Self::Metadata) -> Option<u64> {
+        portable_allocated_len(metadata)
     }
 
     fn metadata_modified_time(&self, metadata: &Self::Metadata) -> Option<SystemTime> {
         metadata.modified().ok()
     }
 
-    fn metadata_semantics(&self, _metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
-        DiskMapMetadataSemantics::default()
+    fn metadata_semantics(&self, metadata: &Self::Metadata) -> DiskMapMetadataSemantics {
+        portable_metadata_semantics(metadata)
     }
 
     fn metadata_kind(&self, metadata: &Self::Metadata) -> DiskMapMetadataKind {
@@ -1867,6 +1907,9 @@ fn inspect_root<F>(
 where
     F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
 {
+    #[cfg(not(windows))]
+    let _ = scan_engine;
+
     let walker = FsPortableDiskMapWalker;
     if request.scan_backend == ScanBackendKind::WindowsNative {
         match inspect_windows_native_root(
@@ -1902,47 +1945,73 @@ where
     }
 
     if request.scan_backend == ScanBackendKind::WindowsNtfsMftExperimental {
-        match scan_engine.inspect_windows_ntfs_mft_disk_map_with_progress(
-            root,
-            state.backend_options(request),
-            cancellation,
-            progress,
-        ) {
-            Ok(root_map) => {
-                let unique_files =
-                    DiskMapUniqueFiles::unavailable_for_files(root_map.metrics.files);
-                progress(InspectProgressEvent::RootFinished {
-                    root_index,
-                    root_count,
-                    root,
-                    status: InspectProgressRootStatus::Scanned,
-                    logical_bytes: root_map.metrics.logical_bytes,
-                    files: root_map.metrics.files,
-                    directories: root_map.metrics.directories,
-                })?;
-                push_backend_root(root, root_map, state);
-                return Ok(unique_files);
-            }
-            Err(err) if disk_map_backend_error_can_fallback(&err) => {
-                let fallback_reason = format!(
-                    "windows-ntfs-mft-experimental disk-map inventory was unavailable: {err}"
-                );
-                return DiskMapRootInspection {
-                    request,
-                    cancellation,
-                    state,
-                    walker: &walker,
-                    root_index,
-                    root_count,
-                    progress,
+        #[cfg(windows)]
+        {
+            match scan_engine.inspect_windows_ntfs_mft_disk_map_with_progress(
+                root,
+                state.backend_options(request),
+                cancellation,
+                progress,
+            ) {
+                Ok(root_map) => {
+                    let unique_files =
+                        DiskMapUniqueFiles::unavailable_for_files(root_map.metrics.files);
+                    progress(InspectProgressEvent::RootFinished {
+                        root_index,
+                        root_count,
+                        root,
+                        status: InspectProgressRootStatus::Scanned,
+                        logical_bytes: root_map.metrics.logical_bytes,
+                        files: root_map.metrics.files,
+                        directories: root_map.metrics.directories,
+                    })?;
+                    push_backend_root(root, root_map, state);
+                    return Ok(unique_files);
                 }
-                .inspect(
-                    root,
-                    portable_estimate_provenance(Some(fallback_reason.clone())),
-                    Some(fallback_reason),
-                );
+                Err(err) if disk_map_backend_error_can_fallback(&err) => {
+                    let fallback_reason = format!(
+                        "windows-ntfs-mft-experimental disk-map inventory was unavailable: {err}"
+                    );
+                    return DiskMapRootInspection {
+                        request,
+                        cancellation,
+                        state,
+                        walker: &walker,
+                        root_index,
+                        root_count,
+                        progress,
+                    }
+                    .inspect(
+                        root,
+                        portable_estimate_provenance(Some(fallback_reason.clone())),
+                        Some(fallback_reason),
+                    );
+                }
+                Err(err) => return Err(err),
             }
-            Err(err) => return Err(err),
+        }
+
+        #[cfg(not(windows))]
+        {
+            let err = RebeccaError::PlatformUnavailable(
+                "windows-ntfs-mft-experimental disk-map inventory requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
+            );
+            let fallback_reason =
+                format!("windows-ntfs-mft-experimental disk-map inventory was unavailable: {err}");
+            return DiskMapRootInspection {
+                request,
+                cancellation,
+                state,
+                walker: &walker,
+                root_index,
+                root_count,
+                progress,
+            }
+            .inspect(
+                root,
+                portable_estimate_provenance(Some(fallback_reason.clone())),
+                Some(fallback_reason),
+            );
         }
     }
 
@@ -2024,6 +2093,7 @@ where
     )))
 }
 
+#[cfg(windows)]
 fn push_backend_root(
     root: &Path,
     root_map: DiskMapBackendRoot,
@@ -2225,6 +2295,7 @@ fn push_root_skip(
     diagnostics.push_priority(DiskMapDiagnostic::new(kind, root.to_path_buf(), detail));
 }
 
+#[cfg(windows)]
 pub(crate) struct DiskMapBackendRoot {
     pub(crate) metrics: DiskMapMetrics,
     pub(crate) top_entries: Vec<DiskMapEntry>,
@@ -2233,6 +2304,7 @@ pub(crate) struct DiskMapBackendRoot {
     pub(crate) estimate_provenance: EstimateProvenance,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone)]
 pub(crate) struct DiskMapBackendOptions {
     pub(crate) top_limit: usize,
@@ -2245,6 +2317,7 @@ pub(crate) struct DiskMapBackendOptions {
     pub(crate) group_sort: DiskMapSortField,
 }
 
+#[cfg(windows)]
 impl DiskMapBackendOptions {
     pub(crate) fn group_collector(&self) -> DiskMapGroupCollector {
         DiskMapGroupCollector::new(
@@ -2919,10 +2992,10 @@ mod tests {
         assert_eq!(
             codes,
             vec![
-                "windows-native-compressed-file",
-                "windows-native-sparse-file",
-                "windows-native-hardlink-file",
-                "windows-native-reparse-skipped",
+                "compressed-file",
+                "sparse-file",
+                "hardlink-file",
+                "reparse-skipped",
             ]
         );
 

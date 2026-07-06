@@ -154,13 +154,13 @@ expansion, or bounded parse-error summaries. Valid nonresident
 streams and subtree edges, but these fields are still explainability data; they
 do not authorize deletion or change cleanup byte semantics.
 
-`inspect-map` can also emit Windows-native disk inventory caveats such as
-`windows-native-compressed-file`, `windows-native-sparse-file`,
-`windows-native-hardlink-file`, and `windows-native-reparse-skipped`.
-Hardlink caveats mean path-ranked logical and allocated bytes include each path.
-When Windows native file-id metadata is available, `unique_logical_bytes` and
-`unique_allocated_bytes` deduplicate those paths by `(volume serial, file index)`;
-otherwise the unique fields remain `null` rather than mixing accounting modes.
+`inspect-map` can also emit disk inventory caveats such as `compressed-file`,
+`sparse-file`, `hardlink-file`, and `reparse-skipped`. Hardlink caveats mean
+path-ranked logical and allocated bytes include each path. When stable file-id
+metadata is available, `unique_logical_bytes` and `unique_allocated_bytes`
+deduplicate those paths by backend identity, such as Unix `st_dev`/`st_ino` or
+Windows `(volume serial, file index)`; otherwise the unique fields remain `null`
+rather than mixing accounting modes.
 
 Cleanup plans include `summary.warning_matrix` and warning-bearing targets carry
 `warnings`. A target with `reason_code: "warning-gate-required"` was excluded
@@ -192,11 +192,12 @@ files. `inspect-map` uses path-ranked `logical_bytes` plus nullable
 `allocated_bytes` instead of `estimated_bytes` because it is a disk inventory
 surface rather than a cleanup estimate surface. It also exposes nullable
 `unique_logical_bytes` and `unique_allocated_bytes` for backends that can
-deduplicate stable file identities. Portable inventory leaves allocation and
-unique accounting unknown; Windows native inventory fills file allocation bytes
-and file-id-deduplicated unique bytes when the host API exposes them; NTFS/MFT
-inventory fills allocation from parsed stream metadata and uses NTFS record
-identity for unique metrics when all counted files have parser-backed evidence.
+deduplicate stable file identities. Unix portable inventory fills allocation
+from `st_blocks` and deduplicates hardlinks by `st_dev`/`st_ino`; Windows native
+inventory fills file allocation bytes and file-id-deduplicated unique bytes when
+the host API exposes them; NTFS/MFT inventory fills allocation from parsed stream
+metadata and uses NTFS record identity for unique metrics when all counted files
+have parser-backed evidence.
 When callers pass one or more `--group-by extension|depth|age` flags,
 `inspect-map` includes `groups`: bounded file-only distribution summaries with
 `kind`, stable `key`, human `label`, and the same `metrics` object used by roots

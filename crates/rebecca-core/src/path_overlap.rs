@@ -63,6 +63,7 @@ fn comparable_components(path: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
     use std::path::Path;
 
     use super::{PathRelation, path_relation, paths_overlap};

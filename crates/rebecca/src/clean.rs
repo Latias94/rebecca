@@ -584,7 +584,6 @@ impl ProgressDetail {
     }
 }
 
-#[cfg(windows)]
 fn confirm_cleanup(plan: &CleanupPlan, kind: ConfirmationKind) -> Result<bool> {
     let prompt = match kind {
         ConfirmationKind::Cleanup => format!(

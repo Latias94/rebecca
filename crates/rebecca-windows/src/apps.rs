@@ -1,8 +1,12 @@
+#[cfg(windows)]
 use std::collections::BTreeSet;
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
 
 use rebecca_core::applications::InstalledApplication;
-use rebecca_core::error::{RebeccaError, Result};
+#[cfg(windows)]
+use rebecca_core::error::RebeccaError;
+use rebecca_core::error::Result;
 
 #[cfg(windows)]
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};

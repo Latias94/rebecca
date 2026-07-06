@@ -1,7 +1,10 @@
+#[cfg(windows)]
 use std::path::PathBuf;
 
 use rebecca_core::applications::{ApplicationDiscovery, InstalledApplication, SteamInstallation};
-use rebecca_core::error::{RebeccaError, Result};
+#[cfg(windows)]
+use rebecca_core::error::RebeccaError;
+use rebecca_core::error::Result;
 
 #[cfg(windows)]
 use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
@@ -74,7 +77,7 @@ impl ApplicationDiscovery for WindowsApplicationDiscovery {
 #[cfg(not(windows))]
 impl ApplicationDiscovery for WindowsApplicationDiscovery {
     fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
-        Ok(None)
+        discover_steam_installation()
     }
 
     fn installed_applications(&self) -> Result<Vec<InstalledApplication>> {

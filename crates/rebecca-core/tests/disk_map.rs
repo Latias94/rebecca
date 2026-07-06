@@ -69,6 +69,9 @@ fn disk_map_reports_ranked_entries_in_deterministic_order() {
 
     assert_eq!(report.roots.len(), 1);
     assert_eq!(report.totals.logical_bytes, 7);
+    #[cfg(unix)]
+    assert!(report.totals.allocated_bytes.is_some());
+    #[cfg(not(unix))]
     assert_eq!(report.totals.allocated_bytes, None);
     assert_eq!(report.totals.files, 3);
     assert_eq!(report.totals.directories, 2);
@@ -85,6 +88,42 @@ fn disk_map_reports_ranked_entries_in_deterministic_order() {
             .estimate_provenance
             .estimate_confidence,
         Some(ScanEstimateConfidence::Exact)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn disk_map_portable_unix_reports_allocated_and_unique_hardlinks() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let original = root.join("original.bin");
+    let linked = root.join("linked.bin");
+    write_file(&original, b"abcd");
+    std::fs::hard_link(&original, &linked).unwrap();
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(10);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.totals.logical_bytes, 8);
+    assert_eq!(report.totals.unique_logical_bytes, Some(4));
+    assert_eq!(report.roots[0].metrics.unique_logical_bytes, Some(4));
+    let allocated_bytes = report
+        .totals
+        .allocated_bytes
+        .expect("Unix portable disk maps should report st_blocks allocation");
+    let unique_allocated_bytes = report
+        .totals
+        .unique_allocated_bytes
+        .expect("Unix portable disk maps should deduplicate hardlink allocation");
+    assert!(allocated_bytes >= unique_allocated_bytes);
+    assert!(
+        report.roots[0]
+            .estimate_provenance
+            .estimate_caveats
+            .iter()
+            .any(|caveat| caveat.code == "hardlink-file")
     );
 }
 
@@ -459,13 +498,13 @@ fn disk_map_windows_native_reports_hardlink_caveats() {
             .estimate_provenance
             .estimate_caveats
             .iter()
-            .any(|caveat| caveat.code == "windows-native-hardlink-file")
+            .any(|caveat| caveat.code == "hardlink-file")
     );
     assert!(report.top_entries.iter().any(|entry| {
         entry
             .estimate_provenance
             .estimate_caveats
             .iter()
-            .any(|caveat| caveat.code == "windows-native-hardlink-file")
+            .any(|caveat| caveat.code == "hardlink-file")
     }));
 }
