@@ -16,6 +16,17 @@ value = "%TORCH_HOME%\\hub"
 kind = "template"
 value = "%USERPROFILE%\\.cache\\torch\\hub"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%TORCH_HOME%/hub"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/torch/hub"
+
 [provenance]
 source = "owned"
 license = "project-owned"

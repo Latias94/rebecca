@@ -16,6 +16,17 @@ value = "%LOCALAPPDATA%\\Mozilla\\sccache"
 kind = "template"
 value = "%SCCACHE_DIR%"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%SCCACHE_DIR%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/mozilla/sccache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

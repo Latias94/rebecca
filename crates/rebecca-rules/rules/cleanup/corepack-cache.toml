@@ -12,6 +12,13 @@ platform = "windows"
 kind = "template"
 value = "%LOCALAPPDATA%\\node\\corepack"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/node/corepack"
+
 [provenance]
 source = "owned"
 license = "project-owned"

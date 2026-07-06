@@ -65,6 +65,15 @@ Keep each family small, explicit, and easy to audit.
   `source-boundary`.
 - Prefer platform-native environment variables and paths that users recognize
   immediately.
+- Linux rule templates may use `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`,
+  `XDG_DATA_HOME`, and `XDG_STATE_HOME` directly. During planning, Rebecca
+  follows XDG defaults from `HOME` when those variables are absent or empty:
+  `.cache`, `.config`, `.local/share`, and `.local/state` respectively. If
+  `HOME` is missing, the target is skipped as an unexpanded candidate instead
+  of guessing a user directory.
+- Do not rely on Rebecca to synthesize `TMPDIR` on Linux. A missing `TMPDIR`
+  stays missing so built-in user-scoped rules do not accidentally point at a
+  shared `/tmp` root.
 
 ## Required Fields
 

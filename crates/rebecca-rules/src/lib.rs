@@ -272,6 +272,8 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                 validate_browser_cache_target_shape(rule, spec)?;
             }
 
+            validate_builtin_glob_shape(rule, spec)?;
+
             if let ProtectionAssessment::Blocked(block) = policy.assess_catalog_target_shape(spec) {
                 return Err(RebeccaError::RuleCatalogInvalid(format!(
                     "built-in rule {} target {} is blocked by {}: {}",
@@ -283,7 +285,6 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
             }
 
             validate_builtin_target_shape_basis(rule, spec)?;
-            validate_builtin_glob_shape(rule, spec)?;
             validate_builtin_required_shape_warnings(rule, spec)?;
         }
     }
@@ -500,6 +501,14 @@ fn validate_builtin_glob_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> 
         )));
     }
 
+    if wildcard_appears_at_protected_platform_root(&segments) {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} glob target {} starts discovery from a protected platform root",
+            rule.id,
+            spec.placeholder_path().display()
+        )));
+    }
+
     if wildcard_appears_at_profile_root(&segments) || wildcard_appears_at_drive_root(&segments) {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
             "built-in rule {} glob target {} starts discovery from a profile or drive root",
@@ -542,6 +551,9 @@ fn required_shape_warnings(spec: &RuleTargetSpec) -> Vec<&'static str> {
     let raw = normalize_rule_shape(&raw_target_shape(spec));
     if raw.starts_with("%windir%/") {
         warnings.push("privileged-location");
+    }
+    if is_linux_package_manager_cache_shape(&shape_segments(&raw)) {
+        warnings.push("permission-sensitive");
     }
 
     if matches!(spec, RuleTargetSpec::GlobTemplate(_)) {
@@ -586,10 +598,50 @@ fn contains_glob_wildcard(segment: &str) -> bool {
 }
 
 fn wildcard_appears_at_profile_root(segments: &[&str]) -> bool {
-    matches!(segments.first(), Some(root) if *root == "%userprofile%")
+    matches!(segments.first(), Some(root) if matches!(*root, "%userprofile%" | "%home%"))
         && segments
             .get(1)
             .is_some_and(|segment| contains_glob_wildcard(segment))
+}
+
+fn wildcard_appears_at_protected_platform_root(segments: &[&str]) -> bool {
+    wildcard_at(
+        segments,
+        1,
+        &[
+            "%home%",
+            "%xdg_cache_home%",
+            "%xdg_config_home%",
+            "%xdg_data_home%",
+            "%xdg_state_home%",
+        ],
+    ) || starts_with(segments, &["%home%", ".cache"]) && wildcard_at(segments, 2, &[])
+        || starts_with(segments, &["%home%", ".config"]) && wildcard_at(segments, 2, &[])
+        || starts_with(segments, &["%home%", ".local", "share"]) && wildcard_at(segments, 3, &[])
+        || starts_with(segments, &["%home%", ".var", "app"]) && wildcard_at(segments, 3, &[])
+        || starts_with(segments, &["%home%", "snap"]) && wildcard_at(segments, 2, &[])
+}
+
+fn wildcard_at(segments: &[&str], index: usize, roots: &[&str]) -> bool {
+    if !roots.is_empty() && !segments.first().is_some_and(|root| roots.contains(root)) {
+        return false;
+    }
+
+    segments
+        .get(index)
+        .is_some_and(|segment| contains_glob_wildcard(segment))
+}
+
+fn starts_with(segments: &[&str], prefix: &[&str]) -> bool {
+    segments.starts_with(prefix)
+}
+
+fn has_sequence(segments: &[&str], sequence: &[&str]) -> bool {
+    !sequence.is_empty()
+        && segments.len() >= sequence.len()
+        && segments
+            .windows(sequence.len())
+            .any(|window| window == sequence)
 }
 
 fn wildcard_appears_at_drive_root(segments: &[&str]) -> bool {
@@ -635,7 +687,13 @@ fn has_positive_cleanup_basis(raw: &str) -> bool {
     let segments = shape_segments(&normalized);
     let leaf = segments.last().copied().unwrap_or_default();
 
+    if is_linux_package_manager_cache_shape(&segments) {
+        return true;
+    }
+
     if [
+        ".cache",
+        ".pnpm-store",
         "cache",
         "caches",
         "cache2",
@@ -667,6 +725,9 @@ fn has_positive_cleanup_basis(raw: &str) -> bool {
         "notifications",
         "image",
         "installer.txt",
+        ".pnpm-store",
+        "archives",
+        "pkg",
         "pkgs",
         "packages",
         "repository",
@@ -706,6 +767,13 @@ fn has_positive_cleanup_basis(raw: &str) -> bool {
         || normalized.contains("[0-9a-f]/[0-9a-f]")
         || normalized.contains("dynamicresource")
         || normalized.contains("transcoded files cache")
+}
+
+fn is_linux_package_manager_cache_shape(segments: &[&str]) -> bool {
+    has_sequence(segments, &["var", "cache", "apt", "archives"])
+        || has_sequence(segments, &["var", "cache", "dnf"])
+        || has_sequence(segments, &["var", "cache", "pacman", "pkg"])
+        || has_sequence(segments, &["var", "cache", "zypp", "packages"])
 }
 
 #[cfg(test)]
@@ -1166,6 +1234,44 @@ mod tests {
         privileged_rule.warnings = vec!["privileged-location".to_string()];
         super::validate_builtin_rule_catalog(&[privileged_rule])
             .expect("privileged-location warning should satisfy Windows maintenance targets");
+
+        let package_cache = super::validate_builtin_rule_catalog(&[linux_rule_with_target(
+            RuleTargetSpec::template("/var/cache/apt/archives"),
+        )])
+        .expect_err("Linux package caches should require permission-sensitive");
+        assert!(
+            package_cache.to_string().contains("permission-sensitive"),
+            "{package_cache}"
+        );
+
+        let mut package_cache_rule =
+            linux_rule_with_target(RuleTargetSpec::template("/var/cache/apt/archives"));
+        package_cache_rule.warnings = vec!["permission-sensitive".to_string()];
+        super::validate_builtin_rule_catalog(&[package_cache_rule])
+            .expect("permission-sensitive warning should satisfy Linux package caches");
+    }
+
+    #[test]
+    fn builtin_catalog_rejects_linux_root_globs() {
+        for target in [
+            "%HOME%\\*\\Cache",
+            "%XDG_CACHE_HOME%\\*\\Cache",
+            "%XDG_DATA_HOME%\\*\\Cache",
+            "%HOME%\\.var\\app\\*\\cache",
+            "%HOME%\\snap\\*\\common\\.cache",
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[linux_rule_with_target(
+                RuleTargetSpec::glob_template(target),
+            )])
+            .expect_err("Linux root-level discovery should be rejected");
+
+            let message = err.to_string();
+            assert!(
+                message.contains("starts discovery from a protected platform root")
+                    || message.contains("application-durable-data"),
+                "{target}: {err}"
+            );
+        }
     }
 
     #[test]
@@ -1198,6 +1304,36 @@ mod tests {
 
         for expected in [
             "linux.user-temp",
+            "linux.android-cache",
+            "linux.brave-cache",
+            "linux.bun-cache",
+            "linux.cargo-cache",
+            "linux.ccache-cache",
+            "linux.chrome-cache",
+            "linux.chromium-cache",
+            "linux.conda-cache",
+            "linux.corepack-cache",
+            "linux.edge-cache",
+            "linux.firefox-profile-cache",
+            "linux.go-build-cache",
+            "linux.go-module-cache",
+            "linux.gradle-cache",
+            "linux.huggingface-cache",
+            "linux.maven-cache",
+            "linux.npm-cache",
+            "linux.nuget-cache",
+            "linux.pip-cache",
+            "linux.pnpm-cache",
+            "linux.poetry-cache",
+            "linux.pytorch-cache",
+            "linux.rustup-cache",
+            "linux.sccache-cache",
+            "linux.thumbnail-cache",
+            "linux.thunderbird-cache",
+            "linux.uv-cache",
+            "linux.waterfox-cache",
+            "linux.yarn-cache",
+            "linux.zen-browser-cache",
             "windows.chrome-cache",
             "windows.chromium-cache",
             "windows.android-cache",
@@ -1603,6 +1739,14 @@ notes = "test"
             restore_hint: Some("Regenerated automatically.".to_string()),
             warnings: Vec::new(),
             provenance: owned_provenance(),
+        }
+    }
+
+    fn linux_rule_with_target(target: RuleTargetSpec) -> RuleDefinition {
+        RuleDefinition {
+            id: "linux.test".to_string(),
+            platform: Platform::Linux,
+            ..rule_with_target(target)
         }
     }
 

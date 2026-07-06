@@ -12,6 +12,13 @@ platform = "windows"
 kind = "template"
 value = "%LOCALAPPDATA%\\uv\\cache"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/uv"
+
 [provenance]
 source = "owned"
 license = "project-owned"

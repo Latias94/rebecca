@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::applications::{ApplicationDiscovery, NoopApplicationDiscovery};
 use crate::config::AppStorageEntry;
-use crate::environment::{Environment, SystemEnvironment};
+use crate::environment::{Environment, PlatformEnvironment, SystemEnvironment};
 use crate::error::{RebeccaError, Result};
 use crate::model::{CleanupWorkflow, PlanRequest, RuleDefinition};
 use crate::plan::CleanupPlan;
@@ -267,14 +267,22 @@ where
     A: ApplicationDiscovery + ?Sized,
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
+    let env = PlatformEnvironment::new(request.platform, env);
+
     if request.workflow == CleanupWorkflow::AppLeftovers {
-        return build_app_leftover_plan_with_context(request, env, applications, context, progress);
+        return build_app_leftover_plan_with_context(
+            request,
+            &env,
+            applications,
+            context,
+            progress,
+        );
     }
     if request.workflow == CleanupWorkflow::ProjectArtifacts {
         return build_project_artifact_plan_with_context(request, context, progress);
     }
 
-    build_rule_plan_with_context(request, rules, env, applications, context, progress)
+    build_rule_plan_with_context(request, rules, &env, applications, context, progress)
 }
 
 pub fn validate_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {

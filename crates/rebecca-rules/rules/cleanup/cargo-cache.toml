@@ -48,6 +48,49 @@ value = "%USERPROFILE%\\.cargo\\git\\db"
 kind = "template"
 value = "%USERPROFILE%\\.cargo\\git\\checkouts"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%/registry/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%/registry/index"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%/registry/src"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%/git/db"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CARGO_HOME%/git/checkouts"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.cargo/registry/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.cargo/registry/index"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.cargo/registry/src"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.cargo/git/db"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.cargo/git/checkouts"
+
 [provenance]
 source = "owned"
 license = "project-owned"

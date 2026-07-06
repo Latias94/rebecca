@@ -16,6 +16,13 @@ value = "%LOCALAPPDATA%\\npm-cache\\_cacache"
 kind = "template"
 value = "%APPDATA%\\npm-cache\\_cacache"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.npm/_cacache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

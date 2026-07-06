@@ -15,6 +15,13 @@ const ELECTRON_CACHE_APPS: &[&str] = &[
     "slack",
 ];
 const ELECTRON_CACHE_DIRS: &[&str] = &["cache", "code cache", "gpucache", "cacheddata"];
+const LINUX_CHROMIUM_CACHE_APPS: &[&str] = &[
+    "google-chrome",
+    "chromium",
+    "brave-browser",
+    "microsoft-edge",
+];
+const LINUX_GECKO_CACHE_APPS: &[&str] = &["firefox", "waterfox", "zen", "thunderbird"];
 
 pub(super) struct NormalizedPath {
     pub(super) raw: String,
@@ -56,7 +63,9 @@ pub(super) fn is_regenerable_browser_cache_target_shape(spec: &RuleTargetSpec) -
         .collect::<Vec<_>>();
 
     is_chromium_browser_cache_target_shape(&segments)
+        || is_linux_chromium_browser_cache_target_shape(&segments)
         || is_gecko_browser_cache_target_shape(&segments)
+        || is_linux_gecko_browser_cache_target_shape(&segments)
 }
 
 pub(super) fn looks_absolute_shape(normalized: &str) -> bool {
@@ -127,10 +136,17 @@ pub(super) fn is_allowlisted_maintenance_path(
 ) -> bool {
     let segments = path.segments();
 
+    let linux_maintenance = knowledge.platform() == crate::Platform::Linux
+        && (is_linux_flatpak_cache_path(&segments)
+            || is_linux_snap_cache_path(&segments)
+            || is_linux_steam_cache_path(&segments)
+            || is_linux_package_manager_cache_path(&segments));
+
     knowledge.maintenance_allowlist().matches(&segments)
         || is_chromium_cache_path(&segments)
         || is_gecko_profile_cache_path(&segments)
         || is_electron_cache_path(&segments)
+        || linux_maintenance
         || is_jetbrains_cache_path(&segments)
         || is_ccache_cache_path(&segments)
         || is_android_cache_path(&segments)
@@ -155,7 +171,9 @@ pub(super) fn protected_category(
         return Some(ProtectedCategory::AiToolDurableState);
     }
 
-    if is_browser_private_data_path(&segments) {
+    if catalog_matches_category(knowledge, SafetyCategory::BrowserPrivateData, &segments)
+        || is_browser_private_data_path(&segments)
+    {
         return Some(ProtectedCategory::BrowserPrivateData);
     }
 
@@ -171,8 +189,12 @@ pub(super) fn protected_category(
         return Some(ProtectedCategory::StartupAutomation);
     }
 
+    let linux_durable = knowledge.platform() == crate::Platform::Linux
+        && is_linux_app_package_durable_state_path(&segments);
+
     if catalog_matches_category(knowledge, SafetyCategory::ApplicationDurableData, &segments)
         || is_application_durable_data_path(&segments)
+        || linux_durable
     {
         return Some(ProtectedCategory::ApplicationDurableData);
     }
@@ -216,20 +238,21 @@ fn is_chromium_cache_path(segments: &[&str]) -> bool {
         .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index + 1))
         || find_segment(segments, "htmlcache")
             .is_some_and(|index| chromium_profile_cache_tail_is_allowed(segments, index + 1))
+        || linux_chromium_cache_app_index(segments)
+            .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index + 1))
 }
 
 fn is_gecko_profile_cache_path(segments: &[&str]) -> bool {
-    let Some(index) = find_segment(segments, "profiles") else {
-        return false;
-    };
-
-    if !gecko_profile_root_is_allowed(segments, index) {
-        return false;
-    }
-
-    segments
-        .get(index + 2)
-        .is_some_and(|segment| is_gecko_profile_cache_segment(segment))
+    find_segment(segments, "profiles").is_some_and(|index| {
+        gecko_profile_root_is_allowed(segments, index)
+            && segments
+                .get(index + 2)
+                .is_some_and(|segment| is_gecko_profile_cache_segment(segment))
+    }) || linux_gecko_cache_app_index(segments).is_some_and(|index| {
+        segments
+            .get(index + 2)
+            .is_some_and(|segment| is_gecko_profile_cache_segment(segment))
+    })
 }
 
 fn gecko_profile_root_is_allowed(segments: &[&str], profiles_index: usize) -> bool {
@@ -250,14 +273,53 @@ fn gecko_profile_root_is_allowed(segments: &[&str], profiles_index: usize) -> bo
 }
 
 fn is_electron_cache_path(segments: &[&str]) -> bool {
-    let Some(appdata_index) = find_segment(segments, "appdata") else {
-        return false;
-    };
+    find_segment(segments, "appdata").is_some_and(|appdata_index| {
+        let app = segments.get(appdata_index + 2).copied().unwrap_or_default();
+        let cache = segments.get(appdata_index + 3).copied().unwrap_or_default();
 
-    let app = segments.get(appdata_index + 2).copied().unwrap_or_default();
-    let cache = segments.get(appdata_index + 3).copied().unwrap_or_default();
+        ELECTRON_CACHE_APPS.contains(&app) && ELECTRON_CACHE_DIRS.contains(&cache)
+    }) || linux_electron_cache_app_index(segments).is_some_and(|index| {
+        segments
+            .get(index + 1)
+            .is_some_and(|cache| ELECTRON_CACHE_DIRS.contains(cache))
+    })
+}
 
-    ELECTRON_CACHE_APPS.contains(&app) && ELECTRON_CACHE_DIRS.contains(&cache)
+fn is_linux_flatpak_cache_path(segments: &[&str]) -> bool {
+    find_sequence(segments, &[".var", "app"]).is_some_and(|index| {
+        segments
+            .get(index + 3)
+            .is_some_and(|segment| *segment == "cache")
+    })
+}
+
+fn is_linux_snap_cache_path(segments: &[&str]) -> bool {
+    find_segment(segments, "snap").is_some_and(|index| {
+        matches!(segments.get(index + 2).copied(), Some("common" | "current"))
+            && segments
+                .get(index + 3)
+                .is_some_and(|segment| *segment == ".cache")
+    })
+}
+
+fn is_linux_steam_cache_path(segments: &[&str]) -> bool {
+    find_segment(segments, "steam").is_some_and(|index| {
+        has_sequence(&segments[index..], &["appcache", "httpcache"])
+            || has_sequence(&segments[index..], &["appcache", "shadercache"])
+            || has_sequence(&segments[index..], &["appcache", "librarycache"])
+            || has_sequence(&segments[index..], &["appcache", "download"])
+            || has_sequence(&segments[index..], &["depotcache"])
+            || has_sequence(&segments[index..], &["steamapps", "shadercache"])
+            || has_sequence(&segments[index..], &["steamapps", "downloading"])
+            || has_sequence(&segments[index..], &["steamapps", "temp"])
+    })
+}
+
+fn is_linux_package_manager_cache_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["var", "cache", "apt", "archives"])
+        || has_sequence(segments, &["var", "cache", "dnf"])
+        || has_sequence(segments, &["var", "cache", "pacman", "pkg"])
+        || has_sequence(segments, &["var", "cache", "zypp", "packages"])
 }
 
 fn is_jetbrains_cache_path(segments: &[&str]) -> bool {
@@ -474,6 +536,11 @@ fn is_chromium_browser_cache_target_shape(segments: &[&str]) -> bool {
     }
 }
 
+fn is_linux_chromium_browser_cache_target_shape(segments: &[&str]) -> bool {
+    linux_chromium_cache_app_index(segments)
+        .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index + 1))
+}
+
 fn chromium_user_data_cache_tail_is_allowed(segments: &[&str], start: usize) -> bool {
     segments
         .get(start)
@@ -508,6 +575,15 @@ fn is_gecko_browser_cache_target_shape(segments: &[&str]) -> bool {
         )
 }
 
+fn is_linux_gecko_browser_cache_target_shape(segments: &[&str]) -> bool {
+    linux_gecko_cache_app_index(segments).is_some_and(|index| {
+        matches!(
+            &segments[index + 1..],
+            [profile, cache] if !profile.is_empty() && is_gecko_profile_cache_segment(cache)
+        )
+    })
+}
+
 fn is_gecko_profile_cache_segment(segment: &str) -> bool {
     matches!(
         segment,
@@ -518,27 +594,34 @@ fn is_gecko_profile_cache_segment(segment: &str) -> bool {
 fn is_browser_private_data_path(segments: &[&str]) -> bool {
     if find_segment(segments, "user data")
         .is_some_and(|index| is_chromium_private_data_tail(segments, index + 1))
+        || linux_chromium_app_index(segments)
+            .is_some_and(|index| is_chromium_private_data_tail(segments, index + 1))
     {
         return true;
     }
 
     find_segment(segments, "profiles").is_some_and(|index| {
-        if !gecko_profile_root_is_allowed(segments, index) {
-            return false;
-        }
-
-        segments.get(index + 2).is_some_and(|segment| {
-            matches!(
-                *segment,
-                "cookies.sqlite"
-                    | "places.sqlite"
-                    | "logins.json"
-                    | "key4.db"
-                    | "formhistory.sqlite"
-                    | "storage"
-            )
-        })
+        gecko_profile_root_is_allowed(segments, index)
+            && segments
+                .get(index + 2)
+                .is_some_and(|segment| is_gecko_private_data_segment(segment))
+    }) || linux_gecko_app_index(segments).is_some_and(|index| {
+        segments
+            .get(index + 2)
+            .is_some_and(|segment| is_gecko_private_data_segment(segment))
     })
+}
+
+fn is_gecko_private_data_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "cookies.sqlite"
+            | "places.sqlite"
+            | "logins.json"
+            | "key4.db"
+            | "formhistory.sqlite"
+            | "storage"
+    )
 }
 
 fn is_chromium_private_data_tail(segments: &[&str], start: usize) -> bool {
@@ -584,6 +667,19 @@ fn is_chromium_profile_private_data_segment(segment: &str) -> bool {
 
 fn is_application_durable_data_path(segments: &[&str]) -> bool {
     is_domestic_desktop_app_durable_state_path(segments) || is_ccache_durable_state_path(segments)
+}
+
+fn is_linux_app_package_durable_state_path(segments: &[&str]) -> bool {
+    find_sequence(segments, &[".var", "app"]).is_some_and(|index| {
+        segments
+            .get(index + 3)
+            .is_some_and(|segment| matches!(*segment, "config" | "data"))
+    }) || find_segment(segments, "snap").is_some_and(|index| {
+        matches!(segments.get(index + 2).copied(), Some("common" | "current"))
+            && segments
+                .get(index + 3)
+                .is_none_or(|segment| *segment != ".cache")
+    })
 }
 
 fn is_domestic_desktop_app_durable_state_path(segments: &[&str]) -> bool {
@@ -635,6 +731,49 @@ fn find_sequence(segments: &[&str], sequence: &[&str]) -> Option<usize> {
 
 fn find_segment(segments: &[&str], needle: &str) -> Option<usize> {
     segments.iter().position(|segment| *segment == needle)
+}
+
+fn linux_chromium_app_index(segments: &[&str]) -> Option<usize> {
+    segments
+        .iter()
+        .position(|segment| LINUX_CHROMIUM_CACHE_APPS.contains(segment))
+}
+
+fn linux_chromium_cache_app_index(segments: &[&str]) -> Option<usize> {
+    linux_chromium_app_index(segments).filter(|index| has_linux_cache_root_before(segments, *index))
+}
+
+fn linux_gecko_app_index(segments: &[&str]) -> Option<usize> {
+    segments
+        .iter()
+        .position(|segment| LINUX_GECKO_CACHE_APPS.contains(segment))
+}
+
+fn linux_gecko_cache_app_index(segments: &[&str]) -> Option<usize> {
+    linux_gecko_app_index(segments).filter(|index| has_linux_cache_root_before(segments, *index))
+}
+
+fn linux_electron_cache_app_index(segments: &[&str]) -> Option<usize> {
+    segments
+        .iter()
+        .position(|segment| ELECTRON_CACHE_APPS.contains(segment))
+        .filter(|index| has_linux_electron_cache_root_before(segments, *index))
+}
+
+fn has_linux_cache_root_before(segments: &[&str], index: usize) -> bool {
+    segments
+        .iter()
+        .take(index)
+        .any(|segment| matches!(*segment, ".cache" | "%xdg_cache_home%" | "cache"))
+}
+
+fn has_linux_electron_cache_root_before(segments: &[&str], index: usize) -> bool {
+    segments.iter().take(index).any(|segment| {
+        matches!(
+            *segment,
+            ".cache" | "%xdg_cache_home%" | ".config" | "%xdg_config_home%" | "cache"
+        )
+    })
 }
 
 fn ccache_root_index(segments: &[&str]) -> Option<usize> {

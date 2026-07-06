@@ -12,6 +12,13 @@ platform = "windows"
 kind = "template"
 value = "%LOCALAPPDATA%\\Yarn\\Cache"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/yarn"
+
 [provenance]
 source = "owned"
 license = "project-owned"

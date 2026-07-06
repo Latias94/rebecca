@@ -71,6 +71,73 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         linux_policy.assess_path(&PathBuf::from("/home/alice/.cache/pip/http")),
         ProtectionAssessment::Allowed
     ));
+    for path in [
+        "/home/alice/.cache/google-chrome/Default/Cache",
+        "/home/alice/.cache/mozilla/firefox/abcd.default/cache2",
+        "/home/alice/.cache/slack/Cache",
+        "/home/alice/.cache/thumbnails/normal",
+        "/home/alice/.var/app/com.slack.Slack/cache",
+        "/home/alice/snap/firefox/common/.cache",
+        "/var/cache/apt/archives",
+        "/var/cache/dnf",
+        "/var/cache/pacman/pkg",
+        "/var/cache/zypp/packages",
+    ] {
+        assert!(
+            matches!(
+                linux_policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Allowed
+            ),
+            "{path} should be allowed as a Linux maintenance/cache path"
+        );
+    }
+    for (path, category) in [
+        (
+            "/home/alice/.local/share/keyrings/login.keyring",
+            ProtectedCategory::Credentials,
+        ),
+        (
+            "/home/alice/.config/google-chrome/Default/History",
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            "/home/alice/.config/slack/Local Storage",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/home/alice/.config/google-chrome/Default/IndexedDB",
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            "/home/alice/.config/google-chrome/Default/Service Worker",
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            "/home/alice/.mozilla/firefox/abcd.default/places.sqlite",
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            "/home/alice/.local/share/Steam/userdata/123/config.vdf",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/home/alice/.var/app/com.slack.Slack/config",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/home/alice/snap/firefox/common/.config",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+    ] {
+        assert!(
+            matches!(
+                linux_policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Blocked(block)
+                    if block.kind == ProtectionBlockKind::ProtectedCategory(category)
+            ),
+            "{path} should be blocked as {category:?}"
+        );
+    }
 
     let macos_knowledge = default_safety_knowledge_for_platform(Platform::Macos)
         .expect("macOS safety knowledge should exist");

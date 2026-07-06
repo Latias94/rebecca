@@ -68,6 +68,58 @@ value = "%LOCALAPPDATA%\\Chromium\\User Data\\GrShaderCache"
 kind = "template"
 value = "%LOCALAPPDATA%\\Chromium\\User Data\\ShaderCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/chromium/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/chromium/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/chromium/Default/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/chromium/Default/DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/chromium/Default/Media Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/chromium/Profile */Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/chromium/Profile */Code Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/chromium/Profile */GPUCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/chromium/Profile */DawnCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/chromium/Profile */Media Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/chromium/ShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/chromium/GrShaderCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

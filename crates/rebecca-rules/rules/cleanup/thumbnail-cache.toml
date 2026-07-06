@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "thumbnail-cache"
 category = "system"
-name = "Windows thumbnail and icon cache"
+name = "Thumbnail and icon cache"
 safety_level = "safe"
 restore_hint = "Windows thumbnail and icon caches will be regenerated."
 
@@ -15,6 +15,25 @@ value = "%LOCALAPPDATA%\\Microsoft\\Windows\\Explorer\\thumbcache_*.db"
 [[platforms.targets]]
 kind = "glob-template"
 value = "%LOCALAPPDATA%\\Microsoft\\Windows\\Explorer\\iconcache_*.db"
+
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/thumbnails/normal"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/thumbnails/large"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/thumbnails/x-large"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/thumbnails/fail"
 
 [provenance]
 source = "owned"

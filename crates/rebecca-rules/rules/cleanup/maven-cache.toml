@@ -12,6 +12,13 @@ platform = "windows"
 kind = "template"
 value = "%USERPROFILE%\\.m2\\repository"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.m2/repository"
+
 [provenance]
 source = "owned"
 license = "project-owned"

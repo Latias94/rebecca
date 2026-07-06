@@ -16,6 +16,17 @@ value = "%USERPROFILE%\\.gradle\\caches"
 kind = "template"
 value = "%USERPROFILE%\\.gradle\\notifications"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.gradle/caches"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.gradle/notifications"
+
 [provenance]
 source = "owned"
 license = "project-owned"

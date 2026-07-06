@@ -40,6 +40,25 @@ value = "%APPDATA%\\ccache\\[0-9a-f]\\[0-9a-f]"
 kind = "template"
 value = "%APPDATA%\\ccache\\tmp"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%CCACHE_DIR%/[0-9a-f]/[0-9a-f]"
+
+[[platforms.targets]]
+kind = "template"
+value = "%CCACHE_DIR%/tmp"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%HOME%/.ccache/[0-9a-f]/[0-9a-f]"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.ccache/tmp"
+
 [provenance]
 source = "owned"
 license = "project-owned"

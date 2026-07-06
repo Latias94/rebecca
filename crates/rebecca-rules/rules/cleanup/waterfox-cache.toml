@@ -24,6 +24,26 @@ value = "%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\jumpListCache"
 kind = "glob-template"
 value = "%LOCALAPPDATA%\\Waterfox\\Profiles\\*\\OfflineCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/waterfox/*/cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/waterfox/*/startupCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/waterfox/*/jumpListCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/waterfox/*/OfflineCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

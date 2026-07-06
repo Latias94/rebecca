@@ -64,6 +64,65 @@ value = "%USERPROFILE%\\.cache\\huggingface\\assets"
 kind = "template"
 value = "%USERPROFILE%\\.cache\\huggingface\\xet"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_HUB_CACHE%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_DATASETS_CACHE%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_ASSETS_CACHE%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_XET_CACHE%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HUGGINGFACE_HUB_CACHE%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HUGGINGFACE_ASSETS_CACHE%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_HOME%/hub"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_HOME%/datasets"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_HOME%/assets"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HF_HOME%/xet"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/huggingface/hub"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/huggingface/datasets"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/huggingface/assets"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/huggingface/xet"
+
 [provenance]
 source = "owned"
 license = "project-owned"

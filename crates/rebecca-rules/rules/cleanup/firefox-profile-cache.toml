@@ -16,6 +16,18 @@ value = "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\cache2"
 kind = "glob-template"
 value = "%APPDATA%\\Mozilla\\Firefox\\Profiles\\*\\startupCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/mozilla/firefox/*/cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/mozilla/firefox/*/startupCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

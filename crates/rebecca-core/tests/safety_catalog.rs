@@ -40,6 +40,20 @@ fn default_safety_catalog_loads_auditable_platform_knowledge() {
             .iter()
             .any(|prefix| prefix == "/etc")
     );
+    assert!(
+        linux
+            .maintenance_allowlist()
+            .matches(&["home", "alice", ".cache", "thumbnails"])
+    );
+    assert!(
+        linux
+            .maintenance_allowlist()
+            .matches(&["var", "cache", "apt", "archives"])
+    );
+    assert!(linux.protected_patterns().iter().any(|pattern| {
+        pattern.category() == SafetyCategory::ApplicationDurableData
+            && pattern.matches(&["home", "alice", ".config", "code", "user"])
+    }));
 
     let macos = default_safety_knowledge_for_platform(Platform::Macos)
         .expect("macOS safety knowledge should load");
@@ -150,5 +164,47 @@ fn safety_catalog_pattern_sets_match_segments_and_sequences() {
         knowledge
             .maintenance_allowlist()
             .matches(&["c:", "users", "alice", ".gradle", "caches"])
+    );
+}
+
+#[test]
+fn linux_safety_catalog_covers_cache_and_durable_state_boundaries() {
+    let knowledge = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should load");
+
+    for segments in [
+        &["home", "alice", ".cache", "go-build"][..],
+        &["home", "alice", ".local", "share", "pnpm", "store"][..],
+        &["var", "cache", "apt", "archives"][..],
+    ] {
+        assert!(
+            knowledge.maintenance_allowlist().matches(segments),
+            "{segments:?} should be an allowlisted Linux maintenance shape"
+        );
+    }
+
+    let protected_category = |segments: &[&str]| {
+        knowledge
+            .protected_patterns()
+            .iter()
+            .find(|pattern| pattern.matches(segments))
+            .map(|pattern| pattern.category())
+    };
+
+    assert_eq!(
+        protected_category(&["home", "alice", ".local", "share", "keyrings"]),
+        Some(SafetyCategory::Credentials)
+    );
+    assert_eq!(
+        protected_category(&["home", "alice", ".config", "autostart"]),
+        Some(SafetyCategory::StartupAutomation)
+    );
+    assert_eq!(
+        protected_category(&["home", "alice", ".config", "slack"]),
+        Some(SafetyCategory::ApplicationDurableData)
+    );
+    assert_eq!(
+        protected_category(&["home", "alice", ".var", "app", "com.slack.slack", "config"]),
+        Some(SafetyCategory::ApplicationDurableData)
     );
 }

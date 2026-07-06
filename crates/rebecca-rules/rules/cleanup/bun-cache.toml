@@ -12,6 +12,13 @@ platform = "windows"
 kind = "template"
 value = "%USERPROFILE%\\.bun\\install\\cache"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.bun/install/cache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

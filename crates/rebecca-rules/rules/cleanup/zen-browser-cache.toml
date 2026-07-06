@@ -24,6 +24,26 @@ value = "%LOCALAPPDATA%\\Zen\\Profiles\\*\\jumpListCache"
 kind = "glob-template"
 value = "%LOCALAPPDATA%\\Zen\\Profiles\\*\\OfflineCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/zen/*/cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/zen/*/startupCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/zen/*/jumpListCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/zen/*/OfflineCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

@@ -12,6 +12,17 @@ platform = "windows"
 kind = "template"
 value = "%LOCALAPPDATA%\\pnpm\\store"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_DATA_HOME%/pnpm/store"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.pnpm-store"
+
 [provenance]
 source = "owned"
 license = "project-owned"

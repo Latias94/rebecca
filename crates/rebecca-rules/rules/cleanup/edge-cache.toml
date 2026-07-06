@@ -68,6 +68,58 @@ value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\GrShaderCache"
 kind = "template"
 value = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\ShaderCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Default/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Default/DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Default/Media Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Profile */Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Profile */Code Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Profile */GPUCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Profile */DawnCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/Profile */Media Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/ShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/microsoft-edge/GrShaderCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

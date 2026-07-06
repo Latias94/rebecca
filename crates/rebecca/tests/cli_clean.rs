@@ -1653,6 +1653,151 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     }));
 }
 
+#[test]
+fn clean_dry_run_json_gates_linux_developer_cache_rules() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let pip_cache = temp.path().join("cache").join("pip");
+    fs::create_dir_all(&pip_cache).unwrap();
+    fs::write(pip_cache.join("http-cache.bin"), b"abcd").unwrap();
+
+    let skipped = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--rule",
+            "linux.pip-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        skipped.status.success(),
+        "stderr: {}",
+        common::support::stderr(&skipped)
+    );
+    let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
+    assert_eq!(skipped_value["summary"]["total_targets"], 1);
+    assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
+    assert_eq!(skipped_value["summary"]["skipped_targets"], 1);
+    assert_eq!(skipped_value["targets"][0]["rule_id"], "linux.pip-cache");
+    assert_eq!(skipped_value["targets"][0]["status"], "skipped");
+
+    let allowed = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-moderate",
+            "--rule",
+            "linux.pip-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        allowed.status.success(),
+        "stderr: {}",
+        common::support::stderr(&allowed)
+    );
+    let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
+    assert_eq!(allowed_value["summary"]["total_targets"], 1);
+    assert_eq!(allowed_value["summary"]["allowed_targets"], 1);
+    assert_eq!(allowed_value["summary"]["skipped_targets"], 0);
+    assert_eq!(allowed_value["summary"]["estimated_bytes"], 4);
+    assert_eq!(allowed_value["targets"][0]["rule_id"], "linux.pip-cache");
+    assert_eq!(allowed_value["targets"][0]["status"], "allowed");
+}
+
+#[test]
+fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let chrome_cache = temp
+        .path()
+        .join("cache")
+        .join("google-chrome")
+        .join("Default")
+        .join("Cache");
+    let chrome_history = temp
+        .path()
+        .join("config")
+        .join("google-chrome")
+        .join("Default")
+        .join("History");
+    fs::create_dir_all(&chrome_cache).unwrap();
+    fs::create_dir_all(chrome_history.parent().unwrap()).unwrap();
+    fs::write(chrome_cache.join("data.bin"), b"abcd").unwrap();
+    fs::write(&chrome_history, b"keep").unwrap();
+
+    let skipped = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--rule",
+            "linux.chrome-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        skipped.status.success(),
+        "stderr: {}",
+        common::support::stderr(&skipped)
+    );
+    let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
+    assert_eq!(skipped_value["summary"]["total_targets"], 1);
+    assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
+    assert_eq!(skipped_value["summary"]["skipped_targets"], 1);
+    assert_eq!(skipped_value["targets"][0]["status"], "skipped");
+
+    let allowed = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-warning",
+            "active-process",
+            "--rule",
+            "linux.chrome-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        allowed.status.success(),
+        "stderr: {}",
+        common::support::stderr(&allowed)
+    );
+    let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
+    assert_eq!(allowed_value["summary"]["total_targets"], 1);
+    assert_eq!(allowed_value["summary"]["allowed_targets"], 1);
+    assert_eq!(allowed_value["summary"]["skipped_targets"], 0);
+    assert_eq!(allowed_value["summary"]["estimated_bytes"], 4);
+    assert_eq!(allowed_value["targets"][0]["rule_id"], "linux.chrome-cache");
+    assert_eq!(allowed_value["targets"][0]["status"], "allowed");
+    assert!(
+        chrome_history.exists(),
+        "private browser data must not be targeted"
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn clean_dry_run_json_accepts_allow_risky_flag() {

@@ -1,8 +1,20 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::path::PathBuf;
+
+use crate::Platform;
 
 pub trait Environment {
     fn get(&self, key: &str) -> Option<OsString>;
+}
+
+impl<E> Environment for &E
+where
+    E: Environment + ?Sized,
+{
+    fn get(&self, key: &str) -> Option<OsString> {
+        (*self).get(key)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -11,6 +23,37 @@ pub struct SystemEnvironment;
 impl Environment for SystemEnvironment {
     fn get(&self, key: &str) -> Option<OsString> {
         std::env::var_os(key)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PlatformEnvironment<E> {
+    platform: Platform,
+    inner: E,
+}
+
+impl<E> PlatformEnvironment<E> {
+    pub fn new(platform: Platform, inner: E) -> Self {
+        Self { platform, inner }
+    }
+
+    pub fn current(inner: E) -> Self {
+        Self::new(Platform::current(), inner)
+    }
+}
+
+impl<E> Environment for PlatformEnvironment<E>
+where
+    E: Environment,
+{
+    fn get(&self, key: &str) -> Option<OsString> {
+        let value = self.inner.get(key);
+        if self.platform == Platform::Linux && linux_xdg_default_suffix(key).is_some() {
+            return value
+                .filter(|value| !value.is_empty())
+                .or_else(|| linux_xdg_default(key, &self.inner));
+        }
+        value
     }
 }
 
@@ -49,5 +92,29 @@ where
             values.insert(key.into(), value.into());
         }
         Self { values }
+    }
+}
+
+fn linux_xdg_default(key: &str, env: &impl Environment) -> Option<OsString> {
+    let suffix = linux_xdg_default_suffix(key)?;
+    let home = env.get("HOME")?;
+    if home.is_empty() {
+        return None;
+    }
+
+    let mut path = PathBuf::from(home);
+    for segment in suffix {
+        path.push(segment);
+    }
+    Some(path.into_os_string())
+}
+
+fn linux_xdg_default_suffix(key: &str) -> Option<&'static [&'static str]> {
+    match key {
+        "XDG_CACHE_HOME" => Some(&[".cache"]),
+        "XDG_CONFIG_HOME" => Some(&[".config"]),
+        "XDG_DATA_HOME" => Some(&[".local", "share"]),
+        "XDG_STATE_HOME" => Some(&[".local", "state"]),
+        _ => None,
     }
 }

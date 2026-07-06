@@ -24,6 +24,25 @@ value = "%USERPROFILE%\\.rustup\\downloads"
 kind = "template"
 value = "%USERPROFILE%\\.rustup\\tmp"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%RUSTUP_HOME%/downloads"
+
+[[platforms.targets]]
+kind = "template"
+value = "%RUSTUP_HOME%/tmp"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.rustup/downloads"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.rustup/tmp"
+
 [provenance]
 source = "owned"
 license = "project-owned"
