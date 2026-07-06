@@ -13,6 +13,13 @@ platform = "windows"
 kind = "steam-install-template"
 value = "appcache\\httpcache"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "appcache/httpcache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

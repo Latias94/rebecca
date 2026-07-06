@@ -75,9 +75,14 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         "/home/alice/.cache/google-chrome/Default/Cache",
         "/home/alice/.cache/mozilla/firefox/abcd.default/cache2",
         "/home/alice/.cache/slack/Cache",
+        "/home/alice/.config/Code/Cache",
+        "/home/alice/.config/discord/Code Cache",
         "/home/alice/.cache/thumbnails/normal",
         "/home/alice/.var/app/com.slack.Slack/cache",
+        "/home/alice/snap/slack/common/.cache",
         "/home/alice/snap/firefox/common/.cache",
+        "/home/alice/.steam/steam/htmlcache/Default/Code Cache",
+        "/home/alice/.local/share/Steam/htmlcache/Default/Cache",
         "/var/cache/apt/archives",
         "/var/cache/dnf",
         "/var/cache/pacman/pkg",
@@ -125,7 +130,15 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
             ProtectedCategory::ApplicationDurableData,
         ),
         (
+            "/home/alice/.var/app/com.slack.Slack/data",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
             "/home/alice/snap/firefox/common/.config",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/home/alice/snap/slack/common/.local/share",
             ProtectedCategory::ApplicationDurableData,
         ),
     ] {
@@ -645,6 +658,28 @@ fn catalog_target_shapes_keep_known_maintenance_targets_open() {
             "{target:?} should be an allowed catalog target shape"
         );
     }
+
+    let linux_knowledge = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should exist");
+    let linux_policy = ProtectionPolicy::new().with_safety_knowledge(linux_knowledge);
+
+    for target in [
+        RuleTargetSpec::template("%XDG_CONFIG_HOME%/Code/Cache"),
+        RuleTargetSpec::template("%XDG_CONFIG_HOME%/Slack/GPUCache"),
+        RuleTargetSpec::template("%HOME%/.var/app/com.slack.Slack/cache"),
+        RuleTargetSpec::template("%HOME%/snap/slack/common/.cache"),
+        RuleTargetSpec::steam_install_template("appcache/httpcache"),
+        RuleTargetSpec::steam_install_template("appcache/download"),
+        RuleTargetSpec::steam_library_template("steamapps/shadercache"),
+    ] {
+        assert!(
+            matches!(
+                linux_policy.assess_catalog_target_shape(&target),
+                ProtectionAssessment::Allowed
+            ),
+            "{target:?} should be an allowed Linux catalog target shape"
+        );
+    }
 }
 
 #[test]
@@ -802,6 +837,34 @@ fn catalog_target_shapes_reject_protected_categories_and_unsafe_steam_targets() 
         assert!(
             matches!(
                 policy.assess_catalog_target_shape(&target),
+                ProtectionAssessment::Blocked(block)
+                    if block.kind == ProtectionBlockKind::ProtectedCategory(expected_category)
+            ),
+            "{target:?} should be blocked as {expected_category:?}"
+        );
+    }
+
+    let linux_knowledge = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should exist");
+    let linux_policy = ProtectionPolicy::new().with_safety_knowledge(linux_knowledge);
+
+    for (target, expected_category) in [
+        (
+            RuleTargetSpec::template("%XDG_CONFIG_HOME%/Slack/Local Storage"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%HOME%/.var/app/com.slack.Slack/data"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            RuleTargetSpec::template("%HOME%/snap/slack/common/.config"),
+            ProtectedCategory::ApplicationDurableData,
+        ),
+    ] {
+        assert!(
+            matches!(
+                linux_policy.assess_catalog_target_shape(&target),
                 ProtectionAssessment::Blocked(block)
                     if block.kind == ProtectionBlockKind::ProtectedCategory(expected_category)
             ),

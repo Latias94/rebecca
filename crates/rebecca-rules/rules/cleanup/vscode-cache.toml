@@ -24,6 +24,26 @@ value = "%APPDATA%\\Code\\GPUCache"
 kind = "template"
 value = "%APPDATA%\\Code\\CachedData"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Code/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Code/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Code/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Code/CachedData"
+
 [provenance]
 source = "owned"
 license = "project-owned"

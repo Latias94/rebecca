@@ -20,6 +20,30 @@ value = "%APPDATA%\\Postman\\Code Cache"
 kind = "template"
 value = "%APPDATA%\\Postman\\GPUCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Postman/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Postman/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Postman/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.var/app/com.getpostman.Postman/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/snap/postman/common/.cache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

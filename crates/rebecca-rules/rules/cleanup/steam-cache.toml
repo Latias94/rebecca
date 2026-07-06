@@ -20,6 +20,34 @@ value = "%LOCALAPPDATA%\\Steam\\htmlcache\\Default\\Code Cache"
 kind = "template"
 value = "%LOCALAPPDATA%\\Steam\\htmlcache\\Default\\GPUCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.steam/steam/htmlcache/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.steam/steam/htmlcache/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.steam/steam/htmlcache/Default/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.local/share/Steam/htmlcache/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.local/share/Steam/htmlcache/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.local/share/Steam/htmlcache/Default/GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

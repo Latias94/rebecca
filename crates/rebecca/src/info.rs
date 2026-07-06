@@ -505,7 +505,12 @@ pub fn application_discovery() -> Box<dyn ApplicationDiscovery> {
         Box::new(rebecca::windows::steam::WindowsApplicationDiscovery::new())
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        Box::new(rebecca::core::applications::LinuxApplicationDiscovery::new())
+    }
+
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     {
         Box::new(rebecca::core::applications::NoopApplicationDiscovery::new())
     }

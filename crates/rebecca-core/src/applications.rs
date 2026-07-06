@@ -84,6 +84,21 @@ impl ApplicationDiscovery for NoopApplicationDiscovery {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LinuxApplicationDiscovery;
+
+impl LinuxApplicationDiscovery {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl ApplicationDiscovery for LinuxApplicationDiscovery {
+    fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
+        discover_linux_steam_installation()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct StaticApplicationDiscovery {
     steam_installation: Option<SteamInstallation>,
@@ -347,7 +362,7 @@ fn steam_library_path_value(key: &str, value: &str) -> Option<PathBuf> {
         || (is_legacy_library_key(key) && looks_like_path_value(value))
     {
         let trimmed = value.trim();
-        if trimmed.is_empty() || !looks_like_windows_absolute_path(trimmed) {
+        if trimmed.is_empty() || !looks_like_absolute_path(trimmed) {
             return None;
         }
 
@@ -426,6 +441,33 @@ fn path_key(path: &Path) -> String {
 
 fn same_path_ignore_case(left: &Path, right: &Path) -> bool {
     path_key(left) == path_key(right)
+}
+
+fn discover_linux_steam_installation() -> Result<Option<SteamInstallation>> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Ok(None);
+    };
+    if home.is_empty() {
+        return Ok(None);
+    }
+
+    let home = PathBuf::from(home);
+    for candidate in [
+        home.join(".steam").join("steam"),
+        home.join(".local").join("share").join("Steam"),
+    ] {
+        if candidate.is_dir() {
+            return Ok(Some(SteamInstallation::from_install_path_best_effort(
+                candidate,
+            )));
+        }
+    }
+
+    Ok(None)
+}
+
+fn looks_like_absolute_path(value: &str) -> bool {
+    value.starts_with('/') || looks_like_windows_absolute_path(value)
 }
 
 fn looks_like_windows_absolute_path(value: &str) -> bool {

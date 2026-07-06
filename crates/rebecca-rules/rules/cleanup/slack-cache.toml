@@ -21,6 +21,29 @@ value = "%APPDATA%\\Slack\\Code Cache"
 kind = "template"
 value = "%APPDATA%\\Slack\\GPUCache"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Slack/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Slack/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Slack/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.var/app/com.slack.Slack/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/snap/slack/common/.cache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

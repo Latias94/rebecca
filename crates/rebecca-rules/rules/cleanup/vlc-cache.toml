@@ -17,6 +17,17 @@ value = "%APPDATA%\\vlc\\art\\artistalbum"
 kind = "template"
 value = "%APPDATA%\\vlc\\crashdump"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/vlc/art/artistalbum"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CACHE_HOME%/vlc/crashdump"
+
 [provenance]
 source = "owned"
 license = "project-owned"

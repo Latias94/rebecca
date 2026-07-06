@@ -269,6 +269,15 @@ critical_path_prefixes = [
   "/var/run",
 ]
 
+steam_install_allowlist = [
+  "appcache/httpcache",
+  "appcache/download",
+]
+
+steam_library_allowlist = [
+  "steamapps/shadercache",
+]
+
 [platforms.maintenance_allowlist]
 sequences = [
   ["%cargo_home%", "registry", "cache"],

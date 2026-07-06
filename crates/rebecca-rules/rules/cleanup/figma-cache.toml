@@ -20,6 +20,22 @@ value = "%APPDATA%\\Figma\\Code Cache"
 kind = "template"
 value = "%APPDATA%\\Figma\\GPUCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Figma/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Figma/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/Figma/GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

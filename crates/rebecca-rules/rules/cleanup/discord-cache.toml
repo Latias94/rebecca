@@ -44,6 +44,54 @@ value = "%APPDATA%\\discordcanary\\Code Cache"
 kind = "template"
 value = "%APPDATA%\\discordcanary\\GPUCache"
 
+[[platforms]]
+platform = "linux"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discord/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discord/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discord/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discordptb/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discordptb/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discordptb/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discordcanary/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discordcanary/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%XDG_CONFIG_HOME%/discordcanary/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.var/app/com.discordapp.Discord/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/snap/discord/common/.cache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

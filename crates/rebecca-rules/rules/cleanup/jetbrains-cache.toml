@@ -44,6 +44,45 @@ value = "%LOCALAPPDATA%\\JetBrains\\PhpStorm*\\caches"
 kind = "glob-template"
 value = "%LOCALAPPDATA%\\JetBrains\\RustRover*\\caches"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/IntelliJIdea*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/PyCharm*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/WebStorm*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/Rider*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/CLion*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/GoLand*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/DataGrip*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/PhpStorm*/caches"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%XDG_CACHE_HOME%/JetBrains/RustRover*/caches"
+
 [provenance]
 source = "owned"
 license = "project-owned"

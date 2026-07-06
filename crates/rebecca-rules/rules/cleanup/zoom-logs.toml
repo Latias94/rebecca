@@ -17,6 +17,13 @@ value = "%APPDATA%\\Zoom\\logs"
 kind = "template"
 value = "%APPDATA%\\Zoom\\installer.txt"
 
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.zoom/logs"
+
 [provenance]
 source = "owned"
 license = "project-owned"

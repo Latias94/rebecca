@@ -1,6 +1,8 @@
 use std::fs;
+#[cfg(any(windows, target_os = "linux"))]
+use std::path::Path;
 #[cfg(windows)]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod common;
 #[path = "common/isolated.rs"]
@@ -40,7 +42,7 @@ fn steam_dry_run_json_output(
     common::support::api_data(&output.stdout)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -1796,6 +1798,183 @@ fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
         chrome_history.exists(),
         "private browser data must not be targeted"
     );
+}
+
+#[test]
+fn clean_dry_run_json_gates_linux_desktop_app_cache_warnings() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let native_cache = temp
+        .path()
+        .join("config")
+        .join("Slack")
+        .join("Cache")
+        .join("cache.bin");
+    let flatpak_cache = temp
+        .path()
+        .join(".var")
+        .join("app")
+        .join("com.slack.Slack")
+        .join("cache")
+        .join("flatpak.bin");
+    let snap_cache = temp
+        .path()
+        .join("snap")
+        .join("slack")
+        .join("common")
+        .join(".cache")
+        .join("snap.bin");
+    let flatpak_data = temp
+        .path()
+        .join(".var")
+        .join("app")
+        .join("com.slack.Slack")
+        .join("data")
+        .join("state.db");
+    let snap_config = temp
+        .path()
+        .join("snap")
+        .join("slack")
+        .join("common")
+        .join(".config")
+        .join("settings.json");
+
+    write_fixture_file(&native_cache, b"ab");
+    write_fixture_file(&flatpak_cache, b"cde");
+    write_fixture_file(&snap_cache, b"fghi");
+    write_fixture_file(&flatpak_data, b"keep");
+    write_fixture_file(&snap_config, b"keep");
+
+    let skipped = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--rule",
+            "linux.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        skipped.status.success(),
+        "stderr: {}",
+        common::support::stderr(&skipped)
+    );
+    let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
+    assert_eq!(skipped_value["summary"]["total_targets"], 3);
+    assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
+    assert_eq!(skipped_value["summary"]["skipped_targets"], 3);
+    assert!(
+        skipped_value["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|target| target["status"] == "skipped")
+    );
+
+    let allowed = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-warning",
+            "active-process",
+            "--rule",
+            "linux.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        allowed.status.success(),
+        "stderr: {}",
+        common::support::stderr(&allowed)
+    );
+    let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
+    assert_eq!(allowed_value["summary"]["total_targets"], 3);
+    assert_eq!(allowed_value["summary"]["allowed_targets"], 3);
+    assert_eq!(allowed_value["summary"]["skipped_targets"], 0);
+    assert_eq!(allowed_value["summary"]["estimated_bytes"], 9);
+
+    let target_paths = allowed_value["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|target| target["path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        target_paths.iter().all(|path| {
+            !path.contains("/.var/app/com.slack.Slack/data")
+                && !path.contains("/snap/slack/common/.config")
+        }),
+        "durable Linux app state must not be targeted: {target_paths:?}"
+    );
+    assert!(
+        flatpak_data.exists(),
+        "Flatpak durable data must remain untouched"
+    );
+    assert!(
+        snap_config.exists(),
+        "Snap durable config must remain untouched"
+    );
+}
+
+#[test]
+fn clean_dry_run_json_discovers_linux_steam_install_cache() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let steam = temp.path().join(".steam").join("steam");
+    let httpcache = steam.join("appcache").join("httpcache").join("cache.bin");
+    let userdata = steam.join("userdata").join("123").join("config.vdf");
+    write_fixture_file(&httpcache, b"abcdef");
+    write_fixture_file(&userdata, b"keep");
+
+    let output = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-warning",
+            "source-boundary",
+            "--rule",
+            "linux.steam-install-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["total_targets"], 1);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 6);
+    assert_eq!(value["targets"][0]["rule_id"], "linux.steam-install-cache");
+    assert_eq!(value["targets"][0]["status"], "allowed");
+    assert!(
+        value["targets"][0]["path"]
+            .as_str()
+            .unwrap()
+            .contains("/.steam/steam/appcache/httpcache")
+    );
+    assert!(userdata.exists(), "Steam userdata must remain untouched");
 }
 
 #[cfg(windows)]
