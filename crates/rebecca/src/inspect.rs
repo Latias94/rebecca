@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -51,6 +52,84 @@ use crate::runtime::CliRuntime;
 use crate::text::format_count;
 
 const NTFS_MFT_VOLUME_INDEX_CACHE_ENV: &str = "REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE";
+
+#[derive(Debug, Default)]
+struct BackendProgressBudget {
+    next_by_metric: BTreeMap<&'static str, u64>,
+    stage_started_counts: BTreeMap<&'static str, u64>,
+    next_stage_started: BTreeMap<&'static str, u64>,
+    stage_finished_counts: BTreeMap<&'static str, u64>,
+    next_stage_finished: BTreeMap<&'static str, u64>,
+}
+
+impl BackendProgressBudget {
+    fn should_emit_metric(
+        &mut self,
+        metric: &'static str,
+        value: u64,
+        detail: ProgressDetail,
+    ) -> bool {
+        if detail.includes_file_events() {
+            return true;
+        }
+        if value == 0 {
+            return false;
+        }
+
+        Self::should_emit_value(&mut self.next_by_metric, metric, value)
+    }
+
+    fn should_emit_stage_started(&mut self, stage: &'static str, detail: ProgressDetail) -> bool {
+        if detail.includes_file_events() {
+            return true;
+        }
+        Self::should_emit_next_occurrence(
+            &mut self.stage_started_counts,
+            &mut self.next_stage_started,
+            stage,
+        )
+    }
+
+    fn should_emit_stage_finished(&mut self, stage: &'static str, detail: ProgressDetail) -> bool {
+        if detail.includes_file_events() {
+            return true;
+        }
+        Self::should_emit_next_occurrence(
+            &mut self.stage_finished_counts,
+            &mut self.next_stage_finished,
+            stage,
+        )
+    }
+
+    fn should_emit_next_occurrence(
+        counts_by_key: &mut BTreeMap<&'static str, u64>,
+        next_by_key: &mut BTreeMap<&'static str, u64>,
+        key: &'static str,
+    ) -> bool {
+        let count = counts_by_key.entry(key).or_default();
+        *count = count.saturating_add(1);
+        Self::should_emit_value(next_by_key, key, *count)
+    }
+
+    fn should_emit_value(
+        next_by_key: &mut BTreeMap<&'static str, u64>,
+        key: &'static str,
+        value: u64,
+    ) -> bool {
+        let next = next_by_key.entry(key).or_insert(1);
+        if value < *next {
+            return false;
+        }
+
+        while *next <= value {
+            if *next == u64::MAX {
+                break;
+            }
+            *next = next.saturating_mul(2).max(next.saturating_add(1));
+        }
+        true
+    }
+}
 
 #[derive(Debug)]
 pub struct InspectSpaceOptions {
@@ -137,6 +216,7 @@ struct InspectProgressReporter {
     event_writer: Option<NdjsonEventWriter>,
     current_started_at: Instant,
     human_file_progress: HumanProgressThrottle,
+    backend_progress_budget: BackendProgressBudget,
 }
 
 impl InspectProgressReporter {
@@ -153,6 +233,7 @@ impl InspectProgressReporter {
             event_writer,
             current_started_at: Instant::now(),
             human_file_progress: HumanProgressThrottle::new(),
+            backend_progress_budget: BackendProgressBudget::default(),
         }
     }
 
@@ -164,10 +245,12 @@ impl InspectProgressReporter {
     }
 
     fn on_event(&mut self, event: InspectProgressEvent<'_>) -> rebecca::core::Result<()> {
-        let emit_machine_event = self.should_emit_machine_event(event);
-        if let Some(writer) = &mut self.event_writer
-            && emit_machine_event
-        {
+        let emit_progress_event = self.should_emit_progress_event(event);
+        if !emit_progress_event {
+            return Ok(());
+        }
+
+        if let Some(writer) = &mut self.event_writer {
             writer
                 .emit_inspect_progress(event)
                 .map_err(progress_output_error)?;
@@ -349,9 +432,20 @@ impl InspectProgressReporter {
         self.event_writer
     }
 
-    fn should_emit_machine_event(&self, event: InspectProgressEvent<'_>) -> bool {
-        !matches!(event, InspectProgressEvent::FileMeasured { .. })
-            || self.detail.includes_file_events()
+    fn should_emit_progress_event(&mut self, event: InspectProgressEvent<'_>) -> bool {
+        match event {
+            InspectProgressEvent::FileMeasured { .. } => self.detail.includes_file_events(),
+            InspectProgressEvent::BackendStageStarted { stage, .. } => self
+                .backend_progress_budget
+                .should_emit_stage_started(stage, self.detail),
+            InspectProgressEvent::BackendStageFinished { stage, .. } => self
+                .backend_progress_budget
+                .should_emit_stage_finished(stage, self.detail),
+            InspectProgressEvent::BackendMetric { metric, value, .. } => self
+                .backend_progress_budget
+                .should_emit_metric(metric, value, self.detail),
+            _ => true,
+        }
     }
 }
 
@@ -1302,6 +1396,55 @@ fn same_lint_root(left: &Path, right: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backend_progress_budget_samples_target_detail_per_metric() {
+        let mut budget = BackendProgressBudget::default();
+
+        let emitted_values = (1..=9)
+            .filter(|value| {
+                budget.should_emit_metric("parsed-records", *value, ProgressDetail::Target)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(emitted_values, [1, 2, 4, 8]);
+        assert!(budget.should_emit_metric("stream-read-bytes", 3, ProgressDetail::Target));
+        assert!(!budget.should_emit_metric("stream-read-bytes", 3, ProgressDetail::Target));
+        assert!(budget.should_emit_metric("stream-read-bytes", 4, ProgressDetail::Target));
+    }
+
+    #[test]
+    fn backend_progress_budget_samples_repeated_stage_events() {
+        let mut budget = BackendProgressBudget::default();
+
+        let started = (1..=9)
+            .filter(|_| {
+                budget.should_emit_stage_started("targeted-read-record", ProgressDetail::Target)
+            })
+            .collect::<Vec<_>>();
+        let finished = (1..=9)
+            .filter(|_| {
+                budget.should_emit_stage_finished("targeted-read-record", ProgressDetail::Target)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(started, [1, 2, 4, 8]);
+        assert_eq!(finished, [1, 2, 4, 8]);
+        assert!(
+            budget.should_emit_stage_started("targeted-resolve-record", ProgressDetail::Target)
+        );
+    }
+
+    #[test]
+    fn backend_progress_budget_keeps_file_detail_unsampled() {
+        let mut budget = BackendProgressBudget::default();
+
+        assert!(budget.should_emit_metric("parsed-records", 0, ProgressDetail::File));
+        assert!(budget.should_emit_metric("parsed-records", 1, ProgressDetail::File));
+        assert!(budget.should_emit_metric("parsed-records", 1, ProgressDetail::File));
+        assert!(budget.should_emit_stage_started("targeted-read-record", ProgressDetail::File));
+        assert!(budget.should_emit_stage_started("targeted-read-record", ProgressDetail::File));
+    }
 
     #[test]
     fn ntfs_mft_volume_index_cache_env_accepts_only_truthy_values() {

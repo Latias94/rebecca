@@ -60,8 +60,10 @@ then emit the final report event(s), and finish with `completed`.
 `entry-measured`, `traversal-progress`, `backend-fallback`,
 `backend-stage-started`, `backend-stage-finished`, `backend-metric`,
 `cache-event`, and `finalizing`. Default inspect progress is bounded at target,
-root, backend, cache, and sampled-counter granularity. Add
-`--progress-detail file` only when the caller needs per-file scan events.
+root, backend, cache, sampled-counter, sampled backend-stage, and sampled
+backend-metric granularity. The final `completed` payload remains the
+authoritative full report. Add `--progress-detail file` only when the caller
+needs per-file scan events and unsampled backend stage/metric events.
 
 `inspect map --format ndjson` emits bounded report events before the terminal
 `completed` event: after scan progress, one `map-entry` event per `top_entries`
