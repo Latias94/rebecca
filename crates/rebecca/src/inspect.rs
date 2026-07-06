@@ -356,7 +356,7 @@ impl InspectProgressReporter {
 }
 
 fn progress_output_error(err: anyhow::Error) -> RebeccaError {
-    RebeccaError::Io(std::io::Error::other(err.to_string()))
+    RebeccaError::Io(crate::output::preserve_io_error_kind(err))
 }
 
 fn inspect_progress_options(detail: ProgressDetail) -> InspectProgressOptions {

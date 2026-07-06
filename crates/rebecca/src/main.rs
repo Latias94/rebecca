@@ -33,6 +33,10 @@ fn main() {
     init_tracing();
 
     if let Err(err) = run() {
+        if output::is_broken_pipe_error(&err) {
+            std::process::exit(0);
+        }
+
         if err.downcast_ref::<output::MachineErrorRendered>().is_some() {
             std::process::exit(1);
         }

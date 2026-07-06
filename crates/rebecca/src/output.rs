@@ -6,6 +6,7 @@ use rebecca::core::progress::InspectProgressEvent;
 use serde::Serialize;
 use serde_json::json;
 use std::fmt;
+use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::clean_view::ScanCacheProgressSummary;
@@ -95,6 +96,34 @@ impl fmt::Display for MachineErrorRendered {
 
 impl std::error::Error for MachineErrorRendered {}
 
+pub(crate) fn is_broken_pipe_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|err| err.kind() == io::ErrorKind::BrokenPipe)
+            || cause
+                .downcast_ref::<rebecca::core::RebeccaError>()
+                .is_some_and(|err| {
+                    matches!(err, rebecca::core::RebeccaError::Io(io_err) if io_err.kind() == io::ErrorKind::BrokenPipe)
+                })
+    })
+}
+
+pub(crate) fn preserve_io_error_kind(err: anyhow::Error) -> io::Error {
+    if let Some(io_err) = err.downcast_ref::<io::Error>() {
+        return io::Error::new(io_err.kind(), io_err.to_string());
+    }
+
+    io::Error::other(err.to_string())
+}
+
+fn write_stdout_line(line: &str) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut writer = stdout.lock();
+    writer.write_all(line.as_bytes())?;
+    writer.write_all(b"\n")
+}
+
 pub(crate) fn print_success<T: Serialize + ?Sized>(
     command: &str,
     payload_kind: &str,
@@ -108,7 +137,7 @@ pub(crate) fn print_success<T: Serialize + ?Sized>(
         generated_at_unix_seconds: unix_now(),
         data,
     };
-    println!("{}", serde_json::to_string_pretty(&envelope)?);
+    write_stdout_line(&serde_json::to_string_pretty(&envelope)?)?;
     Ok(())
 }
 
@@ -124,7 +153,7 @@ pub(crate) fn print_success_with_contract<T: Serialize + ?Sized>(
         generated_at_unix_seconds: unix_now(),
         data,
     };
-    println!("{}", serde_json::to_string_pretty(&envelope)?);
+    write_stdout_line(&serde_json::to_string_pretty(&envelope)?)?;
     Ok(())
 }
 
@@ -203,7 +232,13 @@ pub(crate) fn render_error(contract: CliApiContract, mode: OutputMode, err: &any
                 error,
             };
             match serde_json::to_string(&envelope) {
-                Ok(rendered) => println!("{rendered}"),
+                Ok(rendered) => {
+                    if let Err(err) = write_stdout_line(&rendered)
+                        && err.kind() != io::ErrorKind::BrokenPipe
+                    {
+                        eprintln!("{err}");
+                    }
+                }
                 Err(render_err) => eprintln!("{render_err}"),
             }
         }
@@ -758,7 +793,7 @@ impl NdjsonEventWriter {
             payload_kind,
             data,
         };
-        println!("{}", serde_json::to_string(&event)?);
+        self.write_event(&event)?;
         Ok(())
     }
 
@@ -790,7 +825,7 @@ impl NdjsonEventWriter {
             payload_kind,
             data,
         };
-        println!("{}", serde_json::to_string(&event)?);
+        self.write_event(&event)?;
         Ok(())
     }
 
@@ -808,7 +843,7 @@ impl NdjsonEventWriter {
             generated_at_unix_seconds: unix_now(),
             error: classify_error(err),
         };
-        println!("{}", serde_json::to_string(&event)?);
+        self.write_event(&event)?;
         Ok(())
     }
 
@@ -833,7 +868,7 @@ impl NdjsonEventWriter {
             generated_at_unix_seconds: unix_now(),
             data,
         };
-        println!("{}", serde_json::to_string(&event)?);
+        self.write_event(&event)?;
         Ok(())
     }
 
@@ -841,6 +876,14 @@ impl NdjsonEventWriter {
         let sequence = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(1);
         sequence
+    }
+
+    fn write_event<T: Serialize + ?Sized>(&self, event: &T) -> Result<()> {
+        let stdout = io::stdout();
+        let mut writer = stdout.lock();
+        serde_json::to_writer(&mut writer, event)?;
+        writer.write_all(b"\n")?;
+        Ok(())
     }
 }
 

@@ -149,6 +149,7 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect-space` and `inspect-map` machine payloads now include `diagnostic_summary`; `diagnostics` is a bounded raw sample list rather than the authoritative count of all diagnostic observations.
 
 ### Fixed
+- Machine JSON and NDJSON output now treats closed stdout pipes as a clean exit instead of panicking, so wrappers can safely stop reading early.
 - `FSCTL_GET_NTFS_FILE_RECORD` outputs with kernel-deprotected or already-applied NTFS update-sequence fixups now parse correctly, allowing targeted live MFT estimates to use per-record FSCTL data without falling back to directory scanners on valid records.
 - Experimental NTFS/MFT full-index diagnostics no longer discard parsed MFT evidence solely because stream-backed `$INDEX_ALLOCATION:$I30` expansion crosses the live build budget after records are available; those runs now stop further stream reads, keep cancellation as a hard error, and emit `mft-index-allocation-budget-exhausted`.
 - Experimental NTFS/MFT targeted traversal and `$I30` cross-checking no longer promote DOS 8.3 directory aliases into visible traversal paths, preventing short-name duplicates from doubling disk-map file counts and logical bytes.
