@@ -278,6 +278,9 @@ pub struct InspectSpaceArgs {
     /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
     pub no_progress: bool,
+    /// Select target-level or throttled file-level progress detail.
+    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+    pub progress_detail: ProgressDetail,
     /// Use the rebuildable scan cache for eligible entry estimates.
     #[arg(long)]
     pub scan_cache: bool,
@@ -297,6 +300,12 @@ pub struct InspectSpaceArgs {
 
 #[derive(Debug, Args)]
 pub struct InspectMapArgs {
+    /// Disable the stderr progress spinner; useful for scripts and captured logs.
+    #[arg(long)]
+    pub no_progress: bool,
+    /// Select target-level or throttled file-level progress detail.
+    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+    pub progress_detail: ProgressDetail,
     /// Select the scan backend used for disk-map inventory.
     #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
     pub scan_backend: ScanBackendArg,

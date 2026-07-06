@@ -1,8 +1,10 @@
 use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, ensure};
+use indicatif::ProgressBar;
 use rebecca::core::app_leftovers::derive_app_leftover_candidates;
 use rebecca::core::cleanup_advice::{
     CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceStatus,
@@ -10,19 +12,22 @@ use rebecca::core::cleanup_advice::{
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::disk_map::{
     DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics, DiskMapReport, DiskMapRequest,
-    DiskMapSortField, inspect_map as inspect_map_core,
+    DiskMapSortField, inspect_map_with_progress as inspect_map_core,
 };
 use rebecca::core::inspect::{
-    SpaceInsightRequest, SpaceInsightScanCache, inspect_space as inspect_space_core,
+    SpaceInsightRequest, SpaceInsightScanCache, inspect_space_with_progress as inspect_space_core,
 };
 use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
+use rebecca::core::progress::InspectProgressEvent;
 use rebecca::core::project_artifacts::{
     ProjectArtifactScanOptions, discover_project_artifacts_with_diagnostics,
 };
 use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
 use rebecca::core::scan_cache::ScanCacheStore;
-use rebecca::core::{CleanupWorkflow, DeleteMode, EstimateProvenance, PlanRequest, Platform};
+use rebecca::core::{
+    CleanupWorkflow, DeleteMode, EstimateProvenance, PlanRequest, Platform, RebeccaError,
+};
 use serde::Serialize;
 
 use crate::clean::{
@@ -31,13 +36,19 @@ use crate::clean::{
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::{OutputMode, ProgressDetail, ScanBackendArg};
 use crate::output::{
-    CliApiContract, HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract,
-    format_shell_command, print_command_success_with_contract, print_workflow_success_payload,
+    CliApiContract, HumanPlanRenderer, MachineErrorRendered, NdjsonEventWriter,
+    WorkflowOutputContract, format_bytes, format_shell_command,
+    print_command_success_with_contract, print_workflow_success_payload,
+};
+use crate::progress::{
+    HumanProgressThrottle, PROGRESS_PATH_MAX_CHARS, compact_progress_path, format_byte_rate,
+    format_file_rate, stderr_spinner,
 };
 use crate::purge::resolve_roots;
 use crate::purge_view::ProjectArtifactInsightReport;
 use crate::render;
 use crate::runtime::CliRuntime;
+use crate::text::format_count;
 
 const NTFS_MFT_VOLUME_INDEX_CACHE_ENV: &str = "REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE";
 
@@ -45,6 +56,7 @@ const NTFS_MFT_VOLUME_INDEX_CACHE_ENV: &str = "REBECCA_NTFS_MFT_VOLUME_INDEX_CAC
 pub struct InspectSpaceOptions {
     pub output_mode: OutputMode,
     pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub scan_backend: ScanBackendArg,
     pub roots: Vec<PathBuf>,
@@ -55,6 +67,8 @@ pub struct InspectSpaceOptions {
 #[derive(Debug)]
 pub struct InspectMapOptions {
     pub output_mode: OutputMode,
+    pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
     pub scan_backend: ScanBackendArg,
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
@@ -116,8 +130,262 @@ pub struct InspectLintOptions {
     pub top_limit: usize,
 }
 
+struct InspectProgressReporter {
+    command_label: &'static str,
+    bar: Option<ProgressBar>,
+    detail: ProgressDetail,
+    event_writer: Option<NdjsonEventWriter>,
+    current_started_at: Instant,
+    human_file_progress: HumanProgressThrottle,
+}
+
+impl InspectProgressReporter {
+    fn new(
+        command_label: &'static str,
+        human_enabled: bool,
+        detail: ProgressDetail,
+        event_writer: Option<NdjsonEventWriter>,
+    ) -> Self {
+        Self {
+            command_label,
+            bar: stderr_spinner(human_enabled, "inspect | starting"),
+            detail,
+            event_writer,
+            current_started_at: Instant::now(),
+            human_file_progress: HumanProgressThrottle::new(),
+        }
+    }
+
+    fn started(&mut self) -> Result<()> {
+        if let Some(writer) = &mut self.event_writer {
+            writer.emit_started()?;
+        }
+        Ok(())
+    }
+
+    fn on_event(&mut self, event: InspectProgressEvent<'_>) -> rebecca::core::Result<()> {
+        let emit_machine_event = self.should_emit_machine_event(event);
+        if let Some(writer) = &mut self.event_writer
+            && emit_machine_event
+        {
+            writer
+                .emit_inspect_progress(event)
+                .map_err(progress_output_error)?;
+        }
+
+        let Some(bar) = &self.bar else {
+            return Ok(());
+        };
+
+        match event {
+            InspectProgressEvent::RootStarted {
+                root_index,
+                root_count,
+                root,
+                backend,
+            } => {
+                self.current_started_at = Instant::now();
+                bar.set_message(format!(
+                    "{} | root {}/{} | {} | {}",
+                    self.command_label,
+                    root_index.saturating_add(1),
+                    root_count,
+                    backend.label(),
+                    compact_progress_path(root, PROGRESS_PATH_MAX_CHARS)
+                ));
+            }
+            InspectProgressEvent::RootFinished {
+                root_index,
+                root_count,
+                status,
+                logical_bytes,
+                files,
+                directories,
+                ..
+            } => {
+                bar.set_message(format!(
+                    "{} | root {}/{} | {} | {} | {}, {}",
+                    self.command_label,
+                    root_index.saturating_add(1),
+                    root_count,
+                    status.label(),
+                    format_bytes(logical_bytes),
+                    format_count(files, "file", "files"),
+                    format_count(directories, "dir", "dirs")
+                ));
+                bar.tick();
+            }
+            InspectProgressEvent::EntryStarted {
+                path, entry_index, ..
+            } => {
+                bar.set_message(format!(
+                    "{} | entry {} | scanning {}",
+                    self.command_label,
+                    entry_index.saturating_add(1),
+                    compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
+                ));
+            }
+            InspectProgressEvent::EntryMeasured {
+                path,
+                logical_bytes,
+                files,
+                directories,
+                ..
+            } => {
+                bar.set_message(format!(
+                    "{} | entry | {} | {} | {}, {}",
+                    self.command_label,
+                    compact_progress_path(path, PROGRESS_PATH_MAX_CHARS),
+                    format_bytes(logical_bytes),
+                    format_count(files, "file", "files"),
+                    format_count(directories, "dir", "dirs")
+                ));
+                bar.tick();
+            }
+            InspectProgressEvent::FileMeasured {
+                files_scanned,
+                bytes_scanned,
+                ..
+            } => {
+                if self.detail.includes_file_events() && self.human_file_progress.should_refresh() {
+                    bar.set_message(format!(
+                        "{} | {} | {} | {}, {}",
+                        self.command_label,
+                        format_count(files_scanned, "file", "files"),
+                        format_bytes(bytes_scanned),
+                        format_file_rate(files_scanned, self.current_started_at.elapsed()),
+                        format_byte_rate(bytes_scanned, self.current_started_at.elapsed())
+                    ));
+                }
+            }
+            InspectProgressEvent::TraversalProgress {
+                counter,
+                logical_bytes,
+                files,
+                directories,
+                ..
+            } => {
+                bar.set_message(format!(
+                    "{} | {} | {} | {}, {}",
+                    self.command_label,
+                    counter.label(),
+                    format_bytes(logical_bytes),
+                    format_count(files, "file", "files"),
+                    format_count(directories, "dir", "dirs")
+                ));
+            }
+            InspectProgressEvent::BackendFallback {
+                backend, reason, ..
+            } => {
+                bar.set_message(format!(
+                    "{} | fallback {} | {}",
+                    self.command_label,
+                    backend.label(),
+                    reason
+                ));
+                bar.tick();
+            }
+            InspectProgressEvent::BackendStageStarted { backend, stage, .. } => {
+                bar.set_message(format!("mft | {} | {}", backend.label(), stage));
+            }
+            InspectProgressEvent::BackendStageFinished { backend, stage, .. } => {
+                bar.set_message(format!("mft | {} | {} done", backend.label(), stage));
+                bar.tick();
+            }
+            InspectProgressEvent::BackendMetric {
+                backend,
+                metric,
+                value,
+                ..
+            } => {
+                bar.set_message(format!("mft | {} | {metric} | {value}", backend.label()));
+            }
+            InspectProgressEvent::CacheEvent {
+                event,
+                path,
+                estimated_bytes,
+                reason,
+            } => {
+                let detail = estimated_bytes
+                    .map(format_bytes)
+                    .or_else(|| reason.map(str::to_string))
+                    .unwrap_or_else(|| "ok".to_string());
+                bar.set_message(format!(
+                    "{} | cache {} | {} | {}",
+                    self.command_label,
+                    event.label(),
+                    compact_progress_path(path, PROGRESS_PATH_MAX_CHARS),
+                    detail
+                ));
+                bar.tick();
+            }
+            InspectProgressEvent::Finalizing {
+                roots,
+                logical_bytes,
+                files,
+                directories,
+            } => {
+                bar.set_message(format!(
+                    "{} | finalizing | {} | {} | {}, {}",
+                    self.command_label,
+                    format_count(roots as u64, "root", "roots"),
+                    format_bytes(logical_bytes),
+                    format_count(files, "file", "files"),
+                    format_count(directories, "dir", "dirs")
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn finish(&self) {
+        if let Some(bar) = &self.bar {
+            bar.finish_and_clear();
+        }
+    }
+
+    fn into_event_writer(self) -> Option<NdjsonEventWriter> {
+        self.event_writer
+    }
+
+    fn should_emit_machine_event(&self, event: InspectProgressEvent<'_>) -> bool {
+        !matches!(event, InspectProgressEvent::FileMeasured { .. })
+            || self.detail.includes_file_events()
+    }
+}
+
+fn progress_output_error(err: anyhow::Error) -> RebeccaError {
+    RebeccaError::Io(std::io::Error::other(err.to_string()))
+}
+
+fn finish_inspect_stream_with_error(
+    event_writer: Option<NdjsonEventWriter>,
+    err: anyhow::Error,
+) -> Result<()> {
+    if let Some(mut writer) = event_writer {
+        writer.emit_error(&err)?;
+        return Err(MachineErrorRendered.into());
+    }
+
+    Err(err)
+}
+
+fn finish_inspect_stream_with_cancellation(
+    event_writer: Option<NdjsonEventWriter>,
+    message: &str,
+) -> Result<()> {
+    if let Some(mut writer) = event_writer {
+        writer.emit_cancelled(message)?;
+    } else {
+        println!("{message}");
+    }
+
+    Ok(())
+}
+
 pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRuntime) -> Result<()> {
-    let _progress_enabled = options.output_mode.is_human() && !options.no_progress;
+    let contract = CliApiContract::v1("inspect space", "inspect-space");
     let runtime_config = load_runtime_config()?;
     let roots = resolve_space_roots(options.roots)?;
     let mut request = SpaceInsightRequest::new(roots)
@@ -131,9 +399,42 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
         ));
     }
 
-    let report = inspect_space_core(&request, runtime.cancellation())?;
+    let mut progress = InspectProgressReporter::new(
+        "space",
+        options.output_mode.is_human() && !options.no_progress,
+        options.progress_detail,
+        options
+            .output_mode
+            .is_ndjson()
+            .then(|| NdjsonEventWriter::with_contract(contract)),
+    );
+    progress.started()?;
+    let report_result = inspect_space_core(&request, runtime.cancellation(), |event| {
+        progress.on_event(event)
+    });
+    progress.finish();
+    let report = match report_result {
+        Ok(report) => report,
+        Err(err) => {
+            let event_writer = progress.into_event_writer();
+            if matches!(&err, RebeccaError::OperationCancelled(_)) {
+                return finish_inspect_stream_with_cancellation(
+                    event_writer,
+                    "Space inspection cancelled.",
+                );
+            }
+            return finish_inspect_stream_with_error(event_writer, err.into());
+        }
+    };
+    if options.output_mode.is_ndjson() {
+        let mut writer = progress
+            .into_event_writer()
+            .unwrap_or_else(|| NdjsonEventWriter::with_contract(contract));
+        writer.emit_completed(contract.payload_kind, &report)?;
+        return Ok(());
+    }
     print_command_success_with_contract(
-        CliApiContract::v1("inspect space", "inspect-space"),
+        contract,
         options.output_mode,
         || &report,
         || render::inspect::print_space_report(&report),
@@ -141,6 +442,7 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
 }
 
 pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime) -> Result<()> {
+    let contract = CliApiContract::v1("inspect map", "inspect-map");
     if !options.table_row_kinds.is_empty() {
         ensure!(
             options.table_format.is_some(),
@@ -187,17 +489,45 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
             request.with_ntfs_mft_manifest_cache_root(runtime_config.app_paths.cache_dir.clone());
     }
 
-    let mut report = inspect_map_core(&request, runtime.cancellation())?;
+    let mut progress = InspectProgressReporter::new(
+        "map",
+        options.output_mode.is_human() && !options.no_progress && options.table_format.is_none(),
+        options.progress_detail,
+        options
+            .output_mode
+            .is_ndjson()
+            .then(|| NdjsonEventWriter::with_contract(contract)),
+    );
+    progress.started()?;
+    let report_result = inspect_map_core(&request, runtime.cancellation(), |event| {
+        progress.on_event(event)
+    });
+    progress.finish();
+    let mut report = match report_result {
+        Ok(report) => report,
+        Err(err) => {
+            let event_writer = progress.into_event_writer();
+            if matches!(&err, RebeccaError::OperationCancelled(_)) {
+                return finish_inspect_stream_with_cancellation(
+                    event_writer,
+                    "Disk map inspection cancelled.",
+                );
+            }
+            return finish_inspect_stream_with_error(event_writer, err.into());
+        }
+    };
     if cleanup_advice_enabled {
         let runtime_config = runtime_config
             .as_ref()
             .expect("runtime config is loaded when cleanup advice is enabled");
-        annotate_map_report_with_cleanup_advice(
+        if let Err(err) = annotate_map_report_with_cleanup_advice(
             &mut report,
             runtime_config,
             options.advice_status,
             runtime.cancellation(),
-        )?;
+        ) {
+            return finish_inspect_stream_with_error(progress.into_event_writer(), err);
+        }
     }
     if let Some(table_format) = options.table_format {
         return print_map_report_table(
@@ -208,9 +538,13 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
         );
     }
 
-    let contract = CliApiContract::v1("inspect map", "inspect-map");
     match options.output_mode {
-        OutputMode::Ndjson => print_map_report_ndjson(contract, &report),
+        OutputMode::Ndjson => {
+            let writer = progress
+                .into_event_writer()
+                .unwrap_or_else(|| NdjsonEventWriter::with_contract(contract));
+            print_map_report_ndjson(writer, contract, &report)
+        }
         _ => print_command_success_with_contract(
             contract,
             options.output_mode,
@@ -437,9 +771,11 @@ struct InspectMapGroupEvent<'a> {
     group: &'a DiskMapGroup,
 }
 
-fn print_map_report_ndjson(contract: CliApiContract, report: &DiskMapReport) -> Result<()> {
-    let mut writer = NdjsonEventWriter::with_contract(contract);
-
+fn print_map_report_ndjson(
+    mut writer: NdjsonEventWriter,
+    contract: CliApiContract,
+    report: &DiskMapReport,
+) -> Result<()> {
     for (index, entry) in report.top_entries.iter().enumerate() {
         writer.emit_payload(
             "map-entry",

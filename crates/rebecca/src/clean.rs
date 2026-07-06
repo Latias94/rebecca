@@ -1,9 +1,8 @@
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::environment::SystemEnvironment;
 use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
@@ -23,11 +22,13 @@ use crate::output::{
     HumanPlanRenderer, MachineErrorRendered, NdjsonEventWriter, WorkflowOutputContract,
     WorkflowSuccessRenderer, format_bytes,
 };
+use crate::progress::{
+    HumanProgressThrottle, PROGRESS_PATH_MAX_CHARS, compact_progress_path, format_byte_rate,
+    format_file_rate, stderr_spinner,
+};
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
 use crate::{info, output, render};
-
-const PROGRESS_PATH_MAX_CHARS: usize = 72;
 
 #[derive(Debug)]
 pub struct CleanOptions {
@@ -324,20 +325,14 @@ struct PlanProgressReporter {
     scanned_targets: u64,
     planned_bytes: u64,
     current_target_started_at: Instant,
-    human_file_progress: HumanFileProgressThrottle,
+    human_file_progress: HumanProgressThrottle,
     scan_cache_summary: ScanCacheProgressSummary,
 }
 
 impl PlanProgressReporter {
     fn new(enabled: bool, detail: ProgressDetail, event_writer: Option<NdjsonEventWriter>) -> Self {
         let now = Instant::now();
-        let bar = (enabled && std::io::stderr().is_terminal()).then(|| {
-            let bar = ProgressBar::new_spinner();
-            apply_progress_style(&bar);
-            bar.enable_steady_tick(Duration::from_millis(120));
-            bar.set_message("plan | building cleanup plan");
-            bar
-        });
+        let bar = stderr_spinner(enabled, "plan | building cleanup plan");
 
         Self {
             bar,
@@ -347,7 +342,7 @@ impl PlanProgressReporter {
             scanned_targets: 0,
             planned_bytes: 0,
             current_target_started_at: now,
-            human_file_progress: HumanFileProgressThrottle::new(),
+            human_file_progress: HumanProgressThrottle::new(),
             scan_cache_summary: ScanCacheProgressSummary::default(),
         }
     }
@@ -504,12 +499,6 @@ impl PlanProgressReporter {
     }
 }
 
-fn apply_progress_style(bar: &ProgressBar) {
-    if let Ok(style) = ProgressStyle::with_template("{spinner} {msg}") {
-        bar.set_style(style.tick_strings(&["-", "\\", "|", "/"]));
-    }
-}
-
 fn target_scanning_message(next_target: u64, rule_id: &str, path: &Path) -> String {
     format!(
         "plan | target {next_target} | scanning {rule_id} | {}",
@@ -607,85 +596,9 @@ fn scan_cache_counts(summary: ScanCacheProgressSummary) -> String {
     )
 }
 
-fn compact_progress_path(path: &Path, max_chars: usize) -> String {
-    compact_progress_text(&path.display().to_string(), max_chars)
-}
-
-fn compact_progress_text(text: &str, max_chars: usize) -> String {
-    let char_count = text.chars().count();
-    if char_count <= max_chars {
-        return text.to_string();
-    }
-
-    if max_chars <= 3 {
-        return ".".repeat(max_chars);
-    }
-
-    let tail_len = max_chars - 3;
-    let tail = text
-        .chars()
-        .rev()
-        .take(tail_len)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
-    format!("...{tail}")
-}
-
-fn format_file_rate(files_scanned: u64, elapsed: Duration) -> String {
-    let seconds = elapsed.as_secs_f64();
-    if files_scanned == 0 || seconds <= f64::EPSILON {
-        return "0.0 files/s".to_string();
-    }
-
-    format!("{:.1} files/s", files_scanned as f64 / seconds)
-}
-
-fn format_byte_rate(bytes_scanned: u64, elapsed: Duration) -> String {
-    let seconds = elapsed.as_secs_f64();
-    if bytes_scanned == 0 || seconds <= f64::EPSILON {
-        return "0 B/s".to_string();
-    }
-
-    let bytes_per_second = (bytes_scanned as f64 / seconds).round() as u64;
-    format!("{}/s", format_bytes(bytes_per_second))
-}
-
 impl ProgressDetail {
     fn should_emit_machine_event(self, event: PlanProgressEvent<'_>) -> bool {
         !matches!(event, PlanProgressEvent::FileMeasured { .. }) || self.includes_file_events()
-    }
-}
-
-#[derive(Debug)]
-struct HumanFileProgressThrottle {
-    events_since_refresh: u64,
-    last_refresh: Instant,
-}
-
-impl HumanFileProgressThrottle {
-    const FILE_INTERVAL: u64 = 64;
-    const TIME_INTERVAL: Duration = Duration::from_millis(250);
-
-    fn new() -> Self {
-        Self {
-            events_since_refresh: 0,
-            last_refresh: Instant::now(),
-        }
-    }
-
-    fn should_refresh(&mut self) -> bool {
-        self.events_since_refresh = self.events_since_refresh.saturating_add(1);
-        if self.events_since_refresh < Self::FILE_INTERVAL
-            && self.last_refresh.elapsed() < Self::TIME_INTERVAL
-        {
-            return false;
-        }
-
-        self.events_since_refresh = 0;
-        self.last_refresh = Instant::now();
-        true
     }
 }
 
@@ -774,7 +687,7 @@ mod tests {
 
     #[test]
     fn compact_progress_text_handles_tiny_widths() {
-        assert_eq!(compact_progress_text("abcdef", 2), "..");
-        assert_eq!(compact_progress_text("abcdef", 4), "...f");
+        assert_eq!(crate::progress::compact_progress_text("abcdef", 2), "..");
+        assert_eq!(crate::progress::compact_progress_text("abcdef", 4), "...f");
     }
 }

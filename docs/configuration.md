@@ -191,6 +191,9 @@ Set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` when profiling the experimental backend.
 Timeout fallback reasons then include the active build stage and completed
 timings, and successful experimental estimates include an opt-in
 `mft-index-build-timing` caveat with stage timings.
+Interactive `inspect map` runs surface MFT build stage and metric progress on
+stderr, and `inspect map --format ndjson` emits the same observations as
+bounded `inspect-progress` events.
 
 Set `REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE=1` only for diagnostic
 `inspect map --scan-backend windows-ntfs-mft-experimental` runs that should use

@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::cleanup_advice::CleanupAdvice;
 use crate::error::{RebeccaError, Result, ScanFailureKind};
 use crate::plan::{EstimateProvenance, EstimateSource};
+use crate::progress::{
+    InspectProgressCounterKind, InspectProgressEvent, InspectProgressOptions, InspectProgressResult,
+    InspectProgressRootStatus, PowerOfTwoProgressSampler,
+};
 use crate::safety::is_reparse_like;
 use crate::scan::{
     ScanBackendKind, ScanCancellationToken, ScanEngine, ScanEstimateCaveat, ScanEstimateConfidence,
@@ -426,22 +430,50 @@ pub fn inspect_map(
     request: &DiskMapRequest,
     cancellation: &ScanCancellationToken,
 ) -> Result<DiskMapReport> {
+    inspect_map_with_progress(request, cancellation, |_| Ok(()))
+}
+
+pub fn inspect_map_with_progress<F>(
+    request: &DiskMapRequest,
+    cancellation: &ScanCancellationToken,
+    mut progress: F,
+) -> Result<DiskMapReport>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     let mut state = DiskMapInspectionState::new(request);
     let mut unique_files = DiskMapUniqueFiles::default();
     let scan_engine = scan_engine_for_disk_map(request);
+    let root_count = request.roots.len();
 
-    for root in &request.roots {
+    for (root_index, root) in request.roots.iter().enumerate() {
         check_cancelled(cancellation)?;
+        progress(InspectProgressEvent::RootStarted {
+            root_index,
+            root_count,
+            root,
+            backend: request.scan_backend,
+        })?;
         unique_files.merge(inspect_root(
             root,
+            root_index,
+            root_count,
             request,
             cancellation,
             &scan_engine,
             &mut state,
+            &mut progress,
         )?);
     }
 
-    Ok(state.finish(unique_files))
+    let report = state.finish(unique_files);
+    progress(InspectProgressEvent::Finalizing {
+        roots: report.roots.len(),
+        logical_bytes: report.totals.logical_bytes,
+        files: report.totals.files,
+        directories: report.totals.directories,
+    })?;
+    Ok(report)
 }
 
 fn scan_engine_for_disk_map(request: &DiskMapRequest) -> ScanEngine {
@@ -602,19 +634,24 @@ struct DiskMapDiagnosticSample {
     diagnostic: DiskMapDiagnostic,
 }
 
-struct DiskMapRootInspection<'a, W>
+struct DiskMapRootInspection<'a, W, F>
 where
     W: DiskMapWalker,
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
 {
     request: &'a DiskMapRequest,
     cancellation: &'a ScanCancellationToken,
     state: &'a mut DiskMapInspectionState,
     walker: &'a W,
+    root_index: usize,
+    root_count: usize,
+    progress: &'a mut F,
 }
 
-impl<'a, W> DiskMapRootInspection<'a, W>
+impl<'a, W, F> DiskMapRootInspection<'a, W, F>
 where
     W: DiskMapWalker,
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
 {
     fn inspect(
         &mut self,
@@ -623,6 +660,11 @@ where
         fallback_reason: Option<String>,
     ) -> Result<DiskMapUniqueFiles> {
         if let Some(reason) = &fallback_reason {
+            (self.progress)(InspectProgressEvent::BackendFallback {
+                root,
+                backend: self.request.scan_backend,
+                reason,
+            })?;
             self.state.diagnostics.push_priority(DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::Fallback,
                 root.to_path_buf(),
@@ -641,6 +683,11 @@ where
                     provenance,
                     &mut self.state.diagnostics,
                 );
+                self.emit_root_finished(
+                    root,
+                    InspectProgressRootStatus::Skipped,
+                    DiskMapMetrics::default(),
+                )?;
                 return Ok(DiskMapUniqueFiles::default());
             }
             Err(err) => {
@@ -652,6 +699,11 @@ where
                     provenance,
                     &mut self.state.diagnostics,
                 );
+                self.emit_root_finished(
+                    root,
+                    InspectProgressRootStatus::Skipped,
+                    DiskMapMetrics::default(),
+                )?;
                 return Ok(DiskMapUniqueFiles::default());
             }
         };
@@ -665,6 +717,11 @@ where
                 provenance,
                 &mut self.state.diagnostics,
             );
+            self.emit_root_finished(
+                root,
+                InspectProgressRootStatus::Skipped,
+                DiskMapMetrics::default(),
+            )?;
             return Ok(DiskMapUniqueFiles::default());
         }
 
@@ -687,6 +744,14 @@ where
                     self.walker.metadata_modified_time(&metadata),
                     semantics,
                 );
+                (self.progress)(InspectProgressEvent::FileMeasured {
+                    root,
+                    target_path: root,
+                    path: root,
+                    file_size: result.metrics.logical_bytes,
+                    files_scanned: 1,
+                    bytes_scanned: result.metrics.logical_bytes,
+                })?;
                 let entry_provenance = estimate_provenance_with_entry_semantics(
                     &provenance,
                     semantics,
@@ -713,6 +778,8 @@ where
                 walker: self.walker,
                 semantic_caveats: &mut semantic_caveats,
                 groups: &mut self.state.groups,
+                progress: self.progress,
+                progress_totals: DiskMapTraversalProgress::default(),
             })
             .inspect_root_directory()
             {
@@ -743,7 +810,29 @@ where
             estimate_provenance: provenance,
             reason: None,
         });
+        self.emit_root_finished(
+            root,
+            InspectProgressRootStatus::Scanned,
+            root_result.metrics,
+        )?;
         Ok(root_result.unique_files)
+    }
+
+    fn emit_root_finished(
+        &mut self,
+        root: &Path,
+        status: InspectProgressRootStatus,
+        metrics: DiskMapMetrics,
+    ) -> Result<()> {
+        (self.progress)(InspectProgressEvent::RootFinished {
+            root_index: self.root_index,
+            root_count: self.root_count,
+            root,
+            status,
+            logical_bytes: metrics.logical_bytes,
+            files: metrics.files,
+            directories: metrics.directories,
+        })
     }
 }
 
@@ -1485,9 +1574,10 @@ impl DiskMapWalker for WindowsNativeDiskMapWalker {
     }
 }
 
-struct DiskMapTraversal<'a, W>
+struct DiskMapTraversal<'a, W, F>
 where
     W: DiskMapWalker,
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
 {
     root: &'a Path,
     cancellation: &'a ScanCancellationToken,
@@ -1498,11 +1588,14 @@ where
     walker: &'a W,
     semantic_caveats: &'a mut DiskMapSemanticCaveats,
     groups: &'a mut DiskMapGroupCollector,
+    progress: &'a mut F,
+    progress_totals: DiskMapTraversalProgress,
 }
 
-impl<'a, W> DiskMapTraversal<'a, W>
+impl<'a, W, F> DiskMapTraversal<'a, W, F>
 where
     W: DiskMapWalker,
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
 {
     fn inspect_root_directory(&mut self) -> Result<DiskMapTraversalResult> {
         let child_entries = self.read_sorted_child_entries(self.root)?;
@@ -1578,6 +1671,7 @@ where
                     self.walker.metadata_modified_time(&metadata),
                     semantics,
                 );
+                self.record_file_progress(&path, result.metrics)?;
                 let entry_provenance = estimate_provenance_with_entry_semantics(
                     self.estimate_provenance,
                     semantics,
@@ -1636,6 +1730,7 @@ where
             },
             unique_files: DiskMapUniqueFiles::default(),
         };
+        self.record_directory_progress()?;
         for child in child_entries {
             check_cancelled(self.cancellation)?;
             let child_result = self.inspect_node(child, depth.saturating_add(1))?;
@@ -1651,6 +1746,57 @@ where
             self.estimate_provenance,
         );
         Ok(result)
+    }
+
+    fn record_file_progress(&mut self, path: &Path, metrics: DiskMapMetrics) -> Result<()> {
+        self.progress_totals.metrics.files = self
+            .progress_totals
+            .metrics
+            .files
+            .saturating_add(metrics.files);
+        self.progress_totals.metrics.logical_bytes = self
+            .progress_totals
+            .metrics
+            .logical_bytes
+            .saturating_add(metrics.logical_bytes);
+
+        (self.progress)(InspectProgressEvent::FileMeasured {
+            root: self.root,
+            target_path: self.root,
+            path,
+            file_size: metrics.logical_bytes,
+            files_scanned: self.progress_totals.metrics.files,
+            bytes_scanned: self.progress_totals.metrics.logical_bytes,
+        })?;
+        self.emit_sampled_counter(InspectProgressCounterKind::Files)?;
+        self.emit_sampled_counter(InspectProgressCounterKind::Bytes)
+    }
+
+    fn record_directory_progress(&mut self) -> Result<()> {
+        self.progress_totals.metrics.directories =
+            self.progress_totals.metrics.directories.saturating_add(1);
+        self.emit_sampled_counter(InspectProgressCounterKind::Directories)
+    }
+
+    fn emit_sampled_counter(&mut self, counter: InspectProgressCounterKind) -> Result<()> {
+        let value = match counter {
+            InspectProgressCounterKind::Files => self.progress_totals.metrics.files,
+            InspectProgressCounterKind::Directories => self.progress_totals.metrics.directories,
+            InspectProgressCounterKind::Bytes => self.progress_totals.metrics.logical_bytes,
+            InspectProgressCounterKind::Records => 0,
+        };
+        if value == 0 || !self.progress_totals.sampler.should_emit(counter, value) {
+            return Ok(());
+        }
+
+        (self.progress)(InspectProgressEvent::TraversalProgress {
+            root: self.root,
+            counter,
+            value,
+            logical_bytes: self.progress_totals.metrics.logical_bytes,
+            files: self.progress_totals.metrics.files,
+            directories: self.progress_totals.metrics.directories,
+        })
     }
 
     fn read_sorted_child_entries(
@@ -1698,16 +1844,36 @@ where
     }
 }
 
-fn inspect_root(
+#[derive(Debug, Clone, Default)]
+struct DiskMapTraversalProgress {
+    metrics: DiskMapMetrics,
+    sampler: PowerOfTwoProgressSampler,
+}
+
+fn inspect_root<F>(
     root: &Path,
+    root_index: usize,
+    root_count: usize,
     request: &DiskMapRequest,
     cancellation: &ScanCancellationToken,
     scan_engine: &ScanEngine,
     state: &mut DiskMapInspectionState,
-) -> Result<DiskMapUniqueFiles> {
+    progress: &mut F,
+) -> Result<DiskMapUniqueFiles>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     let walker = FsPortableDiskMapWalker;
     if request.scan_backend == ScanBackendKind::WindowsNative {
-        match inspect_windows_native_root(root, request, cancellation, state) {
+        match inspect_windows_native_root(
+            root,
+            root_index,
+            root_count,
+            request,
+            cancellation,
+            state,
+            progress,
+        ) {
             Ok(unique_files) => return Ok(unique_files),
             Err(err) if disk_map_backend_error_can_fallback(&err) => {
                 let fallback_reason =
@@ -1717,6 +1883,9 @@ fn inspect_root(
                     cancellation,
                     state,
                     walker: &walker,
+                    root_index,
+                    root_count,
+                    progress,
                 }
                 .inspect(
                     root,
@@ -1729,14 +1898,24 @@ fn inspect_root(
     }
 
     if request.scan_backend == ScanBackendKind::WindowsNtfsMftExperimental {
-        match scan_engine.inspect_windows_ntfs_mft_disk_map(
+        match scan_engine.inspect_windows_ntfs_mft_disk_map_with_progress(
             root,
             state.backend_options(request),
             cancellation,
+            progress,
         ) {
             Ok(root_map) => {
                 let unique_files =
                     DiskMapUniqueFiles::unavailable_for_files(root_map.metrics.files);
+                progress(InspectProgressEvent::RootFinished {
+                    root_index,
+                    root_count,
+                    root,
+                    status: InspectProgressRootStatus::Scanned,
+                    logical_bytes: root_map.metrics.logical_bytes,
+                    files: root_map.metrics.files,
+                    directories: root_map.metrics.directories,
+                })?;
                 push_backend_root(root, root_map, state);
                 return Ok(unique_files);
             }
@@ -1749,6 +1928,9 @@ fn inspect_root(
                     cancellation,
                     state,
                     walker: &walker,
+                    root_index,
+                    root_count,
+                    progress,
                 }
                 .inspect(
                     root,
@@ -1771,6 +1953,9 @@ fn inspect_root(
         cancellation,
         state,
         walker: &walker,
+        root_index,
+        root_count,
+        progress,
     }
     .inspect(
         root,
@@ -1780,12 +1965,18 @@ fn inspect_root(
 }
 
 #[cfg(windows)]
-fn inspect_windows_native_root(
+fn inspect_windows_native_root<F>(
     root: &Path,
+    root_index: usize,
+    root_count: usize,
     request: &DiskMapRequest,
     cancellation: &ScanCancellationToken,
     state: &mut DiskMapInspectionState,
-) -> Result<DiskMapUniqueFiles> {
+    progress: &mut F,
+) -> Result<DiskMapUniqueFiles>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     if let Some(reason) = crate::scan::windows_native::unsupported_path_reason(root) {
         return Err(RebeccaError::PlatformUnavailable(reason));
     }
@@ -1796,6 +1987,9 @@ fn inspect_windows_native_root(
         cancellation,
         state,
         walker: &walker,
+        root_index,
+        root_count,
+        progress,
     }
     .inspect(
         root,
@@ -1808,12 +2002,18 @@ fn inspect_windows_native_root(
 }
 
 #[cfg(not(windows))]
-fn inspect_windows_native_root(
+fn inspect_windows_native_root<F>(
     _root: &Path,
+    _root_index: usize,
+    _root_count: usize,
     _request: &DiskMapRequest,
     _cancellation: &ScanCancellationToken,
     _state: &mut DiskMapInspectionState,
-) -> Result<DiskMapUniqueFiles> {
+    _progress: &mut F,
+) -> Result<DiskMapUniqueFiles>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     Err(RebeccaError::PlatformUnavailable(format!(
         "{} disk-map inventory is only available on Windows",
         ScanBackendKind::WindowsNative.label()
@@ -2106,23 +2306,54 @@ fn inspect_map_with_walker_for_test<W>(
 where
     W: DiskMapWalker,
 {
+    let mut noop_progress = |_event: InspectProgressEvent<'_>| Ok(());
+    inspect_map_with_walker_and_progress_for_test(request, cancellation, walker, &mut noop_progress)
+}
+
+#[cfg(test)]
+fn inspect_map_with_walker_and_progress_for_test<W, F>(
+    request: &DiskMapRequest,
+    cancellation: &ScanCancellationToken,
+    walker: &W,
+    progress: &mut F,
+) -> Result<DiskMapReport>
+where
+    W: DiskMapWalker,
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     let mut state = DiskMapInspectionState::new(request);
     let mut unique_files = DiskMapUniqueFiles::default();
 
-    for root in &request.roots {
+    for (root_index, root) in request.roots.iter().enumerate() {
         check_cancelled(cancellation)?;
+        progress(InspectProgressEvent::RootStarted {
+            root_index,
+            root_count: request.roots.len(),
+            root,
+            backend: request.scan_backend,
+        })?;
         unique_files.merge(
             DiskMapRootInspection {
                 request,
                 cancellation,
                 state: &mut state,
                 walker,
+                root_index,
+                root_count: request.roots.len(),
+                progress,
             }
             .inspect(root, portable_estimate_provenance(None), None)?,
         );
     }
 
-    Ok(state.finish(unique_files))
+    let report = state.finish(unique_files);
+    progress(InspectProgressEvent::Finalizing {
+        roots: report.roots.len(),
+        logical_bytes: report.totals.logical_bytes,
+        files: report.totals.files,
+        directories: report.totals.directories,
+    })?;
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -2361,6 +2592,46 @@ mod tests {
                 )),
             })
         }
+    }
+
+    #[test]
+    fn disk_map_progress_sink_preserves_report() {
+        let root = PathBuf::from("C:\\root");
+        let file = root.join("readable.bin");
+        let walker = FakeDiskMapWalker::default()
+            .with_directory(&root, [FakeEntry::Path(file.clone())])
+            .with_file(&file, 7);
+        let request = DiskMapRequest::new(vec![root]).with_top_limit(10);
+        let cancellation = ScanCancellationToken::new();
+        let expected = inspect_map_with_walker_for_test(&request, &cancellation, &walker).unwrap();
+        let mut event_kinds = Vec::new();
+        let mut progress = |event: InspectProgressEvent<'_>| -> InspectProgressResult {
+            event_kinds.push(match event {
+                InspectProgressEvent::RootStarted { .. } => "root-started",
+                InspectProgressEvent::RootFinished { .. } => "root-finished",
+                InspectProgressEvent::FileMeasured { .. } => "file-measured",
+                InspectProgressEvent::TraversalProgress { .. } => "traversal-progress",
+                InspectProgressEvent::Finalizing { .. } => "finalizing",
+                _ => "other",
+            });
+            Ok(())
+        };
+
+        let observed = inspect_map_with_walker_and_progress_for_test(
+            &request,
+            &cancellation,
+            &walker,
+            &mut progress,
+        )
+        .unwrap();
+        drop(progress);
+
+        assert_eq!(observed, expected);
+        assert!(event_kinds.contains(&"root-started"));
+        assert!(event_kinds.contains(&"file-measured"));
+        assert!(event_kinds.contains(&"traversal-progress"));
+        assert!(event_kinds.contains(&"root-finished"));
+        assert!(event_kinds.contains(&"finalizing"));
     }
 
     #[test]

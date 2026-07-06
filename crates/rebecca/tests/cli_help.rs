@@ -55,6 +55,8 @@ fn inspect_map_help_preserves_human_output_controls() {
     let stdout = help_stdout(&["inspect", "map", "--help"]);
 
     assert!(stdout.contains("Inspect ranked disk usage below one or more roots"));
+    assert!(stdout.contains("--no-progress"));
+    assert!(stdout.contains("--progress-detail <PROGRESS_DETAIL>"));
     assert!(stdout.contains("--full-path"));
     assert!(stdout.contains("Print full paths in human ranked output"));
     assert!(stdout.contains("--no-bars"));
@@ -64,6 +66,15 @@ fn inspect_map_help_preserves_human_output_controls() {
     assert!(stdout.contains("--group-by <GROUP_KINDS>"));
     assert!(stdout.contains("--table <FORMAT>"));
     assert!(stdout.contains("--cleanup-advice"));
+}
+
+#[test]
+fn inspect_space_help_shows_progress_controls() {
+    let stdout = help_stdout(&["inspect", "space", "--help"]);
+
+    assert!(stdout.contains("Inspect top-level disk usage below one or more roots"));
+    assert!(stdout.contains("--no-progress"));
+    assert!(stdout.contains("--progress-detail <PROGRESS_DETAIL>"));
 }
 
 #[test]

@@ -27,6 +27,7 @@ use crate::error::Result;
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
+use crate::progress::{InspectProgressEvent, InspectProgressResult};
 use crate::safety::{PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path};
 
 static SCAN_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
@@ -95,13 +96,17 @@ impl ScanEngine {
         self.measure_scan_with_progress(path, &ScanCancellationToken::new(), |_| {})
     }
 
-    pub(crate) fn inspect_windows_ntfs_mft_disk_map(
+    pub(crate) fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
         &self,
         path: &Path,
         options: DiskMapBackendOptions,
         cancellation: &ScanCancellationToken,
-    ) -> Result<DiskMapBackendRoot> {
-        inspect_windows_ntfs_mft_disk_map(self, path, options, cancellation)
+        progress: &mut F,
+    ) -> Result<DiskMapBackendRoot>
+    where
+        F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+    {
+        inspect_windows_ntfs_mft_disk_map_with_progress(self, path, options, cancellation, progress)
     }
 
     pub fn measure_path_with_progress<F>(
@@ -334,12 +339,16 @@ where
 }
 
 #[cfg(windows)]
-fn inspect_windows_ntfs_mft_disk_map(
+fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
     engine: &ScanEngine,
     path: &Path,
     options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
-) -> Result<DiskMapBackendRoot> {
+    progress: &mut F,
+) -> Result<DiskMapBackendRoot>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     #[cfg(debug_assertions)]
     if std::env::var_os(TEST_DISABLE_LIVE_NTFS_MFT_ENV)
         .is_some_and(|value| value != std::ffi::OsStr::new("0"))
@@ -349,7 +358,13 @@ fn inspect_windows_ntfs_mft_disk_map(
         )));
     }
 
-    windows_ntfs_mft::inspect_disk_map(&engine.context.ntfs_mft_cache, path, options, cancellation)
+    windows_ntfs_mft::inspect_disk_map_with_progress(
+        &engine.context.ntfs_mft_cache,
+        path,
+        options,
+        cancellation,
+        progress,
+    )
 }
 
 #[cfg(not(windows))]
@@ -367,12 +382,16 @@ where
 }
 
 #[cfg(not(windows))]
-fn inspect_windows_ntfs_mft_disk_map(
+fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
     _engine: &ScanEngine,
     _path: &Path,
     _options: DiskMapBackendOptions,
     _cancellation: &ScanCancellationToken,
-) -> Result<DiskMapBackendRoot> {
+    _progress: &mut F,
+) -> Result<DiskMapBackendRoot>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     Err(crate::error::RebeccaError::PlatformUnavailable(
         "windows-ntfs-mft-experimental disk-map inventory requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
     ))

@@ -21,6 +21,19 @@ fn write_rust_project(dir: impl AsRef<Path>) {
     write_fixture_file(dir.as_ref().join("Cargo.toml"), b"[package]");
 }
 
+fn ndjson_events(stdout: &[u8]) -> Vec<serde_json::Value> {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect()
+}
+
+fn assert_monotonic_sequences(events: &[serde_json::Value]) {
+    assert!(events.windows(2).all(|pair| {
+        pair[0]["sequence"].as_u64().unwrap() < pair[1]["sequence"].as_u64().unwrap()
+    }));
+}
+
 #[test]
 fn inspect_help_lists_space_and_artifacts_subcommands() {
     let output = common::command::rebecca()
@@ -1651,19 +1664,38 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
         common::support::stderr(&output)
     );
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let events = stdout
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(events.len(), 3);
+    let events = ndjson_events(&output.stdout);
+    assert!(
+        events.len() >= 6,
+        "expected lifecycle, progress, map rows, and completed events"
+    );
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert_monotonic_sequences(&events);
+    assert!(events.iter().all(|event| {
+        event["api_version"] == "rebecca.cli.v1" && event["command"] == "inspect map"
+    }));
+    assert!(events.iter().any(|event| {
+        event["event_kind"] == "inspect-progress"
+            && event["data"]["progress_kind"] == "root-started"
+    }));
+    assert!(events.iter().any(|event| {
+        event["event_kind"] == "inspect-progress"
+            && event["data"]["progress_kind"] == "backend-fallback"
+    }));
+    assert!(events.iter().any(|event| {
+        event["event_kind"] == "inspect-progress"
+            && event["data"]["progress_kind"] == "root-finished"
+    }));
 
-    let entry = &events[0];
+    let entry = events
+        .iter()
+        .find(|event| event["event_kind"] == "map-entry")
+        .expect("map-entry event");
     assert_eq!(entry["api_version"], "rebecca.cli.v1");
     assert_eq!(entry["event_kind"], "map-entry");
     assert_eq!(entry["command"], "inspect map");
     assert_eq!(entry["payload_kind"], "inspect-map-entry");
-    assert_eq!(entry["sequence"], 0);
     assert_eq!(entry["data"]["rank"], 1);
     assert_eq!(entry["data"]["entry"]["logical_bytes"], 3);
     assert_eq!(
@@ -1671,12 +1703,14 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
         "portable-recursive"
     );
 
-    let group = &events[1];
+    let group = events
+        .iter()
+        .find(|event| event["event_kind"] == "map-group")
+        .expect("map-group event");
     assert_eq!(group["api_version"], "rebecca.cli.v1");
     assert_eq!(group["event_kind"], "map-group");
     assert_eq!(group["command"], "inspect map");
     assert_eq!(group["payload_kind"], "inspect-map-group");
-    assert_eq!(group["sequence"], 1);
     assert_eq!(group["data"]["rank"], 1);
     assert_eq!(group["data"]["group"]["kind"], "extension");
     assert_eq!(group["data"]["group"]["key"], ".bin");
@@ -1687,7 +1721,6 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
     assert_eq!(completed["event_kind"], "completed");
     assert_eq!(completed["command"], "inspect map");
     assert_eq!(completed["payload_kind"], "inspect-map");
-    assert_eq!(completed["sequence"], 2);
     assert_eq!(completed["data"]["totals"]["logical_bytes"], 3);
     assert_eq!(completed["data"]["diagnostic_summary"]["total"], 1);
     assert_eq!(completed["data"]["diagnostic_summary"]["retained"], 0);
@@ -1736,23 +1769,25 @@ fn inspect_map_ndjson_advice_status_filter_implies_cleanup_advice() {
         common::support::stderr(&output)
     );
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let events = stdout
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(events.len(), 2);
-    assert_eq!(events[0]["event_kind"], "map-entry");
+    let events = ndjson_events(&output.stdout);
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert_monotonic_sequences(&events);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event_kind"] == "inspect-progress")
+    );
+    let entry = events
+        .iter()
+        .find(|event| event["event_kind"] == "map-entry")
+        .expect("map-entry event");
     assert_eq!(
-        PathBuf::from(
-            events[0]["data"]["entry"]["path"]
-                .as_str()
-                .expect("entry path")
-        ),
+        PathBuf::from(entry["data"]["entry"]["path"].as_str().expect("entry path")),
         target
     );
     assert_eq!(
-        events[0]["data"]["entry"]["cleanup_advice"]["status"],
+        entry["data"]["entry"]["cleanup_advice"]["status"],
         "maybe-cleanable"
     );
 
@@ -1764,7 +1799,7 @@ fn inspect_map_ndjson_advice_status_filter_implies_cleanup_advice() {
     );
     assert_eq!(
         completed["data"]["top_entries"][0]["cleanup_advice"],
-        events[0]["data"]["entry"]["cleanup_advice"]
+        entry["data"]["entry"]["cleanup_advice"]
     );
 }
 
@@ -1792,13 +1827,26 @@ fn inspect_space_ndjson_uses_v1_completed_event() {
         common::support::stderr(&output)
     );
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let events = stdout
-        .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(events.len(), 1);
-    let completed = events.first().unwrap();
+    let events = ndjson_events(&output.stdout);
+    assert!(
+        events.len() >= 4,
+        "expected lifecycle, inspect progress, and completed events"
+    );
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert_monotonic_sequences(&events);
+    assert!(events.iter().all(|event| {
+        event["api_version"] == "rebecca.cli.v1" && event["command"] == "inspect space"
+    }));
+    assert!(events.iter().any(|event| {
+        event["event_kind"] == "inspect-progress"
+            && event["data"]["progress_kind"] == "root-started"
+    }));
+    assert!(events.iter().any(|event| {
+        event["event_kind"] == "inspect-progress"
+            && event["data"]["progress_kind"] == "root-finished"
+    }));
+    let completed = events.last().unwrap();
     assert_eq!(completed["api_version"], "rebecca.cli.v1");
     assert_eq!(completed["event_kind"], "completed");
     assert_eq!(completed["command"], "inspect space");

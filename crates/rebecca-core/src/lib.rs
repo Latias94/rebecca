@@ -21,6 +21,7 @@ mod path_overlap;
 pub mod path_template;
 pub mod plan;
 pub mod planner;
+pub mod progress;
 pub mod project_artifacts;
 pub mod protection;
 pub mod safety;

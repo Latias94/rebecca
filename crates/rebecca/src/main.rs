@@ -14,6 +14,7 @@ mod history_view;
 mod info;
 mod inspect;
 mod output;
+mod progress;
 mod purge;
 mod purge_view;
 mod render;
@@ -165,6 +166,7 @@ fn run_inspect(
             inspect::InspectSpaceOptions {
                 output_mode: global_mode,
                 no_progress: args.no_progress,
+                progress_detail: args.progress_detail,
                 scan_cache: args.scan_cache,
                 scan_backend: args.scan_backend,
                 roots: args.roots,
@@ -176,6 +178,8 @@ fn run_inspect(
         InspectCommand::Map(args) => inspect::map_with_runtime(
             inspect::InspectMapOptions {
                 output_mode: global_mode,
+                no_progress: args.no_progress,
+                progress_detail: args.progress_detail,
                 scan_backend: args.scan_backend,
                 roots: args.roots,
                 top_limit: args.top_limit,

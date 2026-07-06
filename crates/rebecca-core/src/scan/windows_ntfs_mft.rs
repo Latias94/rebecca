@@ -48,6 +48,7 @@ use crate::disk_map::{
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{EstimateProvenance, EstimateSource};
+use crate::progress::{InspectProgressEvent, InspectProgressResult};
 use crate::safety::is_reparse_like;
 use crate::scan_cache::{ScanCacheUsnCheckpoint, ScanCacheUsnJournalState};
 
@@ -115,20 +116,38 @@ struct NtfsMftBuildMonitorState {
     active_stage: Option<(NtfsMftBuildStage, Instant)>,
     timings: BTreeMap<NtfsMftBuildStage, Duration>,
     metrics: BTreeMap<NtfsMftBuildMetric, u64>,
+    observer_error: Option<RebeccaError>,
 }
 
-#[derive(Debug)]
-struct NtfsMftBuildMonitor {
+#[derive(Debug, Clone, Copy)]
+enum NtfsMftBuildMonitorEvent {
+    StageStarted { stage: &'static str },
+    StageFinished { stage: &'static str },
+    Metric { metric: &'static str, value: u64 },
+}
+
+type NtfsMftBuildObserver<'a> = dyn FnMut(NtfsMftBuildMonitorEvent) -> Result<()> + 'a;
+
+struct NtfsMftBuildMonitor<'a> {
     budget: NtfsMftBuildBudget,
     state: RefCell<NtfsMftBuildMonitorState>,
     emit_timing_caveat: bool,
+    observer: Option<RefCell<&'a mut NtfsMftBuildObserver<'a>>>,
 }
 
-impl NtfsMftBuildMonitor {
+impl<'a> NtfsMftBuildMonitor<'a> {
     fn from_environment() -> Self {
         Self::new(
             live_ntfs_mft_index_timeout(),
             live_ntfs_mft_index_timings_enabled(),
+        )
+    }
+
+    fn from_environment_with_observer(observer: &'a mut NtfsMftBuildObserver<'a>) -> Self {
+        Self::new_with_observer(
+            live_ntfs_mft_index_timeout(),
+            live_ntfs_mft_index_timings_enabled(),
+            observer,
         )
     }
 
@@ -137,6 +156,20 @@ impl NtfsMftBuildMonitor {
             budget: NtfsMftBuildBudget::new(timeout),
             state: RefCell::new(NtfsMftBuildMonitorState::default()),
             emit_timing_caveat,
+            observer: None,
+        }
+    }
+
+    fn new_with_observer(
+        timeout: Option<Duration>,
+        emit_timing_caveat: bool,
+        observer: &'a mut NtfsMftBuildObserver<'a>,
+    ) -> Self {
+        Self {
+            budget: NtfsMftBuildBudget::new(timeout),
+            state: RefCell::new(NtfsMftBuildMonitorState::default()),
+            emit_timing_caveat,
+            observer: Some(RefCell::new(observer)),
         }
     }
 
@@ -190,6 +223,13 @@ impl NtfsMftBuildMonitor {
             let mut state = self.state.borrow_mut();
             state.active_stage.replace((stage, started_at))
         };
+        if let Err(err) = self.emit_event(NtfsMftBuildMonitorEvent::StageStarted {
+            stage: stage.label(),
+        }) {
+            let mut state = self.state.borrow_mut();
+            state.active_stage = previous_stage;
+            return Err(err);
+        }
         let result = operation();
         let elapsed = started_at.elapsed();
         let after_success = if result.is_ok() {
@@ -203,9 +243,14 @@ impl NtfsMftBuildMonitor {
             *total = total.saturating_add(elapsed);
             state.active_stage = previous_stage;
         }
+        let stage_finished = self.emit_event(NtfsMftBuildMonitorEvent::StageFinished {
+            stage: stage.label(),
+        });
         match result {
             Ok(value) => {
                 after_success?;
+                stage_finished?;
+                self.check_observer_error()?;
                 Ok(value)
             }
             Err(err) => Err(err),
@@ -214,6 +259,7 @@ impl NtfsMftBuildMonitor {
 
     fn check(&self, cancellation: &ScanCancellationToken) -> Result<()> {
         check_not_cancelled(cancellation)?;
+        self.check_observer_error()?;
         if !self.is_timed_out() {
             return Ok(());
         }
@@ -292,13 +338,37 @@ impl NtfsMftBuildMonitor {
         if value == 0 {
             return;
         }
-        let mut state = self.state.borrow_mut();
-        let total = state.metrics.entry(metric).or_default();
-        *total = total.saturating_add(value);
+        let value = {
+            let mut state = self.state.borrow_mut();
+            let total = state.metrics.entry(metric).or_default();
+            *total = total.saturating_add(value);
+            *total
+        };
+        if let Err(err) = self.emit_event(NtfsMftBuildMonitorEvent::Metric {
+            metric: metric.label(),
+            value,
+        }) {
+            self.state.borrow_mut().observer_error = Some(err);
+        }
     }
 
     fn add_metric_usize(&self, metric: NtfsMftBuildMetric, value: usize) {
         self.add_metric(metric, u64::try_from(value).unwrap_or(u64::MAX));
+    }
+
+    fn emit_event(&self, event: NtfsMftBuildMonitorEvent) -> Result<()> {
+        self.check_observer_error()?;
+        let Some(observer) = &self.observer else {
+            return Ok(());
+        };
+        observer.borrow_mut()(event)
+    }
+
+    fn check_observer_error(&self) -> Result<()> {
+        if let Some(err) = self.state.borrow_mut().observer_error.take() {
+            return Err(err);
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -317,6 +387,15 @@ impl NtfsMftBuildMonitor {
         let now = Instant::now();
         monitor.budget.started_at = now.checked_sub(elapsed).unwrap_or(now);
         monitor
+    }
+}
+
+fn ntfs_mft_build_monitor<'a>(
+    observer: Option<&'a mut NtfsMftBuildObserver<'a>>,
+) -> NtfsMftBuildMonitor<'a> {
+    match observer {
+        Some(observer) => NtfsMftBuildMonitor::from_environment_with_observer(observer),
+        None => NtfsMftBuildMonitor::from_environment(),
     }
 }
 
@@ -1266,12 +1345,13 @@ impl WindowsNtfsMftIndexCache {
         }
     }
 
-    fn load_or_build(
+    fn load_or_build<'a>(
         &self,
         capabilities: &NtfsVolumeCapabilities,
         target_record_id: u64,
         target_is_volume_root: bool,
         cancellation: &ScanCancellationToken,
+        observer: Option<&'a mut NtfsMftBuildObserver<'a>>,
     ) -> Result<Arc<CachedNtfsVolumeIndex>> {
         let cache_key = capabilities.cache_key();
 
@@ -1315,6 +1395,7 @@ impl WindowsNtfsMftIndexCache {
                 capabilities,
                 cancellation,
                 self.manifest_store.is_some(),
+                observer,
             )
             .map(|index| (index, std::mem::take(&mut persistent_load_caveats))),
         };
@@ -1629,12 +1710,13 @@ impl CachedNtfsVolumeIndex {
         None
     }
 
-    fn build(
+    fn build<'a>(
         capabilities: &NtfsVolumeCapabilities,
         cancellation: &ScanCancellationToken,
         capture_usn_checkpoint: bool,
+        observer: Option<&'a mut NtfsMftBuildObserver<'a>>,
     ) -> Result<Self> {
-        let monitor = NtfsMftBuildMonitor::from_environment();
+        let monitor = ntfs_mft_build_monitor(observer);
         check_mft_build_progress(cancellation, &monitor)?;
         let volume =
             monitor.measure_checked(NtfsMftBuildStage::OpenVolume, cancellation, || {
@@ -1766,6 +1848,7 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
                         target_record_id,
                         is_volume_root_path(request.path, &capabilities.root_path),
                         request.cancellation,
+                        None,
                     )?;
                     let Some(_) = index.mft_index.get(target_record_id) else {
                         return Err(RebeccaError::PlatformUnavailable(format!(
@@ -1806,11 +1889,26 @@ impl ScanBackend for WindowsNtfsMftScanBackend<'_> {
     }
 }
 
-pub(super) fn inspect_disk_map(
+pub(super) fn inspect_disk_map_with_progress<'a, F>(
     cache: &WindowsNtfsMftIndexCache,
-    path: &Path,
+    path: &'a Path,
     options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
+    progress: &'a mut F,
+) -> Result<DiskMapBackendRoot>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult + 'a,
+{
+    let mut observer = |event| emit_mft_build_progress(path, event, progress);
+    inspect_disk_map_inner(cache, path, options, cancellation, Some(&mut observer))
+}
+
+fn inspect_disk_map_inner<'a>(
+    cache: &WindowsNtfsMftIndexCache,
+    path: &'a Path,
+    options: DiskMapBackendOptions,
+    cancellation: &ScanCancellationToken,
+    observer: Option<&'a mut NtfsMftBuildObserver<'a>>,
 ) -> Result<DiskMapBackendRoot> {
     check_not_cancelled(cancellation)?;
     let metadata = root_metadata(path)?;
@@ -1839,6 +1937,7 @@ pub(super) fn inspect_disk_map(
             path,
             options,
             cancellation,
+            observer,
         );
     }
 
@@ -1847,6 +1946,7 @@ pub(super) fn inspect_disk_map(
         target_record_id,
         is_volume_root_path(path, &capabilities.root_path),
         cancellation,
+        observer,
     )?;
     let target_entry = index
         .mft_index
@@ -1948,6 +2048,41 @@ pub(super) fn inspect_disk_map(
         diagnostics: Vec::new(),
         estimate_provenance: EstimateProvenance::from_measured_scan(&measured),
     })
+}
+
+fn emit_mft_build_progress<F>(
+    root: &Path,
+    event: NtfsMftBuildMonitorEvent,
+    progress: &mut F,
+) -> InspectProgressResult
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
+    let backend = ScanBackendKind::WindowsNtfsMftExperimental;
+    match event {
+        NtfsMftBuildMonitorEvent::StageStarted { stage } => {
+            progress(InspectProgressEvent::BackendStageStarted {
+                root,
+                backend,
+                stage,
+            })
+        }
+        NtfsMftBuildMonitorEvent::StageFinished { stage } => {
+            progress(InspectProgressEvent::BackendStageFinished {
+                root,
+                backend,
+                stage,
+            })
+        }
+        NtfsMftBuildMonitorEvent::Metric { metric, value } => {
+            progress(InspectProgressEvent::BackendMetric {
+                root,
+                backend,
+                metric,
+                value,
+            })
+        }
+    }
 }
 
 #[expect(
@@ -2631,14 +2766,15 @@ fn build_targeted_mft_summary(
     Ok((summary, caveats, monitor.evidence()))
 }
 
-fn build_targeted_mft_disk_map(
+fn build_targeted_mft_disk_map<'a>(
     capabilities: &NtfsVolumeCapabilities,
     target_reference: NtfsFileReference,
     root_path: &Path,
     options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
+    observer: Option<&'a mut NtfsMftBuildObserver<'a>>,
 ) -> Result<DiskMapBackendRoot> {
-    let monitor = NtfsMftBuildMonitor::from_environment();
+    let monitor = ntfs_mft_build_monitor(observer);
     check_mft_build_progress(cancellation, &monitor)?;
     let volume = monitor.measure_checked(NtfsMftBuildStage::OpenVolume, cancellation, || {
         LiveNtfsVolume::open(capabilities)
@@ -2707,21 +2843,21 @@ fn build_targeted_mft_disk_map(
     })
 }
 
-struct LiveNtfsTargetRecordResolver<'a> {
+struct LiveNtfsTargetRecordResolver<'a, 'observer> {
     volume: &'a LiveNtfsVolume,
     geometry: NtfsRecordGeometry,
     cancellation: &'a ScanCancellationToken,
-    monitor: &'a NtfsMftBuildMonitor,
+    monitor: &'a NtfsMftBuildMonitor<'observer>,
     records: BTreeMap<u64, NtfsParsedRecord>,
     parse_errors: MftParseErrorCaveats,
 }
 
-impl<'a> LiveNtfsTargetRecordResolver<'a> {
+impl<'a, 'observer> LiveNtfsTargetRecordResolver<'a, 'observer> {
     fn new(
         volume: &'a LiveNtfsVolume,
         geometry: NtfsRecordGeometry,
         cancellation: &'a ScanCancellationToken,
-        monitor: &'a NtfsMftBuildMonitor,
+        monitor: &'a NtfsMftBuildMonitor<'observer>,
     ) -> Self {
         Self {
             volume,
@@ -2765,7 +2901,7 @@ impl<'a> LiveNtfsTargetRecordResolver<'a> {
     }
 }
 
-impl TargetedMftRecordResolver for LiveNtfsTargetRecordResolver<'_> {
+impl TargetedMftRecordResolver for LiveNtfsTargetRecordResolver<'_, '_> {
     fn resolve_record(&mut self, reference: NtfsFileReference) -> Result<Option<NtfsParsedRecord>> {
         check_mft_build_progress(self.cancellation, self.monitor)?;
         if let Some(record) = self.records.get(&reference.record_id) {
@@ -2821,7 +2957,7 @@ fn record_signature_hex(record: &[u8]) -> String {
         .join("")
 }
 
-struct TargetedMftTraversal<'a, R, S>
+struct TargetedMftTraversal<'a, 'observer, R, S>
 where
     R: TargetedMftRecordResolver,
     S: NtfsStreamSource,
@@ -2830,11 +2966,11 @@ where
     stream_source: &'a mut S,
     geometry: NtfsRecordGeometry,
     cancellation: &'a ScanCancellationToken,
-    monitor: &'a NtfsMftBuildMonitor,
+    monitor: &'a NtfsMftBuildMonitor<'observer>,
     limits: TargetedMftTraversalLimits,
 }
 
-impl<R, S> TargetedMftTraversal<'_, R, S>
+impl<R, S> TargetedMftTraversal<'_, '_, R, S>
 where
     R: TargetedMftRecordResolver,
     S: NtfsStreamSource,
@@ -4019,13 +4155,13 @@ impl Drop for LiveNtfsMetadataFile {
     }
 }
 
-struct LiveNtfsIndexStreamSource<'a> {
+struct LiveNtfsIndexStreamSource<'a, 'observer> {
     volume: &'a LiveNtfsVolume,
     cancellation: &'a ScanCancellationToken,
-    monitor: &'a NtfsMftBuildMonitor,
+    monitor: &'a NtfsMftBuildMonitor<'observer>,
 }
 
-impl NtfsStreamSource for LiveNtfsIndexStreamSource<'_> {
+impl NtfsStreamSource for LiveNtfsIndexStreamSource<'_, '_> {
     type Error = RebeccaError;
 
     fn read_bytes_at(
@@ -4110,11 +4246,11 @@ impl MftRecordSource for SequentialMftDataSource<'_> {
     }
 }
 
-struct SequentialMftReadContext<'a> {
+struct SequentialMftReadContext<'a, 'observer> {
     geometry: NtfsRecordGeometry,
     reader: &'a MftRecordReader,
     cancellation: &'a ScanCancellationToken,
-    monitor: &'a NtfsMftBuildMonitor,
+    monitor: &'a NtfsMftBuildMonitor<'observer>,
     records: &'a mut Vec<NtfsParsedRecord>,
     parse_errors: &'a mut MftParseErrorCaveats,
     mft_mirror: Option<&'a SequentialMftMirrorChunk>,
@@ -4122,7 +4258,7 @@ struct SequentialMftReadContext<'a> {
     parse_window_chunks: usize,
 }
 
-impl SequentialMftReadContext<'_> {
+impl SequentialMftReadContext<'_, '_> {
     fn push_parse_chunk(&mut self, chunk: SequentialMftChunk) -> Result<()> {
         self.parse_chunks.push(chunk);
         if self.parse_chunks.len() >= self.parse_window_chunks {
@@ -4197,7 +4333,7 @@ impl SequentialMftDataSource<'_> {
     fn read_extent_records(
         &self,
         extent: MftExtent,
-        context: &mut SequentialMftReadContext<'_>,
+        context: &mut SequentialMftReadContext<'_, '_>,
     ) -> Result<()> {
         let geometry = context.geometry;
         let extent_stream_offset = extent
@@ -4480,6 +4616,7 @@ fn windows_error_matches(err: &WindowsError, code: WIN32_ERROR) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::io;
     use std::mem::offset_of;
     use std::time::{Duration, UNIX_EPOCH};
 
@@ -4496,14 +4633,14 @@ mod tests {
         MFT_PERSISTENT_CACHE_WRITE_SKIPPED_CAVEAT_CODE, MftExtent, MftParseErrorCaveats,
         MftRecordSource, NTFS_FILE_RECORD_OUTPUT_HEADER_BYTES, NTFS_VOLUME_DATA_BUFFER,
         NTFS_VOLUME_INDEX_CACHE_DIR, NTFS_VOLUME_INDEX_PAYLOAD_VERSION, NtfsMftBuildMetric,
-        NtfsMftBuildMonitor, NtfsMftBuildStage, NtfsRecordGeometry, NtfsVolumeCapabilities,
-        NtfsVolumeIndexCacheKey, NtfsVolumeIndexCacheManifest, NtfsVolumeIndexFingerprint,
-        NtfsVolumeIndexManifestLookup, NtfsVolumeIndexManifestMiss, NtfsVolumeIndexManifestStore,
-        NtfsVolumeIndexPayload, NtfsVolumeIndexPayloadLookup, NtfsVolumeIndexPayloadMiss,
-        NtfsVolumeIndexPayloadRef, NtfsVolumeIndexUsnChange, ParsedNtfsRecords,
-        PersistentIndexLoad, RETRIEVAL_POINTERS_BUFFER, RETRIEVAL_POINTERS_BUFFER_0,
-        SEQUENTIAL_MFT_CHUNK_BYTES, SEQUENTIAL_MFT_SOURCE_LABEL, ScanBackendEvidence,
-        ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
+        NtfsMftBuildMonitor, NtfsMftBuildMonitorEvent, NtfsMftBuildStage, NtfsRecordGeometry,
+        NtfsVolumeCapabilities, NtfsVolumeIndexCacheKey, NtfsVolumeIndexCacheManifest,
+        NtfsVolumeIndexFingerprint, NtfsVolumeIndexManifestLookup, NtfsVolumeIndexManifestMiss,
+        NtfsVolumeIndexManifestStore, NtfsVolumeIndexPayload, NtfsVolumeIndexPayloadLookup,
+        NtfsVolumeIndexPayloadMiss, NtfsVolumeIndexPayloadRef, NtfsVolumeIndexUsnChange,
+        ParsedNtfsRecords, PersistentIndexLoad, RETRIEVAL_POINTERS_BUFFER,
+        RETRIEVAL_POINTERS_BUFFER_0, SEQUENTIAL_MFT_CHUNK_BYTES, SEQUENTIAL_MFT_SOURCE_LABEL,
+        ScanBackendEvidence, ScanCancellationToken, SequentialMftChunk, SequentialMftMirrorChunk,
         TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, USN_RECORD_V2,
         VolumePaths, build_mft_index_from_records, cache_checksum, check_mft_build_progress,
         collect_mft_disk_map_entry, file_reference_from_number, file_reference_number,
@@ -6578,6 +6715,55 @@ mod tests {
     }
 
     #[test]
+    fn mft_build_monitor_observer_receives_stage_and_metric_events() {
+        let mut events = Vec::new();
+        {
+            let mut observer = |event| {
+                events.push(match event {
+                    NtfsMftBuildMonitorEvent::StageStarted { stage } => {
+                        format!("started:{stage}")
+                    }
+                    NtfsMftBuildMonitorEvent::StageFinished { stage } => {
+                        format!("finished:{stage}")
+                    }
+                    NtfsMftBuildMonitorEvent::Metric { metric, value } => {
+                        format!("metric:{metric}:{value}")
+                    }
+                });
+                Ok(())
+            };
+            let monitor = NtfsMftBuildMonitor::new_with_observer(None, false, &mut observer);
+
+            monitor
+                .measure(NtfsMftBuildStage::OpenVolume, || Ok(()))
+                .unwrap();
+            monitor.add_metric(NtfsMftBuildMetric::ParsedRecords, 2);
+            monitor.add_metric(NtfsMftBuildMetric::ParsedRecords, 3);
+        }
+
+        assert_eq!(
+            events,
+            [
+                "started:open-volume",
+                "finished:open-volume",
+                "metric:parsed-records:2",
+                "metric:parsed-records:5",
+            ]
+        );
+    }
+
+    #[test]
+    fn mft_build_monitor_observer_error_aborts_next_progress_check() {
+        let mut observer = |_event| Err(RebeccaError::Io(io::Error::other("progress sink failed")));
+        let monitor = NtfsMftBuildMonitor::new_with_observer(None, false, &mut observer);
+
+        monitor.add_metric(NtfsMftBuildMetric::ParsedRecords, 1);
+        let err = check_mft_build_progress(&ScanCancellationToken::new(), &monitor).unwrap_err();
+
+        assert!(err.to_string().contains("progress sink failed"));
+    }
+
+    #[test]
     fn sequential_mft_parallel_parse_preserves_chunk_order_and_base_ids() {
         let reader = MftRecordReader::new(4, 1);
         let chunks = vec![
@@ -6925,7 +7111,7 @@ mod tests {
         }
     }
 
-    fn test_build_monitor() -> NtfsMftBuildMonitor {
+    fn test_build_monitor() -> NtfsMftBuildMonitor<'static> {
         NtfsMftBuildMonitor::new(None, false)
     }
 

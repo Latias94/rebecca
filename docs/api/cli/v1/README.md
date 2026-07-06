@@ -3,7 +3,7 @@
 Rebecca treats machine-mode CLI output as a versioned API for GUI wrappers and
 automation. Human text remains the default. Machine consumers should always
 request `--format json` for final results or `--format ndjson` for long-running
-cleanup workflows.
+cleanup or inspect workflows.
 
 API v1 is the only CLI machine contract. Cleanup execution, purge execution,
 history, config, cache, doctor, catalog, and read-only inspect commands all
@@ -18,6 +18,8 @@ a compatibility alias for the `inspect-artifacts` payload.
 - `ndjson`: writes one compact JSON event per stdout line. Terminal success is
   a `completed` event. Terminal failures are `error` events.
 - Human progress text is never mixed into machine stdout.
+- `--no-progress` disables human stderr progress only. It does not suppress
+  NDJSON machine progress events.
 
 ## Envelopes
 
@@ -48,10 +50,23 @@ default to avoid turning large scans into one JSON line per file. Ordinary
 cleanup scans can opt into file-level scan details with
 `--progress-detail file` when a debugger or GUI explicitly needs them.
 
+Inspect workflow NDJSON uses the same event envelope but a different progress
+payload. `inspect space --format ndjson` and `inspect map --format ndjson`
+start with `started`, emit bounded `inspect-progress` events while roots,
+entries, caches, fallbacks, traversal counters, and backend stages are observed,
+then emit the final report event(s), and finish with `completed`.
+`inspect-progress` events use `payload_kind = "inspect-progress"` and
+`data.progress_kind` values such as `root-started`, `root-finished`,
+`entry-measured`, `traversal-progress`, `backend-fallback`,
+`backend-stage-started`, `backend-stage-finished`, `backend-metric`,
+`cache-event`, and `finalizing`. Default inspect progress is bounded at target,
+root, backend, cache, and sampled-counter granularity. Add
+`--progress-detail file` only when the caller needs per-file scan events.
+
 `inspect map --format ndjson` emits bounded report events before the terminal
-`completed` event: one `map-entry` event per `top_entries` item with
-`payload_kind = "inspect-map-entry"`, then one `map-group` event per requested
-`groups` item with `payload_kind = "inspect-map-group"`. The final
+`completed` event: after scan progress, one `map-entry` event per `top_entries`
+item with `payload_kind = "inspect-map-entry"`, then one `map-group` event per
+requested `groups` item with `payload_kind = "inspect-map-group"`. The final
 `completed` event still carries the full `inspect-map` report, so consumers can
 either stream ranked rows as they arrive or keep reading the last completed
 payload as the authoritative whole-report snapshot.
@@ -87,6 +102,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `inspect-map`
 - `inspect-map-entry`
 - `inspect-map-group`
+- `inspect-progress`
 - `inspect-artifacts`
 - `inspect-lint`
 - `cache-purge-report`
@@ -256,6 +272,7 @@ rebecca cache prune --format json --namespace scan-cache --stale-only
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
 rebecca inspect map --format ndjson --root . --top 20 --group-by extension
+rebecca inspect map --format ndjson --progress-detail file --root . --top 20
 rebecca inspect map --table csv --table-row entry --table-row group --root . --top 20 --group-by extension
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca purge inspect --format json --root . --min-age-days 0

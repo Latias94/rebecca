@@ -2,6 +2,7 @@ use anyhow::Result;
 use rebecca::core::RuleDefinition;
 use rebecca::core::plan::{CleanupIssueSummary, CleanupPlan};
 use rebecca::core::planner::PlanProgressEvent;
+use rebecca::core::progress::InspectProgressEvent;
 use serde::Serialize;
 use serde_json::json;
 use std::fmt;
@@ -566,6 +567,168 @@ impl NdjsonEventWriter {
                 }),
             ),
         }
+    }
+
+    pub(crate) fn emit_inspect_progress(&mut self, event: InspectProgressEvent<'_>) -> Result<()> {
+        let data = match event {
+            InspectProgressEvent::RootStarted {
+                root_index,
+                root_count,
+                root,
+                backend,
+            } => json!({
+                "progress_kind": "root-started",
+                "root_index": root_index,
+                "root_count": root_count,
+                "root": root,
+                "backend": backend.label(),
+            }),
+            InspectProgressEvent::RootFinished {
+                root_index,
+                root_count,
+                root,
+                status,
+                logical_bytes,
+                files,
+                directories,
+            } => json!({
+                "progress_kind": "root-finished",
+                "root_index": root_index,
+                "root_count": root_count,
+                "root": root,
+                "status": status.label(),
+                "logical_bytes": logical_bytes,
+                "files": files,
+                "directories": directories,
+            }),
+            InspectProgressEvent::EntryStarted {
+                root,
+                path,
+                entry_index,
+                backend,
+            } => json!({
+                "progress_kind": "entry-started",
+                "root": root,
+                "path": path,
+                "entry_index": entry_index,
+                "backend": backend.label(),
+            }),
+            InspectProgressEvent::EntryMeasured {
+                root,
+                path,
+                entry_index,
+                logical_bytes,
+                files,
+                directories,
+            } => json!({
+                "progress_kind": "entry-measured",
+                "root": root,
+                "path": path,
+                "entry_index": entry_index,
+                "logical_bytes": logical_bytes,
+                "files": files,
+                "directories": directories,
+            }),
+            InspectProgressEvent::FileMeasured {
+                root,
+                target_path,
+                path,
+                file_size,
+                files_scanned,
+                bytes_scanned,
+            } => json!({
+                "progress_kind": "file-measured",
+                "root": root,
+                "target_path": target_path,
+                "path": path,
+                "file_size": file_size,
+                "files_scanned": files_scanned,
+                "bytes_scanned": bytes_scanned,
+            }),
+            InspectProgressEvent::TraversalProgress {
+                root,
+                counter,
+                value,
+                logical_bytes,
+                files,
+                directories,
+            } => json!({
+                "progress_kind": "traversal-progress",
+                "root": root,
+                "counter": counter.label(),
+                "value": value,
+                "logical_bytes": logical_bytes,
+                "files": files,
+                "directories": directories,
+            }),
+            InspectProgressEvent::BackendFallback {
+                root,
+                backend,
+                reason,
+            } => json!({
+                "progress_kind": "backend-fallback",
+                "root": root,
+                "backend": backend.label(),
+                "reason": reason,
+            }),
+            InspectProgressEvent::BackendStageStarted {
+                root,
+                backend,
+                stage,
+            } => json!({
+                "progress_kind": "backend-stage-started",
+                "root": root,
+                "backend": backend.label(),
+                "stage": stage,
+            }),
+            InspectProgressEvent::BackendStageFinished {
+                root,
+                backend,
+                stage,
+            } => json!({
+                "progress_kind": "backend-stage-finished",
+                "root": root,
+                "backend": backend.label(),
+                "stage": stage,
+            }),
+            InspectProgressEvent::BackendMetric {
+                root,
+                backend,
+                metric,
+                value,
+            } => json!({
+                "progress_kind": "backend-metric",
+                "root": root,
+                "backend": backend.label(),
+                "metric": metric,
+                "value": value,
+            }),
+            InspectProgressEvent::CacheEvent {
+                path,
+                event,
+                reason,
+                estimated_bytes,
+            } => json!({
+                "progress_kind": "cache-event",
+                "path": path,
+                "event": event.label(),
+                "reason": reason,
+                "estimated_bytes": estimated_bytes,
+            }),
+            InspectProgressEvent::Finalizing {
+                roots,
+                logical_bytes,
+                files,
+                directories,
+            } => json!({
+                "progress_kind": "finalizing",
+                "roots": roots,
+                "logical_bytes": logical_bytes,
+                "files": files,
+                "directories": directories,
+            }),
+        };
+        self.emit_payload("inspect-progress", "inspect-progress", &data)
     }
 
     pub(crate) fn emit_completed<T: Serialize + ?Sized>(

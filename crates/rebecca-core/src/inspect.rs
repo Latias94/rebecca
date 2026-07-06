@@ -6,8 +6,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{RebeccaError, Result};
 use crate::plan::{EstimateProvenance, EstimateSource};
+use crate::progress::{
+    InspectProgressCacheEvent, InspectProgressEvent, InspectProgressOptions, InspectProgressResult,
+    InspectProgressRootStatus,
+};
 use crate::safety::is_reparse_like;
-use crate::scan::{ScanBackendKind, ScanCancellationToken, ScanEngine, ScanReport};
+use crate::scan::{
+    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanReport,
+};
 use crate::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 
 pub const DEFAULT_SPACE_INSIGHT_TOP_LIMIT: usize = 10;
@@ -209,26 +215,60 @@ pub fn inspect_space(
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
 ) -> Result<SpaceInsightReport> {
+    inspect_space_with_progress(
+        request,
+        cancellation,
+        InspectProgressOptions::target(),
+        |_| Ok(()),
+    )
+}
+
+pub fn inspect_space_with_progress<F>(
+    request: &SpaceInsightRequest,
+    cancellation: &ScanCancellationToken,
+    progress_options: InspectProgressOptions,
+    mut progress: F,
+) -> Result<SpaceInsightReport>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     let mut report = SpaceInsightReport::default();
     let mut top_entries = SpaceInsightTopEntries::new(request.top_limit);
     let mut diagnostics = SpaceInsightDiagnostics::new(request.diagnostic_limit);
     let scan_engine = ScanEngine::new();
+    let root_count = request.roots.len();
 
-    for root in &request.roots {
+    for (root_index, root) in request.roots.iter().enumerate() {
         check_cancelled(cancellation)?;
+        progress(InspectProgressEvent::RootStarted {
+            root_index,
+            root_count,
+            root,
+            backend: request.scan_backend,
+        })?;
         inspect_root(
             root,
+            root_index,
+            root_count,
             request,
             cancellation,
             &scan_engine,
             &mut report,
             &mut top_entries,
             &mut diagnostics,
+            progress_options,
+            &mut progress,
         )?;
     }
 
     report.top_entries = top_entries.into_sorted_entries();
     diagnostics.finish(&mut report);
+    progress(InspectProgressEvent::Finalizing {
+        roots: report.roots.len(),
+        logical_bytes: report.totals.estimated_bytes,
+        files: report.totals.files,
+        directories: report.totals.directories,
+    })?;
     Ok(report)
 }
 
@@ -302,15 +342,22 @@ struct SpaceInsightDiagnosticSample {
     diagnostic: SpaceInsightDiagnostic,
 }
 
-fn inspect_root(
+fn inspect_root<F>(
     root: &Path,
+    root_index: usize,
+    root_count: usize,
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
     scan_engine: &ScanEngine,
     report: &mut SpaceInsightReport,
     top_entries: &mut SpaceInsightTopEntries,
     diagnostics: &mut SpaceInsightDiagnostics,
-) -> Result<()> {
+    progress_options: InspectProgressOptions,
+    progress: &mut F,
+) -> Result<()>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     let metadata = match std::fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -321,6 +368,15 @@ fn inspect_root(
                 "space inspection root does not exist",
                 diagnostics,
             );
+            progress(InspectProgressEvent::RootFinished {
+                root_index,
+                root_count,
+                root,
+                status: InspectProgressRootStatus::Skipped,
+                logical_bytes: 0,
+                files: 0,
+                directories: 0,
+            })?;
             return Ok(());
         }
         Err(err) => {
@@ -331,6 +387,15 @@ fn inspect_root(
                 format!("space inspection root metadata could not be read: {err}"),
                 diagnostics,
             );
+            progress(InspectProgressEvent::RootFinished {
+                root_index,
+                root_count,
+                root,
+                status: InspectProgressRootStatus::Skipped,
+                logical_bytes: 0,
+                files: 0,
+                directories: 0,
+            })?;
             return Ok(());
         }
     };
@@ -343,6 +408,15 @@ fn inspect_root(
             "space inspection root is not a directory",
             diagnostics,
         );
+        progress(InspectProgressEvent::RootFinished {
+            root_index,
+            root_count,
+            root,
+            status: InspectProgressRootStatus::Skipped,
+            logical_bytes: 0,
+            files: 0,
+            directories: 0,
+        })?;
         return Ok(());
     }
 
@@ -354,6 +428,15 @@ fn inspect_root(
             "space inspection root is a symlink or reparse point",
             diagnostics,
         );
+        progress(InspectProgressEvent::RootFinished {
+            root_index,
+            root_count,
+            root,
+            status: InspectProgressRootStatus::Skipped,
+            logical_bytes: 0,
+            files: 0,
+            directories: 0,
+        })?;
         return Ok(());
     }
 
@@ -367,6 +450,15 @@ fn inspect_root(
                 format!("space inspection root could not be read: {err}"),
                 diagnostics,
             );
+            progress(InspectProgressEvent::RootFinished {
+                root_index,
+                root_count,
+                root,
+                status: InspectProgressRootStatus::Skipped,
+                logical_bytes: 0,
+                files: 0,
+                directories: 0,
+            })?;
             return Ok(());
         }
     };
@@ -390,7 +482,7 @@ fn inspect_root(
     }
     entry_paths.sort();
 
-    for path in entry_paths {
+    for (entry_index, path) in entry_paths.into_iter().enumerate() {
         check_cancelled(cancellation)?;
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
@@ -412,15 +504,41 @@ fn inspect_root(
             continue;
         }
 
-        match inspect_entry(root, &path, metadata, request, cancellation, scan_engine) {
+        let entry_index = entry_index as u64;
+        progress(InspectProgressEvent::EntryStarted {
+            root,
+            path: &path,
+            entry_index,
+            backend: request.scan_backend,
+        })?;
+
+        match inspect_entry(
+            root,
+            &path,
+            metadata,
+            request,
+            cancellation,
+            scan_engine,
+            progress_options,
+            progress,
+        ) {
             Ok(entry) => {
                 root_metrics.add_report(ScanReport {
                     bytes_scanned: entry.estimated_bytes,
                     files_scanned: entry.files,
                     directories_scanned: entry.directories,
                 });
+                progress(InspectProgressEvent::EntryMeasured {
+                    root,
+                    path: &entry.path,
+                    entry_index,
+                    logical_bytes: entry.estimated_bytes,
+                    files: entry.files,
+                    directories: entry.directories,
+                })?;
                 top_entries.push(entry);
             }
+            Err(err) if space_entry_error_should_abort(&err) => return Err(err),
             Err(err) => diagnostics.push(SpaceInsightDiagnostic::new(
                 SpaceInsightDiagnosticKind::ScanFailed,
                 path,
@@ -444,6 +562,15 @@ fn inspect_root(
         metrics: root_metrics,
         reason: None,
     });
+    progress(InspectProgressEvent::RootFinished {
+        root_index,
+        root_count,
+        root,
+        status: InspectProgressRootStatus::Scanned,
+        logical_bytes: root_metrics.estimated_bytes,
+        files: root_metrics.files,
+        directories: root_metrics.directories,
+    })?;
     Ok(())
 }
 
@@ -542,14 +669,19 @@ impl SpaceInsightTopRank {
     }
 }
 
-fn inspect_entry(
+fn inspect_entry<F>(
     root: &Path,
     path: &Path,
     metadata: std::fs::Metadata,
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
     scan_engine: &ScanEngine,
-) -> Result<SpaceInsightEntry> {
+    progress_options: InspectProgressOptions,
+    progress: &mut F,
+) -> Result<SpaceInsightEntry>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     let kind = if metadata.is_file() {
         SpaceInsightEntryKind::File
     } else if metadata.is_dir() {
@@ -558,7 +690,15 @@ fn inspect_entry(
         SpaceInsightEntryKind::Other
     };
 
-    let measurement = measure_entry(path, request, cancellation, scan_engine)?;
+    let measurement = measure_entry(
+        root,
+        path,
+        request,
+        cancellation,
+        scan_engine,
+        progress_options,
+        progress,
+    )?;
     Ok(SpaceInsightEntry {
         path: path.to_path_buf(),
         root: root.to_path_buf(),
@@ -578,16 +718,28 @@ struct SpaceInsightMeasurement {
     estimate_provenance: EstimateProvenance,
 }
 
-fn measure_entry(
+fn measure_entry<F>(
+    root: &Path,
     path: &Path,
     request: &SpaceInsightRequest,
     cancellation: &ScanCancellationToken,
     scan_engine: &ScanEngine,
-) -> Result<SpaceInsightMeasurement> {
+    progress_options: InspectProgressOptions,
+    progress: &mut F,
+) -> Result<SpaceInsightMeasurement>
+where
+    F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
+{
     let mut cache_miss_reason = None;
     if let Some(scan_cache) = &request.scan_cache {
         match scan_cache.store.load_with_policy(path, scan_cache.policy) {
             ScanCacheLookup::Hit(hit) => {
+                progress(InspectProgressEvent::CacheEvent {
+                    path,
+                    event: InspectProgressCacheEvent::Hit,
+                    reason: None,
+                    estimated_bytes: Some(hit.report.bytes_scanned),
+                })?;
                 let mut evidence = hit.backend_evidence;
                 evidence.record_cache_event("scan-cache", "hit", None);
                 return Ok(SpaceInsightMeasurement {
@@ -602,13 +754,46 @@ fn measure_entry(
                 });
             }
             ScanCacheLookup::Miss(outcome) => {
+                progress(InspectProgressEvent::CacheEvent {
+                    path,
+                    event: InspectProgressCacheEvent::Miss,
+                    reason: Some(outcome.reason.label()),
+                    estimated_bytes: None,
+                })?;
                 cache_miss_reason = Some(outcome.reason);
             }
         }
     }
 
-    let measured_scan =
-        scan_engine.measure_scan_with_backend(path, cancellation, request.scan_backend, |_| {})?;
+    let emit_file_events = progress_options.includes_file_events();
+    let mut progress_error = None;
+    let measured_result =
+        scan_engine.measure_scan_with_backend(path, cancellation, request.scan_backend, |event| {
+            if !emit_file_events || progress_error.is_some() {
+                return;
+            }
+            let ScanProgressEvent::FileMeasured {
+                path: file_path,
+                file_size,
+                files_scanned,
+                bytes_scanned,
+            } = event;
+            if let Err(err) = progress(InspectProgressEvent::FileMeasured {
+                root,
+                target_path: path,
+                path: file_path,
+                file_size,
+                files_scanned,
+                bytes_scanned,
+            }) {
+                progress_error = Some(err);
+                cancellation.cancel();
+            }
+        });
+    if let Some(err) = progress_error {
+        return Err(err);
+    }
+    let measured_scan = measured_result?;
     let report = measured_scan.report;
     let mut estimate_backend_evidence = measured_scan.backend_evidence.clone();
     if let Some(reason) = cache_miss_reason {
@@ -635,6 +820,12 @@ fn measure_entry(
             "write-skipped",
             Some("write-failed".to_string()),
         );
+        progress(InspectProgressEvent::CacheEvent {
+            path,
+            event: InspectProgressCacheEvent::WriteSkipped,
+            reason: Some("write-failed"),
+            estimated_bytes: None,
+        })?;
     }
     let mut estimate_provenance = EstimateProvenance::from_measured_scan(&measured_scan);
     estimate_provenance.estimate_backend_evidence = estimate_backend_evidence;
@@ -644,6 +835,13 @@ fn measure_entry(
         estimate_source: EstimateSource::FreshScan,
         estimate_provenance,
     })
+}
+
+fn space_entry_error_should_abort(err: &RebeccaError) -> bool {
+    matches!(
+        err,
+        RebeccaError::OperationCancelled(_) | RebeccaError::Io(_) | RebeccaError::Json(_)
+    )
 }
 
 fn push_root_skip(
