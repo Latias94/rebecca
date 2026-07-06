@@ -5,6 +5,7 @@ All notable changes to Rebecca will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a `rebecca-disk-cleaner` Codex skill under `skills/`, plus a cross-platform Python installer, so agents can install Rebecca and run a preview-first cleanup workflow with the CLI.
 - Human CLI output now surfaces decision summaries, reclaimable bytes, copyable next commands, cleanup-advice command summaries, cache-doctor health, and stderr-only TTY progress behavior so dry-run, inspect, and doctor flows are easier to act on.
 - Human cleanup progress now uses compact phase, counter, cache, byte, and throughput messages while keeping spinner output on stderr and machine progress events unchanged.
 - `rebecca inspect map` human output now ranks top entries with logical-size share, ASCII usage bars, compact long paths, and a `--screen-reader` mode that keeps the same facts without visual bars.
