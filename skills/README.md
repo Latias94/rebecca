@@ -19,6 +19,27 @@ python3 ./skills/install.py
 The installer copies `skills/rebecca-disk-cleaner` to `$CODEX_HOME/skills` when
 `CODEX_HOME` is set, otherwise to `~/.codex/skills`.
 
+Verify the installed skill:
+
+```bash
+python3 ./skills/install.py --dry-run
+test -f "$HOME/.codex/skills/rebecca-disk-cleaner/SKILL.md"
+```
+
+On Windows PowerShell:
+
+```powershell
+python .\skills\install.py --dry-run
+Test-Path "$env:USERPROFILE\.codex\skills\rebecca-disk-cleaner\SKILL.md"
+```
+
+Example prompts after restarting Codex:
+
+- "Use Rebecca to inspect this project and tell me what can be cleaned, but do not delete anything."
+- "Scan this drive with Rebecca and show the largest folders with cleanup advice."
+- "Preview cleanup of project artifacts in this workspace, then ask before running anything with --yes."
+- "Use Rebecca to check app leftovers and cache health, preview first."
+
 Validate repository skills before publishing changes:
 
 ```bash

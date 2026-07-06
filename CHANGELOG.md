@@ -99,6 +99,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune` now expose Rebecca cache inventory, stale/corrupt record recommendations, namespace filtering, dry-run previews, and execution reports for targeted cache metadata pruning.
 
 ### Changed
+- Documented Rebecca disk-cleaner skill dogfood verification and example prompts so users can confirm installation and trigger the workflow predictably.
 - Inspect progress now samples backend stage and metric events by default while keeping unsampled backend details available with `--progress-detail file`, reducing noisy MFT NDJSON and spinner output without changing final report payloads.
 - The project MSRV is now Rust 1.95.0, with CI and release workflows pinned to the same toolchain and dependency lower bounds refreshed to current compatible versions.
 - Scan measurement now goes through an internal backend contract that records the portable recursive backend and exact estimate confidence for future native backends.
