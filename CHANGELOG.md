@@ -6,6 +6,7 @@ All notable changes to Rebecca will be documented in this file.
 
 ### Added
 - Human CLI output now surfaces decision summaries, reclaimable bytes, copyable next commands, cleanup-advice command summaries, cache-doctor health, and stderr-only TTY progress behavior so dry-run, inspect, and doctor flows are easier to act on.
+- Human cleanup progress now uses compact phase, counter, cache, byte, and throughput messages while keeping spinner output on stderr and machine progress events unchanged.
 - `rebecca inspect map` human output now ranks top entries with logical-size share, ASCII usage bars, compact long paths, and a `--screen-reader` mode that keeps the same facts without visual bars.
 - `rebecca inspect map` human output now supports `--full-path`, `--no-bars`, and `--bar-width <COLUMNS>`, and requested map groups now show rank, share, and the same visual bars as top entries.
 - Dry-run cleanup human output now explains required opt-ins included in the next command, gives pre-execution resolution hints for skipped or blocked targets, and points active-process warning plans at `rebecca doctor active-processes`.

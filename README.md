@@ -176,7 +176,7 @@ Rebecca is a local Windows cleanup tool, and the highest-risk behavior is uninte
 - Use `--exclude <PATH>` or `[protection].protected_paths` to keep a path out of a run.
 - Dry-run human output highlights the largest estimated targets first, groups the full target list by status, prints a copyable next command, lists required opt-ins already present in that command, explains skipped or blocked pre-execution issues, and points active-process warning runs at `rebecca doctor active-processes`.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for eligible targets.
-- Human `clean` runs show target-level progress by default and honor `Ctrl+C` for cancellation; use `--no-progress` for quiet logs.
+- Human `clean` runs show target-level progress by default and honor `Ctrl+C` for cancellation; use `--no-progress` for quiet logs. TTY progress stays on stderr with compact `plan | ...`, `scan | ...`, and `cache | ...` messages; `--progress-detail file` adds throttled file and byte throughput for long scans.
 - `--format ndjson` keeps machine output clean for long-running cleanup workflows. It emits target-level progress by default; add `--progress-detail file` only when a wrapper needs per-file scan events.
 - Warning-bearing cleanup rules are blocked until their named gate is selected with `--allow-warning <WARNING>`; `--allow-moderate` and `--allow-risky` still control safety-level admission.
 

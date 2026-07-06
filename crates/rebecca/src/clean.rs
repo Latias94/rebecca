@@ -1,9 +1,9 @@
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::environment::SystemEnvironment;
 use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
@@ -15,7 +15,7 @@ use rebecca::core::planner::{
 use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
-use rebecca::core::{DeleteMode, PlanRequest, Platform, RuleDefinition};
+use rebecca::core::{DeleteMode, PlanRequest, Platform, RuleDefinition, TargetStatus};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::{OutputMode, ProgressDetail};
@@ -24,7 +24,10 @@ use crate::output::{
     WorkflowSuccessRenderer, format_bytes,
 };
 use crate::runtime::CliRuntime;
+use crate::text::format_count;
 use crate::{info, output, render};
+
+const PROGRESS_PATH_MAX_CHARS: usize = 72;
 
 #[derive(Debug)]
 pub struct CleanOptions {
@@ -319,16 +322,20 @@ struct PlanProgressReporter {
     event_writer: Option<NdjsonEventWriter>,
     event_error: Option<anyhow::Error>,
     scanned_targets: u64,
+    planned_bytes: u64,
+    current_target_started_at: Instant,
     human_file_progress: HumanFileProgressThrottle,
     scan_cache_summary: ScanCacheProgressSummary,
 }
 
 impl PlanProgressReporter {
     fn new(enabled: bool, detail: ProgressDetail, event_writer: Option<NdjsonEventWriter>) -> Self {
+        let now = Instant::now();
         let bar = (enabled && std::io::stderr().is_terminal()).then(|| {
             let bar = ProgressBar::new_spinner();
+            apply_progress_style(&bar);
             bar.enable_steady_tick(Duration::from_millis(120));
-            bar.set_message("Building cleanup plan");
+            bar.set_message("plan | building cleanup plan");
             bar
         });
 
@@ -338,6 +345,8 @@ impl PlanProgressReporter {
             event_writer,
             event_error: None,
             scanned_targets: 0,
+            planned_bytes: 0,
+            current_target_started_at: now,
             human_file_progress: HumanFileProgressThrottle::new(),
             scan_cache_summary: ScanCacheProgressSummary::default(),
         }
@@ -367,7 +376,12 @@ impl PlanProgressReporter {
 
         match event {
             PlanProgressEvent::TargetScanning { rule_id, path } => {
-                bar.set_message(format!("Scanning {rule_id}: {}", path.display()));
+                self.current_target_started_at = Instant::now();
+                bar.set_message(target_scanning_message(
+                    self.scanned_targets.saturating_add(1),
+                    rule_id,
+                    path,
+                ));
             }
             PlanProgressEvent::TargetFinished {
                 status,
@@ -375,21 +389,27 @@ impl PlanProgressReporter {
                 ..
             } => {
                 self.scanned_targets = self.scanned_targets.saturating_add(1);
-                bar.set_message(format!(
-                    "Scanned {} target(s); last {status:?}, {} bytes",
-                    self.scanned_targets, estimated_bytes
+                self.planned_bytes = self.planned_bytes.saturating_add(estimated_bytes);
+                bar.set_message(target_finished_message(
+                    self.scanned_targets,
+                    self.planned_bytes,
+                    status,
+                    estimated_bytes,
                 ));
                 bar.tick();
             }
             PlanProgressEvent::FileMeasured {
+                rule_id,
                 files_scanned,
                 bytes_scanned,
                 ..
             } => {
                 if self.detail.includes_file_events() && self.human_file_progress.should_refresh() {
-                    bar.set_message(format!(
-                        "Scanning files: {files_scanned}, {}",
-                        format_bytes(bytes_scanned)
+                    bar.set_message(file_progress_message(
+                        rule_id,
+                        files_scanned,
+                        bytes_scanned,
+                        self.current_target_started_at.elapsed(),
                     ));
                 }
             }
@@ -398,10 +418,11 @@ impl PlanProgressReporter {
                 path,
                 estimated_bytes,
             } => {
-                bar.set_message(format!(
-                    "Scan cache hit {rule_id}: {} ({})",
-                    path.display(),
-                    format_bytes(estimated_bytes)
+                bar.set_message(scan_cache_hit_message(
+                    self.scan_cache_summary,
+                    rule_id,
+                    path,
+                    estimated_bytes,
                 ));
                 bar.tick();
             }
@@ -411,24 +432,27 @@ impl PlanProgressReporter {
                 reason,
                 ..
             } => {
-                bar.set_message(format!(
-                    "Scan cache miss {rule_id}: {} ({})",
-                    path.display(),
-                    reason.label()
+                bar.set_message(scan_cache_miss_message(
+                    self.scan_cache_summary,
+                    rule_id,
+                    path,
+                    reason.label(),
                 ));
                 bar.tick();
             }
             PlanProgressEvent::ScanCacheWriteSkipped { rule_id, path } => {
-                bar.set_message(format!(
-                    "Scan cache write skipped {rule_id}: {}",
-                    path.display()
+                bar.set_message(scan_cache_write_skipped_message(
+                    self.scan_cache_summary,
+                    rule_id,
+                    path,
                 ));
                 bar.tick();
             }
             PlanProgressEvent::ScanCachePruned { report } => {
-                bar.set_message(format!(
-                    "Scan cache pruned {} record(s) after inspecting {}",
-                    report.pruned, report.inspected
+                bar.set_message(scan_cache_pruned_message(
+                    self.scan_cache_summary,
+                    report.pruned as u64,
+                    report.inspected as u64,
                 ));
                 bar.tick();
             }
@@ -478,6 +502,154 @@ impl PlanProgressReporter {
     fn into_event_writer(self) -> Option<NdjsonEventWriter> {
         self.event_writer
     }
+}
+
+fn apply_progress_style(bar: &ProgressBar) {
+    if let Ok(style) = ProgressStyle::with_template("{spinner} {msg}") {
+        bar.set_style(style.tick_strings(&["-", "\\", "|", "/"]));
+    }
+}
+
+fn target_scanning_message(next_target: u64, rule_id: &str, path: &Path) -> String {
+    format!(
+        "plan | target {next_target} | scanning {rule_id} | {}",
+        compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
+    )
+}
+
+fn target_finished_message(
+    scanned_targets: u64,
+    planned_bytes: u64,
+    status: TargetStatus,
+    estimated_bytes: u64,
+) -> String {
+    format!(
+        "plan | {} | {} found | last {}, {}",
+        format_count(scanned_targets, "target", "targets"),
+        format_bytes(planned_bytes),
+        status.label(),
+        format_bytes(estimated_bytes)
+    )
+}
+
+fn file_progress_message(
+    rule_id: &str,
+    files_scanned: u64,
+    bytes_scanned: u64,
+    elapsed: Duration,
+) -> String {
+    format!(
+        "scan | {rule_id} | {} | {} | {}, {}",
+        format_count(files_scanned, "file", "files"),
+        format_bytes(bytes_scanned),
+        format_file_rate(files_scanned, elapsed),
+        format_byte_rate(bytes_scanned, elapsed)
+    )
+}
+
+fn scan_cache_hit_message(
+    summary: ScanCacheProgressSummary,
+    rule_id: &str,
+    path: &Path,
+    estimated_bytes: u64,
+) -> String {
+    format!(
+        "cache | {} | hit {rule_id} | {} | {}",
+        scan_cache_counts(summary),
+        compact_progress_path(path, PROGRESS_PATH_MAX_CHARS),
+        format_bytes(estimated_bytes)
+    )
+}
+
+fn scan_cache_miss_message(
+    summary: ScanCacheProgressSummary,
+    rule_id: &str,
+    path: &Path,
+    reason_label: &str,
+) -> String {
+    format!(
+        "cache | {} | miss {rule_id} | {} | {reason_label}",
+        scan_cache_counts(summary),
+        compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
+    )
+}
+
+fn scan_cache_write_skipped_message(
+    summary: ScanCacheProgressSummary,
+    rule_id: &str,
+    path: &Path,
+) -> String {
+    format!(
+        "cache | {} | skip write {rule_id} | {}",
+        scan_cache_counts(summary),
+        compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
+    )
+}
+
+fn scan_cache_pruned_message(
+    summary: ScanCacheProgressSummary,
+    pruned: u64,
+    inspected: u64,
+) -> String {
+    format!(
+        "cache | {} | pruned {} after {}",
+        scan_cache_counts(summary),
+        format_count(pruned, "record", "records"),
+        format_count(inspected, "inspection", "inspections")
+    )
+}
+
+fn scan_cache_counts(summary: ScanCacheProgressSummary) -> String {
+    format!(
+        "{}, {}",
+        format_count(summary.hits, "hit", "hits"),
+        format_count(summary.misses, "miss", "misses")
+    )
+}
+
+fn compact_progress_path(path: &Path, max_chars: usize) -> String {
+    compact_progress_text(&path.display().to_string(), max_chars)
+}
+
+fn compact_progress_text(text: &str, max_chars: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count <= max_chars {
+        return text.to_string();
+    }
+
+    if max_chars <= 3 {
+        return ".".repeat(max_chars);
+    }
+
+    let tail_len = max_chars - 3;
+    let tail = text
+        .chars()
+        .rev()
+        .take(tail_len)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    format!("...{tail}")
+}
+
+fn format_file_rate(files_scanned: u64, elapsed: Duration) -> String {
+    let seconds = elapsed.as_secs_f64();
+    if files_scanned == 0 || seconds <= f64::EPSILON {
+        return "0.0 files/s".to_string();
+    }
+
+    format!("{:.1} files/s", files_scanned as f64 / seconds)
+}
+
+fn format_byte_rate(bytes_scanned: u64, elapsed: Duration) -> String {
+    let seconds = elapsed.as_secs_f64();
+    if bytes_scanned == 0 || seconds <= f64::EPSILON {
+        return "0 B/s".to_string();
+    }
+
+    let bytes_per_second = (bytes_scanned as f64 / seconds).round() as u64;
+    format!("{}/s", format_bytes(bytes_per_second))
 }
 
 impl ProgressDetail {
@@ -539,4 +711,70 @@ fn confirm_cleanup(plan: &CleanupPlan, kind: ConfirmationKind) -> Result<bool> {
         .default(false)
         .interact()
         .context("cleanup confirmation failed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_target_scanning_message_keeps_path_bounded() {
+        let long_path = Path::new(
+            r"C:\Users\Rebecca\AppData\Local\VeryLongVendorName\VeryLongProductName\Cache\Nested\Target",
+        );
+
+        let message = target_scanning_message(3, "windows.user-temp", long_path);
+
+        assert!(message.starts_with("plan | target 3 | scanning windows.user-temp | "));
+        let path = message
+            .strip_prefix("plan | target 3 | scanning windows.user-temp | ")
+            .expect("progress message should keep the path as the final segment");
+        assert!(path.starts_with("..."));
+        assert!(path.ends_with(r"\Cache\Nested\Target"));
+        assert!(path.chars().count() <= PROGRESS_PATH_MAX_CHARS);
+    }
+
+    #[test]
+    fn progress_target_finished_message_summarizes_targets_and_bytes() {
+        let message = target_finished_message(2, 1536, TargetStatus::Allowed, 512);
+
+        assert_eq!(
+            message,
+            "plan | 2 targets | 1.50 KiB found | last allowed, 512 B"
+        );
+    }
+
+    #[test]
+    fn progress_file_message_includes_scan_rates() {
+        let message = file_progress_message("windows.user-temp", 4, 20, Duration::from_secs(1));
+
+        assert_eq!(
+            message,
+            "scan | windows.user-temp | 4 files | 20 B | 4.0 files/s, 20 B/s"
+        );
+    }
+
+    #[test]
+    fn progress_cache_hit_message_includes_cache_counts() {
+        let summary = ScanCacheProgressSummary {
+            hits: 1,
+            misses: 0,
+            write_skipped: 0,
+            pruned: 0,
+        };
+
+        let message =
+            scan_cache_hit_message(summary, "windows.edge-cache", Path::new(r"C:\Cache"), 2048);
+
+        assert_eq!(
+            message,
+            r"cache | 1 hit, 0 misses | hit windows.edge-cache | C:\Cache | 2.00 KiB"
+        );
+    }
+
+    #[test]
+    fn compact_progress_text_handles_tiny_widths() {
+        assert_eq!(compact_progress_text("abcdef", 2), "..");
+        assert_eq!(compact_progress_text("abcdef", 4), "...f");
+    }
 }
