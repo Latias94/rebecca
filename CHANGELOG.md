@@ -22,6 +22,7 @@ All notable changes to Rebecca will be documented in this file.
 - Dry-run cleanup human output now explains required opt-ins included in the next command, gives pre-execution resolution hints for skipped or blocked targets, and points active-process warning plans at `rebecca doctor active-processes`.
 - README now includes trimmed human-output examples for dry-run decisions, ranked disk maps, and cache doctor, with help-contract tests covering the primary user-facing CLI surfaces.
 - `rebecca catalog` now provides a unified read-only catalog for cleanup rules, project artifact policies, warning gates, safety categories, and action kinds using the unified `rebecca.cli.v1` machine envelope.
+- `rebecca doctor permissions` and `rebecca doctor active-processes` now report Linux cleanup capability and `/proc` process diagnostics instead of treating Linux as a Windows-only unsupported placeholder.
 - `rebecca inspect space` now provides read-only disk space insight with root totals, largest entries, diagnostics, JSON output, and NDJSON completion events.
 - `rebecca inspect space` and `rebecca inspect map` now expose stderr-only human progress, `--no-progress`, and `--progress-detail target|file` controls while keeping JSON, table, and final human stdout clean.
 - Inspect NDJSON now streams `started`, bounded `inspect-progress`, final report, and `completed` events with monotonic sequence numbers; file-level inspect progress remains opt-in with `--progress-detail file`.

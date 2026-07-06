@@ -341,6 +341,42 @@
         }
       }
     },
+    "permissionsDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "platform_supported",
+        "cleanup_execution_supported",
+        "privilege_level",
+        "suggested_action"
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform_supported": {
+          "type": "boolean"
+        },
+        "cleanup_execution_supported": {
+          "type": "boolean"
+        },
+        "privilege_level": {
+          "type": "string",
+          "enum": [
+            "standard-user",
+            "elevated",
+            "unknown",
+            "unsupported-platform"
+          ]
+        },
+        "suggested_action": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "catalogValidation": {
       "type": "object",
       "additionalProperties": false,

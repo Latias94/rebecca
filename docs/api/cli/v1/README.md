@@ -168,7 +168,16 @@ until the user selects the named gate with `--allow-warning <warning>`.
 
 `active-process-diagnostic` is emitted by `rebecca doctor active-processes`.
 It reports whether process inspection is available and lists running processes
-that match cleanup rules carrying the `active-process` warning.
+that match cleanup rules carrying the `active-process` warning. Windows uses the
+native process adapter; Linux reads `/proc/<pid>/comm` with `/proc/<pid>/exe` as
+a fallback when those files are readable.
+
+`permissions-diagnostic` is emitted by `rebecca doctor permissions`. It reports
+the current platform, whether cleanup execution is supported on that platform,
+the detected privilege level, and a short suggested action. Linux privilege
+labels are derived from the effective UID in `/proc/self/status`; standard-user
+Linux cleanup should stay preview-first and use elevated permissions only for
+reviewed permission-sensitive system cache rules.
 
 `catalog` is emitted by `rebecca catalog`. The payload is a typed array of
 cleanup rules, project artifact policies, warning gates, safety categories, and

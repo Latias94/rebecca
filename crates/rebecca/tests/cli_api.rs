@@ -475,8 +475,24 @@ fn doctor_permissions_format_json_returns_diagnostic_payload() {
     assert_eq!(envelope["command"], "doctor permissions");
     assert_eq!(envelope["payload_kind"], "permissions-diagnostic");
     assert!(envelope["data"]["platform"].as_str().is_some());
+    assert!(envelope["data"]["platform_supported"].as_bool().is_some());
+    assert!(
+        envelope["data"]["cleanup_execution_supported"]
+            .as_bool()
+            .is_some()
+    );
     assert!(envelope["data"]["privilege_level"].as_str().is_some());
     assert!(envelope["data"]["suggested_action"].as_str().is_some());
+
+    let validator = validator_for_payload_def("permissionsDiagnostic");
+    assert!(
+        validator.is_valid(&envelope["data"]),
+        "permissions diagnostic should match schema: {:?}",
+        validator
+            .iter_errors(&envelope["data"])
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

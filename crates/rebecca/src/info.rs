@@ -1,4 +1,6 @@
 use std::num::NonZeroUsize;
+#[cfg(target_os = "linux")]
+use std::path::Path;
 
 use anyhow::Result;
 use rebecca::core::RuleDefinition;
@@ -280,7 +282,7 @@ fn active_process_diagnostic() -> ActiveProcessDiagnostic {
         Err(err) => {
             return ActiveProcessDiagnostic {
                 platform: current_platform_label().to_string(),
-                platform_supported: cfg!(windows),
+                platform_supported: active_process_platform_supported(),
                 process_inspection_available: false,
                 matches: Vec::new(),
                 unavailable_reason: Some(err.to_string()),
@@ -292,7 +294,7 @@ fn active_process_diagnostic() -> ActiveProcessDiagnostic {
         Ok(processes) => active_process_diagnostic_from_processes(&rules, processes),
         Err(err) => ActiveProcessDiagnostic {
             platform: current_platform_label().to_string(),
-            platform_supported: cfg!(windows),
+            platform_supported: active_process_platform_supported(),
             process_inspection_available: false,
             matches: Vec::new(),
             unavailable_reason: Some(err.to_string()),
@@ -306,6 +308,7 @@ pub(crate) fn active_process_diagnostic_from_processes(
 ) -> ActiveProcessDiagnostic {
     let active_rules = rules
         .iter()
+        .filter(|rule| rule.platform == rebecca::core::Platform::current())
         .filter(|rule| {
             rule.warnings
                 .iter()
@@ -346,7 +349,7 @@ pub(crate) fn active_process_diagnostic_from_processes(
 
     ActiveProcessDiagnostic {
         platform: current_platform_label().to_string(),
-        platform_supported: cfg!(windows),
+        platform_supported: active_process_platform_supported(),
         process_inspection_available: true,
         matches,
         unavailable_reason: None,
@@ -357,8 +360,8 @@ fn permission_diagnostic() -> PermissionDiagnostic<'static> {
     let privilege_level = current_privilege_label();
     PermissionDiagnostic {
         platform: current_platform_label(),
-        platform_supported: cfg!(windows),
-        cleanup_execution_supported: cfg!(windows),
+        platform_supported: cleanup_platform_supported(),
+        cleanup_execution_supported: cleanup_platform_supported(),
         privilege_level,
         suggested_action: permission_suggested_action(privilege_level),
     }
@@ -366,15 +369,29 @@ fn permission_diagnostic() -> PermissionDiagnostic<'static> {
 
 fn permission_suggested_action(privilege_level: &str) -> &'static str {
     match privilege_level {
+        "elevated" if cfg!(target_os = "linux") => {
+            "cleanup execution can use elevated Linux permissions"
+        }
         "elevated" => "cleanup execution can use elevated Windows permissions",
+        "standard-user" if cfg!(target_os = "linux") => {
+            "use sudo only for reviewed permission-sensitive system cache rules"
+        }
         "standard-user" => "run from an elevated shell if protected cleanup targets are blocked",
         "unsupported-platform" => {
-            "cleanup execution is currently Windows-only; use preview commands on this platform"
+            "cleanup execution is not supported on this platform; use preview commands only"
         }
         _ => {
             "permission level could not be determined; use dry-run preview before executing cleanup"
         }
     }
+}
+
+fn cleanup_platform_supported() -> bool {
+    cfg!(windows) || cfg!(target_os = "linux")
+}
+
+fn active_process_platform_supported() -> bool {
+    cfg!(windows) || cfg!(target_os = "linux")
 }
 
 fn current_platform_label() -> &'static str {
@@ -409,13 +426,76 @@ fn active_process_snapshots() -> Result<Vec<ProcessSnapshot>> {
             .map_err(Into::into)
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        linux_active_processes()
+    }
+
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     {
         Err(rebecca::core::RebeccaError::PlatformUnavailable(
-            "Windows process diagnostics are not available on this platform".to_string(),
+            "process diagnostics are not available on this platform".to_string(),
         )
         .into())
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_active_processes() -> Result<Vec<ProcessSnapshot>> {
+    linux_active_processes_from_proc_root(Path::new("/proc"))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_active_processes_from_proc_root(proc_root: &Path) -> Result<Vec<ProcessSnapshot>> {
+    let entries = std::fs::read_dir(proc_root).map_err(|err| {
+        rebecca::core::RebeccaError::PlatformUnavailable(format!(
+            "Linux /proc process diagnostics are unavailable: {err}"
+        ))
+    })?;
+
+    let mut processes = Vec::new();
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let file_name = entry.file_name();
+        let Some(pid_text) = file_name.to_str() else {
+            continue;
+        };
+        let Ok(process_id) = pid_text.parse::<u32>() else {
+            continue;
+        };
+        let process_dir = entry.path();
+        let Some(executable_name) = linux_process_name(&process_dir) else {
+            continue;
+        };
+
+        processes.push(ProcessSnapshot {
+            process_id,
+            executable_name,
+        });
+    }
+
+    Ok(processes)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_name(process_dir: &Path) -> Option<String> {
+    let comm = std::fs::read_to_string(process_dir.join("comm"))
+        .ok()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty());
+    if comm.is_some() {
+        return comm;
+    }
+
+    std::fs::read_link(process_dir.join("exe"))
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.is_empty())
 }
 
 #[cfg(debug_assertions)]
@@ -467,6 +547,8 @@ fn cleanup_rule_process_tokens(rule: &RuleDefinition) -> Vec<String> {
             let token = normalized_process_token(token);
             if token.is_empty()
                 || token == "windows"
+                || token == "linux"
+                || token == "macos"
                 || token == "cache"
                 || tokens.iter().any(|existing| existing == &token)
             {
@@ -480,6 +562,16 @@ fn cleanup_rule_process_tokens(rule: &RuleDefinition) -> Vec<String> {
 
 fn explicit_cleanup_rule_process_tokens(rule_id: &str) -> &'static [&'static str] {
     match rule_id {
+        "linux.brave-cache" => &["brave", "brave-browser"],
+        "linux.chrome-cache" => &["chrome", "google-chrome"],
+        "linux.chromium-cache" => &["chromium"],
+        "linux.edge-cache" => &["microsoft-edge", "msedge"],
+        "linux.firefox-profile-cache" => &["firefox"],
+        "linux.slack-cache" => &["slack"],
+        "linux.thunderbird-cache" => &["thunderbird"],
+        "linux.vlc-cache" => &["vlc"],
+        "linux.zoom-logs" => &["zoom"],
+        "linux.zen-browser-cache" => &["zen", "zen-browser", "zenbrowser"],
         "windows.adobe-reader-cache" => &["acrobat", "acroread"],
         "windows.teamviewer-logs" => &["teamviewer"],
         "windows.thunderbird-cache" => &["thunderbird"],
@@ -592,7 +684,60 @@ fn current_privilege_label() -> &'static str {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn current_privilege_label() -> &'static str {
+    match linux_effective_uid() {
+        Some(0) => "elevated",
+        Some(_) => "standard-user",
+        None => "unknown",
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_effective_uid() -> Option<u32> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status.lines().find_map(|line| {
+        let values = line.strip_prefix("Uid:")?;
+        values
+            .split_whitespace()
+            .nth(1)
+            .and_then(|effective_uid| effective_uid.parse::<u32>().ok())
+    })
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 fn current_privilege_label() -> &'static str {
     "unsupported-platform"
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_active_processes_reads_comm_names_from_proc_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let process_dir = temp.path().join("4242");
+        std::fs::create_dir_all(&process_dir).unwrap();
+        std::fs::write(process_dir.join("comm"), "firefox\n").unwrap();
+        std::fs::create_dir_all(temp.path().join("not-a-pid")).unwrap();
+
+        let processes = linux_active_processes_from_proc_root(temp.path()).unwrap();
+
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].process_id, 4242);
+        assert_eq!(processes[0].executable_name, "firefox");
+    }
+
+    #[test]
+    fn linux_active_processes_reports_unavailable_proc_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing-proc");
+
+        let error = linux_active_processes_from_proc_root(&missing)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("Linux /proc process diagnostics are unavailable"));
+    }
 }

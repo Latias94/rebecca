@@ -68,6 +68,31 @@ fn doctor_permissions_prints_permission_label() {
 }
 
 #[test]
+fn doctor_permissions_json_reports_supported_cleanup_platforms() {
+    let output = common::command::rebecca()
+        .args(["doctor", "permissions", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let data = common::support::api_data(&output.stdout);
+    if cfg!(windows) || cfg!(target_os = "linux") {
+        assert_eq!(data["platform_supported"], true);
+        assert_eq!(data["cleanup_execution_supported"], true);
+        assert_ne!(data["privilege_level"], "unsupported-platform");
+    } else {
+        assert_eq!(data["platform_supported"], false);
+        assert_eq!(data["cleanup_execution_supported"], false);
+        assert_eq!(data["privilege_level"], "unsupported-platform");
+    }
+}
+
+#[test]
 fn doctor_active_processes_json_reports_fake_matching_process() {
     let output = common::command::rebecca()
         .env("REBECCA_ACTIVE_PROCESSES", "slack.exe:4242;unrelated.exe:9")
@@ -86,10 +111,20 @@ fn doctor_active_processes_json_reports_fake_matching_process() {
     assert_eq!(envelope["payload_kind"], "active-process-diagnostic");
     let data = &envelope["data"];
     assert_eq!(data["process_inspection_available"], true);
-    assert_eq!(data["matches"][0]["process_id"], 4242);
-    assert_eq!(data["matches"][0]["executable_name"], "slack.exe");
-    assert_eq!(data["matches"][0]["warning"], "active-process");
-    assert_eq!(data["matches"][0]["rule_ids"][0], "windows.slack-cache");
+    let matches = data["matches"].as_array().unwrap();
+    if cfg!(target_os = "linux") {
+        assert_eq!(matches[0]["process_id"], 4242);
+        assert_eq!(matches[0]["executable_name"], "slack.exe");
+        assert_eq!(matches[0]["warning"], "active-process");
+        assert_eq!(matches[0]["rule_ids"][0], "linux.slack-cache");
+    } else if cfg!(windows) {
+        assert_eq!(matches[0]["process_id"], 4242);
+        assert_eq!(matches[0]["executable_name"], "slack.exe");
+        assert_eq!(matches[0]["warning"], "active-process");
+        assert_eq!(matches[0]["rule_ids"][0], "windows.slack-cache");
+    } else {
+        assert!(matches.is_empty());
+    }
 }
 
 #[test]
@@ -117,9 +152,17 @@ fn doctor_active_processes_json_matches_new_diagnostic_rules() {
         .map(|rule_id| rule_id.as_str().unwrap())
         .collect::<std::collections::BTreeSet<_>>();
 
-    assert!(rule_ids.contains("windows.zoom-logs"));
-    assert!(rule_ids.contains("windows.teamviewer-logs"));
-    assert!(rule_ids.contains("windows.vlc-cache"));
+    if cfg!(target_os = "linux") {
+        assert!(rule_ids.contains("linux.zoom-logs"));
+        assert!(rule_ids.contains("linux.vlc-cache"));
+        assert!(!rule_ids.contains("windows.teamviewer-logs"));
+    } else if cfg!(windows) {
+        assert!(rule_ids.contains("windows.zoom-logs"));
+        assert!(rule_ids.contains("windows.teamviewer-logs"));
+        assert!(rule_ids.contains("windows.vlc-cache"));
+    } else {
+        assert!(rule_ids.is_empty());
+    }
 }
 
 #[test]
@@ -147,8 +190,15 @@ fn doctor_active_processes_json_matches_new_cache_rules() {
         .map(|rule_id| rule_id.as_str().unwrap())
         .collect::<std::collections::BTreeSet<_>>();
 
-    assert!(rule_ids.contains("windows.adobe-reader-cache"));
-    assert!(rule_ids.contains("windows.thunderbird-cache"));
+    if cfg!(target_os = "linux") {
+        assert!(rule_ids.contains("linux.thunderbird-cache"));
+        assert!(!rule_ids.contains("windows.adobe-reader-cache"));
+    } else if cfg!(windows) {
+        assert!(rule_ids.contains("windows.adobe-reader-cache"));
+        assert!(rule_ids.contains("windows.thunderbird-cache"));
+    } else {
+        assert!(rule_ids.is_empty());
+    }
 }
 
 #[test]
