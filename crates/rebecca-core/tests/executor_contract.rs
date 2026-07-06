@@ -23,18 +23,18 @@ fn executor_marks_allowed_targets_completed_and_keeps_blocked_targets() {
     fs::write(&file, b"trash").unwrap();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.user-temp",
         file,
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::blocked_with_reason_code(
         "windows.user-temp",
         PathBuf::from("C:/Windows"),
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
         CleanupTargetIssueReason::SafetyPolicyBlocked,
         "protected",
     ));
@@ -63,13 +63,13 @@ fn executor_records_failure_without_aborting_plan() {
     fs::write(&file, b"trash").unwrap();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.user-temp",
         file,
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -96,19 +96,19 @@ fn executor_shadows_child_targets_covered_by_parent_delete() {
     fs::create_dir_all(&child).unwrap();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.parent",
         parent,
         100,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.child",
         child,
         40,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -140,25 +140,25 @@ fn executor_shadowing_is_order_independent_for_nested_targets() {
 
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.child",
         child,
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.grandchild",
         grandchild,
         20,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.parent",
         parent,
         100,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -200,13 +200,13 @@ fn executor_shadowing_is_order_independent_for_nested_targets() {
 fn executor_revalidates_protected_category_targets_before_backend_calls() {
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.custom-browser-history",
         PathBuf::from("C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/History"),
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -241,13 +241,13 @@ fn executor_revalidates_rebecca_owned_storage_before_backend_calls() {
     let protected_storage = app_paths.storage_entries();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.custom-rebecca-cache",
         app_paths.cache_dir.join("scan"),
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -280,13 +280,13 @@ fn executor_revalidates_user_protected_paths_before_backend_calls() {
     let protected_paths = vec![cache_dir.clone()];
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.slack-cache",
         cache_dir,
         5,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -317,14 +317,14 @@ fn executor_revalidates_project_artifact_targets_before_backend_calls() {
     fs::create_dir_all(&target_dir).unwrap();
     fs::write(target_dir.join("cache.bin"), b"trash").unwrap();
     let protected_paths = vec![target_dir.clone()];
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin);
+    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete);
     request.workflow = CleanupWorkflow::ProjectArtifacts;
     let mut plan = CleanupPlan::empty(request);
     plan.targets.push(CleanupTarget::allowed(
-        "windows.project-artifact-target",
+        "portable.project-artifact-target",
         target_dir,
         5,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -346,13 +346,13 @@ fn executor_skips_missing_targets_before_backend_calls() {
     let missing_file = temp.path().join("definitely-missing.tmp");
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.user-temp",
         missing_file,
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -391,14 +391,14 @@ fn executor_allows_app_leftover_cache_targets_after_revalidation() {
     fs::create_dir_all(&cache_dir).unwrap();
     fs::write(cache_dir.join("cache.bin"), b"trash").unwrap();
     let mut plan = CleanupPlan::empty(
-        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete)
             .with_workflow(CleanupWorkflow::AppLeftovers),
     );
     plan.targets.push(CleanupTarget::allowed(
         "windows.app-leftover-local-cache",
         cache_dir,
         5,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -420,14 +420,14 @@ fn executor_skips_missing_app_leftover_targets_before_backend_calls() {
         .join("Example App")
         .join("Cache");
     let mut plan = CleanupPlan::empty(
-        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete)
             .with_workflow(CleanupWorkflow::AppLeftovers),
     );
     plan.targets.push(CleanupTarget::allowed(
         "windows.app-leftover-local-cache",
         missing_cache_dir,
         5,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -456,19 +456,19 @@ fn executor_parallel_batches_independent_targets() {
     fs::write(&second, b"trash").unwrap();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.first",
         first,
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.second",
         second,
         20,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -513,25 +513,25 @@ fn executor_parallel_passes_safe_batches_to_batch_backend() {
     fs::create_dir_all(&sibling).unwrap();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.parent",
         parent.clone(),
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.child",
         child.clone(),
         20,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.sibling",
         sibling.clone(),
         30,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -565,19 +565,19 @@ fn executor_parallel_maps_partial_batch_failures_per_target() {
     fs::write(&second, b"trash").unwrap();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.first",
         first,
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.second",
         second,
         20,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -609,19 +609,19 @@ fn executor_parallel_rejects_mismatched_batch_outcome_count() {
     fs::write(&second, b"trash").unwrap();
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.first",
         first,
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::allowed(
         "windows.second",
         second,
         20,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 
@@ -644,14 +644,14 @@ fn executor_parallel_rejects_mismatched_batch_outcome_count() {
 #[test]
 fn executor_blocks_app_leftover_durable_paths_before_backend_calls() {
     let mut plan = CleanupPlan::empty(
-        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin)
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete)
             .with_workflow(CleanupWorkflow::AppLeftovers),
     );
     plan.targets.push(CleanupTarget::allowed(
         "windows.app-leftover-local-cache",
         PathBuf::from("C:/Users/Alice/AppData/Local/Example App/Local Storage"),
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.recompute_summary();
 

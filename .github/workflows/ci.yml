@@ -34,9 +34,15 @@ jobs:
       - name: Validate Codex skills
         run: ${{ matrix.python }} skills/validate.py
 
-  windows:
-    name: Windows quality gate
-    runs-on: windows-2025
+  rust:
+    name: Rust quality gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-2025
+          - ubuntu-24.04
     env:
       CARGO_TERM_COLOR: always
 
@@ -105,7 +111,7 @@ jobs:
 
   release-smoke:
     name: Release packaging smoke
-    needs: windows
+    needs: rust
     runs-on: windows-2025
     env:
       CARGO_TERM_COLOR: always

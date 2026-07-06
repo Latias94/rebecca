@@ -252,7 +252,7 @@ fn target_groups(plan: &CleanupPlan) -> Vec<CleanTargetGroup<'_>> {
 fn cleanup_mode_label(mode: DeleteMode) -> &'static str {
     match mode {
         DeleteMode::DryRun => "dry-run",
-        DeleteMode::RecycleBin => "recycle-bin",
+        DeleteMode::RecoverableDelete => "recoverable-delete",
     }
 }
 

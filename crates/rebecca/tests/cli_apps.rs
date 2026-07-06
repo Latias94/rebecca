@@ -245,7 +245,7 @@ fn apps_clean_yes_deletes_wechat_leftover_cache_contents() {
 
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
-    assert_eq!(value["request"]["mode"], "recycle-bin");
+    assert_eq!(value["request"]["mode"], "recoverable-delete");
     assert_eq!(value["summary"]["completed_targets"], 1);
     assert_eq!(value["summary"]["blocked_targets"], 0);
     assert_eq!(value["execution_report"]["summary"]["completed_actions"], 1);
@@ -312,7 +312,7 @@ fn apps_clean_yes_respects_exclude_path_during_execution() {
 
     let value: serde_json::Value = common::support::api_data(&output.stdout);
     assert_eq!(value["request"]["workflow"], "app-leftovers");
-    assert_eq!(value["request"]["mode"], "recycle-bin");
+    assert_eq!(value["request"]["mode"], "recoverable-delete");
     assert_eq!(value["summary"]["total_targets"], 2);
     assert_eq!(value["summary"]["completed_targets"], 1);
     assert_eq!(value["summary"]["blocked_targets"], 1);

@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
+use rebecca::core::executor::{RecoverableTrashBackend, execute_cleanup_plan_parallel_with_policy};
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::planner::{
@@ -61,8 +61,6 @@ pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) human_renderer: HumanPlanRenderer,
     pub(crate) success_renderer: WorkflowSuccessRenderer,
     pub(crate) cancellation_message: &'static str,
-    #[cfg_attr(windows, allow(dead_code))]
-    pub(crate) unsupported_execution_message: &'static str,
     pub(crate) confirmation_kind: ConfirmationKind,
 }
 
@@ -90,12 +88,12 @@ pub(crate) enum ConfirmationKind {
 
 pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> Result<()> {
     let mode = if options.yes && !options.dry_run {
-        DeleteMode::RecycleBin
+        DeleteMode::RecoverableDelete
     } else {
         DeleteMode::DryRun
     };
 
-    let mut request = PlanRequest::for_platform(Platform::Windows, mode);
+    let mut request = PlanRequest::for_platform(Platform::current(), mode);
     request.selected_categories = options.categories;
     request.selected_rule_ids = options.rules;
     request.allow_moderate = options.allow_moderate;
@@ -120,7 +118,6 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
             human_renderer: render::clean::print_plan,
             success_renderer: output::print_plan_with_events,
             cancellation_message: "Cleanup cancelled.",
-            unsupported_execution_message: "cleanup execution is Windows-only at this stage; omit --yes to preview",
             confirmation_kind: ConfirmationKind::Cleanup,
         },
         runtime,
@@ -211,73 +208,58 @@ pub(crate) fn run_workflow_with_runtime_config(
         );
     }
 
-    #[cfg(not(windows))]
-    {
-        let err = rebecca::core::RebeccaError::PlatformUnavailable(
-            options.unsupported_execution_message.to_string(),
-        )
-        .into();
-        return finish_stream_with_error(event_writer, err);
-    }
-
-    #[cfg(windows)]
-    {
-        if plan.summary.allowed_targets == 0 {
-            return (options.success_renderer)(
-                &plan,
-                options.output_contract,
-                options.output_mode,
-                options.human_renderer,
-                scan_cache_summary,
-                event_writer,
-            );
-        }
-
-        let confirmed = if options.yes {
-            true
-        } else {
-            match confirm_cleanup(&plan, options.confirmation_kind) {
-                Ok(confirmed) => confirmed,
-                Err(err) => return finish_stream_with_error(event_writer, err),
-            }
-        };
-        if !confirmed {
-            return finish_stream_with_cancellation(event_writer, options.cancellation_message);
-        }
-
-        let backend = rebecca::windows::WindowsRecycleBinBackend::new();
-        let mut execution_policy = ProtectionPolicy::new()
-            .with_safety_knowledge(&safety_knowledge)
-            .with_protected_storage(&protected_storage);
-        if !protected_paths.is_empty() {
-            execution_policy = execution_policy.with_protected_paths(&protected_paths);
-        }
-        let mut execution_report = match execute_cleanup_plan_parallel_with_policy(
-            &mut plan,
-            &backend,
-            execution_policy,
-        ) {
-            Ok(report) => report,
-            Err(err) => return finish_stream_with_error(event_writer, err.into()),
-        };
-
-        let history_append =
-            HistoryStore::new(runtime_config.app_paths.history_file).append_plan_report(&plan);
-        if let Some(warning) = history_append.warning {
-            eprintln!("Warning: {}", warning.message);
-            execution_report.push_warning(warning);
-        }
-        plan.execution_report = Some(execution_report);
-
-        (options.success_renderer)(
+    if plan.summary.allowed_targets == 0 {
+        return (options.success_renderer)(
             &plan,
             options.output_contract,
             options.output_mode,
             options.human_renderer,
             scan_cache_summary,
             event_writer,
-        )
+        );
     }
+
+    let confirmed = if options.yes {
+        true
+    } else {
+        match confirm_cleanup(&plan, options.confirmation_kind) {
+            Ok(confirmed) => confirmed,
+            Err(err) => return finish_stream_with_error(event_writer, err),
+        }
+    };
+    if !confirmed {
+        return finish_stream_with_cancellation(event_writer, options.cancellation_message);
+    }
+
+    let backend = RecoverableTrashBackend::new();
+    let mut execution_policy = ProtectionPolicy::new()
+        .with_safety_knowledge(&safety_knowledge)
+        .with_protected_storage(&protected_storage);
+    if !protected_paths.is_empty() {
+        execution_policy = execution_policy.with_protected_paths(&protected_paths);
+    }
+    let mut execution_report =
+        match execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy) {
+            Ok(report) => report,
+            Err(err) => return finish_stream_with_error(event_writer, err.into()),
+        };
+
+    let history_append =
+        HistoryStore::new(runtime_config.app_paths.history_file).append_plan_report(&plan);
+    if let Some(warning) = history_append.warning {
+        eprintln!("Warning: {}", warning.message);
+        execution_report.push_warning(warning);
+    }
+    plan.execution_report = Some(execution_report);
+
+    (options.success_renderer)(
+        &plan,
+        options.output_contract,
+        options.output_mode,
+        options.human_renderer,
+        scan_cache_summary,
+        event_writer,
+    )
 }
 
 fn finish_stream_with_error(
@@ -606,15 +588,15 @@ impl ProgressDetail {
 fn confirm_cleanup(plan: &CleanupPlan, kind: ConfirmationKind) -> Result<bool> {
     let prompt = match kind {
         ConfirmationKind::Cleanup => format!(
-            "Move {} target(s), {} bytes, to the Recycle Bin?",
+            "Move {} target(s), {} bytes, to recoverable trash?",
             plan.summary.allowed_targets, plan.summary.estimated_bytes
         ),
         ConfirmationKind::AppLeftovers => format!(
-            "Move {} app leftover target(s), {} bytes, to the Recycle Bin?",
+            "Move {} app leftover target(s), {} bytes, to recoverable trash?",
             plan.summary.allowed_targets, plan.summary.estimated_bytes
         ),
         ConfirmationKind::ProjectArtifacts => format!(
-            "Move {} project artifact target(s), {} bytes, to the Recycle Bin?",
+            "Move {} project artifact target(s), {} bytes, to recoverable trash?",
             plan.summary.allowed_targets, plan.summary.estimated_bytes
         ),
     };

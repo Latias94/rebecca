@@ -152,7 +152,7 @@ flowchart TB
   CLI --> CacheCommand[cache purge]
   CacheCommand --> CacheCore[cache inventory and boundary validation]
   CacheCommand --> DeleteBackend{Deletion backend}
-  DeleteBackend --> Recoverable[Recycle Bin / recoverable delete]
+  DeleteBackend --> Recoverable[recoverable trash / recoverable delete]
   DeleteBackend --> Permanent[explicit permanent delete]
   CLI --> Planner[project artifact planner]
   Planner --> Ranked[ranked candidate stream]

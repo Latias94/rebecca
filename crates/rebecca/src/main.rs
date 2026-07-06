@@ -25,7 +25,7 @@ mod text;
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
     CompletionArgs, ConfigCommand, DoctorCommand, HistoryArgs, InspectCommand, OutputMode,
-    PurgeArgs, PurgeCommand, ScanArgs,
+    PurgeArgs, ScanArgs,
 };
 use runtime::CliRuntime;
 
@@ -322,14 +322,12 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
 
 fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> Result<()> {
     let PurgeArgs {
-        command,
         dry_run,
         yes,
         no_progress,
         progress_detail,
         scan_cache,
         no_scan_cache,
-        list_artifacts,
         roots,
         max_depth,
         min_age_days,
@@ -337,24 +335,6 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
         artifacts,
         exclude_paths,
     } = args;
-
-    if let Some(PurgeCommand::Inspect(args)) = command {
-        return purge::inspect_with_runtime(
-            purge::PurgeInspectOptions {
-                output_mode: global_mode,
-                no_progress: args.no_progress,
-                progress_detail: args.progress_detail,
-                scan_cache: args.scan_cache,
-                roots: args.roots,
-                max_depth: args.max_depth,
-                min_age_days: args.min_age_days,
-                reclaim_limit_bytes: args.reclaim_limit_bytes,
-                artifacts: args.artifacts,
-                exclude_paths: args.exclude_paths,
-            },
-            runtime,
-        );
-    }
 
     purge::run_with_runtime(
         purge::PurgeOptions {
@@ -368,7 +348,6 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
                 scan_cache,
                 no_scan_cache,
             ),
-            list_artifacts,
             roots,
             max_depth,
             min_age_days,
@@ -435,15 +414,7 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
             }
             InspectCommand::Lint(_) => output::CliApiContract::v1("inspect lint", "inspect-lint"),
         },
-        Command::Purge(args) => {
-            if matches!(args.command, Some(PurgeCommand::Inspect(_))) {
-                output::CliApiContract::v1("purge inspect", "inspect-artifacts")
-            } else if args.list_artifacts {
-                output::CliApiContract::v1("purge", "project-artifact-catalog")
-            } else {
-                output::CliApiContract::v1("purge", "project-artifact-cleanup-plan")
-            }
-        }
+        Command::Purge(_) => output::CliApiContract::v1("purge", "project-artifact-cleanup-plan"),
         Command::History(_) => output::CliApiContract::v1("history", "history-list"),
         Command::Cache { command } => match command {
             CacheCommand::Inspect { .. } => {

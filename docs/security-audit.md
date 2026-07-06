@@ -22,8 +22,8 @@ Security reporting guidance lives in the repository root `SECURITY.md`.
 
 ## Executive Summary
 
-Rebecca is a Windows-first cleanup CLI. Its main risk is unintended local data
-loss from cleanup targets that are too broad, stale, or misclassified.
+Rebecca is a local cleanup CLI. Its main risk is unintended local data loss from
+cleanup targets that are too broad, stale, or misclassified.
 
 The current design is safety-first:
 
@@ -42,11 +42,11 @@ The current design is safety-first:
 - Empty paths, traversal, filesystem roots, critical Windows paths, user profile
   roots, protected categories, Rebecca-owned storage, and existing reparse-like
   paths are blocked.
-- Built-in rules are Cleaner Manifest v1 TOML, Windows-scoped, project-owned,
-  and validated against the shared protection model and safety catalog at load
-  time.
+- Built-in cleanup rules are currently Windows-scoped Cleaner Manifest v1 TOML,
+  project-owned, and validated against the shared protection model and safety
+  catalog at load time.
 - Default execution moves files, or direct child entries of directory targets,
-  to the Windows Recycle Bin.
+  to the platform trash through Rebecca's shared recoverable backend.
 - History stores request metadata, target paths, byte counts, statuses, reason
   codes, issue matrices, target-scoped issue reasons, and restore hints. It
   does not store file contents.
@@ -56,8 +56,7 @@ revalidation and classification, scan-cache lifecycle with best-effort pruning
 after plan builds, catalog target-shape validation, protected-result audit
 round-trip, and first guardrailed catalog expansion batch are in place. Future
 cleanup families must continue to prove they stay inside those boundaries, but
-no remaining cleanup-system safety gap blocks the current Mole-like
-Windows-first scope.
+no remaining cleanup-system safety gap blocks the current Mole-like scope.
 Release integrity is tracked separately from cleanup-runtime safety: the
 repository now has cargo-dist GitHub Release generation, checksum generation,
 crates.io publishing automation, and preflight packaging smoke tests.
@@ -70,7 +69,7 @@ Rebecca's highest-risk areas are:
 - glob and application-discovery target expansion;
 - read-only installed-app inventory from Windows uninstall registry locations;
 - directory size scanning;
-- Recycle Bin execution;
+- recoverable trash execution;
 - history and scan-cache persistence;
 - future rule catalog expansion.
 
@@ -173,7 +172,7 @@ names, and system-component entries are skipped.
 
 Inventory records are used only to derive user-scoped leftover cache paths from
 the app display name. The workflow then applies the same protection policy,
-directory scan, issue matrix, execution revalidation, Recycle Bin backend, and
+directory scan, issue matrix, execution revalidation, recoverable trash backend, and
 history model as ordinary cleanup. It does not write registry data, remove
 uninstall metadata, execute vendor uninstallers, kill app processes, or delete
 system-owned install roots.
@@ -230,7 +229,7 @@ copied into Rebecca.
 
 ## Execution Model
 
-The current Windows backend moves allowed file targets to the Recycle Bin. For
+The current Windows backend moves allowed file targets to the recoverable trash. For
 directory targets, it preserves the target directory and moves direct child
 entries. This keeps app-created cache directories in place while clearing their
 contents.
@@ -257,7 +256,7 @@ consume the unified catalog instead of scraping human text.
 `inspect lint` is report-only by design. It may identify duplicate groups,
 large files, empty files, and empty directories, but it does not choose
 deletion winners, mutate hardlinks, shred files, write history, or enter the
-Recycle Bin backend. Reference and protected roots are treated as keep
+recoverable trash backend. Reference and protected roots are treated as keep
 candidates for conservative duplicate reclaim estimates.
 
 History is append-only JSONL. It records:
@@ -371,8 +370,7 @@ Recent targeted verification for this audit baseline:
   family-specific unsafe-near-miss tests, CLI contract coverage, and audit
   updates before new rules are considered complete.
 - `rebecca catalog --kind project-artifact` is the canonical scan-free selector
-  catalog surface; `purge --list-artifacts` is retained as a compatibility view
-  and must stay in sync.
+  catalog surface.
 - Protected category coverage is conservative but not exhaustive for all Windows
   applications.
 - The release workflow has not yet been exercised by a public version tag in

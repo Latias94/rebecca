@@ -56,99 +56,32 @@ fn purge_help_shows_project_artifact_options() {
     assert!(stdout.contains("--min-age-days"));
     assert!(stdout.contains("--reclaim-limit-bytes"));
     assert!(stdout.contains("--artifact"));
-    assert!(stdout.contains("--list-artifacts"));
     assert!(stdout.contains("--exclude"));
     assert!(stdout.contains("--scan-cache"));
     assert!(stdout.contains("--no-scan-cache"));
-    assert!(stdout.contains("inspect"));
+    assert!(!stdout.contains("--list-artifacts"));
 }
 
 #[test]
-fn purge_inspect_help_rejects_yes_option() {
+fn purge_rejects_removed_inspect_alias() {
     let output = common::command::rebecca()
         .args(["purge", "inspect", "--help"])
         .output()
         .unwrap();
 
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("--root"));
-    assert!(stdout.contains("--scan-cache"));
-    assert!(!stdout.contains("--yes"));
-
-    let output = common::command::rebecca()
-        .args(["purge", "inspect", "--yes"])
-        .output()
-        .unwrap();
-
     assert!(!output.status.success());
-    assert!(common::support::stderr(&output).contains("unexpected argument '--yes'"));
+    assert!(common::support::stderr(&output).contains("unexpected argument 'inspect'"));
 }
 
 #[test]
-fn purge_list_artifacts_human_reports_supported_selectors_without_loading_config() {
-    let temp = tempfile::tempdir().unwrap();
-    write_config(&temp, "[purge\n");
-
-    let output = isolated::isolated_rebecca(&temp)
+fn purge_rejects_removed_list_artifacts_alias() {
+    let output = common::command::rebecca()
         .args(["purge", "--list-artifacts"])
         .output()
         .unwrap();
 
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Supported project artifacts:"));
-    assert!(stdout.contains("node_modules"));
-    assert!(stdout.contains("node-modules"));
-    assert!(stdout.contains("windows.project-artifact-node-modules"));
-    assert!(stdout.contains("CACHEDIR.TAG"));
-    assert!(stdout.contains("dotnet-bin"));
-    assert!(stdout.contains("composer-vendor"));
-}
-
-#[test]
-fn purge_list_artifacts_json_reports_machine_readable_catalog() {
-    let output = common::command::rebecca()
-        .args(["purge", "--list-artifacts", "--format", "json"])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&output)
-    );
-
-    let envelope = common::support::api_envelope(&output.stdout);
-    assert_eq!(envelope["command"], "purge");
-    assert_eq!(envelope["payload_kind"], "project-artifact-catalog");
-
-    let value: serde_json::Value = envelope["data"].clone();
-    let artifacts = value.as_array().unwrap();
-    assert!(artifacts.iter().any(|artifact| {
-        artifact["artifact"] == "node_modules"
-            && artifact["aliases"] == serde_json::json!(["node-modules"])
-            && artifact["rule_id"] == "windows.project-artifact-node-modules"
-            && artifact["rule_suffix"] == "node-modules"
-            && artifact["default_min_age_days"] == 7
-            && artifact["trim_eligible"] == true
-            && artifact["deletion_style"] == "delete-whole-path"
-            && artifact["ranking"] == "heavy-dependency-tree"
-    }));
-    assert!(artifacts.iter().any(|artifact| {
-        artifact["artifact"] == "CACHEDIR.TAG"
-            && artifact["rule_id"] == "windows.project-artifact-cachedir-tag"
-    }));
+    assert!(!output.status.success());
+    assert!(common::support::stderr(&output).contains("unexpected argument '--list-artifacts'"));
 }
 
 #[test]
@@ -214,7 +147,7 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     let node_modules_target = targets
         .iter()
         .find(|target| {
-            target["rule_id"] == "windows.project-artifact-node-modules"
+            target["rule_id"] == "portable.project-artifact-node-modules"
                 && PathBuf::from(target["path"].as_str().unwrap())
                     .ends_with(Path::new("app").join("node_modules"))
         })
@@ -243,7 +176,7 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     let target_artifact = targets
         .iter()
         .find(|target| {
-            target["rule_id"] == "windows.project-artifact-target"
+            target["rule_id"] == "portable.project-artifact-target"
                 && PathBuf::from(target["path"].as_str().unwrap())
                     .ends_with(Path::new("app").join("target"))
         })
@@ -381,7 +314,7 @@ fn purge_ndjson_uses_purge_command_identity() {
 }
 
 #[test]
-fn purge_inspect_json_returns_read_only_project_artifact_insight() {
+fn inspect_artifacts_json_returns_read_only_project_artifact_insight() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     let node_modules_file = workspace.join("app").join("node_modules").join("pkg.bin");
@@ -397,8 +330,8 @@ fn purge_inspect_json_returns_read_only_project_artifact_insight() {
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
-            "purge",
             "inspect",
+            "artifacts",
             "--format",
             "json",
             "--no-progress",
@@ -426,7 +359,7 @@ fn purge_inspect_json_returns_read_only_project_artifact_insight() {
     );
 
     let envelope = common::support::api_envelope(&output.stdout);
-    assert_eq!(envelope["command"], "purge inspect");
+    assert_eq!(envelope["command"], "inspect artifacts");
     assert_eq!(envelope["payload_kind"], "inspect-artifacts");
 
     let value = &envelope["data"];
@@ -454,7 +387,7 @@ fn purge_inspect_json_returns_read_only_project_artifact_insight() {
 }
 
 #[test]
-fn purge_inspect_honors_filters_depth_exclude_and_configured_roots() {
+fn inspect_artifacts_honors_filters_depth_exclude_and_configured_roots() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     let node_modules = workspace.join("app").join("node_modules");
@@ -478,8 +411,8 @@ min_age_days = 0
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
-            "purge",
             "inspect",
+            "artifacts",
             "--format",
             "json",
             "--no-progress",
@@ -517,7 +450,7 @@ min_age_days = 0
 }
 
 #[test]
-fn purge_inspect_human_sorts_top_artifacts_and_reports_diagnostics() {
+fn inspect_artifacts_human_sorts_top_artifacts_and_reports_diagnostics() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     let missing = temp.path().join("missing-workspace");
@@ -550,7 +483,7 @@ min_age_days = 0
     );
 
     let output = isolated::isolated_rebecca(&temp)
-        .args(["purge", "inspect", "--no-progress"])
+        .args(["inspect", "artifacts", "--no-progress"])
         .output()
         .unwrap();
 
@@ -574,7 +507,7 @@ min_age_days = 0
 }
 
 #[test]
-fn purge_inspect_ndjson_uses_read_only_insight_payload() {
+fn inspect_artifacts_ndjson_uses_read_only_insight_payload() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     write_fixture_file(
@@ -585,8 +518,8 @@ fn purge_inspect_ndjson_uses_read_only_insight_payload() {
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
-            "purge",
             "inspect",
+            "artifacts",
             "--format",
             "ndjson",
             "--no-progress",
@@ -618,7 +551,7 @@ fn purge_inspect_ndjson_uses_read_only_insight_payload() {
     assert!(
         events
             .iter()
-            .all(|event| event["command"] == "purge inspect")
+            .all(|event| event["command"] == "inspect artifacts")
     );
     assert!(
         events
@@ -637,7 +570,7 @@ fn purge_inspect_ndjson_uses_read_only_insight_payload() {
 }
 
 #[test]
-fn purge_inspect_ndjson_file_progress_detail_keeps_artifact_progress_target_level() {
+fn inspect_artifacts_ndjson_file_progress_detail_keeps_artifact_progress_target_level() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     let node_modules = workspace.join("app").join("node_modules");
@@ -648,8 +581,8 @@ fn purge_inspect_ndjson_file_progress_detail_keeps_artifact_progress_target_leve
 
     let output = isolated::isolated_rebecca(&temp)
         .args([
-            "purge",
             "inspect",
+            "artifacts",
             "--format",
             "ndjson",
             "--progress-detail",
@@ -768,7 +701,7 @@ fn purge_json_filters_selected_artifacts() {
 
     let targets = value["targets"].as_array().unwrap();
     assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.project-artifact-target");
+    assert_eq!(targets[0]["rule_id"], "portable.project-artifact-target");
 }
 
 #[test]
@@ -817,7 +750,7 @@ fn purge_json_filters_context_sensitive_vendor_artifacts() {
     assert_eq!(targets.len(), 1);
     assert_eq!(
         targets[0]["rule_id"],
-        "windows.project-artifact-composer-vendor"
+        "portable.project-artifact-composer-vendor"
     );
     assert_eq!(
         PathBuf::from(targets[0]["path"].as_str().unwrap()),
@@ -1064,7 +997,7 @@ min_age_days = 0
 
     let targets = value["targets"].as_array().unwrap();
     assert_eq!(targets.len(), 1);
-    assert_eq!(targets[0]["rule_id"], "windows.project-artifact-target");
+    assert_eq!(targets[0]["rule_id"], "portable.project-artifact-target");
     assert!(!targets.iter().any(|target| {
         PathBuf::from(target["path"].as_str().unwrap()).starts_with(&configured_workspace)
     }));
@@ -1269,7 +1202,7 @@ fn purge_json_reports_cachedir_tag_artifacts() {
     );
 
     let target = &value["targets"].as_array().unwrap()[0];
-    assert_eq!(target["rule_id"], "windows.project-artifact-cachedir-tag");
+    assert_eq!(target["rule_id"], "portable.project-artifact-cachedir-tag");
     assert_eq!(target["status"], "allowed");
     assert_eq!(
         target["project_artifact"]["matched_context"],
@@ -1572,7 +1505,7 @@ fn purge_json_honors_exclude_flag() {
     assert_eq!(value["summary"]["blocked_targets"], 1);
 
     let blocked = &value["targets"].as_array().unwrap()[0];
-    assert_eq!(blocked["rule_id"], "windows.project-artifact-node-modules");
+    assert_eq!(blocked["rule_id"], "portable.project-artifact-node-modules");
     assert_eq!(blocked["status"], "blocked");
     assert_eq!(blocked["reason_code"], "safety-policy-blocked");
     assert!(

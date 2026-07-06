@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Rebecca</h1>
-  <p><em>Windows-first cleanup CLI for caches, app leftovers, and project artifacts.</em></p>
+  <p><em>Cross-platform cleanup CLI for caches, app leftovers, and project artifacts.</em></p>
 </div>
 
 <p align="center">
@@ -19,7 +19,7 @@
 - Windows app leftovers: `apps scan` and `apps clean` discover installed apps and target leftover cache data without uninstalling anything.
 - Project artifact purge: `purge` targets heavy build output such as `node_modules`, `target`, `build`, `dist`, and `CACHEDIR.TAG` directories after verifying project context.
 - Machine-readable output: JSON and NDJSON modes are available for wrappers, scripts, and automation, with CSV/TSV table export for disk maps.
-- Recycle Bin by default: allowed targets are moved to the Windows Recycle Bin instead of being deleted permanently.
+- Recoverable trash by default: allowed targets are moved to the platform trash instead of being deleted permanently.
 - Release integrity: release assets are checksum-backed and generated through cargo-dist.
 
 ## Quick Start
@@ -62,7 +62,7 @@ cargo run -p rebecca -- inspect lint --root .
 cargo run -p rebecca -- clean --dry-run
 cargo run -p rebecca -- doctor active-processes
 cargo run -p rebecca -- apps scan
-cargo run -p rebecca -- purge --list-artifacts
+cargo run -p rebecca -- catalog --kind project-artifact
 cargo run -p rebecca -- cache doctor
 ```
 
@@ -92,7 +92,7 @@ cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.slack-cache
 ```text
 Decision: preview only; no files were deleted.
 Reclaimable now: 9 (9 B)
-Execution: would move allowed targets to the Recycle Bin.
+Execution: would move allowed targets to recoverable trash.
 Next command: rebecca clean --yes --rule windows.slack-cache --allow-warning active-process
 Required opt-ins in next command: --allow-warning active-process.
 Warning gates in plan: active-process.
@@ -160,14 +160,14 @@ Recommendations:
 
 ## Security & Safety Design
 
-Rebecca is a local Windows cleanup tool, and the highest-risk behavior is unintended local data loss.
+Rebecca is a local cleanup tool, and the highest-risk behavior is unintended local data loss.
 
 - `clean` previews by default; `clean --dry-run` makes that preview explicit, and `clean --yes` uses the same plan builder before moving allowed targets.
-- `apps scan` and `apps clean` share the same planner. `apps clean` previews by default and requires `--yes` before moving leftover cache data to the Recycle Bin.
-- `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the Recycle Bin.
+- `apps scan` and `apps clean` share the same planner. `apps clean` previews by default and requires `--yes` before moving leftover cache data to the recoverable trash.
+- `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the platform trash.
 - `catalog`, `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
-- Default execution uses the Windows Recycle Bin.
-- Windows execution can batch already revalidated, non-overlapping targets into fewer Recycle Bin operations, but status, reason codes, pending bytes, and history remain per target.
+- Default execution uses the platform trash through the shared recoverable backend.
+- Execution can batch already revalidated, non-overlapping targets into fewer recoverable trash operations, but status, reason codes, pending bytes, and history remain per target.
 - `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates, and `inspect map --scan-backend windows-native` uses the same native entry metadata for ranked disk inventory on supported local paths; `windows-ntfs-mft-experimental` attempts read-only live NTFS/MFT metadata on supported local NTFS volumes, tries a sequential `$MFT` source before the per-record FSCTL source where a full index is explicitly requested, expands valid stream-backed `$INDEX_ALLOCATION:$I30` directory indexes through Rebecca's sequence-aware parser/index model, and falls back to a safe directory scanner with provenance when unsupported, unprivileged, too slow to index within the live build budget, or too ambiguous to trust. Set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` to tune the default 20 second experimental MFT build budget, or `0` to disable that guard for dogfood; set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture stage timings while profiling the experimental backend. `inspect space` and `inspect map` accept the same backend selector for read-only estimates or inventory. The default remains the portable cleanup walker.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
@@ -189,11 +189,11 @@ Reference material under `repo-ref/` is for behavior research only; Rebecca owns
 
 ## Tips
 
-- `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the Recycle Bin, and `cache purge --yes --permanent` opts into irreversible deletion.
+- `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the recoverable trash, and `cache purge --yes --permanent` opts into irreversible deletion.
 - Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API.
 - Use `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
 - Use `cache inspect`, `cache doctor`, and `cache prune` when you need Rebecca cache inventory, recommendations, or targeted stale-record cleanup.
-- Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the Recycle Bin.
+- Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the recoverable trash.
 - Use `--format json` or `--format ndjson` when Rebecca is being driven by another tool.
 - `history` is the fastest way to review what was planned and what actually happened.
 
@@ -243,8 +243,8 @@ cargo run -p rebecca -- apps clean --yes
 
 cargo run -p rebecca -- purge
 cargo run -p rebecca -- inspect artifacts --root . --format json
-cargo run -p rebecca -- purge --list-artifacts
-cargo run -p rebecca -- purge --list-artifacts --format json
+cargo run -p rebecca -- catalog --kind project-artifact
+cargo run -p rebecca -- catalog --kind project-artifact --format json
 cargo run -p rebecca -- purge --format json --root . --max-depth 6
 cargo run -p rebecca -- purge --root . --min-age-days 0
 cargo run -p rebecca -- purge --root . --artifact target
@@ -301,7 +301,7 @@ Rule authoring notes live in [docs/rule-authoring.md](docs/rule-authoring.md).
 
 `rebecca apps scan` and `rebecca apps clean` provide a bounded app-residue workflow. Rebecca reads installed-app inventory from Windows uninstall registry locations and uses the display name only to derive conservative user-scoped leftover cache targets under `AppData\Local`, `AppData\Roaming`, and `AppData\LocalLow`.
 
-The workflow does not uninstall applications, execute vendor uninstallers, remove uninstall metadata, write registry keys, kill processes, or delete broad `Program Files` or application data roots. It only routes discovered app leftover cache directories such as `Cache`, `Code Cache`, `GPUCache`, and `CachedData` through the same protection policy, dry-run summary, issue matrix, Recycle Bin backend, and JSON/history model used by regular cleanup.
+The workflow does not uninstall applications, execute vendor uninstallers, remove uninstall metadata, write registry keys, kill processes, or delete broad `Program Files` or application data roots. It only routes discovered app leftover cache directories such as `Cache`, `Code Cache`, `GPUCache`, and `CachedData` through the same protection policy, dry-run summary, issue matrix, recoverable trash backend, and JSON/history model used by regular cleanup.
 
 ## Project Artifacts
 
@@ -309,15 +309,15 @@ The workflow does not uninstall applications, execute vendor uninstallers, remov
 
 The current scope is context-sensitive rather than basename-only: `node_modules`, `target`, `build`, `dist`, Python virtual environments and tool caches, frontend framework caches, coverage output, Gradle caches, Zig/Dart/Expo build caches, CocoaPods `Pods`, Composer `vendor`, .NET `bin`/`obj`, plus directories carrying a valid `CACHEDIR.TAG` cache marker. Each built-in artifact is backed by an explicit project-context rule, such as JavaScript workspace markers for `node_modules`, Rust or Maven markers for `target`, Composer `composer.json` for `vendor`, and sibling `.csproj`, `.fsproj`, or `.vbproj` files for .NET `bin`/`obj`; generic names such as `build`, `dist`, `coverage`, `bin`, and `obj` are ignored without that context.
 
-Rebecca does not auto-scan every common project directory under the user profile. By default it scans configured `[purge].roots` when present and falls back to the current directory when no roots are configured; pass repeated `--root <PATH>` values to override configured roots for one run. Explicit `--root` values are strict and fail if the path is missing, not a directory, or a reparse point. Configured roots are resolved as long-lived workspace intent, so a missing or unreadable configured root is reported as a project-artifact discovery diagnostic instead of aborting the whole run. Known artifact directory names are traversal boundaries even when the directory is not accepted as a cleanup target, which prevents embedded toolchains or installed products from leaking nested `build`, `dist`, `node_modules`, or bytecode caches into the plan. Execution uses the same plan-first model as `clean`: preview is the default, `--yes` is required to move targets to the Windows Recycle Bin, and `--exclude` plus `[protection].protected_paths` can block paths before size scanning or deletion.
+Rebecca does not auto-scan every common project directory under the user profile. By default it scans configured `[purge].roots` when present and falls back to the current directory when no roots are configured; pass repeated `--root <PATH>` values to override configured roots for one run. Explicit `--root` values are strict and fail if the path is missing, not a directory, or a reparse point. Configured roots are resolved as long-lived workspace intent, so a missing or unreadable configured root is reported as a project-artifact discovery diagnostic instead of aborting the whole run. Known artifact directory names are traversal boundaries even when the directory is not accepted as a cleanup target, which prevents embedded toolchains or installed products from leaking nested `build`, `dist`, `node_modules`, or bytecode caches into the plan. Execution uses the same plan-first model as `clean`: preview is the default, `--yes` is required to move targets to the platform trash, and `--exclude` plus `[protection].protected_paths` can block paths before size scanning or deletion.
 
 Machine-readable purge targets include a `project_artifact` explanation object with the matched context, project root, and anchor path that made the target eligible. For example, a `node_modules` target matched by `package.json` reports `matched_context = "node-project"` and the concrete `project_anchor` path rather than a confidence score.
 
 Project artifact plans may also include `discovery_diagnostics` for partial discovery failures such as missing configured roots, unreadable directories, metadata errors, or skipped reparse points. These diagnostics are plan-level observations; they do not create fake cleanup targets or change target counts.
 
-To avoid immediately cleaning active build output, `purge` skips artifact directories modified within the last 7 days by default; pass `--min-age-days 0` to include recent artifacts explicitly. Use repeated `--artifact <NAME>` values to include only selected artifact kinds, using either the directory name such as `node_modules` or a rule id suffix such as `target`; run `rebecca catalog --kind project-artifact` for the canonical selector catalog, or `rebecca purge --list-artifacts` for the legacy purge-specific listing. Pass `--reclaim-limit-bytes <BYTES>` when you want Rebecca to measure ranked eligible artifacts until a reclaim target is met, leaving later candidates unmeasured. Human output groups artifact targets by project path and labels each artifact type so large purge plans are easier to scan.
+To avoid immediately cleaning active build output, `purge` skips artifact directories modified within the last 7 days by default; pass `--min-age-days 0` to include recent artifacts explicitly. Use repeated `--artifact <NAME>` values to include only selected artifact kinds, using either the directory name such as `node_modules`, a rule id suffix such as `target`, or the full portable rule id; run `rebecca catalog --kind project-artifact` for the canonical selector catalog. Pass `--reclaim-limit-bytes <BYTES>` when you want Rebecca to measure ranked eligible artifacts until a reclaim target is met, leaving later candidates unmeasured. Human output groups artifact targets by project path and labels each artifact type so large purge plans are easier to scan.
 
-Use `rebecca inspect artifacts` when you want a read-only project artifact report rather than a cleanup plan. It uses the same selectors, roots, excludes, depth, age window, scan-cache estimation, warning gates, reclaim limit, and diagnostics as `purge`, but it has no `--yes`, never prompts, and never writes cleanup history. Its machine payload is `inspect-artifacts`, grouped by scan root, project root, and artifact kind with a largest-targets list for dashboards or wrappers. `rebecca purge inspect` is retained as a legacy compatibility alias for this report.
+Use `rebecca inspect artifacts` when you want a read-only project artifact report rather than a cleanup plan. It uses the same selectors, roots, excludes, depth, age window, scan-cache estimation, warning gates, reclaim limit, and diagnostics as `purge`, but it has no `--yes`, never prompts, and never writes cleanup history. Its machine payload is `inspect-artifacts`, grouped by scan root, project root, and artifact kind with a largest-targets list for dashboards or wrappers.
 
 `rebecca inspect space` provides read-only top-level disk usage insight with bounded top entries and no cleanup authorization. Raw diagnostic samples are bounded by `--diagnostic-limit` while `diagnostic_summary` keeps complete counts; use `--diagnostic-limit 0` for summary-only machine output.
 
@@ -367,7 +367,7 @@ The full schema, path precedence, migration, and local-state ownership contract 
 
 `rebecca cache inspect` inventories Rebecca-owned rebuildable cache metadata without deleting anything. Use `--namespace scan-cache`, `--namespace ntfs-volume-index`, or `--namespace all` to narrow the report. `rebecca cache doctor` adds stale/corrupt/missing-payload recommendations, and `rebecca cache prune --stale-only` previews targeted cache metadata cleanup before `--yes` executes it through the same cleanup execution report model as other deletion workflows. JSON inventory entries include `absolute_path` for local authority and `display_path` for safer reports; review absolute local paths before sharing diagnostics.
 
-`rebecca cache purge` operates only on Rebecca's configured rebuildable cache directory. It previews by default, moves direct cache contents to the Recycle Bin with `--yes`, permanently deletes them only with `--yes --permanent`, keeps the cache directory itself, reports lifecycle, entry-status, pending-reclaim, reclaimed-byte, and issue-matrix details in human output and `--format json`, and refuses to run if the cache path overlaps preserved configuration, state, or history paths.
+`rebecca cache purge` operates only on Rebecca's configured rebuildable cache directory. It previews by default, moves direct cache contents to the recoverable trash with `--yes`, permanently deletes them only with `--yes --permanent`, keeps the cache directory itself, reports lifecycle, entry-status, pending-reclaim, reclaimed-byte, and issue-matrix details in human output and `--format json`, and refuses to run if the cache path overlaps preserved configuration, state, or history paths.
 
 Scan-cache records use a versioned JSON format under the rebuildable cache directory's `scan` subdirectory. The current v1 record stores the scanned root path, root metadata fingerprint, scan report, write time, scan backend, optional backend source, estimate confidence, and optional filesystem identity fields for USN-based invalidation. `clean --scan-cache` explicitly enables planner use of eligible regular-file records and freshness-bounded directory records. Exact records from the portable, Windows native, and experimental NTFS/MFT backends can be reused when the root fingerprint and identity still match. Directory freshness is governed by a policy seam with a current 5-minute default, so the window can evolve without changing user configuration. Missing USN support falls back to the normal fingerprint and identity policy; mismatched journal ids, unavailable journal ranges, or target-subtree changes conservatively invalidate the cache. Missing, corrupted, stale, expired, older-format, or unsupported-version records are treated as cache misses and can be rebuilt. Stale or corrupted cache files are pruned when lookup discovers them, and plan builds also run a best-effort cache prune pass that reports pruned record counts in human output.
 

@@ -9,9 +9,7 @@ use crate::clean::{
     ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
 };
 use crate::cli::{OutputMode, ProgressDetail};
-use crate::inspect;
 use crate::output::WorkflowOutputContract;
-use crate::purge_view::project_artifact_catalog_entries;
 use crate::render;
 use crate::runtime::CliRuntime;
 
@@ -20,21 +18,6 @@ pub struct PurgeOptions {
     pub dry_run: bool,
     pub output_mode: OutputMode,
     pub yes: bool,
-    pub no_progress: bool,
-    pub progress_detail: ProgressDetail,
-    pub scan_cache: bool,
-    pub list_artifacts: bool,
-    pub roots: Vec<PathBuf>,
-    pub max_depth: Option<usize>,
-    pub min_age_days: Option<u64>,
-    pub reclaim_limit_bytes: Option<u64>,
-    pub artifacts: Vec<String>,
-    pub exclude_paths: Vec<PathBuf>,
-}
-
-#[derive(Debug)]
-pub struct PurgeInspectOptions {
-    pub output_mode: OutputMode,
     pub no_progress: bool,
     pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
@@ -47,17 +30,13 @@ pub struct PurgeInspectOptions {
 }
 
 pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> Result<()> {
-    if options.list_artifacts {
-        return print_project_artifact_catalog(options.output_mode);
-    }
-
     let runtime_config = load_runtime_config()?;
     let mode = if options.yes && !options.dry_run {
-        DeleteMode::RecycleBin
+        DeleteMode::RecoverableDelete
     } else {
         DeleteMode::DryRun
     };
-    let mut request = PlanRequest::for_platform(Platform::Windows, mode)
+    let mut request = PlanRequest::for_platform(Platform::current(), mode)
         .with_workflow(CleanupWorkflow::ProjectArtifacts);
     request.project_artifact_roots = resolve_roots(options.roots, &runtime_config.purge.roots)?;
     request.project_artifact_max_depth =
@@ -83,48 +62,10 @@ pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> R
             human_renderer: render::purge::print_plan,
             success_renderer: crate::output::print_plan_with_events,
             cancellation_message: "Project artifact purge cancelled.",
-            unsupported_execution_message: "project artifact purge execution is Windows-only; omit --yes to preview",
             confirmation_kind: ConfirmationKind::ProjectArtifacts,
         },
         runtime_config,
         runtime,
-    )
-}
-
-pub(crate) fn inspect_with_runtime(
-    options: PurgeInspectOptions,
-    runtime: &CliRuntime,
-) -> Result<()> {
-    inspect::artifacts_with_runtime(
-        inspect::InspectArtifactsOptions {
-            output_mode: options.output_mode,
-            no_progress: options.no_progress,
-            progress_detail: options.progress_detail,
-            scan_cache: options.scan_cache,
-            roots: options.roots,
-            max_depth: options.max_depth,
-            min_age_days: options.min_age_days,
-            reclaim_limit_bytes: options.reclaim_limit_bytes,
-            artifacts: options.artifacts,
-            exclude_paths: options.exclude_paths,
-            command: "purge inspect",
-        },
-        runtime,
-    )
-}
-
-fn print_project_artifact_catalog(output_mode: OutputMode) -> Result<()> {
-    let catalog = project_artifact_catalog_entries();
-
-    crate::output::print_command_success(
-        "purge",
-        "project-artifact-catalog",
-        output_mode,
-        || &catalog,
-        || {
-            render::purge::print_project_artifact_catalog(&catalog);
-            Ok(())
-        },
     )
 }
 

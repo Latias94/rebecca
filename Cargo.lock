@@ -1272,6 +1272,7 @@ dependencies = [
  "thiserror",
  "toml",
  "tracing",
+ "trash",
  "windows 0.62.2",
 ]
 
@@ -1299,7 +1300,6 @@ version = "0.2.0"
 dependencies = [
  "rebecca-core",
  "tempfile",
- "trash",
  "windows 0.62.2",
  "winreg",
 ]

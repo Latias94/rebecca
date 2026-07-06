@@ -47,7 +47,7 @@
     ],
     "top_targets": [
       {
-        "rule_id": "windows.project-artifact-target",
+        "rule_id": "portable.project-artifact-target",
         "artifact": "target",
         "path": "C:\\Users\\example\\workspace\\app\\target",
         "project_root": "C:\\Users\\example\\workspace\\app",

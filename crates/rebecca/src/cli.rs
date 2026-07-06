@@ -203,7 +203,7 @@ impl From<SafetyLevelArg> for rebecca::core::SafetyLevel {
 #[command(
     name = "rebecca",
     version,
-    about = "Windows-first cleanup CLI",
+    about = "Cross-platform cleanup CLI",
     subcommand_required = true,
     arg_required_else_help = true
 )]
@@ -502,7 +502,7 @@ pub struct CleanArgs {
     /// Preview the cleanup plan without deleting anything. This is the default unless --yes is set.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
-    /// Move allowed targets to the Recycle Bin instead of previewing.
+    /// Move allowed targets to recoverable trash instead of previewing.
     #[arg(long)]
     pub yes: bool,
     #[command(flatten)]
@@ -514,10 +514,7 @@ pub struct CleanArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(args_conflicts_with_subcommands = true)]
 pub struct PurgeArgs {
-    #[command(subcommand)]
-    pub command: Option<PurgeCommand>,
     /// Preview the purge plan without deleting anything.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
@@ -536,9 +533,6 @@ pub struct PurgeArgs {
     /// Disable the rebuildable scan cache for preview estimates.
     #[arg(long, conflicts_with = "scan_cache")]
     pub no_scan_cache: bool,
-    /// List supported project artifact selectors without scanning.
-    #[arg(long)]
-    pub list_artifacts: bool,
     /// Directory to scan for project artifacts. Overrides configured purge roots.
     #[arg(long = "root", value_name = "PATH")]
     pub roots: Vec<PathBuf>,
@@ -555,43 +549,6 @@ pub struct PurgeArgs {
     #[arg(long = "artifact", value_name = "ARTIFACT")]
     pub artifacts: Vec<String>,
     /// Exclude a path from project artifact purge for this run. Can be repeated.
-    #[arg(long = "exclude", value_name = "PATH")]
-    pub exclude_paths: Vec<PathBuf>,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum PurgeCommand {
-    /// Inspect rebuildable project artifact space without cleanup prompts or history writes.
-    Inspect(PurgeInspectArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct PurgeInspectArgs {
-    /// Disable the stderr progress spinner; useful for scripts and captured logs.
-    #[arg(long)]
-    pub no_progress: bool,
-    /// Select target-level or throttled file-level progress detail.
-    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
-    pub progress_detail: ProgressDetail,
-    /// Use the rebuildable scan cache for eligible target estimates.
-    #[arg(long)]
-    pub scan_cache: bool,
-    /// Directory to scan for project artifacts. Overrides configured purge roots.
-    #[arg(long = "root", value_name = "PATH")]
-    pub roots: Vec<PathBuf>,
-    /// Maximum directory depth to scan below each root. Defaults to config or 6.
-    #[arg(long, value_name = "N")]
-    pub max_depth: Option<usize>,
-    /// Skip artifact directories modified more recently than N days. Defaults to config or 7; use 0 to include recent artifacts.
-    #[arg(long, alias = "older-than-days", value_name = "DAYS")]
-    pub min_age_days: Option<u64>,
-    /// Measure ranked eligible artifacts until at least this many bytes would be reclaimed.
-    #[arg(long, value_name = "BYTES")]
-    pub reclaim_limit_bytes: Option<u64>,
-    /// Include only a project artifact kind. Accepts directory names or rule ids. Can be repeated.
-    #[arg(long = "artifact", value_name = "ARTIFACT")]
-    pub artifacts: Vec<String>,
-    /// Exclude a path from project artifact insight for this run. Can be repeated.
     #[arg(long = "exclude", value_name = "PATH")]
     pub exclude_paths: Vec<PathBuf>,
 }
@@ -636,7 +593,7 @@ pub enum CacheCommand {
         /// Preview the purge without deleting anything.
         #[arg(long)]
         dry_run: bool,
-        /// Move rebuildable cache entries to the Recycle Bin instead of previewing them.
+        /// Move rebuildable cache entries to recoverable trash instead of previewing them.
         #[arg(long)]
         yes: bool,
         /// Permanently delete rebuildable cache entries. Requires --yes and conflicts with --dry-run.
@@ -683,7 +640,7 @@ pub enum AppsCommand {
         #[arg(long = "exclude", value_name = "PATH")]
         exclude_paths: Vec<PathBuf>,
     },
-    /// Preview or move leftover app cache data to the Recycle Bin.
+    /// Preview or move leftover app cache data to recoverable trash.
     Clean {
         /// Preview the app leftovers plan without deleting anything.
         #[arg(short = 'n', long)]

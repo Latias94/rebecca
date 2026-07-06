@@ -768,7 +768,7 @@ fn artifacts_with_runtime_config(
     runtime_config: AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<()> {
-    let mut request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun)
+    let mut request = PlanRequest::for_platform(Platform::current(), DeleteMode::DryRun)
         .with_workflow(CleanupWorkflow::ProjectArtifacts);
     request.project_artifact_roots = resolve_roots(options.roots, &runtime_config.purge.roots)?;
     request.project_artifact_max_depth =
@@ -794,7 +794,6 @@ fn artifacts_with_runtime_config(
             human_renderer: render::purge::print_project_artifact_insight,
             success_renderer: print_project_artifact_insight_with_events,
             cancellation_message: "Project artifact inspection cancelled.",
-            unsupported_execution_message: "project artifact inspection is read-only",
             confirmation_kind: ConfirmationKind::ProjectArtifacts,
         },
         runtime_config,

@@ -20,7 +20,7 @@ This plan assumes fearless refactoring is allowed: existing internal APIs may br
 
 ### Problem Frame
 
-Rebecca already has strong ingredients: a preview-first planner, Windows Recycle Bin execution, protected-path checks, scan-cache evidence, NTFS persistent cache diagnostics, rule-catalog provenance gates, and benchmark scripts. The weak point is that these pieces are not yet one coherent cleanup platform.
+Rebecca already has strong ingredients: a preview-first planner, Windows recoverable trash execution, protected-path checks, scan-cache evidence, NTFS persistent cache diagnostics, rule-catalog provenance gates, and benchmark scripts. The weak point is that these pieces are not yet one coherent cleanup platform.
 
 The current execution layer mutates `CleanupPlan` targets directly, `cache purge` uses a separate deletion/report model, history append failures can mask already-performed deletion, parent/child cleanup targets can double-count reclaim estimates, and performance evidence is not yet a stable baseline gate. The rule catalog also has strong load-time checks, but some filesystem discovery and execution paths are still too dependent on final-target validation instead of traversal-safe behavior.
 
@@ -58,7 +58,7 @@ In scope:
 
 - `rebecca-core` execution domain and safety revalidation.
 - `rebecca` CLI wiring/rendering for cleanup and cache commands.
-- `rebecca-windows` Recycle Bin backend semantics.
+- `rebecca-windows` recoverable trash backend semantics.
 - Cache inspect/doctor/prune inventory and reports.
 - Performance baseline comparison scripts and self-tests.
 - Rule-catalog linting, fixture expectations, and reparse hardening.
@@ -70,7 +70,7 @@ Out of scope for this plan:
 - Auto-elevation, process killing, or privileged cleanup automation.
 - Making NTFS persistent volume-index cache default for all users.
 - Copying rule data or implementation from GPL/reference projects.
-- Programmatic restore from Recycle Bin item IDs. The new report may prepare for this, but full restore is a separate feature.
+- Programmatic restore from recoverable trash item IDs. The new report may prepare for this, but full restore is a separate feature.
 
 ## Planning Contract
 
@@ -107,7 +107,7 @@ Rationale: cache purge has unique inventory and policy inputs, but deletion safe
 
 KTD4. Preserve recoverable-by-default behavior and keep permanent deletion explicit.
 
-Rationale: the project identity is preview-first and Recycle Bin by default. Permanent delete remains valid for rebuildable cache prune/purge only when explicitly requested.
+Rationale: the project identity is preview-first and recoverable trash by default. Permanent delete remains valid for rebuildable cache prune/purge only when explicitly requested.
 
 KTD5. Use structured evidence first, caveat text second.
 
@@ -340,7 +340,7 @@ Approach:
 Test scenarios:
 
 - Cache purge preview produces an execution plan without backend attempts.
-- Recoverable cache purge uses the Recycle Bin backend and reports pending bytes.
+- Recoverable cache purge uses the recoverable trash backend and reports pending bytes.
 - Permanent cache purge deletes only approved cache entries.
 - Preserved config/state/history overlap is blocked.
 - Symlink cache entries are skipped with a typed reason.

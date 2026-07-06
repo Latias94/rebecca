@@ -298,7 +298,7 @@ pub fn filter_catalog_items(items: Vec<CatalogItem>, query: &CatalogQuery) -> Ve
 
 fn project_artifact_rule_suffix(rule_id: &str) -> &str {
     rule_id
-        .strip_prefix("windows.project-artifact-")
+        .strip_prefix("portable.project-artifact-")
         .unwrap_or(rule_id)
 }
 

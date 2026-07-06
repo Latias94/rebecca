@@ -2792,7 +2792,8 @@ fn dry_run_and_recycle_bin_share_target_set() {
     let mut dry_request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     dry_request.selected_rule_ids = vec!["windows.user-temp".to_string()];
 
-    let mut run_request = PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin);
+    let mut run_request =
+        PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete);
     run_request.selected_rule_ids = vec!["windows.user-temp".to_string()];
 
     let dry_plan = build_cleanup_plan_with_environment(&dry_request, &rules, &fixture.env).unwrap();
@@ -2820,7 +2821,7 @@ fn dry_run_and_recycle_bin_share_target_set() {
         run_plan
             .targets
             .iter()
-            .all(|target| target.mode == DeleteMode::RecycleBin)
+            .all(|target| target.mode == DeleteMode::RecoverableDelete)
     );
 }
 

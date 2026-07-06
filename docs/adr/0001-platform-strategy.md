@@ -12,7 +12,7 @@ We are building a Rust + clap CLI for cleaning system junk and application cache
 Windows is the right primary platform because:
 
 - cache and temp locations are highly standardized in common Windows installs,
-- Recycle Bin and uninstall leftovers are important user-facing cleanup targets,
+- recoverable trash and uninstall leftovers are important user-facing cleanup targets,
 - NTFS-specific scanning can become a differentiator later,
 - Windows-specific tooling is more fragmented than Linux developer cache cleanup.
 
@@ -24,7 +24,7 @@ flowchart LR
   Core --> Rules[Cleanup rules]
   Core --> Safety[Path and risk checks]
   Win --> NTFS[NTFS / Win32 APIs]
-  Win --> Recycle[Recycle Bin]
+  Win --> Recycle[recoverable trash]
   Win --> Shell[PowerShell and system commands]
 ```
 

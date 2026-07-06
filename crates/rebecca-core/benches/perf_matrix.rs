@@ -1034,7 +1034,7 @@ fn create_cleanup_fixture() -> CleanupBenchmarkFixture {
     let root = temp.path();
     let mut plan = CleanupPlan::empty(rebecca_core::PlanRequest::for_platform(
         rebecca_core::Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
 
     for directory_index in 0..MANY_SMALL_DIRECTORY_COUNT {
@@ -1051,7 +1051,7 @@ fn create_cleanup_fixture() -> CleanupBenchmarkFixture {
             format!("rule-{directory_index:04}"),
             directory,
             BYTES_PER_FILE as u64 * FILES_PER_DIRECTORY as u64,
-            DeleteMode::RecycleBin,
+            DeleteMode::RecoverableDelete,
         ));
     }
 

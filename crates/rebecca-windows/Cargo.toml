@@ -7,17 +7,16 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Windows-specific adapters for Rebecca cleanup, discovery, and Recycle Bin execution."
+description = "Windows-specific adapters for Rebecca discovery and host capabilities."
 documentation = "https://docs.rs/rebecca-windows"
 readme = "../../README.md"
-keywords = ["windows", "cleanup", "recycle-bin", "registry"]
+keywords = ["windows", "cleanup", "registry", "steam"]
 categories = ["filesystem", "os::windows-apis"]
 
 [dependencies]
 rebecca-core.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-trash.workspace = true
 windows.workspace = true
 winreg.workspace = true
 

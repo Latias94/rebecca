@@ -22,7 +22,7 @@ Build Rebecca's first real Windows cleanup loop: resolve owned cleanup rules, sc
 
 Rebecca is currently a Rust workspace with a `clap` CLI skeleton and ADRs that pin the product direction. The CLI can list stub rules and print configuration paths, but `clean` does not scan, plan, delete, or record history.
 
-The next milestone should prove the product's core trust contract before expanding rule coverage: a user can see what would be cleaned, understand why each target is allowed or skipped, execute a recoverable cleanup, and inspect what happened afterward. This follows the existing ADR direction: Windows-first, plan-first, owned rule catalog, standard-user default, bounded parallel traversal, Recycle Bin by default, and no copied GPL rule data.
+The next milestone should prove the product's core trust contract before expanding rule coverage: a user can see what would be cleaned, understand why each target is allowed or skipped, execute a recoverable cleanup, and inspect what happened afterward. This follows the existing ADR direction: Windows-first, plan-first, owned rule catalog, standard-user default, bounded parallel traversal, recoverable trash by default, and no copied GPL rule data.
 
 ---
 
@@ -44,7 +44,7 @@ The next milestone should prove the product's core trust contract before expandi
 **Scanning And Execution**
 
 - R8. The default scan engine uses bounded parallel directory traversal and deterministic output ordering.
-- R9. Default Windows execution moves allowed targets to the Recycle Bin when supported; permanent deletion remains out of the MVP command surface.
+- R9. Default Windows execution moves allowed targets to the recoverable trash when supported; permanent deletion remains out of the MVP command surface.
 - R10. Admin-only or inaccessible targets are reported as skipped or failed without auto-elevation.
 
 **CLI And History**
@@ -66,7 +66,7 @@ The next milestone should prove the product's core trust contract before expandi
 - KTD2. **Candidate status model:** Replace the current target-only `CleanupPlan` with a richer status model so skipped and blocked paths are visible instead of disappearing from output.
 - KTD3. **Typed rule targets:** Evolve `RuleDefinition.path_templates` toward typed target specs while preserving simple templates for the first rules; this keeps future registry, known-folder, and glob discovery from becoming ad hoc string handling.
 - KTD4. **Synchronous filesystem with bounded parallelism:** Use `jwalk`, `ignore`, and `rayon` for scanning and sizing instead of an async runtime; the workload is blocking filesystem I/O and the ADRs already favor sync traversal.
-- KTD5. **Recoverable Windows adapter:** Keep Recycle Bin deletion and privilege detection in `rebecca-windows`, behind contracts that `rebecca-core` can test with fakes.
+- KTD5. **Recoverable Windows adapter:** Keep recoverable trash deletion and privilege detection in `rebecca-windows`, behind contracts that `rebecca-core` can test with fakes.
 - KTD6. **Conservative safety defaults:** Do not follow junctions, symlinks, or other reparse points by default; report them for review unless a later feature adds explicit traversal policy.
 - KTD7. **Human and JSON from one model:** CLI rendering should be a view over core structs, not a second code path that recomputes totals or target state.
 
@@ -85,7 +85,7 @@ flowchart TB
   Scanner --> Plan[CleanupPlan with statuses]
   Plan --> Render[Human and JSON renderers]
   Plan --> Executor[Execution contract]
-  Executor --> Windows[rebecca-windows Recycle Bin adapter]
+  Executor --> Windows[rebecca-windows recoverable trash adapter]
   Executor --> History[JSONL history writer]
 ```
 
@@ -118,7 +118,7 @@ sequenceDiagram
 ### In Scope
 
 - Windows user-scope cleanup for the existing starter categories: user temp, Microsoft Edge cache, and npm cache.
-- Dry-run preview, JSON output, safety status reporting, and Recycle Bin execution.
+- Dry-run preview, JSON output, safety status reporting, and recoverable trash execution.
 - Append-only history and `history` CLI rendering.
 - Mockable tests for destructive behavior and Windows-gated tests for the platform adapter.
 
@@ -218,14 +218,14 @@ The CLI contract also becomes externally visible. JSON shapes for `scan`, `clean
 - **Requirements:** R4, R9, R10, R15
 - **Dependencies:** U1, U4
 - **Files:** `crates/rebecca-core/src/executor.rs`, `crates/rebecca-core/src/lib.rs`, `crates/rebecca-core/tests/executor_contract.rs`, `crates/rebecca-windows/src/lib.rs`, `crates/rebecca-windows/src/recycle.rs`, `crates/rebecca-windows/src/privilege.rs`, `crates/rebecca-windows/tests/recycle_bin.rs`
-- **Approach:** Define a core execution contract that receives an executable plan and returns per-target outcomes. Implement the Windows adapter with Recycle Bin behavior through the existing Windows dependency set. Keep permanent deletion unsupported in the CLI for this MVP. Report permission failures, locked files, and Recycle Bin failures without fallback deletion.
+- **Approach:** Define a core execution contract that receives an executable plan and returns per-target outcomes. Implement the Windows adapter with recoverable trash behavior through the existing Windows dependency set. Keep permanent deletion unsupported in the CLI for this MVP. Report permission failures, locked files, and recoverable trash failures without fallback deletion.
 - **Execution note:** Use a fake executor for core tests; keep Windows integration tests guarded so non-Windows builds remain useful.
 - **Patterns to follow:** ADR 0004 and ADR 0006; Mole's `mole_delete` behavior in `repo-ref/Mole/lib/core/file_ops.sh` is a safety reference only.
 - **Test scenarios:**
   - Happy path: a fake executor marks one allowed target as completed and records pending reclaim bytes.
   - Error path: a fake executor permission failure records a failed target and leaves the run non-fatal.
   - Error path: a blocked target is never passed to the executor.
-  - Windows integration scenario: a temporary file can be moved through the Recycle Bin adapter when the host supports it.
+  - Windows integration scenario: a temporary file can be moved through the recoverable trash adapter when the host supports it.
   - Windows integration scenario: privilege detection returns standard, elevated, or unknown without panicking.
 - **Verification:** Core executor contract tests pass everywhere; Windows-gated tests pass on a Windows developer machine.
 
@@ -279,7 +279,7 @@ The CLI contract also becomes externally visible. JSON shapes for `scan`, `clean
 ## Risks & Dependencies
 
 - **Safety regression risk:** A cleaner bug can delete valuable user data. Mitigation: all deletes pass through safety policy, executable plan filtering, and the platform executor contract.
-- **Windows filesystem edge cases:** Junctions, symlinks, locked files, and Recycle Bin failures can vary by host. Mitigation: default to non-traversal, report failures per target, and keep Windows tests gated.
+- **Windows filesystem edge cases:** Junctions, symlinks, locked files, and recoverable trash failures can vary by host. Mitigation: default to non-traversal, report failures per target, and keep Windows tests gated.
 - **JSON contract churn:** Early machine-readable output may be used by scripts. Mitigation: derive human and JSON output from the same model and avoid needless shape changes.
 - **Reference license risk:** Mole and BleachBit are GPL references. Mitigation: use them only for behavior-level research and keep owned rule metadata in Rebecca.
 - **Performance risk:** Parallel traversal can overload slow drives if uncontrolled. Mitigation: use bounded traversal and add a baseline benchmark after functional tests.
@@ -302,7 +302,7 @@ The CLI contract also becomes externally visible. JSON shapes for `scan`, `clean
 - `docs/adr/0003-workspace-and-module-boundaries.md` for crate boundaries.
 - `docs/adr/0004-windows-privilege-and-registry-model.md` for standard-user and registry limits.
 - `docs/adr/0005-scan-engine-strategy.md` for traversal-first scanning and deferred NTFS acceleration.
-- `docs/adr/0006-deletion-and-recovery-model.md` for plan-first cleanup and Recycle Bin defaults.
+- `docs/adr/0006-deletion-and-recovery-model.md` for plan-first cleanup and recoverable trash defaults.
 - `docs/adr/0007-rule-catalog-and-license-provenance.md` for owned rule catalog and GPL boundaries.
 - `docs/adr/0008-configuration-and-local-state-model.md` for AppData config and state paths.
 - `repo-ref/Mole/README.md`, `repo-ref/Mole/lib/core/file_ops.sh`, and `repo-ref/Mole/lib/core/history.sh` for behavior-level safety, dry-run, deletion, and history reference.

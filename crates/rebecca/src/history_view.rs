@@ -153,7 +153,7 @@ mod tests {
     fn history_entry(recorded_at_unix_seconds: u64, summary: CleanupSummary) -> HistoryEntry {
         HistoryEntry {
             recorded_at_unix_seconds,
-            request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+            request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete),
             summary,
             targets: Vec::new(),
         }

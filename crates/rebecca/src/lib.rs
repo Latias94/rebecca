@@ -18,7 +18,7 @@ pub mod rules {
 
 #[cfg(feature = "windows")]
 pub mod windows {
-    //! Windows-specific adapters for discovery and cleanup execution.
+    //! Windows-specific adapters for discovery and host capabilities.
 
     pub use rebecca_windows::*;
 }

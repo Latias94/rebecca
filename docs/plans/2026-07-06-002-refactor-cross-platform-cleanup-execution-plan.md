@@ -31,7 +31,7 @@ The immediate product win is portable project artifact cleanup and Rebecca cache
 
 ### Problem Frame
 
-The current execution path still hardcodes `Platform::Windows`, `DeleteMode::RecycleBin`, and non-Windows execution failures in `crates/rebecca/src/clean.rs`, `crates/rebecca/src/purge.rs`, and `crates/rebecca/src/cache.rs`.
+Before this work, the execution path still hardcoded `Platform::Windows`, the old recycle-bin delete label, and non-Windows execution failures in `crates/rebecca/src/clean.rs`, `crates/rebecca/src/purge.rs`, and `crates/rebecca/src/cache.rs`.
 This makes the CLI message, JSON model, and tests lie about the product direction: project artifacts such as `node_modules`, `target`, `.gradle`, and `vendor` are portable by nature, but their rule IDs and execution path are still branded as Windows.
 Because Rebecca has not shipped yet, keeping compatibility aliases such as `purge inspect` and `purge --list-artifacts` adds surface area without protecting real users.
 
@@ -52,7 +52,7 @@ Because Rebecca has not shipped yet, keeping compatibility aliases such as `purg
 
 **CLI and catalog cleanup**
 
-- R8. User-facing help, human output, README text, and JSON examples must say `trash` or `recoverable delete` for portable execution and reserve `Recycle Bin` for Windows-specific notes only.
+- R8. User-facing help, human output, README text, and JSON examples must say `trash`, `recoverable trash`, or `recoverable delete` for portable execution and reserve `Recycle Bin` for Windows-specific historical notes only.
 - R9. Project artifact rule IDs must move from `windows.project-artifact-*` to a portable namespace, with selectors continuing to accept human artifact names and suffixes.
 - R10. Pre-release compatibility aliases must be removed: `purge inspect` is replaced by `inspect artifacts`, and `purge --list-artifacts` is replaced by `catalog --kind project-artifact`.
 
@@ -78,7 +78,7 @@ Because Rebecca has not shipped yet, keeping compatibility aliases such as `purg
 
 ### Sources
 
-- `crates/rebecca-core/src/model.rs` currently defines only `Platform::Windows` and `DeleteMode::RecycleBin`.
+- `crates/rebecca-core/src/model.rs` previously defined only `Platform::Windows` and `DeleteMode::RecycleBin`.
 - `crates/rebecca/src/clean.rs` and `crates/rebecca/src/purge.rs` currently build requests with `PlanRequest::for_platform(Platform::Windows, ...)` and reject non-Windows execution.
 - `crates/rebecca-windows/src/lib.rs` currently owns `WindowsRecycleBinBackend`, but its implementation already delegates to the cross-platform `trash` crate on Windows.
 - `crates/rebecca-core/src/project_artifacts/policy.rs` currently assigns portable artifact policies to `windows.project-artifact-*` IDs.
@@ -147,7 +147,7 @@ Core should own deletion semantics and reports; platform-specific crates should 
 - **Goal:** Break the core model away from singleton Windows and Windows-only delete labels.
 - **Requirements:** R3, R5, R6.
 - **Files:** `crates/rebecca-core/src/model.rs`, `crates/rebecca-core/src/plan.rs`, `crates/rebecca-core/tests/model_contract.rs`, `crates/rebecca-core/tests/executor_contract.rs`, `crates/rebecca/tests/cli_api.rs`.
-- **Approach:** Add host-platform variants and a current-platform helper, rename `DeleteMode::RecycleBin` to recoverable semantics, update serde labels and test fixtures, and remove old `recycle-bin` expectations.
+- **Approach:** Add host-platform variants and a current-platform helper, rename the old recycle-bin mode to recoverable semantics, update serde labels and test fixtures, and remove old `recycle-bin` expectations.
 - **Patterns:** Follow the existing enum label pattern in `crates/rebecca-core/src/model.rs` and issue-matrix expectations in `crates/rebecca-core/src/plan.rs`.
 - **Test scenarios:** Model serialization emits portable platform labels; dry-run remains `dry-run`; recoverable execution emits the new delete mode label; old `recycle-bin` assertions are gone.
 - **Verification:** `cargo nextest run -p rebecca-core --locked model_contract executor_contract`.

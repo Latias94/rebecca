@@ -163,7 +163,7 @@ fn project_artifact_candidate_is_cleanable_when_context_is_verified() {
     assert_eq!(advice.source.unwrap().label(), "project-artifact");
     assert_eq!(
         advice.rule_id.as_deref(),
-        Some("windows.project-artifact-node-modules")
+        Some("portable.project-artifact-node-modules")
     );
     assert_eq!(advice.category.as_deref(), Some("project-artifact"));
     let args = &advice.suggested_command.as_ref().unwrap().args;

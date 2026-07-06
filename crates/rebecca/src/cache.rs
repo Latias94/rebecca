@@ -7,6 +7,7 @@ use rebecca::core::cache::{
     prune_app_cache_inventory, purge_app_cache, purge_app_cache_with_backend,
 };
 use rebecca::core::config::{load_app_paths, load_runtime_config};
+use rebecca::core::executor::RecoverableTrashBackend;
 
 use crate::cache_view::CachePurgeProjection;
 use crate::cli::OutputMode;
@@ -136,25 +137,15 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
     )
 }
 
-#[cfg(feature = "windows")]
 fn purge_app_cache_recoverably(
     paths: &rebecca::core::config::AppPaths,
 ) -> Result<CachePurgeReport> {
-    let backend = rebecca::windows::WindowsRecycleBinBackend::new();
+    let backend = RecoverableTrashBackend::new();
     Ok(purge_app_cache_with_backend(
         paths,
         CachePurgeMode::RecoverableDelete,
         &backend,
     )?)
-}
-
-#[cfg(not(feature = "windows"))]
-fn purge_app_cache_recoverably(
-    _paths: &rebecca::core::config::AppPaths,
-) -> Result<CachePurgeReport> {
-    Err(anyhow!(
-        "recoverable cache purge requires a platform recycle-bin backend; rerun with --yes --permanent to delete permanently"
-    ))
 }
 
 fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
@@ -233,7 +224,7 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
     if projection.show_delete_hint() {
         writeln!(
             output,
-            "Run with --yes to move these rebuildable cache entries to the Recycle Bin, or --yes --permanent to delete them permanently."
+            "Run with --yes to move these rebuildable cache entries to recoverable trash, or --yes --permanent to delete them permanently."
         )?;
     }
 
@@ -490,11 +481,9 @@ mod tests {
 
         assert!(rendered.contains("Issue matrix:"));
         assert!(rendered.contains("- skipped symlink-skipped: 1 entry, 0 (0 B)"));
-        assert!(
-            rendered.contains(
-                "Run with --yes to move these rebuildable cache entries to the Recycle Bin"
-            )
-        );
+        assert!(rendered.contains(
+            "Run with --yes to move these rebuildable cache entries to recoverable trash"
+        ));
     }
 
     #[test]

@@ -71,7 +71,7 @@ The right path is layered: make the portable pipeline excellent first, then add 
 **Deletion and Windows Specialization**
 
 - R13. Cleanup deletion must keep execute-time revalidation and overlap-aware batching while allowing backends to delete a whole safe batch at once.
-- R14. Windows must gain a batch Recycle Bin backend, preferably through Shell `IFileOperation`, with `trash` retained as a fallback.
+- R14. Windows must gain a batch recoverable trash backend, preferably through Shell `IFileOperation`, with `trash` retained as a fallback.
 - R15. Windows must gain a native directory enumeration backend that batches metadata retrieval and preserves Rebecca's cleanup safety semantics.
 - R16. NTFS/MFT scanning must be experimental, opt-in, read-only, failure-tolerant, and used only for measurement or inspect estimates, never as direct authority for deletion.
 - R17. USN Journal integration must first invalidate or refresh scan cache entries; true incremental subtree accounting is deferred until correctness is proven.
@@ -98,7 +98,7 @@ The right path is layered: make the portable pipeline excellent first, then add 
 - F3. A Windows user deletes many safe cache targets.
   - **Trigger:** User confirms cleanup on Windows.
   - **Steps:** Executor revalidates every target, partitions overlapping paths into safe batches, and passes each batch to the platform backend.
-  - **Outcome:** Batch Recycle Bin execution reduces Shell overhead without weakening recovery semantics.
+  - **Outcome:** Batch recoverable trash execution reduces Shell overhead without weakening recovery semantics.
   - **Covered by:** R13, R14
 - F4. A Windows user opts into fast inspection.
   - **Trigger:** User runs an explicit fast-index inspect or scan backend mode.
@@ -165,7 +165,7 @@ Outside this product's identity:
 - KTD6. Cache durability matches data value.
   Scan cache is derived state, so atomic replace is the default; strict fsync belongs behind policy.
 - KTD7. Windows optimization has two rungs before MFT.
-  Batch Recycle Bin and native directory enumeration are lower-risk, product-relevant wins before raw NTFS parsing.
+  Batch recoverable trash and native directory enumeration are lower-risk, product-relevant wins before raw NTFS parsing.
 - KTD8. MFT parsing belongs behind a narrow, read-only boundary.
   A `rebecca-ntfs` parser can be tested with exported `$MFT` fixtures, while `rebecca-windows` owns volume handles and privileges.
 - KTD9. USN Journal is first a cache invalidation primitive.
@@ -191,7 +191,7 @@ flowchart TB
   Plan --> Executor[Execution revalidation]
   Executor --> DeleteBackend{Deletion backend}
   DeleteBackend --> Trash[Per-target trash fallback]
-  DeleteBackend --> BatchTrash[Windows batch Recycle Bin]
+  DeleteBackend --> BatchTrash[Windows batch recoverable trash]
   DeleteBackend --> Permanent[Explicit permanent mode]
 ```
 
@@ -350,7 +350,7 @@ flowchart TB
 - **Test scenarios:** Backends without batch support behave exactly as before; batch-capable backends receive non-overlapping batches; partial batch failures mark only failed targets; parent and child paths still appear in separate batches; permanent deletion remains explicit.
 - **Verification:** Executor contract tests and cleanup delete benchmarks pass.
 
-### U9. Implement Windows batch Recycle Bin deletion
+### U9. Implement Windows batch recoverable trash deletion
 
 - **Goal:** Reduce Windows deletion overhead for many safe targets while preserving recoverable default behavior.
 - **Requirements:** R13, R14; covers F3 and AE6.
@@ -468,7 +468,7 @@ flowchart TB
 - Progress overhead is bounded and NDJSON has an explicit file-level verbosity mode.
 - Scan cache writes are cheaper by default and carry backend/confidence metadata.
 - Deletion backends can batch safe target groups while preserving individual outcomes and revalidation.
-- Windows has a path to native directory enumeration and batch Recycle Bin execution.
+- Windows has a path to native directory enumeration and batch recoverable trash execution.
 - NTFS/MFT work, if implemented, is opt-in, read-only, fixture-tested, and never deletion authority.
 - USN integration, if implemented, starts as conservative cache invalidation.
 - Rule manifests and discovery support catalog growth without repeated incompatible directory walks.

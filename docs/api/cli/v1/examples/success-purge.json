@@ -41,7 +41,7 @@
     ],
     "targets": [
       {
-        "rule_id": "windows.project-artifact-target",
+        "rule_id": "portable.project-artifact-target",
         "path": "D:\\SourceCodes\\Rust\\rebecca\\target",
         "estimated_bytes": 1048576,
         "estimate_source": "fresh-scan",

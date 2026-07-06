@@ -222,11 +222,11 @@ fn skips_embedded_toolchain_artifacts_without_project_context() {
     let artifacts = discover_project_artifacts(&options, &ScanCancellationToken::new()).unwrap();
 
     assert!(artifacts.iter().any(|artifact| {
-        artifact.definition.rule_id == "windows.project-artifact-node-modules"
+        artifact.definition.rule_id == "portable.project-artifact-node-modules"
             && artifact.path == real_node_modules
     }));
     assert!(artifacts.iter().any(|artifact| {
-        artifact.definition.rule_id == "windows.project-artifact-target"
+        artifact.definition.rule_id == "portable.project-artifact-target"
             && artifact.path == real_target
     }));
     assert!(
@@ -287,7 +287,7 @@ fn discovers_valid_cachedir_tag_directories() {
     assert_eq!(artifacts.len(), 1);
     assert_eq!(
         artifacts[0].definition.rule_id,
-        "windows.project-artifact-cachedir-tag"
+        "portable.project-artifact-cachedir-tag"
     );
     assert_eq!(artifacts[0].path, cache);
     assert_ne!(artifacts[0].path, workspace);
@@ -322,11 +322,11 @@ fn discovers_context_sensitive_bin_and_vendor_artifacts() {
     let artifacts = discover_project_artifacts(&options, &ScanCancellationToken::new()).unwrap();
 
     assert!(artifacts.iter().any(|artifact| {
-        artifact.definition.rule_id == "windows.project-artifact-dotnet-bin"
+        artifact.definition.rule_id == "portable.project-artifact-dotnet-bin"
             && artifact.path == dotnet_bin
     }));
     assert!(artifacts.iter().any(|artifact| {
-        artifact.definition.rule_id == "windows.project-artifact-composer-vendor"
+        artifact.definition.rule_id == "portable.project-artifact-composer-vendor"
             && artifact.path == composer_vendor
     }));
     assert!(
@@ -380,14 +380,14 @@ fn discovers_context_sensitive_build_dist_and_obj_artifacts() {
     let artifacts = discover_project_artifacts(&options, &ScanCancellationToken::new()).unwrap();
 
     assert!(artifacts.iter().any(|artifact| {
-        artifact.definition.rule_id == "windows.project-artifact-build"
+        artifact.definition.rule_id == "portable.project-artifact-build"
             && artifact.path == rust_build
     }));
     assert!(artifacts.iter().any(|artifact| {
-        artifact.definition.rule_id == "windows.project-artifact-dist" && artifact.path == js_dist
+        artifact.definition.rule_id == "portable.project-artifact-dist" && artifact.path == js_dist
     }));
     assert!(artifacts.iter().any(|artifact| {
-        artifact.definition.rule_id == "windows.project-artifact-dotnet-obj"
+        artifact.definition.rule_id == "portable.project-artifact-dotnet-obj"
             && artifact.path == dotnet_obj
     }));
     assert!(
@@ -496,7 +496,7 @@ fn project_artifact_plan_measures_allowed_targets_and_blocks_user_protected_path
         .iter()
         .find(|target| target.status == TargetStatus::Allowed)
         .unwrap();
-    assert_eq!(allowed.rule_id, "windows.project-artifact-node-modules");
+    assert_eq!(allowed.rule_id, "portable.project-artifact-node-modules");
     assert_eq!(allowed.estimate_source, EstimateSource::FreshScan);
     assert!(allowed.restore_hint.is_some());
 
@@ -595,7 +595,7 @@ fn project_artifact_plan_filters_selected_artifacts() {
     assert_eq!(plan.summary.estimated_bytes, 3);
     assert_eq!(
         plan.targets[0].rule_id,
-        "windows.project-artifact-node-modules"
+        "portable.project-artifact-node-modules"
     );
 }
 

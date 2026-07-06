@@ -211,7 +211,7 @@ pub(crate) fn dedupe_key(path: &Path, platform: Platform) -> String {
         normalized.pop();
     }
 
-    if matches!(platform, Platform::Windows) {
+    if platform.is_windows() {
         normalized.to_ascii_lowercase()
     } else {
         normalized

@@ -1331,10 +1331,10 @@ notes = "test"
     }
 
     #[test]
-    fn catalog_parser_rejects_non_windows_platforms() {
+    fn catalog_parser_accepts_portable_platform_labels() {
         let safety_knowledge =
             builtin_safety_knowledge().expect("built-in safety catalog should load");
-        let err = parse_rule_file(
+        let rules = parse_rule_file(
             "test.toml",
             r#"
 manifest_version = 1
@@ -1355,13 +1355,11 @@ notes = "test"
 "#,
             &safety_knowledge,
         )
-        .unwrap_err();
+        .expect("portable platform labels should parse");
 
-        let message = err.to_string();
-        assert!(
-            message.contains("unknown variant") || message.contains("invalid value"),
-            "{message}"
-        );
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "linux.test");
+        assert_eq!(rules[0].platform, Platform::Linux);
     }
 
     #[test]

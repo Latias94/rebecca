@@ -12,7 +12,7 @@ fn completed_history_entry(
     pending_reclaim_bytes: u64,
 ) -> HistoryEntry {
     let mut plan = CleanupPlan {
-        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete),
         summary: CleanupSummary {
             completed_targets: 1,
             failed_targets: 0,
@@ -23,7 +23,7 @@ fn completed_history_entry(
             "windows.user-temp",
             std::path::PathBuf::from(format!(r"C:\Temp\cache-{recorded_at_unix_seconds}.tmp")),
             pending_reclaim_bytes,
-            DeleteMode::RecycleBin,
+            DeleteMode::RecoverableDelete,
         )],
         execution_report: None,
         discovery_diagnostics: Vec::new(),
@@ -56,7 +56,7 @@ fn history_entry_with_summary(
 ) -> HistoryEntry {
     HistoryEntry {
         recorded_at_unix_seconds,
-        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete),
         summary,
         targets: Vec::new(),
     }
@@ -87,12 +87,12 @@ fn protected_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
 
 fn missing_target_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
     let mut plan = CleanupPlan {
-        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete),
         summary: CleanupSummary::default(),
         targets: vec![CleanupTarget::skipped_with_reason_code(
             "windows.user-temp",
             std::path::PathBuf::from(r"C:\Users\Alice\AppData\Local\Temp\gone.tmp"),
-            DeleteMode::RecycleBin,
+            DeleteMode::RecoverableDelete,
             CleanupTargetIssueReason::ExecutionTargetMissing,
             "path does not exist",
         )],
@@ -212,7 +212,7 @@ fn history_json_preserves_restore_hints() {
     }
 
     let mut plan = CleanupPlan {
-        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete),
         summary: CleanupSummary {
             completed_targets: 1,
             failed_targets: 0,
@@ -224,7 +224,7 @@ fn history_json_preserves_restore_hints() {
                 "windows.user-temp",
                 std::path::PathBuf::from(r"C:\Temp\cache.tmp"),
                 11,
-                DeleteMode::RecycleBin,
+                DeleteMode::RecoverableDelete,
             )
             .with_restore_hint(Some("Temporary files can be recreated.".to_string())),
         ],
@@ -378,7 +378,7 @@ fn history_human_output_lists_restore_hints() {
     }
 
     let mut plan = CleanupPlan {
-        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecycleBin),
+        request: PlanRequest::for_platform(Platform::Windows, DeleteMode::RecoverableDelete),
         summary: CleanupSummary {
             completed_targets: 2,
             failed_targets: 0,
@@ -390,14 +390,14 @@ fn history_human_output_lists_restore_hints() {
                 "windows.user-temp",
                 std::path::PathBuf::from(r"C:\Temp\cache.tmp"),
                 11,
-                DeleteMode::RecycleBin,
+                DeleteMode::RecoverableDelete,
             )
             .with_restore_hint(Some("Temporary files can be recreated.".to_string())),
             CleanupTarget::allowed(
                 "windows.steam-cache",
                 std::path::PathBuf::from(r"C:\Steam\htmlcache\Default\Cache"),
                 31,
-                DeleteMode::RecycleBin,
+                DeleteMode::RecoverableDelete,
             )
             .with_restore_hint(Some(
                 "Steam web caches will be rebuilt on launch.".to_string(),

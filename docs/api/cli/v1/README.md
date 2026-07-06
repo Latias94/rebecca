@@ -7,8 +7,8 @@ cleanup or inspect workflows.
 
 API v1 is the only CLI machine contract. Cleanup execution, purge execution,
 history, config, cache, doctor, catalog, and read-only inspect commands all
-emit `api_version = "rebecca.cli.v1"`. `rebecca purge inspect` is retained as
-a compatibility alias for the `inspect-artifacts` payload.
+emit `api_version = "rebecca.cli.v1"`. `rebecca inspect artifacts` is the
+canonical command for the `inspect-artifacts` payload.
 
 ## Channel Rules
 
@@ -94,7 +94,6 @@ The `payload_kind` field identifies the shape under `data`:
 - `cleanup-plan`
 - `app-leftovers-cleanup-plan`
 - `project-artifact-cleanup-plan`
-- `project-artifact-catalog`
 - `catalog`
 - `catalog-validation`
 - `cache-inventory`
@@ -277,7 +276,6 @@ rebecca inspect map --format ndjson --root . --top 20 --group-by extension
 rebecca inspect map --format ndjson --progress-detail file --root . --top 20
 rebecca inspect map --table csv --table-row entry --table-row group --root . --top 20 --group-by extension
 rebecca inspect artifacts --format json --root . --min-age-days 0
-rebecca purge inspect --format json --root . --min-age-days 0
 rebecca inspect lint --format json --root .
 rebecca doctor permissions --format json
 ```

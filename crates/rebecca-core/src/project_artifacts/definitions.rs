@@ -22,6 +22,6 @@ pub enum ProjectArtifactContext {
 
 pub const CACHEDIR_TAG_DEFINITION: ProjectArtifactDefinition = ProjectArtifactDefinition {
     directory_name: "CACHEDIR.TAG",
-    rule_id: "windows.project-artifact-cachedir-tag",
+    rule_id: "portable.project-artifact-cachedir-tag",
     restore_hint: "CACHEDIR.TAG marks this directory as rebuildable cache data.",
 };

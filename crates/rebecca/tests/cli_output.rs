@@ -173,13 +173,13 @@ history_file = '{}'
 
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     let mut target = CleanupTarget::allowed(
         "windows.user-temp",
         std::path::PathBuf::from(r"C:\Temp\file.tmp"),
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     );
     target.status = TargetStatus::Completed;
     target.pending_reclaim_bytes = 10;

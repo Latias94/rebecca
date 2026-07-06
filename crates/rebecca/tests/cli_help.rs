@@ -42,7 +42,7 @@ fn clean_help_preserves_preview_execution_and_warning_controls() {
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("Preview the cleanup plan without deleting anything"));
     assert!(stdout.contains("--yes"));
-    assert!(stdout.contains("Move allowed targets to the Recycle Bin"));
+    assert!(stdout.contains("Move allowed targets to recoverable trash"));
     assert!(stdout.contains("--allow-moderate"));
     assert!(stdout.contains("--allow-risky"));
     assert!(stdout.contains("--allow-warning <WARNING>"));
@@ -110,7 +110,7 @@ fn root_without_subcommand_prints_help_instead_of_scanning() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Windows-first cleanup CLI"));
+    assert!(stdout.contains("Cross-platform cleanup CLI"));
     assert!(stdout.contains("completion"));
     assert!(!stdout.contains("Rebecca rules:"));
 }

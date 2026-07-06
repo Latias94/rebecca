@@ -32,12 +32,12 @@ fn append_and_load_history_entries_preserve_protected_issue_details() {
     let store = HistoryStore::new(temp.path().join("history.jsonl"));
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::blocked_with_reason_code(
         "windows.custom-browser-history",
         PathBuf::from("C:/Users/Alice/AppData/Local/Google/Chrome/User Data/Default/History"),
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
         rebecca_core::CleanupTargetIssueReason::SafetyPolicyBlocked,
         "browser private data is protected",
     ));
@@ -68,12 +68,12 @@ fn append_and_load_history_entries_preserve_execution_missing_issue_details() {
     let store = HistoryStore::new(temp.path().join("history.jsonl"));
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     plan.targets.push(CleanupTarget::skipped_with_reason_code(
         "windows.user-temp",
         PathBuf::from("C:/Users/Alice/AppData/Local/Temp/gone.tmp"),
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
         CleanupTargetIssueReason::ExecutionTargetMissing,
         "path does not exist",
     ));
@@ -237,13 +237,13 @@ fn load_tail_reports_original_line_number_for_tail_corruption() {
 fn sample_plan() -> CleanupPlan {
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Windows,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     ));
     let mut target = CleanupTarget::allowed(
         "windows.user-temp",
         PathBuf::from("C:/Temp/file.tmp"),
         10,
-        DeleteMode::RecycleBin,
+        DeleteMode::RecoverableDelete,
     )
     .with_restore_hint(Some("Temporary files can be recreated.".to_string()));
     target.status = rebecca_core::TargetStatus::Completed;

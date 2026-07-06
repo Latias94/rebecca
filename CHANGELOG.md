@@ -7,6 +7,7 @@ All notable changes to Rebecca will be documented in this file.
 ### Added
 - Added `skills/validate.py` and a CI skills job so shipped Codex skills have frontmatter, preview-first, and installer smoke coverage on Windows and Linux.
 - Added a `rebecca-disk-cleaner` Codex skill under `skills/`, plus a cross-platform Python installer, so agents can install Rebecca and run a preview-first cleanup workflow with the CLI.
+- Added a shared `RecoverableTrashBackend` in `rebecca-core` so `clean --yes`, `purge --yes`, and default `cache purge --yes` execution use the platform trash backend instead of a Windows-only execution adapter.
 - Human CLI output now surfaces decision summaries, reclaimable bytes, copyable next commands, cleanup-advice command summaries, cache-doctor health, and stderr-only TTY progress behavior so dry-run, inspect, and doctor flows are easier to act on.
 - Human cleanup progress now uses compact phase, counter, cache, byte, and throughput messages while keeping spinner output on stderr and machine progress events unchanged.
 - `rebecca inspect map` human output now ranks top entries with logical-size share, ASCII usage bars, compact long paths, and a `--screen-reader` mode that keeps the same facts without visual bars.
@@ -33,7 +34,6 @@ All notable changes to Rebecca will be documented in this file.
 - cleanup planning now supports explicit warning gates through `--allow-warning <WARNING>` and exposes warning summaries in machine output.
 - project artifact policies now expose stable aliases, default age behavior, trim eligibility, deletion style, ranking metadata, and `--reclaim-limit-bytes` selection.
 - CLI API v1 docs, schemas, and examples now cover catalog, catalog-validation, inspect-space, inspect-artifacts, inspect-lint, and error payload families.
-- `purge inspect` now provides a read-only project artifact insight report with JSON/NDJSON `inspect-artifacts` output, grouped totals, top targets, diagnostics, and no cleanup prompts or history writes.
 - Cleanup workflow NDJSON now emits target-level progress by default and adds `--progress-detail file` for ordinary cleanup scans that need verbose `file-measured` events.
 - cleanup targets now expose `estimate_source` so machine consumers can distinguish fresh scans, scan-cache hits, unmeasured skipped/blocked targets, and legacy plans.
 - project artifact cleanup plans now include `discovery_diagnostics` for partial discovery issues such as missing configured roots, unreadable directories, metadata failures, and skipped reparse points.
@@ -105,12 +105,13 @@ All notable changes to Rebecca will be documented in this file.
 - Scan measurement now goes through an internal backend contract that records the portable recursive backend and exact estimate confidence for future native backends.
 - Ordinary cleanup rule planning now stages rule candidates before measurement and sizes eligible unique targets on Rebecca's bounded scan pool while preserving duplicate-target skips, safety decisions, metadata, and deterministic output.
 - `rebecca scan` now uses the unified catalog model internally while retaining the v1 `rule-catalog` output contract.
-- `rebecca purge --list-artifacts` is now a compatibility listing generated from the same project artifact policy data as `rebecca catalog --kind project-artifact`.
+- Project artifact rule IDs now use the portable `portable.project-artifact-*` namespace instead of the misleading Windows-prefixed namespace.
+- Cleanup, purge, and cache purge execution now use the core recoverable trash backend; `rebecca-windows` is reserved for Windows discovery and host-capability adapters.
 - cleanup workflow internals now use explicit command/payload output contracts, shared CLI runtime cancellation, and dedicated human renderers instead of workflow-specific transport branches.
 - planner and project artifact internals were split into focused modules, and configured purge roots now report stale or unreadable workspace entries as diagnostics while explicit `--root` values remain strict.
 - project artifact discovery now applies policy ranking before reclaim-limit measurement so large cleanup plans can stop sizing lower-ranked candidates once the requested reclaim target is satisfied.
 - all machine-mode commands now use the command API registry for fatal JSON and NDJSON errors instead of a global fallback envelope.
-- `rebecca cache purge --yes` now moves rebuildable Rebecca cache entries to the Recycle Bin by default and reports pending reclaim bytes separately from permanently reclaimed bytes.
+- `rebecca cache purge --yes` now moves rebuildable Rebecca cache entries to the recoverable trash by default and reports pending reclaim bytes separately from permanently reclaimed bytes.
 - Project artifact reclaim limits now stop measurement once ranked trim-eligible candidates satisfy the requested limit, leaving later candidates unmeasured instead of sizing the full candidate set first.
 - Parallel project artifact and app-leftover measurement no longer buffers every file-level progress event before reporting target summaries.
 - `inspect space --top` now keeps only a bounded top-entry accumulator while preserving exact root totals and deterministic output ordering.
@@ -121,7 +122,7 @@ All notable changes to Rebecca will be documented in this file.
 - Scan-cache writes now use atomic replacement without strict file sync on the default hot path; strict sync remains available as an internal policy option.
 - Scan-cache lookups now accept exact v1 records produced by portable, Windows native, or experimental NTFS/MFT scanners when root fingerprint and identity still match, and preserve optional backend-source provenance for cache hits.
 - The performance matrix report schema now carries `backend_source_expectation`; live NTFS source timing is opt-in with `REBECCA_PERF_MATRIX_LIVE_NTFS=1` so default benchmark runs stay deterministic.
-- Windows cleanup execution now batches Recycle Bin moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
+- Windows cleanup execution now batches recoverable trash moves through the platform trash backend when possible and falls back to per-target reconstruction if a batch operation cannot report clean success.
 - Experimental NTFS/MFT index construction now avoids quadratic directory-entry checks for large `$I30` indexes, makes fallback edges path-searchable, and builds live volume indexes outside the shared cache mutex.
 - Experimental NTFS/MFT live volume index construction now has a default 20 second build budget, tunable with `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS`, per-command single-flight volume builds, cached unavailable outcomes, timeout messages that name the active build stage and completed timings, split sequential `$MFT` read-versus-parse timings, and opt-in successful timing caveats via `REBECCA_NTFS_MFT_INDEX_TIMINGS=1`.
 - Experimental NTFS/MFT live build diagnostics now include compact `metrics=` counters beside completed timings for processed records, sequential `$MFT` read chunks/bytes, `$MFTMirr` read chunks/bytes, targeted record attempts/successes, full-index FSCTL record attempts/successes, and stream-source read counts/bytes without adding extra filesystem reads.
@@ -146,7 +147,9 @@ All notable changes to Rebecca will be documented in this file.
 - warning-bearing cleanup targets are now blocked by default until their named warning is allowed with `--allow-warning <WARNING>`.
 - the `rebecca.cli.v2` machine API namespace and docs were removed before release; the richer catalog and inspect payloads now emit under `rebecca.cli.v1`.
 - `scripts/ntfs/run-live-mft-dogfood.ps1` was removed before release; use `scripts/dogfood/run-inspect-map-report.ps1` for repeatable live backend comparison evidence.
-- `inspect artifacts` is the canonical project artifact insight command; `purge inspect` remains as a compatibility alias for existing command users.
+- Removed the pre-release `purge inspect` compatibility alias; use `inspect artifacts`.
+- Removed the pre-release `purge --list-artifacts` compatibility alias; use `catalog --kind project-artifact`.
+- Project artifact machine payloads now emit `portable.project-artifact-*` rule IDs instead of `windows.project-artifact-*`.
 - `cache purge` machine output no longer uses `mode: "delete"`; callers must handle `mode: "recoverable-delete"` and `mode: "permanent-delete"` plus the new `pending_reclaim_bytes`, `recoverably_deleted_entries`, and `permanently_deleted_entries` summary fields.
 - Project artifact reclaim-limit skips now use `reason_code: "reclaim-limit-satisfied"` and can leave skipped targets with `estimate_source: "not-measured"` because later candidates are no longer measured after the limit is satisfied.
 - The pre-release scan-cache format was reset to the single v1 identity format because no released consumers depend on the earlier experimental record numbering.
@@ -192,7 +195,7 @@ All notable changes to Rebecca will be documented in this file.
 - Windows-first cleanup CLI for system caches, app leftovers, and project artifacts.
 - Plan-first `scan`, `clean`, `apps scan`, `apps clean`, `purge`, `cache purge`, `history`, `config paths`, `doctor permissions`, and shell completion commands.
 - Built-in Windows rule catalog with owned provenance, protection policy, scan cache support, cleanup history, and machine-readable JSON / NDJSON output.
-- Recovery-oriented execution through the Windows Recycle Bin instead of permanent deletion.
+- Recovery-oriented execution through the Windows recoverable trash instead of permanent deletion.
 - Installer verification, release integrity docs, and security guidance for local cleanup operations.
 - `README.md` was restructured around a Mole-style product overview, quick start, safety design, and feature breakdown.
 - cargo-dist release workflow, checksum, and preflight automation were added for GitHub Releases.

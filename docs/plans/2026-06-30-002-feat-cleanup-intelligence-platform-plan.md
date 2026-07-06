@@ -66,7 +66,7 @@ Czkawka and rmlint prove that duplicate and lint tools must be report-first, cor
 **Project Artifact Cleanup**
 
 - R12. Project artifacts are modeled as a governed matrix of artifact kind, project context, anchors, default age policy, restore hint, deletion style, and trim eligibility.
-- R13. Project artifact cleanup supports kondo/cargo-cache-inspired controls for older-than selection, reclaim limits, and top cache items while preserving explicit preview, confirmation, exclusion, and Recycle Bin execution.
+- R13. Project artifact cleanup supports kondo/cargo-cache-inspired controls for older-than selection, reclaim limits, and top cache items while preserving explicit preview, confirmation, exclusion, and recoverable trash execution.
 
 **Lint Reports**
 
@@ -101,7 +101,7 @@ Czkawka and rmlint prove that duplicate and lint tools must be report-first, cor
 
 - F4. Project artifact trim flow
   - **Trigger:** A user wants to reclaim developer workspace space.
-  - **Steps:** Rebecca discovers artifact candidates with project context, applies age and reclaim-limit policy, ranks eligible targets, shows a read-only preview, asks for confirmation when executing, and moves selected targets to the Recycle Bin.
+  - **Steps:** Rebecca discovers artifact candidates with project context, applies age and reclaim-limit policy, ranks eligible targets, shows a read-only preview, asks for confirmation when executing, and moves selected targets to the recoverable trash.
   - **Outcome:** Project cleanup behaves like a governed trim policy instead of blanket `rm -rf`.
   - **Covers:** R11, R12, R13.
 
@@ -149,7 +149,7 @@ Czkawka and rmlint prove that duplicate and lint tools must be report-first, cor
 - A contributor can add a new built-in cleaner by editing manifest data and tests without touching planner internals.
 - A user can answer "what can Rebecca clean, what is protected, and what warnings exist" through catalog output before running cleanup.
 - A user can run read-only `inspect` workflows to locate space and lint opportunities without history writes or confirmation prompts.
-- A cleanup executor can delete obsolete internal code while keeping dry-run-first, Recycle Bin, protection-policy, and provenance guarantees intact.
+- A cleanup executor can delete obsolete internal code while keeping dry-run-first, recoverable trash, protection-policy, and provenance guarantees intact.
 
 ---
 
@@ -198,7 +198,7 @@ flowchart TB
   Inventory --> SpaceInsight[Space insight reports]
   Inventory --> LintReports[Duplicate and lint reports]
   Planner --> CleanupPlan[Cleanup plan]
-  CleanupPlan --> Executor[Recycle Bin execution backend]
+  CleanupPlan --> Executor[recoverable trash execution backend]
   CLI[CLI commands] --> CatalogSurface[catalog]
   CLI --> InspectSurface[inspect]
   CLI --> CleanSurface[clean and purge]
@@ -212,7 +212,7 @@ flowchart TB
 The target architecture keeps the existing split between `rebecca-core`, `rebecca-rules`, `rebecca-windows`, and `rebecca`, but changes what each crate owns.
 `rebecca-core` owns manifest domain types, compiled catalog types, safety knowledge, warning taxonomy, inventory, inspection, lint reports, planning, and execution contracts.
 `rebecca-rules` owns built-in manifest files and compiles them into core catalog objects.
-`rebecca-windows` owns platform adapters such as Recycle Bin deletion, Steam discovery, app discovery, and process inspection.
+`rebecca-windows` owns platform adapters such as recoverable trash deletion, Steam discovery, app discovery, and process inspection.
 `rebecca` owns command parsing, runtime wiring, confirmation, history writes, and view/render projections.
 
 ### System-Wide Impact
@@ -226,7 +226,7 @@ The target architecture keeps the existing split between `rebecca-core`, `rebecc
 ### Implementation Constraints
 
 - Keep all file references in documentation repo-relative.
-- Keep cleanup execution plan-first, dry-run-first, and Recycle Bin-backed.
+- Keep cleanup execution plan-first, dry-run-first, and recoverable trash-backed.
 - Do not use shell commands from Rebecca to discover or delete targets when a Rust API or Windows API adapter can do it.
 - Do not add permanent-delete, shred, registry mutation, or file-rewrite actions in this plan.
 - Remove superseded modules and compatibility branches once their behavior has moved to the new canonical model.
@@ -309,7 +309,7 @@ The target architecture keeps the existing split between `rebecca-core`, `rebecc
 - **Approach:** Replace the split `ProjectArtifactRule`/definition layout with a policy matrix that carries artifact kind, aliases, rule id, project context, anchor predicates, default age policy, trim eligibility, restore hint, deletion style, and ranking hints.
   Add reclaim-limit and older-than selection to the project artifact workflow, with a canonical trim command or option shape chosen during implementation based on the updated CLI topology.
   Delete the empty `PROJECT_ARTIFACT_RULES` constant and route artifact planning through typed plan sources.
-- **Test Scenarios:** Context-required artifacts do not match embedded toolchains; CACHEDIR.TAG remains supported; recent artifacts are ineligible by default; reclaim limit selects largest eligible targets until the limit is satisfied; exclude paths override trim selection; execution still uses Recycle Bin and revalidates protection.
+- **Test Scenarios:** Context-required artifacts do not match embedded toolchains; CACHEDIR.TAG remains supported; recent artifacts are ineligible by default; reclaim limit selects largest eligible targets until the limit is satisfied; exclude paths override trim selection; execution still uses recoverable trash and revalidates protection.
 - **Verification:** `cargo nextest run -p rebecca-core --test project_artifacts --test planner`; `cargo nextest run -p rebecca --test cli_purge --test cli_output`.
 - **Dependencies:** U3, U5.
 
@@ -363,7 +363,7 @@ The target architecture keeps the existing split between `rebecca-core`, `rebecc
 - R1-R18 are satisfied or explicitly removed from scope in a revised plan before implementation closes.
 - `crates/rebecca-core` owns manifest, catalog, safety, warning, inventory, inspect, lint, planner, and execution contracts without CLI rendering dependencies.
 - `crates/rebecca-rules` owns built-in manifest data and validation, not planner policy.
-- `crates/rebecca-windows` owns Windows-only adapters for Recycle Bin, process diagnostics, Steam, and app discovery.
+- `crates/rebecca-windows` owns Windows-only adapters for recoverable trash, process diagnostics, Steam, and app discovery.
 - `crates/rebecca` owns CLI parsing, runtime wiring, confirmation, history, view projections, and output envelopes.
 - New or breaking machine-readable payloads are documented under `docs/api/cli/v2/` and validated by tests.
 - `CHANGELOG.md` has Unreleased entries for canonical catalog, inspect, project-artifact trim, lint reports, warning gates, API v2, and any removed aliases.

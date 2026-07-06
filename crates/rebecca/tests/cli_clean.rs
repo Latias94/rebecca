@@ -708,7 +708,7 @@ fn clean_human_output_reports_slack_cache_rule() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Reclaimable now: 9 (9 B)"));
-    assert!(stdout.contains("Execution: would move allowed targets to the Recycle Bin."));
+    assert!(stdout.contains("Execution: would move allowed targets to recoverable trash."));
     assert!(stdout.contains(
         "Next command: rebecca clean --yes --rule windows.slack-cache --allow-warning active-process"
     ));
@@ -1046,7 +1046,7 @@ fn clean_yes_does_not_write_scan_cache_by_default() {
     );
 
     let value: serde_json::Value = common::support::api_data(&output.stdout);
-    assert_eq!(value["request"]["mode"], "recycle-bin");
+    assert_eq!(value["request"]["mode"], "recoverable-delete");
     assert_eq!(value["execution_report"]["summary"]["completed_actions"], 1);
     assert_eq!(
         value["execution_report"]["summary"]["pending_reclaim_bytes"],

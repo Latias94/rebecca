@@ -13,7 +13,7 @@ execution: "code"
 ## Goal Capsule
 
 - **Objective:** Raise Rebecca's existing Windows cleanup core from "working" to "mature" by tightening scan throughput, scan-cache lifecycle, execution revalidation, and the verification gates that prove those behaviors stay stable.
-- **Authority:** Preserve the current Windows-first cleanup contract, the Recycle Bin default, dry-run parity, the existing rule catalog, and the shared safety policy. Do not broaden the product into new cleanup domains while this hardening slice is in flight.
+- **Authority:** Preserve the current Windows-first cleanup contract, the recoverable trash default, dry-run parity, the existing rule catalog, and the shared safety policy. Do not broaden the product into new cleanup domains while this hardening slice is in flight.
 - **Stop Conditions:** Large-tree scans remain bounded and benchmarked, scan-cache records are treated as first-class rebuildable data with explicit lifecycle behavior, execution-time policy revalidation stays visible in the core and CLI, and the targeted regression suite plus workspace gates stay green.
 - **Execution Profile:** Characterization-first for the scan and execution hardening units, benchmark-backed for throughput, and doc-follow-through only after the behavior is pinned down by tests.
 - **Tail Ownership:** Remove any abandoned scheduler or cache-maintenance experiment code before declaring done, and update the engineering memory so the next cleanup slice starts from the new maturity bar.
@@ -79,7 +79,7 @@ That leaves the product slightly under-finished under load and under failure. Th
 ### Outside This Product's Identity
 
 - Treating cleanup as "feature complete" without measurable performance and safety gates.
-- Replacing the Recycle Bin default with direct permanent deletion.
+- Replacing the recoverable trash default with direct permanent deletion.
 - Copying Mole, null-e, Windows Cleaner CLI, BleachBit, or BCU code or rule data instead of re-implementing the behavior in Rebecca's own shape.
 
 ---
@@ -166,7 +166,7 @@ flowchart TB
 - **Requirements:** R3, R4, R5
 - **Dependencies:** U2.
 - **Files:** `crates/rebecca-core/src/executor.rs`, `crates/rebecca-core/src/plan.rs`, `crates/rebecca-core/src/history.rs`, `crates/rebecca-core/tests/executor_contract.rs`, `crates/rebecca-core/tests/history.rs`, `crates/rebecca-cli/tests/cli_history.rs`, `crates/rebecca-cli/tests/cli_clean.rs`
-- **Approach:** Keep the existing policy revalidation boundary, but make the execution results and history/output mapping stricter so missing paths, policy blocks, and backend failures end up in stable, testable outcomes. Preserve the current Recycle Bin default and the directory-preserving deletion style.
+- **Approach:** Keep the existing policy revalidation boundary, but make the execution results and history/output mapping stricter so missing paths, policy blocks, and backend failures end up in stable, testable outcomes. Preserve the current recoverable trash default and the directory-preserving deletion style.
 - **Execution note:** Add or expand executor characterization coverage before touching the classification surface so the revalidation contract remains the same contract, just clearer.
 - **Patterns to follow:** The current policy revalidation in `executor.rs`, the stable issue-matrix contract in `plan.rs`, and the warning-heavy deletion posture in `repo-ref/BleachBit/share/protected_path.xml` and `repo-ref/Bulk-Crap-Uninstaller/README.md`.
 - **Test scenarios:**

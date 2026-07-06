@@ -153,27 +153,29 @@ fn print_plan_decision(projection: &CleanPlanProjection<'_>) {
 fn decision_label(projection: &CleanPlanProjection<'_>) -> &'static str {
     match projection.mode {
         DeleteMode::DryRun => "preview only; no files were deleted.",
-        DeleteMode::RecycleBin if projection.summary.failed_targets > 0 => {
+        DeleteMode::RecoverableDelete if projection.summary.failed_targets > 0 => {
             "cleanup finished with failures."
         }
-        DeleteMode::RecycleBin if projection.summary.completed_targets > 0 => "cleanup executed.",
-        DeleteMode::RecycleBin => "no cleanup target was executed.",
+        DeleteMode::RecoverableDelete if projection.summary.completed_targets > 0 => {
+            "cleanup executed."
+        }
+        DeleteMode::RecoverableDelete => "no cleanup target was executed.",
     }
 }
 
 fn execution_label(projection: &CleanPlanProjection<'_>) -> &'static str {
     match projection.mode {
         DeleteMode::DryRun if projection.summary.allowed_targets > 0 => {
-            "would move allowed targets to the Recycle Bin."
+            "would move allowed targets to recoverable trash."
         }
         DeleteMode::DryRun => "no eligible target would be deleted.",
-        DeleteMode::RecycleBin if projection.summary.pending_reclaim_bytes > 0 => {
-            "moved allowed targets to the Recycle Bin; empty it to reclaim pending bytes."
+        DeleteMode::RecoverableDelete if projection.summary.pending_reclaim_bytes > 0 => {
+            "moved allowed targets to recoverable trash; empty it to reclaim pending bytes."
         }
-        DeleteMode::RecycleBin if projection.summary.completed_targets > 0 => {
-            "moved allowed targets to the Recycle Bin."
+        DeleteMode::RecoverableDelete if projection.summary.completed_targets > 0 => {
+            "moved allowed targets to recoverable trash."
         }
-        DeleteMode::RecycleBin => "nothing was moved to the Recycle Bin.",
+        DeleteMode::RecoverableDelete => "nothing was moved to recoverable trash.",
     }
 }
 
@@ -191,7 +193,7 @@ fn reclaimable_now_bytes(projection: &CleanPlanProjection<'_>) -> u64 {
                     .sum()
             })
             .unwrap_or(0),
-        DeleteMode::RecycleBin => projection
+        DeleteMode::RecoverableDelete => projection
             .summary
             .freed_bytes
             .saturating_add(projection.summary.pending_reclaim_bytes),

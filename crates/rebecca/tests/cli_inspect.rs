@@ -651,7 +651,7 @@ fn inspect_map_json_reports_project_artifact_cleanup_advice() {
     let advice = &entry["cleanup_advice"];
     assert_eq!(advice["status"], "maybe-cleanable");
     assert_eq!(advice["source"], "project-artifact");
-    assert_eq!(advice["rule_id"], "windows.project-artifact-node-modules");
+    assert_eq!(advice["rule_id"], "portable.project-artifact-node-modules");
     assert_eq!(advice["category"], "project-artifact");
     assert_eq!(advice["required_flags"][0], "--min-age-days 0");
     assert_eq!(advice["suggested_command"]["args"][0], "purge");
@@ -1911,63 +1911,6 @@ fn inspect_artifacts_json_reports_read_only_project_artifact_insight() {
     assert_eq!(value["summary"]["estimated_bytes"], 7);
     assert_eq!(value["top_targets"][0]["artifact"], "target");
     assert_eq!(value["top_targets"][1]["artifact"], "node_modules");
-}
-
-#[test]
-fn purge_inspect_compatibility_matches_inspect_artifacts_data() {
-    let temp = tempfile::tempdir().unwrap();
-    let workspace = temp.path().join("workspace");
-    write_fixture_file(
-        workspace.join("app").join("node_modules").join("pkg.bin"),
-        b"abc",
-    );
-    write_node_project(workspace.join("app"));
-
-    let inspect_output = isolated::isolated_rebecca(&temp)
-        .args([
-            "inspect",
-            "artifacts",
-            "--format",
-            "json",
-            "--no-progress",
-            "--root",
-            workspace.to_str().unwrap(),
-            "--min-age-days",
-            "0",
-        ])
-        .output()
-        .unwrap();
-    let purge_output = isolated::isolated_rebecca(&temp)
-        .args([
-            "purge",
-            "inspect",
-            "--format",
-            "json",
-            "--no-progress",
-            "--root",
-            workspace.to_str().unwrap(),
-            "--min-age-days",
-            "0",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(
-        inspect_output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&inspect_output)
-    );
-    assert!(
-        purge_output.status.success(),
-        "stderr: {}",
-        common::support::stderr(&purge_output)
-    );
-
-    let inspect = common::support::api_envelope(&inspect_output.stdout);
-    let purge = common::support::api_envelope(&purge_output.stdout);
-    assert_eq!(inspect["payload_kind"], "inspect-artifacts");
-    assert_eq!(purge["payload_kind"], "inspect-artifacts");
-    assert_eq!(inspect["data"], purge["data"]);
 }
 
 #[test]

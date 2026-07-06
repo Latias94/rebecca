@@ -10,6 +10,36 @@ pub use crate::path_template::PathTemplate;
 #[serde(rename_all = "kebab-case")]
 pub enum Platform {
     Windows,
+    Linux,
+    Macos,
+    Unknown,
+}
+
+impl Platform {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Linux => "linux",
+            Self::Macos => "macos",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub const fn is_windows(self) -> bool {
+        matches!(self, Self::Windows)
+    }
+
+    pub fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else if cfg!(target_os = "linux") {
+            Self::Linux
+        } else if cfg!(target_os = "macos") {
+            Self::Macos
+        } else {
+            Self::Unknown
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,7 +74,7 @@ impl SafetyLevel {
 #[serde(rename_all = "kebab-case")]
 pub enum DeleteMode {
     DryRun,
-    RecycleBin,
+    RecoverableDelete,
 }
 
 impl DeleteMode {
@@ -163,7 +193,7 @@ impl RuleTargetSpec {
         }
         .replace('\\', "/");
 
-        format!("{platform:?}:{}", target.to_ascii_lowercase())
+        format!("{}:{}", platform.label(), target.to_ascii_lowercase())
     }
 }
 

@@ -83,7 +83,7 @@ Rebecca command.
 
 5. Present a numbered decision list.
    - For each option, include the command, estimated reclaim, safety level,
-     warning gates, and whether it moves data to the Recycle Bin or is
+     warning gates, and whether it moves data to recoverable trash or is
      permanent.
    - If a command needs `--allow-warning <WARNING>`, explain the named warning
      and keep it out of the execution command unless the user confirms it.
@@ -109,7 +109,7 @@ Rebecca command.
      rebecca history --limit 5
      ```
 
-   - Summarize reclaimed bytes, pending Recycle Bin reclaim, skipped targets,
+   - Summarize reclaimed bytes, pending recoverable-trash reclaim, skipped targets,
      warnings, and follow-up commands.
    - Completion criterion: the user has a concise before/after or execution
      summary and any residual risk is named.

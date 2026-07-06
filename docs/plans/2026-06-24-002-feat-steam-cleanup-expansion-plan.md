@@ -26,7 +26,7 @@ This follow-up should add a narrow, auditable Steam cleanup slice that feels imm
 
 - R1. Built-in Steam rules target only disposable install-root or library-root cache directories.
 - R2. Steam-aware rules use the existing typed Steam install and Steam library target specs, not raw string special cases.
-- R3. New Steam rules keep owned provenance, explicit safety levels, Recycle Bin deletion, and restore hints.
+- R3. New Steam rules keep owned provenance, explicit safety levels, recoverable trash deletion, and restore hints.
 
 **Discovery And Safety**
 

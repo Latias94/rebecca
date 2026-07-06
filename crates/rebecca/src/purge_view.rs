@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
-use rebecca::core::project_artifacts::{
-    ProjectArtifactDiscoveryDiagnostic, ProjectArtifactPolicy, all_project_artifact_policies,
-};
+use rebecca::core::project_artifacts::ProjectArtifactDiscoveryDiagnostic;
 use rebecca::core::{EstimateProvenance, EstimateSource, TargetStatus};
 use serde::Serialize;
 
@@ -57,21 +55,6 @@ pub(crate) struct ProjectArtifactDiscoveryDiagnosticRow<'a> {
     pub(crate) kind_label: &'static str,
     pub(crate) path: &'a Path,
     pub(crate) detail: &'a str,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct ProjectArtifactCatalogEntry {
-    pub(crate) artifact: &'static str,
-    pub(crate) aliases: Vec<&'static str>,
-    pub(crate) rule_id: &'static str,
-    pub(crate) rule_suffix: &'static str,
-    pub(crate) restore_hint: &'static str,
-    pub(crate) default_min_age_days: u64,
-    pub(crate) trim_eligible: bool,
-    pub(crate) deletion_style: &'static str,
-    pub(crate) ranking: &'static str,
-    #[serde(skip)]
-    pub(crate) selectors_label: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -204,31 +187,6 @@ impl ProjectArtifactInsightReport {
             discovery_diagnostics: plan.discovery_diagnostics.clone(),
         }
     }
-}
-
-impl ProjectArtifactCatalogEntry {
-    pub(crate) fn from_policy(policy: &'static ProjectArtifactPolicy) -> Self {
-        let definition = policy.definition;
-        let rule_suffix = project_artifact_rule_suffix(definition.rule_id);
-        Self {
-            artifact: policy.artifact,
-            aliases: policy.aliases.to_vec(),
-            rule_id: definition.rule_id,
-            rule_suffix,
-            restore_hint: definition.restore_hint,
-            default_min_age_days: policy.default_min_age_days,
-            trim_eligible: policy.trim_eligible,
-            deletion_style: policy.deletion_style_label(),
-            ranking: policy.ranking.label(),
-            selectors_label: project_artifact_selectors_label(policy, rule_suffix),
-        }
-    }
-}
-
-pub(crate) fn project_artifact_catalog_entries() -> Vec<ProjectArtifactCatalogEntry> {
-    all_project_artifact_policies()
-        .map(ProjectArtifactCatalogEntry::from_policy)
-        .collect()
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -442,48 +400,19 @@ fn root_for_target(plan: &CleanupPlan, path: &Path) -> Option<PathBuf> {
         .cloned()
 }
 
-fn project_artifact_selectors_label(
-    policy: &ProjectArtifactPolicy,
-    rule_suffix: &'static str,
-) -> String {
-    let mut selectors = Vec::new();
-    push_project_artifact_selector(&mut selectors, policy.definition.directory_name);
-    for alias in policy.aliases {
-        push_project_artifact_selector(&mut selectors, alias);
-    }
-    push_project_artifact_selector(&mut selectors, rule_suffix);
-    push_project_artifact_selector(&mut selectors, policy.definition.rule_id);
-    selectors.join(", ")
-}
-
-fn push_project_artifact_selector(selectors: &mut Vec<&'static str>, selector: &'static str) {
-    if !selectors
-        .iter()
-        .any(|existing| existing.eq_ignore_ascii_case(selector))
-    {
-        selectors.push(selector);
-    }
-}
-
-fn project_artifact_rule_suffix(rule_id: &'static str) -> &'static str {
-    rule_id
-        .strip_prefix("windows.project-artifact-")
-        .unwrap_or(rule_id)
-}
-
 fn artifact_type_label(rule_id: &str, path: &Path) -> String {
     match rule_id {
-        "windows.project-artifact-cachedir-tag" => "CACHEDIR.TAG".to_string(),
-        "windows.project-artifact-composer-vendor" => "vendor (Composer)".to_string(),
-        "windows.project-artifact-dotnet-bin" => "bin (.NET)".to_string(),
-        "windows.project-artifact-dotnet-obj" => "obj (.NET)".to_string(),
+        "portable.project-artifact-cachedir-tag" => "CACHEDIR.TAG".to_string(),
+        "portable.project-artifact-composer-vendor" => "vendor (Composer)".to_string(),
+        "portable.project-artifact-dotnet-bin" => "bin (.NET)".to_string(),
+        "portable.project-artifact-dotnet-obj" => "obj (.NET)".to_string(),
         _ => path
             .file_name()
             .and_then(|name| name.to_str())
             .map(str::to_string)
             .unwrap_or_else(|| {
                 rule_id
-                    .strip_prefix("windows.project-artifact-")
+                    .strip_prefix("portable.project-artifact-")
                     .unwrap_or(rule_id)
                     .replace('-', "_")
             }),
@@ -532,13 +461,13 @@ mod tests {
     fn projection_groups_artifacts_by_parent_project_path() {
         let plan = plan_with_targets(vec![
             CleanupTarget::allowed(
-                "windows.project-artifact-target",
+                "portable.project-artifact-target",
                 PathBuf::from("workspace/app/target"),
                 4,
                 DeleteMode::DryRun,
             ),
             CleanupTarget::allowed(
-                "windows.project-artifact-node-modules",
+                "portable.project-artifact-node-modules",
                 PathBuf::from("workspace/app/node_modules"),
                 3,
                 DeleteMode::DryRun,
@@ -574,7 +503,7 @@ mod tests {
     #[test]
     fn projection_extracts_recently_modified_artifacts() {
         let target = CleanupTarget::skipped_with_reason_code(
-            "windows.project-artifact-node-modules",
+            "portable.project-artifact-node-modules",
             PathBuf::from("workspace/app/node_modules"),
             DeleteMode::DryRun,
             CleanupTargetIssueReason::ProjectArtifactRecentlyModified,
@@ -599,19 +528,19 @@ mod tests {
     fn projection_labels_context_sensitive_artifact_types() {
         let plan = plan_with_targets(vec![
             CleanupTarget::allowed(
-                "windows.project-artifact-composer-vendor",
+                "portable.project-artifact-composer-vendor",
                 PathBuf::from("workspace/php-app/vendor"),
                 1,
                 DeleteMode::DryRun,
             ),
             CleanupTarget::allowed(
-                "windows.project-artifact-dotnet-bin",
+                "portable.project-artifact-dotnet-bin",
                 PathBuf::from("workspace/dotnet-app/bin"),
                 1,
                 DeleteMode::DryRun,
             ),
             CleanupTarget::allowed(
-                "windows.project-artifact-cachedir-tag",
+                "portable.project-artifact-cachedir-tag",
                 PathBuf::from("workspace/app/tool-cache"),
                 1,
                 DeleteMode::DryRun,
@@ -633,40 +562,5 @@ mod tests {
         assert!(artifact_types.contains(&"vendor (Composer)"));
         assert!(artifact_types.contains(&"bin (.NET)"));
         assert!(artifact_types.contains(&"CACHEDIR.TAG"));
-    }
-
-    #[test]
-    fn catalog_entry_exposes_policy_fields_and_human_selectors() {
-        let policy = all_project_artifact_policies()
-            .find(|policy| policy.definition.rule_id == "windows.project-artifact-node-modules")
-            .unwrap();
-        let entry = ProjectArtifactCatalogEntry::from_policy(policy);
-
-        assert_eq!(entry.artifact, "node_modules");
-        assert_eq!(entry.aliases, vec!["node-modules"]);
-        assert_eq!(entry.rule_suffix, "node-modules");
-        assert_eq!(
-            entry.selectors_label,
-            "node_modules, node-modules, windows.project-artifact-node-modules"
-        );
-        assert_eq!(entry.default_min_age_days, 7);
-        assert!(entry.trim_eligible);
-        assert_eq!(entry.deletion_style, "delete-whole-path");
-        assert_eq!(entry.ranking, "heavy-dependency-tree");
-
-        let value = serde_json::to_value(&entry).unwrap();
-        assert_eq!(value["artifact"], "node_modules");
-        assert_eq!(value["aliases"], serde_json::json!(["node-modules"]));
-        assert_eq!(value["rule_id"], "windows.project-artifact-node-modules");
-        assert_eq!(value["rule_suffix"], "node-modules");
-        assert_eq!(
-            value["restore_hint"],
-            "Dependencies can be restored with the project's package manager."
-        );
-        assert_eq!(value["default_min_age_days"], 7);
-        assert_eq!(value["trim_eligible"], true);
-        assert_eq!(value["deletion_style"], "delete-whole-path");
-        assert_eq!(value["ranking"], "heavy-dependency-tree");
-        assert!(value.get("selectors_label").is_none());
     }
 }

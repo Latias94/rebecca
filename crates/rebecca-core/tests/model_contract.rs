@@ -517,11 +517,11 @@ fn rule_target_spec_exposes_placeholder_path_and_dedupe_key() {
     assert_eq!(exact.placeholder_path(), PathBuf::from(r"C:\Temp\Cache"));
     assert_eq!(
         template.dedupe_key(Platform::Windows),
-        "Windows:steam-library-template:steamapps/shadercache"
+        "windows:steam-library-template:steamapps/shadercache"
     );
     assert_eq!(
         exact.dedupe_key(Platform::Windows),
-        "Windows:exact-path:c:/temp/cache"
+        "windows:exact-path:c:/temp/cache"
     );
 }
 

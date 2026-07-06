@@ -49,7 +49,6 @@ pub(crate) fn scan_with_runtime(options: AppsScanOptions, runtime: &CliRuntime) 
             human_renderer: render::clean::print_plan,
             success_renderer: crate::output::print_plan_with_events,
             cancellation_message: "App leftovers scan cancelled.",
-            unsupported_execution_message: "app leftovers cleanup execution is Windows-only; use apps scan to preview",
             confirmation_kind: ConfirmationKind::AppLeftovers,
         },
         runtime,
@@ -58,7 +57,7 @@ pub(crate) fn scan_with_runtime(options: AppsScanOptions, runtime: &CliRuntime) 
 
 pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime) -> Result<()> {
     let mode = if options.yes && !options.dry_run {
-        DeleteMode::RecycleBin
+        DeleteMode::RecoverableDelete
     } else {
         DeleteMode::DryRun
     };
@@ -80,7 +79,6 @@ pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime
             human_renderer: render::clean::print_plan,
             success_renderer: crate::output::print_plan_with_events,
             cancellation_message: "App leftovers cleanup cancelled.",
-            unsupported_execution_message: "app leftovers cleanup execution is Windows-only; use apps clean without --yes to preview",
             confirmation_kind: ConfirmationKind::AppLeftovers,
         },
         runtime,

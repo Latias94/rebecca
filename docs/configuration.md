@@ -131,7 +131,7 @@ preserving the existing path fields inside `data`.
 | `config-dir` | `%APPDATA%\Rebecca` | `configuration` | `preserve` | Container for user config. Not a cleanup target. |
 | `state-dir` | `%LOCALAPPDATA%\Rebecca\state` | `durable-state` | `preserve` | Durable local state root. Future state belongs here unless it is rebuildable cache. |
 | `history-file` | `%LOCALAPPDATA%\Rebecca\state\history.jsonl` | `append-only-history` | `preserve` | Append-only cleanup audit trail. Rebecca appends and reads; purge must preserve it. |
-| `cache-dir` | `%LOCALAPPDATA%\Rebecca\cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may move direct contents to the Recycle Bin, and `--yes --permanent` may delete them permanently; both modes must keep the directory itself. |
+| `cache-dir` | `%LOCALAPPDATA%\Rebecca\cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may move direct contents to the recoverable trash, and `--yes --permanent` may delete them permanently; both modes must keep the directory itself. |
 
 The scan cache is a derived cache under `<cache_dir>\scan`. It stores compact,
 versioned JSON records for scan reuse and is safe to delete. The current record
@@ -270,7 +270,7 @@ success.
 
 - preview by default;
 - require `--yes` before mutating cache entries;
-- move direct contents of `cache_dir` to the Recycle Bin by default;
+- move direct contents of `cache_dir` to the recoverable trash by default;
 - require `--yes --permanent` for irreversible direct-content deletion;
 - preserve `cache_dir` itself;
 - refuse to run if `cache_dir` overlaps preserved config, state, or history;
@@ -329,7 +329,7 @@ configured `[purge].roots`, the current directory, or explicit `--root <PATH>`
 values. It must:
 
 - preview by default;
-- require `--yes` to move artifacts to the Windows Recycle Bin;
+- require `--yes` to move artifacts to the platform trash;
 - scan only bounded directory depths, defaulting to `[purge].max_depth` or
   depth `6`;
 - skip artifact directories modified within `[purge].min_age_days` or the last
@@ -347,8 +347,7 @@ values. It must:
 - treat repeated `--artifact <NAME>` values as an explicit artifact-kind filter,
   accepting directory names, full project-artifact rule ids, or rule id suffixes;
 - support `rebecca catalog --kind project-artifact` as the canonical scan-free
-  catalog of accepted artifact selectors, with `purge --list-artifacts`
-  retained as a purge-specific compatibility listing;
+  catalog of accepted artifact selectors;
 - support `--reclaim-limit-bytes <BYTES>` as a planning selector that measures
   ranked eligible artifacts until the requested reclaim target is met, then
   leaves later trim-eligible candidates unmeasured;

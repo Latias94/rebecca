@@ -25,7 +25,6 @@
         "inspect-map-group",
         "inspect-space",
         "permissions-diagnostic",
-        "project-artifact-catalog",
         "project-artifact-cleanup-plan",
         "rule-catalog"
       ]

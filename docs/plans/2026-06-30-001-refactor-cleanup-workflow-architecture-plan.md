@@ -13,7 +13,7 @@ execution: "code"
 ## Goal Capsule
 
 - **Objective:** Refactor Rebecca's cleanup workflow architecture so command identity, planning, discovery diagnostics, estimate provenance, and rendering are explicit extension points instead of workflow-specific branches hidden in shared code.
-- **Authority:** Favor the best long-term shape over compatibility-preserving small patches. CLI API v1, the Windows-first safety model, Recycle Bin execution, dry-run-first behavior, and existing project-artifact semantics remain the product contracts to preserve or update deliberately.
+- **Authority:** Favor the best long-term shape over compatibility-preserving small patches. CLI API v1, the Windows-first safety model, recoverable trash execution, dry-run-first behavior, and existing project-artifact semantics remain the product contracts to preserve or update deliberately.
 - **Stop Conditions:** Workflow command metadata is no longer inferred from `CleanupWorkflow`, the core planner no longer acts as a workflow dispatcher, project-artifact rules are maintainable as a typed registry, partial discovery is visible to users, cache-based estimates are labeled, human renderers are workflow-owned, and the next read-only project-space insight command can be added without duplicating purge internals.
 - **Execution Profile:** Characterization-first for CLI API and planner behavior, refactor-first for core boundaries, then additive product work for the insight command after the architecture is stable.
 - **Tail Ownership:** Remove transitional adapters, duplicate renderer paths, and dead-end catalog abstractions before declaring the refactor done.
