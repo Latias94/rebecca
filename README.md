@@ -24,17 +24,17 @@
 
 ## Quick Start
 
-**Install from a GitHub release**
+**Install from a GitHub release on Windows**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.2.0/rebecca-installer.ps1 | iex"
 ```
 
-The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` to override the install directory.
+The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` to override the install directory. Linux users should install from crates.io until Linux release archives are published.
 
 **Install from crates.io**
 
-```powershell
+```shell
 cargo install rebecca --locked
 ```
 
@@ -52,6 +52,7 @@ rebecca = "0.1"
 ```powershell
 cargo run -p rebecca -- scan
 cargo run -p rebecca -- catalog
+cargo run -p rebecca -- catalog --kind cleanup-rule --platform linux
 cargo run -p rebecca -- inspect space --root .
 cargo run -p rebecca -- inspect map --root . --top 20 --max-depth 3
 cargo run -p rebecca -- inspect map --root . --top 20 --full-path --bar-width 32
@@ -60,6 +61,7 @@ cargo run -p rebecca -- inspect map --root . --table csv --table-row entry --top
 cargo run -p rebecca -- inspect artifacts --root .
 cargo run -p rebecca -- inspect lint --root .
 cargo run -p rebecca -- clean --dry-run
+cargo run -p rebecca -- clean --dry-run --rule linux.pip-cache --allow-moderate
 cargo run -p rebecca -- doctor active-processes
 cargo run -p rebecca -- apps scan
 cargo run -p rebecca -- catalog --kind project-artifact
@@ -71,6 +73,8 @@ cargo run -p rebecca -- cache doctor
 ```powershell
 cargo run -p rebecca -- clean --dry-run
 cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.slack-cache --allow-warning active-process
+cargo run -p rebecca -- clean --dry-run --no-progress --rule linux.slack-cache --allow-warning active-process
+cargo run -p rebecca -- clean --dry-run --rule linux.apt-cache --allow-moderate --allow-warning permission-sensitive
 cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
 cargo run -p rebecca -- doctor active-processes
 cargo run -p rebecca -- apps clean --dry-run
@@ -167,12 +171,14 @@ Rebecca is a local cleanup tool, and the highest-risk behavior is unintended loc
 - `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the platform trash.
 - `catalog`, `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
 - Default execution uses the platform trash through the shared recoverable backend.
+- On Linux, user-scoped rules follow XDG cache/state/data defaults from `HOME`; package-manager archive rules under `/var/cache` are moderate, permission-sensitive, preview-first targets and may fail as a standard user instead of falling back to permanent deletion.
 - Execution can batch already revalidated, non-overlapping targets into fewer recoverable trash operations, but status, reason codes, pending bytes, and history remain per target.
 - `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates, and `inspect map --scan-backend windows-native` uses the same native entry metadata for ranked disk inventory on supported local paths; `windows-ntfs-mft-experimental` attempts read-only live NTFS/MFT metadata on supported local NTFS volumes, tries a sequential `$MFT` source before the per-record FSCTL source where a full index is explicitly requested, expands valid stream-backed `$INDEX_ALLOCATION:$I30` directory indexes through Rebecca's sequence-aware parser/index model, and falls back to a safe directory scanner with provenance when unsupported, unprivileged, too slow to index within the live build budget, or too ambiguous to trust. Set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` to tune the default 20 second experimental MFT build budget, or `0` to disable that guard for dogfood; set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture stage timings while profiling the experimental backend. `inspect space` and `inspect map` accept the same backend selector for read-only estimates or inventory. The default remains the portable cleanup walker.
 - Directory targets keep the target directory and move direct child entries.
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
 - Moderate rules require `--allow-moderate`; risky and dangerous rules require `--allow-risky`.
+- Do not start with `sudo rebecca clean --yes`; first preview as the current user, then use elevated permissions only for reviewed permission-sensitive Linux system cache rules.
 - Use `--exclude <PATH>` or `[protection].protected_paths` to keep a path out of a run.
 - Dry-run human output highlights the largest estimated targets first, groups the full target list by status, prints a copyable next command, lists required opt-ins already present in that command, explains skipped or blocked pre-execution issues, and points active-process warning runs at `rebecca doctor active-processes`.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for eligible targets.
@@ -190,7 +196,7 @@ Reference material under `repo-ref/` is for behavior research only; Rebecca owns
 ## Tips
 
 - `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the recoverable trash, and `cache purge --yes --permanent` opts into irreversible deletion.
-- Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API.
+- Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API. Add `--platform linux` or `--platform windows` when a wrapper needs a host-specific cleanup catalog.
 - Use `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
 - Use `cache inspect`, `cache doctor`, and `cache prune` when you need Rebecca cache inventory, recommendations, or targeted stale-record cleanup.
 - Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the recoverable trash.
@@ -207,6 +213,7 @@ cargo run -p rebecca -- scan --rule windows.thumbnail-cache
 
 cargo run -p rebecca -- catalog
 cargo run -p rebecca -- catalog --format json --kind warning
+cargo run -p rebecca -- catalog --format json --kind cleanup-rule --platform linux
 cargo run -p rebecca -- catalog --format json --kind project-artifact --artifact node-modules
 
 cargo run -p rebecca -- inspect space --root .
@@ -226,6 +233,9 @@ cargo run -p rebecca -- inspect lint --root . --reference "$PWD\archive" --forma
 cargo run -p rebecca -- clean --dry-run
 cargo run -p rebecca -- clean --dry-run --format json --category system
 cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.edge-cache
+cargo run -p rebecca -- clean --dry-run --no-progress --rule linux.chrome-cache --allow-warning active-process
+cargo run -p rebecca -- clean --dry-run --format json --rule linux.pip-cache --allow-moderate
+cargo run -p rebecca -- clean --dry-run --rule linux.apt-cache --allow-moderate --allow-warning permission-sensitive
 cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system
@@ -269,6 +279,7 @@ cargo run -p rebecca -- cache purge --format json
 cargo run -p rebecca -- cache purge --yes
 cargo run -p rebecca -- cache purge --yes --permanent
 cargo run -p rebecca -- doctor permissions
+cargo run -p rebecca -- doctor active-processes
 ```
 
 ## CLI API
@@ -286,12 +297,14 @@ The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/c
 
 ## Built-In Rules
 
-Rebecca ships conservative cleanup rule families under `crates/rebecca-rules/rules/cleanup/`. Each TOML file owns shared metadata and one or more platform blocks; the compiler expands those blocks into runtime rule ids such as `windows.user-temp` and `linux.user-temp`. The Windows catalog is the largest built-in set today, and Linux currently includes a safe `linux.user-temp` rule for the current user's temporary directory environment.
+Rebecca ships conservative cleanup rule families under `crates/rebecca-rules/rules/cleanup/`. Each TOML file owns shared metadata and one or more platform blocks; the compiler expands those blocks into runtime rule ids such as `windows.user-temp` and `linux.user-temp`. Windows and Linux rules are both discoverable through `rebecca catalog --kind cleanup-rule --platform <platform>`; Linux currently ships 47 built-in cleanup rules across system, browser, application, Steam, and developer-cache categories.
 
-- System and browser caches: temp files, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, thumbnail cache, DirectX shader cache, and Windows Error Reporting data.
-- App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video.
-- Developer caches: pip, uv, Poetry, Conda, Go, Cargo, ccache, rustup, sccache, JetBrains, npm, pnpm, yarn, bun, corepack, Gradle, Android, NuGet, Maven, and VS Code.
-- Steam caches: the Steam client cache plus install-root and library-root cache leaves.
+- System and browser caches: user temp files, Linux package-manager archives, thumbnail caches, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, DirectX shader cache, and Windows Error Reporting data.
+- App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video. Linux app rules include native XDG paths plus bounded Flatpak or Snap cache locations where the app id is known.
+- Developer caches: pip, uv, Poetry, Conda, Go, Cargo, ccache, rustup, sccache, JetBrains, npm, pnpm, yarn, bun, corepack, Gradle, Android, NuGet, Maven, Hugging Face, PyTorch, and VS Code.
+- Steam caches: the Steam client cache plus Windows install-root/library-root cache leaves and Linux Steam install/library cache leaves discovered under readable user Steam roots.
+
+Linux XDG variables are resolved by the planner: `XDG_CACHE_HOME` falls back to `$HOME/.cache`, `XDG_CONFIG_HOME` to `$HOME/.config`, `XDG_DATA_HOME` to `$HOME/.local/share`, and `XDG_STATE_HOME` to `$HOME/.local/state` when those variables are unset. Package-manager rules such as `linux.apt-cache`, `linux.dnf-cache`, `linux.pacman-cache`, and `linux.zypper-cache` require `--allow-moderate` and the `permission-sensitive` warning gate because they target bounded archive leaves under `/var/cache`.
 
 Rule metadata includes generated platform rule ids, category, safety level, restore hint, warnings, and provenance. Built-in rules use `source = "owned"` with `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface restore hints when available, and `--format json` preserves those fields under the CLI API envelope.
 
@@ -347,12 +360,13 @@ protected_paths = ['D:\SourceCodes\Rust\rebecca\repo-ref'] # replace with your c
 
 ## Local State
 
-By default, Rebecca uses standard Windows user directories:
+By default, Rebecca uses the platform's standard user directories through the `directories` crate:
 
-- config: `%APPDATA%\Rebecca\config.toml`
-- state: `%LOCALAPPDATA%\Rebecca\state`
-- cache: `%LOCALAPPDATA%\Rebecca\cache`
-- history: `%LOCALAPPDATA%\Rebecca\state\history.jsonl`
+- Windows config: `%APPDATA%\Rebecca\config.toml`
+- Windows state/cache: `%LOCALAPPDATA%\Rebecca\state`, `%LOCALAPPDATA%\Rebecca\cache`
+- Linux config: `$XDG_CONFIG_HOME/Rebecca/config.toml` or `$HOME/.config/Rebecca/config.toml`
+- Linux state/cache: `$XDG_DATA_HOME/Rebecca/state` or `$HOME/.local/share/Rebecca/state`, and `$XDG_CACHE_HOME/Rebecca/cache` or `$HOME/.cache/Rebecca/cache`
+- History: `<state-dir>/history.jsonl`
 
 The full schema, path precedence, migration, and local-state ownership contract is documented in [Configuration And Local State Contract](docs/configuration.md).
 

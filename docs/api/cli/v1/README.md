@@ -181,7 +181,9 @@ reviewed permission-sensitive system cache rules.
 
 `catalog` is emitted by `rebecca catalog`. The payload is a typed array of
 cleanup rules, project artifact policies, warning gates, safety categories, and
-supported action kinds. `catalog-validation` is emitted by
+supported action kinds. Cleanup rule entries include their generated `platform`
+field, and `catalog --kind cleanup-rule --platform linux|windows|macos|unknown`
+filters those entries before rendering the API envelope. `catalog-validation` is emitted by
 `rebecca catalog validate`.
 
 `cache-inventory`, `cache-doctor`, and `cache-prune-report` are emitted by
@@ -277,6 +279,7 @@ rebecca clean --format ndjson --progress-detail file --rule windows.user-temp
 rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
 rebecca catalog --format json --kind warning
+rebecca catalog --format json --kind cleanup-rule --platform linux
 rebecca cache inspect --format json --namespace scan-cache
 rebecca cache doctor --format json
 rebecca cache prune --format json --namespace scan-cache --stale-only

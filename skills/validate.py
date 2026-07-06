@@ -95,6 +95,8 @@ def validate_rebecca_disk_cleaner(skill_path: Path, body: str) -> None:
         "--yes",
         "Completion criterion:",
         "rebecca catalog",
+        "--platform linux",
+        "permission-sensitive",
     )
     for term in required_terms:
         if term not in body:

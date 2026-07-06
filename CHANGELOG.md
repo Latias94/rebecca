@@ -7,9 +7,10 @@ All notable changes to Rebecca will be documented in this file.
 ### Breaking
 - Built-in cleanup rule manifests now use shared `rules/cleanup/<id>.toml` family files with `[[platforms]]` blocks. Runtime rule ids are generated as `<platform>.<id>` from platform blocks, and the old top-level `platform` plus `[[targets]]` source shape is intentionally unsupported.
 - Safety catalog source now uses shared `safety/cleanup.toml` metadata with platform safety blocks for Windows, Linux, and macOS, and protected critical paths now report the generic `critical-path` reason code instead of the Windows-specific code.
+- `scan` now lists current-host cleanup rules by default, `catalog` exposes cleanup-rule platform metadata with `--platform` filtering, and doctor diagnostics report Linux support instead of returning Windows-only placeholders.
 
 ### Added
-- Added the first Linux built-in cleanup rule, `linux.user-temp`, for current-user temporary directories through `%TMPDIR%`/`%TEMP%` templates without targeting `/tmp` directly.
+- Expanded the Linux built-in cleanup catalog from `linux.user-temp` to a first-class set of system, browser, desktop-app, Steam, package-manager, and developer-cache rules with XDG fallback semantics and package-manager warning gates.
 - Added `skills/validate.py` and a CI skills job so shipped Codex skills have frontmatter, preview-first, and installer smoke coverage on Windows and Linux.
 - Added a `rebecca-disk-cleaner` Codex skill under `skills/`, plus a cross-platform Python installer, so agents can install Rebecca and run a preview-first cleanup workflow with the CLI.
 - Added a shared `RecoverableTrashBackend` in `rebecca-core` so `clean --yes`, `purge --yes`, and default `cache purge --yes` execution use the platform trash backend instead of a Windows-only execution adapter.
@@ -38,7 +39,7 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca inspect artifacts` is now the canonical read-only project artifact insight command with JSON/NDJSON `inspect-artifacts` output, grouped totals, top targets, warning-gate awareness, reclaim-limit support, diagnostics, and no cleanup prompts or history writes.
 - `rebecca inspect lint` now reports duplicate groups, large files, empty files, and empty directories without deleting files, remediating duplicates, or writing cleanup history.
 - cleanup rule manifests now use Cleaner Manifest v1 with explicit warning declarations and future option/action shape support.
-- the audited Windows safety catalog now owns safety categories, warning kinds, action kinds, and protected matcher data used by validation and catalog output.
+- the audited shared safety catalog now owns safety categories, warning kinds, action kinds, and protected matcher data used by validation and catalog output.
 - cleanup planning now supports explicit warning gates through `--allow-warning <WARNING>` and exposes warning summaries in machine output.
 - project artifact policies now expose stable aliases, default age behavior, trim eligibility, deletion style, ranking metadata, and `--reclaim-limit-bytes` selection.
 - CLI API v1 docs, schemas, and examples now cover catalog, catalog-validation, inspect-space, inspect-artifacts, inspect-lint, and error payload families.

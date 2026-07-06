@@ -149,11 +149,21 @@ rules. These are narrow subpaths, not broad app roots:
   `CACHEDIR.TAG`, and `stats` stay outside the cleanup surface;
 - Windows maintenance caches under `%WINDIR%\Temp`, `%WINDIR%\Prefetch`, and
   `%WINDIR%\SoftwareDistribution\Download`;
+- Linux package-manager archive leaves under `/var/cache/apt/archives`,
+  `/var/cache/dnf/*/packages`, `/var/cache/pacman/pkg`, and
+  `/var/cache/zypp/packages`. These rules are moderate and permission-sensitive;
+  package databases, config, logs, locks, `/var/lib`, and repository state are
+  intentionally excluded;
 - pip, uv, Poetry package-cache, Conda package-cache, Go build/module, Cargo,
   rustup, npm, pnpm,
   Yarn, Bun, Corepack, NuGet, Gradle, and Maven cache directories;
 - Windows Error Reporting `ReportArchive` and `ReportQueue`;
-- Steam client web cache directories.
+- Linux desktop app cache leaves under native XDG roots and bounded Flatpak or
+  Snap cache paths for known app ids, while `.config`, `.local/share`, app data,
+  account state, browser private storage, and service-worker state remain
+  protected;
+- Steam client web cache directories and bounded Steam install/library cache
+  leaves.
 - app-leftover cache directories derived from discovered installed apps, limited
   to `Cache`, `Code Cache`, `GPUCache`, and `CachedData` under
   `AppData\Local`, `AppData\Roaming`, or `AppData\LocalLow`.
@@ -234,16 +244,23 @@ copied into Rebecca.
 
 ## Execution Model
 
-The current Windows backend moves allowed file targets to the recoverable trash. For
-directory targets, it preserves the target directory and moves direct child
-entries. This keeps app-created cache directories in place while clearing their
-contents.
+The shared recoverable backend moves allowed file targets to the platform trash
+on supported hosts. For directory targets, it preserves the target directory and
+moves direct child entries. This keeps app-created cache directories in place
+while clearing their contents.
+
+Linux cleanup uses the same plan-first execution model. User-scoped cache rules
+normally execute as the current user. System package-cache rules under
+`/var/cache` are moderate and permission-sensitive; standard-user execution may
+report backend permission or trash failures, and Rebecca must not fall back to
+permanent deletion.
 
 Current limitations:
 
 - backend permission and IO failures are grouped as `execution-failed` rather
   than more granular filesystem categories;
-- non-Windows execution is unavailable and returns a platform error.
+- recoverable trash behavior depends on host support and desktop/server trash
+  configuration, especially on headless Linux systems.
 
 ## Dry Run, History, And Audit Data
 

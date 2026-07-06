@@ -29,7 +29,7 @@ decision behind it.
 flowchart TD
   CLI[Rebecca CLI] --> CoreConfig[rebecca-core config]
   Env[Environment overrides] --> CoreConfig
-  Defaults[Windows user directories] --> CoreConfig
+  Defaults[Platform user directories] --> CoreConfig
   CoreConfig --> ConfigFile[config.toml]
   ConfigFile --> Schema[RebeccaConfig v1 validation]
   Schema --> Runtime[AppRuntimeConfig]
@@ -80,8 +80,8 @@ version `1` so early config files keep working.
 | Field | Type | Default | Validation | Effect |
 |-------|------|---------|------------|--------|
 | `version` | integer | `1` | Must equal `1` | Selects the config schema |
-| `app_paths.state_dir` | path | `%LOCALAPPDATA%\Rebecca\state` | Parsed as a path | Durable local state root |
-| `app_paths.cache_dir` | path | `%LOCALAPPDATA%\Rebecca\cache` | Parsed as a path | Rebuildable cache root |
+| `app_paths.state_dir` | path | platform data-local `Rebecca/state` | Parsed as a path | Durable local state root |
+| `app_paths.cache_dir` | path | platform cache `Rebecca/cache` | Parsed as a path | Rebuildable cache root |
 | `app_paths.history_file` | path | `<state_dir>\history.jsonl` | Parsed as a path | Append-only cleanup history |
 | `scan_cache.directory_record_max_age_seconds` | unsigned integer | `300` | Must be at least `1` | Freshness window for directory scan-cache records |
 | `protection.protected_paths` | array of paths | `[]` | Entries must be absolute and cannot be empty or contain `.` / `..` path segments | Extra user-owned paths that cleanup, app-leftovers, and project-purge workflows must skip |
@@ -108,10 +108,10 @@ surface.
 
 | Value | Highest precedence | Then | Default |
 |-------|--------------------|------|---------|
-| Config directory | `REBECCA_CONFIG_DIR` | none | `%APPDATA%\Rebecca` |
-| Config file | `<config_dir>\config.toml` | none | `%APPDATA%\Rebecca\config.toml` |
-| State directory | `REBECCA_STATE_DIR` | `app_paths.state_dir` | `%LOCALAPPDATA%\Rebecca\state` |
-| Cache directory | `REBECCA_CACHE_DIR` | `app_paths.cache_dir` | `%LOCALAPPDATA%\Rebecca\cache` |
+| Config directory | `REBECCA_CONFIG_DIR` | none | platform config `Rebecca` directory |
+| Config file | `<config_dir>\config.toml` | none | platform config `Rebecca/config.toml` |
+| State directory | `REBECCA_STATE_DIR` | `app_paths.state_dir` | platform data-local `Rebecca/state` |
+| Cache directory | `REBECCA_CACHE_DIR` | `app_paths.cache_dir` | platform cache `Rebecca/cache` |
 | History file | `REBECCA_HISTORY_FILE` | `app_paths.history_file` | `<state_dir>\history.jsonl` |
 
 Empty environment variables are ignored. `REBECCA_CONFIG_DIR` selects where
@@ -127,11 +127,16 @@ preserving the existing path fields inside `data`.
 
 | Storage id | Default path | Lifecycle | Retention | Owner and mutation rules |
 |------------|--------------|-----------|-----------|--------------------------|
-| `config-file` | `%APPDATA%\Rebecca\config.toml` | `configuration` | `preserve` | User-editable config. Rebecca reads it and must not purge it. |
-| `config-dir` | `%APPDATA%\Rebecca` | `configuration` | `preserve` | Container for user config. Not a cleanup target. |
-| `state-dir` | `%LOCALAPPDATA%\Rebecca\state` | `durable-state` | `preserve` | Durable local state root. Future state belongs here unless it is rebuildable cache. |
-| `history-file` | `%LOCALAPPDATA%\Rebecca\state\history.jsonl` | `append-only-history` | `preserve` | Append-only cleanup audit trail. Rebecca appends and reads; purge must preserve it. |
-| `cache-dir` | `%LOCALAPPDATA%\Rebecca\cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may move direct contents to the recoverable trash, and `--yes --permanent` may delete them permanently; both modes must keep the directory itself. |
+| `config-file` | platform config `Rebecca/config.toml` | `configuration` | `preserve` | User-editable config. Rebecca reads it and must not purge it. |
+| `config-dir` | platform config `Rebecca` directory | `configuration` | `preserve` | Container for user config. Not a cleanup target. |
+| `state-dir` | platform data-local `Rebecca/state` | `durable-state` | `preserve` | Durable local state root. Future state belongs here unless it is rebuildable cache. |
+| `history-file` | `<state-dir>/history.jsonl` | `append-only-history` | `preserve` | Append-only cleanup audit trail. Rebecca appends and reads; purge must preserve it. |
+| `cache-dir` | platform cache `Rebecca/cache` | `rebuildable-cache` | `rebuildable` | Rebuildable local cache root. `rebecca cache purge --yes` may move direct contents to the recoverable trash, and `--yes --permanent` may delete them permanently; both modes must keep the directory itself. |
+
+On Windows these defaults resolve under `%APPDATA%` and `%LOCALAPPDATA%`. On
+Linux they follow XDG directories such as `$XDG_CONFIG_HOME`, `$XDG_DATA_HOME`,
+and `$XDG_CACHE_HOME`, with the usual `$HOME/.config`, `$HOME/.local/share`, and
+`$HOME/.cache` fallbacks supplied by the platform directory provider.
 
 The scan cache is a derived cache under `<cache_dir>\scan`. It stores compact,
 versioned JSON records for scan reuse and is safe to delete. The current record
@@ -288,7 +293,7 @@ overlaps Rebecca-owned storage.
 Rebecca has built-in protected categories for credentials, browser private
 data, cloud-synced data, application durable data, and other sensitive
 locations. The built-in category and warning knowledge comes from the audited
-Windows safety catalog, while runtime checks still protect filesystem roots,
+shared platform safety catalog, while runtime checks still protect filesystem roots,
 path traversal, Rebecca-owned storage, user-profile roots, and reparse-like
 paths. Users can add their own absolute protected paths when a cache-like
 directory should survive cleanup.
