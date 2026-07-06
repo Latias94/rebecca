@@ -79,6 +79,85 @@ cargo run -p rebecca -- history --limit 10
 cargo run -p rebecca -- history --format json
 ```
 
+## Human Output Examples
+
+Rebecca's human output is optimized for previewing risk, deciding the next command, and spotting the largest space users without opening a separate UI.
+
+**Dry-run decision and active-process guidance**
+
+```powershell
+cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.slack-cache --allow-warning active-process
+```
+
+```text
+Decision: preview only; no files were deleted.
+Reclaimable now: 9 (9 B)
+Execution: would move allowed targets to the Recycle Bin.
+Next command: rebecca clean --yes --rule windows.slack-cache --allow-warning active-process
+Required opt-ins in next command: --allow-warning active-process.
+Warning gates in plan: active-process.
+Doctor hint: rebecca doctor active-processes
+
+Target details:
+allowed (3)
+  - windows.slack-cache [...\Slack\Cache] 9 bytes (9 B) [warnings: active-process]
+```
+
+When a selected rule is not eligible yet, the preview explains what must change before execution:
+
+```text
+Execution: no eligible target would be deleted.
+Resolve before execution:
+- skipped safety-opt-in-required: add --allow-moderate or --allow-risky after reviewing the rule.
+
+Issue matrix:
+- skipped safety-opt-in-required: 2 targets, 0 (0 B)
+```
+
+**Ranked disk map**
+
+```powershell
+cargo run -p rebecca -- inspect map --root . --top 2 --entry-kind file --group-by extension
+```
+
+```text
+Disk map
+Roots: 1
+Logical bytes: 10 (10 B)
+Files: 2
+Directories: 0
+Diagnostics: 0
+
+Top map entries:
+  #1  8 bytes (8 B)  80.0% [################----] ...\workspace\large.bin [file depth=1] - 1 file, 0 dirs
+  #2  2 bytes (2 B)  20.0% [####----------------] ...\workspace\small.txt [file depth=1] - 1 file, 0 dirs
+
+Map groups:
+  #1  8 bytes (8 B)  80.0% [################----] .bin [extension] - 1 file
+  #2  2 bytes (2 B)  20.0% [####----------------] .txt [extension] - 1 file
+```
+
+Use `--full-path` for exact paths, `--no-bars` for plain logs, `--bar-width <COLUMNS>` for denser terminals, and `--screen-reader` for semicolon-separated lines without visual bars.
+
+**Cache doctor**
+
+```powershell
+cargo run -p rebecca -- cache doctor
+```
+
+```text
+Cache health: review recommended
+Prunable records: 0
+
+Rebecca cache: ...\rebecca-cache
+Namespace: all
+Entries: 0, valid: 0, stale: 0, corrupt: 0, missing payloads: 0, prunable: 0
+Cache bytes: 0 (0 B)
+No cache records found.
+Recommendations:
+- Info: No Rebecca cache records were found.
+```
+
 ## Security & Safety Design
 
 Rebecca is a local Windows cleanup tool, and the highest-risk behavior is unintended local data loss.
