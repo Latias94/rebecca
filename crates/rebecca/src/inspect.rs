@@ -18,7 +18,7 @@ use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space_with_progress as inspect_space_core,
 };
 use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
-use rebecca::core::progress::InspectProgressEvent;
+use rebecca::core::progress::{InspectProgressEvent, InspectProgressOptions};
 use rebecca::core::project_artifacts::{
     ProjectArtifactScanOptions, discover_project_artifacts_with_diagnostics,
 };
@@ -359,6 +359,13 @@ fn progress_output_error(err: anyhow::Error) -> RebeccaError {
     RebeccaError::Io(std::io::Error::other(err.to_string()))
 }
 
+fn inspect_progress_options(detail: ProgressDetail) -> InspectProgressOptions {
+    match detail {
+        ProgressDetail::Target => InspectProgressOptions::target(),
+        ProgressDetail::File => InspectProgressOptions::file(),
+    }
+}
+
 fn finish_inspect_stream_with_error(
     event_writer: Option<NdjsonEventWriter>,
     err: anyhow::Error,
@@ -409,9 +416,12 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
             .then(|| NdjsonEventWriter::with_contract(contract)),
     );
     progress.started()?;
-    let report_result = inspect_space_core(&request, runtime.cancellation(), |event| {
-        progress.on_event(event)
-    });
+    let report_result = inspect_space_core(
+        &request,
+        runtime.cancellation(),
+        inspect_progress_options(options.progress_detail),
+        |event| progress.on_event(event),
+    );
     progress.finish();
     let report = match report_result {
         Ok(report) => report,

@@ -11,7 +11,7 @@ use crate::cleanup_advice::CleanupAdvice;
 use crate::error::{RebeccaError, Result, ScanFailureKind};
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::progress::{
-    InspectProgressCounterKind, InspectProgressEvent, InspectProgressOptions, InspectProgressResult,
+    InspectProgressCounterKind, InspectProgressEvent, InspectProgressResult,
     InspectProgressRootStatus, PowerOfTwoProgressSampler,
 };
 use crate::safety::is_reparse_like;
@@ -1850,6 +1850,10 @@ struct DiskMapTraversalProgress {
     sampler: PowerOfTwoProgressSampler,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "backend dispatch carries root identity, shared inspection state, cancellation, and progress sink"
+)]
 fn inspect_root<F>(
     root: &Path,
     root_index: usize,
@@ -2605,26 +2609,27 @@ mod tests {
         let cancellation = ScanCancellationToken::new();
         let expected = inspect_map_with_walker_for_test(&request, &cancellation, &walker).unwrap();
         let mut event_kinds = Vec::new();
-        let mut progress = |event: InspectProgressEvent<'_>| -> InspectProgressResult {
-            event_kinds.push(match event {
-                InspectProgressEvent::RootStarted { .. } => "root-started",
-                InspectProgressEvent::RootFinished { .. } => "root-finished",
-                InspectProgressEvent::FileMeasured { .. } => "file-measured",
-                InspectProgressEvent::TraversalProgress { .. } => "traversal-progress",
-                InspectProgressEvent::Finalizing { .. } => "finalizing",
-                _ => "other",
-            });
-            Ok(())
-        };
+        let observed = {
+            let mut progress = |event: InspectProgressEvent<'_>| -> InspectProgressResult {
+                event_kinds.push(match event {
+                    InspectProgressEvent::RootStarted { .. } => "root-started",
+                    InspectProgressEvent::RootFinished { .. } => "root-finished",
+                    InspectProgressEvent::FileMeasured { .. } => "file-measured",
+                    InspectProgressEvent::TraversalProgress { .. } => "traversal-progress",
+                    InspectProgressEvent::Finalizing { .. } => "finalizing",
+                    _ => "other",
+                });
+                Ok(())
+            };
 
-        let observed = inspect_map_with_walker_and_progress_for_test(
-            &request,
-            &cancellation,
-            &walker,
-            &mut progress,
-        )
-        .unwrap();
-        drop(progress);
+            inspect_map_with_walker_and_progress_for_test(
+                &request,
+                &cancellation,
+                &walker,
+                &mut progress,
+            )
+            .unwrap()
+        };
 
         assert_eq!(observed, expected);
         assert!(event_kinds.contains(&"root-started"));

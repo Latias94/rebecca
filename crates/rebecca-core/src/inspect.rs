@@ -342,6 +342,10 @@ struct SpaceInsightDiagnosticSample {
     diagnostic: SpaceInsightDiagnostic,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "space root inspection updates shared report, top-entry, diagnostic, and progress state"
+)]
 fn inspect_root<F>(
     root: &Path,
     root_index: usize,
@@ -669,6 +673,10 @@ impl SpaceInsightTopRank {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "space entry measurement carries root context, backend request, cancellation, and progress sink"
+)]
 fn inspect_entry<F>(
     root: &Path,
     path: &Path,
