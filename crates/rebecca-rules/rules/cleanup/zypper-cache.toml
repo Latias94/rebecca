@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "zypper-cache"
+category = "system"
+name = "Zypper package cache"
+safety_level = "moderate"
+restore_hint = "Zypper may need to redownload cached packages."
+warnings = ["permission-sensitive", "broad-discovery"]
+
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "/var/cache/zypp/packages/*/*/*.rpm"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets downloaded Zypper RPM package files under /var/cache/zypp/packages only. Repository config, metadata databases, locks, logs, and /var/lib state are intentionally excluded."

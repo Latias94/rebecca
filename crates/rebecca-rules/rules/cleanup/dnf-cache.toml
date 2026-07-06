@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "dnf-cache"
+category = "system"
+name = "DNF package cache"
+safety_level = "moderate"
+restore_hint = "DNF may need to redownload cached packages."
+warnings = ["permission-sensitive"]
+
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "/var/cache/dnf/*/packages"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets DNF repository package cache directories bounded under /var/cache/dnf/*/packages only. RPM database, history, repository metadata outside package cache leaves, logs, locks, and config are intentionally excluded."

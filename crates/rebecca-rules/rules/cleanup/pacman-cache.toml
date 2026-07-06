@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "pacman-cache"
+category = "system"
+name = "Pacman package cache"
+safety_level = "moderate"
+restore_hint = "Pacman may need to redownload cached package archives."
+warnings = ["permission-sensitive"]
+
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "/var/cache/pacman/pkg/*.pkg.tar.*"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets Pacman package archive files under /var/cache/pacman/pkg only. Sync databases, local package database, logs, locks, config, and pacman hooks are intentionally excluded."

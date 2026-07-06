@@ -356,7 +356,6 @@ sequences = [
   [".var", "app", "com.slack.slack", "cache"],
   ["%home%", ".var", "app", "com.slack.slack", "cache"],
   ["var", "cache", "apt", "archives"],
-  ["var", "cache", "dnf"],
   ["var", "cache", "pacman", "pkg"],
   ["var", "cache", "zypp", "packages"],
 ]

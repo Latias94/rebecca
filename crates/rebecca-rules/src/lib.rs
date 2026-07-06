@@ -93,6 +93,10 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
     "rules/cleanup/thumbnail-cache.toml",
     "rules/cleanup/vscode-cache.toml",
     "rules/cleanup/wer-reports.toml",
+    "rules/cleanup/apt-cache.toml",
+    "rules/cleanup/dnf-cache.toml",
+    "rules/cleanup/pacman-cache.toml",
+    "rules/cleanup/zypper-cache.toml",
     "rules/cleanup/system-temp.toml",
     "rules/cleanup/prefetch.toml",
     "rules/cleanup/update-download-cache.toml",
@@ -284,6 +288,7 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                 )));
             }
 
+            validate_builtin_linux_package_manager_boundary(rule, spec)?;
             validate_builtin_target_shape_basis(rule, spec)?;
             validate_builtin_required_shape_warnings(rule, spec)?;
         }
@@ -538,6 +543,29 @@ fn validate_builtin_required_shape_warnings(
     Ok(())
 }
 
+fn validate_builtin_linux_package_manager_boundary(
+    rule: &RuleDefinition,
+    spec: &RuleTargetSpec,
+) -> Result<()> {
+    if rule.platform != Platform::Linux {
+        return Ok(());
+    }
+
+    let raw = normalize_rule_shape(&raw_target_shape(spec));
+    let segments = shape_segments(&raw);
+    if is_linux_package_manager_cache_namespace(&segments)
+        && !is_linux_package_manager_cache_shape(&segments)
+    {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "built-in rule {} target {} is inside a Linux package-manager cache namespace but not an approved package archive/cache leaf",
+            rule.id,
+            spec.placeholder_path().display()
+        )));
+    }
+
+    Ok(())
+}
+
 fn required_shape_warnings(spec: &RuleTargetSpec) -> Vec<&'static str> {
     let mut warnings = Vec::new();
 
@@ -642,6 +670,16 @@ fn has_sequence(segments: &[&str], sequence: &[&str]) -> bool {
         && segments
             .windows(sequence.len())
             .any(|window| window == sequence)
+}
+
+fn find_sequence(segments: &[&str], sequence: &[&str]) -> Option<usize> {
+    if sequence.is_empty() || segments.len() < sequence.len() {
+        return None;
+    }
+
+    segments
+        .windows(sequence.len())
+        .position(|window| window == sequence)
 }
 
 fn wildcard_appears_at_drive_root(segments: &[&str]) -> bool {
@@ -771,9 +809,24 @@ fn has_positive_cleanup_basis(raw: &str) -> bool {
 
 fn is_linux_package_manager_cache_shape(segments: &[&str]) -> bool {
     has_sequence(segments, &["var", "cache", "apt", "archives"])
-        || has_sequence(segments, &["var", "cache", "dnf"])
+        || is_linux_dnf_package_cache_shape(segments)
         || has_sequence(segments, &["var", "cache", "pacman", "pkg"])
         || has_sequence(segments, &["var", "cache", "zypp", "packages"])
+}
+
+fn is_linux_package_manager_cache_namespace(segments: &[&str]) -> bool {
+    has_sequence(segments, &["var", "cache", "apt"])
+        || has_sequence(segments, &["var", "cache", "dnf"])
+        || has_sequence(segments, &["var", "cache", "pacman"])
+        || has_sequence(segments, &["var", "cache", "zypp"])
+}
+
+fn is_linux_dnf_package_cache_shape(segments: &[&str]) -> bool {
+    find_sequence(segments, &["var", "cache", "dnf"]).is_some_and(|index| {
+        segments
+            .get(index + 3..)
+            .is_some_and(|tail| tail.contains(&"packages"))
+    })
 }
 
 #[cfg(test)]
@@ -1252,6 +1305,38 @@ mod tests {
     }
 
     #[test]
+    fn builtin_catalog_rejects_linux_package_manager_state_and_broad_cache_roots() {
+        for target in [
+            "/var/cache/apt",
+            "/var/cache/apt/lists",
+            "/var/cache/dnf",
+            "/var/cache/dnf/*/repodata",
+            "/var/cache/pacman",
+            "/var/cache/zypp",
+            "/var/lib/apt/lists",
+            "/var/log/pacman.log",
+            "/etc/zypp/repos.d",
+        ] {
+            let spec = if target.contains('*') {
+                RuleTargetSpec::glob_template(target)
+            } else {
+                RuleTargetSpec::template(target)
+            };
+            let mut rule = linux_rule_with_target(spec);
+            rule.warnings = vec!["permission-sensitive".to_string()];
+            let err = super::validate_builtin_rule_catalog(&[rule])
+                .expect_err("package-manager state or broad roots should be rejected");
+            let message = err.to_string();
+            assert!(
+                message.contains("package-manager cache namespace")
+                    || message.contains("critical-path")
+                    || message.contains("positive cleanup basis"),
+                "{target}: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn builtin_catalog_rejects_linux_root_globs() {
         for target in [
             "%HOME%\\*\\Cache",
@@ -1305,6 +1390,7 @@ mod tests {
         for expected in [
             "linux.user-temp",
             "linux.android-cache",
+            "linux.apt-cache",
             "linux.brave-cache",
             "linux.bun-cache",
             "linux.cargo-cache",
@@ -1313,6 +1399,7 @@ mod tests {
             "linux.chromium-cache",
             "linux.conda-cache",
             "linux.corepack-cache",
+            "linux.dnf-cache",
             "linux.edge-cache",
             "linux.firefox-profile-cache",
             "linux.go-build-cache",
@@ -1328,6 +1415,7 @@ mod tests {
             "linux.pip-cache",
             "linux.pnpm-cache",
             "linux.poetry-cache",
+            "linux.pacman-cache",
             "linux.postman-cache",
             "linux.pytorch-cache",
             "linux.rustup-cache",
@@ -1346,6 +1434,7 @@ mod tests {
             "linux.yarn-cache",
             "linux.zen-browser-cache",
             "linux.zoom-logs",
+            "linux.zypper-cache",
             "windows.chrome-cache",
             "windows.chromium-cache",
             "windows.android-cache",

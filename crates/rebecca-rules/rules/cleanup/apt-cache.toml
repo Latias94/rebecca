@@ -1,0 +1,19 @@
+manifest_version = 1
+id = "apt-cache"
+category = "system"
+name = "APT package archive cache"
+safety_level = "moderate"
+restore_hint = "APT may need to redownload package archives."
+warnings = ["permission-sensitive"]
+
+[[platforms]]
+platform = "linux"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "/var/cache/apt/archives/*.deb"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Targets downloaded APT .deb package archives under /var/cache/apt/archives only. Package databases, lists, locks, logs, config, and /var/lib state are intentionally excluded."

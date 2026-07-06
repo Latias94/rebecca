@@ -1720,6 +1720,73 @@ fn clean_dry_run_json_gates_linux_developer_cache_rules() {
 }
 
 #[test]
+fn clean_dry_run_json_gates_linux_package_manager_cache_rules() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+
+    let without_moderate = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--rule",
+            "linux.apt-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        without_moderate.status.success(),
+        "stderr: {}",
+        common::support::stderr(&without_moderate)
+    );
+    let without_moderate_value: serde_json::Value =
+        common::support::api_data(&without_moderate.stdout);
+    assert_eq!(without_moderate_value["summary"]["total_targets"], 1);
+    assert_eq!(without_moderate_value["summary"]["allowed_targets"], 0);
+    assert_eq!(without_moderate_value["summary"]["skipped_targets"], 1);
+    assert_eq!(without_moderate_value["targets"][0]["status"], "skipped");
+    assert_eq!(
+        without_moderate_value["targets"][0]["reason_code"],
+        "safety-opt-in-required"
+    );
+
+    let without_warning = isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-moderate",
+            "--rule",
+            "linux.apt-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        without_warning.status.success(),
+        "stderr: {}",
+        common::support::stderr(&without_warning)
+    );
+    let without_warning_value: serde_json::Value =
+        common::support::api_data(&without_warning.stdout);
+    assert_eq!(without_warning_value["summary"]["total_targets"], 1);
+    assert_eq!(without_warning_value["summary"]["allowed_targets"], 0);
+    assert_eq!(without_warning_value["summary"]["skipped_targets"], 1);
+    assert_eq!(
+        without_warning_value["targets"][0]["reason_code"],
+        "warning-gate-required"
+    );
+}
+
+#[test]
 fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
     if !cfg!(target_os = "linux") {
         return;

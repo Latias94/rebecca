@@ -320,9 +320,17 @@ fn is_linux_steam_cache_path(segments: &[&str]) -> bool {
 
 fn is_linux_package_manager_cache_path(segments: &[&str]) -> bool {
     has_sequence(segments, &["var", "cache", "apt", "archives"])
-        || has_sequence(segments, &["var", "cache", "dnf"])
+        || is_linux_dnf_package_cache_path(segments)
         || has_sequence(segments, &["var", "cache", "pacman", "pkg"])
         || has_sequence(segments, &["var", "cache", "zypp", "packages"])
+}
+
+fn is_linux_dnf_package_cache_path(segments: &[&str]) -> bool {
+    find_sequence(segments, &["var", "cache", "dnf"]).is_some_and(|index| {
+        segments
+            .get(index + 3..)
+            .is_some_and(|tail| tail.contains(&"packages"))
+    })
 }
 
 fn is_jetbrains_cache_path(segments: &[&str]) -> bool {
