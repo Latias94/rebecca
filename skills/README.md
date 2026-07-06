@@ -19,6 +19,12 @@ python3 ./skills/install.py
 The installer copies `skills/rebecca-disk-cleaner` to `$CODEX_HOME/skills` when
 `CODEX_HOME` is set, otherwise to `~/.codex/skills`.
 
+Validate repository skills before publishing changes:
+
+```bash
+python3 ./skills/validate.py
+```
+
 PowerShell-only fallback:
 
 ```powershell

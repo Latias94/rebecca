@@ -15,6 +15,25 @@ permissions:
   contents: read
 
 jobs:
+  skills:
+    name: Skills validation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: python3
+          - os: windows-2025
+            python: python
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate Codex skills
+        run: ${{ matrix.python }} skills/validate.py
+
   windows:
     name: Windows quality gate
     runs-on: windows-2025
