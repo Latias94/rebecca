@@ -79,6 +79,11 @@ jobs:
       - name: Validate built-in catalogs
         run: cargo run -p rebecca --locked -- catalog validate --format json
 
+      - name: Run Linux cleanup smoke
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash scripts/ci/run-linux-cleanup-smoke.sh
+
   dist-plan:
     name: cargo-dist plan
     runs-on: ubuntu-24.04

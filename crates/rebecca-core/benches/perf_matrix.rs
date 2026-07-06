@@ -120,6 +120,23 @@ fn scenario_metadata() -> Vec<ScenarioMetadata> {
             32,
             64,
         ),
+        ScenarioMetadata::rule_plan(
+            "linux_rule_plan_32_dirs_1024_files",
+            "linux-many-small-directories",
+            1024,
+            33,
+            131_072,
+            32,
+        ),
+        ScenarioMetadata::rule_plan_progress(
+            "linux_rule_plan_target_progress_32_dirs_1024_files",
+            "linux-many-small-directories",
+            1024,
+            33,
+            131_072,
+            32,
+            64,
+        ),
         ScenarioMetadata::cache(
             "scan_cache_miss_store_many_small_1024_files",
             "many-small",
@@ -400,7 +417,7 @@ fn perf_matrix(criterion: &mut Criterion) {
 
     group.bench_function("rule_plan_32_dirs_1024_files", |bencher| {
         bencher.iter_batched(
-            create_rule_plan_fixture,
+            || create_rule_plan_fixture(Platform::Windows, "windows"),
             |fixture| {
                 let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
                 let plan = build_cleanup_plan(black_box(&request), black_box(&fixture.rules))
@@ -417,7 +434,7 @@ fn perf_matrix(criterion: &mut Criterion) {
 
     group.bench_function("rule_plan_target_progress_32_dirs_1024_files", |bencher| {
         bencher.iter_batched(
-            create_rule_plan_fixture,
+            || create_rule_plan_fixture(Platform::Windows, "windows"),
             |fixture| {
                 let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
                 let mut emitted_progress_events = 0_u64;
@@ -444,6 +461,56 @@ fn perf_matrix(criterion: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
+
+    group.bench_function("linux_rule_plan_32_dirs_1024_files", |bencher| {
+        bencher.iter_batched(
+            || create_rule_plan_fixture(Platform::Linux, "linux"),
+            |fixture| {
+                let request = PlanRequest::for_platform(Platform::Linux, DeleteMode::DryRun);
+                let plan = build_cleanup_plan(black_box(&request), black_box(&fixture.rules))
+                    .expect("Linux rule plan should build");
+
+                assert_eq!(plan.summary.allowed_targets, MANY_SMALL_DIRECTORY_COUNT);
+                assert_eq!(plan.summary.skipped_targets, 0);
+                assert_eq!(plan.summary.estimated_bytes, fixture.expected.bytes);
+                black_box((fixture, plan));
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.bench_function(
+        "linux_rule_plan_target_progress_32_dirs_1024_files",
+        |bencher| {
+            bencher.iter_batched(
+                || create_rule_plan_fixture(Platform::Linux, "linux"),
+                |fixture| {
+                    let request = PlanRequest::for_platform(Platform::Linux, DeleteMode::DryRun);
+                    let mut emitted_progress_events = 0_u64;
+                    let plan = build_cleanup_plan_with_progress(
+                        black_box(&request),
+                        black_box(&fixture.rules),
+                        |event| {
+                            if !matches!(event, PlanProgressEvent::FileMeasured { .. }) {
+                                emitted_progress_events = emitted_progress_events.saturating_add(1);
+                            }
+                        },
+                    )
+                    .expect("Linux rule plan should build");
+
+                    assert_eq!(plan.summary.allowed_targets, MANY_SMALL_DIRECTORY_COUNT);
+                    assert_eq!(plan.summary.skipped_targets, 0);
+                    assert_eq!(plan.summary.estimated_bytes, fixture.expected.bytes);
+                    assert_eq!(
+                        emitted_progress_events,
+                        (MANY_SMALL_DIRECTORY_COUNT * 2) as u64
+                    );
+                    black_box((fixture, plan, emitted_progress_events));
+                },
+                BatchSize::SmallInput,
+            );
+        },
+    );
 
     group.bench_function("scan_cache_miss_store_many_small_1024_files", |bencher| {
         let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
@@ -991,14 +1058,15 @@ fn create_duplicate_scan_targets_fixture(root: &Path) -> Vec<ScanTargetRequest> 
     targets
 }
 
-fn create_rule_plan_fixture() -> RulePlanBenchmarkFixture {
+fn create_rule_plan_fixture(platform: Platform, platform_prefix: &str) -> RulePlanBenchmarkFixture {
     let temp = tempfile::tempdir().expect("benchmark fixture should be created");
     let root = temp.path();
     let expected = create_many_small_fixture(root);
     let rules = (0..MANY_SMALL_DIRECTORY_COUNT)
         .map(|directory_index| {
             benchmark_exact_path_rule(
-                format!("windows.benchmark-cache-{directory_index:02}"),
+                format!("{platform_prefix}.benchmark-cache-{directory_index:02}"),
+                platform,
                 root.join(format!("dir-{directory_index:02}")),
             )
         })
@@ -1011,10 +1079,10 @@ fn create_rule_plan_fixture() -> RulePlanBenchmarkFixture {
     }
 }
 
-fn benchmark_exact_path_rule(id: String, path: PathBuf) -> RuleDefinition {
+fn benchmark_exact_path_rule(id: String, platform: Platform, path: PathBuf) -> RuleDefinition {
     RuleDefinition {
         id,
-        platform: Platform::Windows,
+        platform,
         category: "benchmark".to_string(),
         name: "Benchmark cache".to_string(),
         safety_level: SafetyLevel::Safe,

@@ -55,6 +55,8 @@ The report records scenario name, operation, requested backend, backend-source e
 - duplicate target candidates
 - ordinary rule planning over many directory targets
 - target-level rule-planning progress over many directory targets
+- Linux ordinary rule planning over many directory targets
+- Linux target-level rule-planning progress over many directory targets
 - scan-cache miss plus store
 - scan-cache hit
 - serial cleanup deletion
