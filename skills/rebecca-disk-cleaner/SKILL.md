@@ -46,9 +46,10 @@ Rebecca command.
 
      Use `rebecca i` as the short alias. The TUI can navigate the disk map,
      stage cleanup rules behind advised entries, preview all matching rule
-     targets, and execute only after typed confirmation through recoverable
-     trash. Use `--screen-reader` or `--no-color` when the terminal needs plain
-     text cues.
+     targets, show live task progress, and execute only after typed
+     confirmation through recoverable trash. Press Esc on the working screen to
+     request cooperative cancellation. Use `--screen-reader` or `--no-color`
+     when the terminal needs plain text cues.
    - For a size map:
 
      ```powershell

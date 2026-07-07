@@ -61,7 +61,158 @@ pub(crate) enum TuiEffect {
     Scan(Vec<PathBuf>),
     Preview(CleanupWorkbenchRequest),
     Execute(CleanupWorkbenchRequest),
+    CancelTask,
     Quit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TuiTaskProgressEvent {
+    RootStarted {
+        root_index: usize,
+        root_count: usize,
+        root: PathBuf,
+        backend: String,
+    },
+    RootFinished {
+        root_index: usize,
+        root_count: usize,
+        root: PathBuf,
+        status: String,
+        logical_bytes: u64,
+        files: u64,
+        directories: u64,
+    },
+    Traversal {
+        root: PathBuf,
+        counter: String,
+        value: u64,
+        logical_bytes: u64,
+        files: u64,
+        directories: u64,
+    },
+    FileMeasured {
+        target_path: PathBuf,
+        path: PathBuf,
+        file_size: u64,
+        files_scanned: u64,
+        bytes_scanned: u64,
+    },
+    BackendFallback {
+        root: PathBuf,
+        backend: String,
+        reason: String,
+    },
+    BackendStage {
+        root: PathBuf,
+        backend: String,
+        stage: &'static str,
+        finished: bool,
+    },
+    BackendMetric {
+        metric: &'static str,
+        value: u64,
+    },
+    Finalizing {
+        roots: usize,
+        logical_bytes: u64,
+        files: u64,
+        directories: u64,
+    },
+    CleanupTargetScanning {
+        rule_id: String,
+        path: PathBuf,
+    },
+    CleanupTargetFinished {
+        rule_id: String,
+        path: PathBuf,
+        status: String,
+        estimated_bytes: u64,
+    },
+    CleanupFileMeasured {
+        rule_id: String,
+        target_path: PathBuf,
+        path: PathBuf,
+        file_size: u64,
+        files_scanned: u64,
+        bytes_scanned: u64,
+    },
+    CleanupCacheHit {
+        rule_id: String,
+        path: PathBuf,
+        estimated_bytes: u64,
+    },
+    CleanupCacheMiss {
+        rule_id: String,
+        path: PathBuf,
+        reason: String,
+        pruned: bool,
+    },
+    CleanupCacheWriteSkipped {
+        rule_id: String,
+        path: PathBuf,
+    },
+    CleanupCachePruned {
+        inspected: usize,
+        pruned: usize,
+        retained: usize,
+    },
+    ExecutionFinished {
+        completed_targets: u64,
+        freed_bytes: u64,
+        pending_reclaim_bytes: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TuiTaskStatus {
+    pub(crate) label: String,
+    pub(crate) phase: String,
+    pub(crate) backend: Option<String>,
+    pub(crate) current_root: Option<PathBuf>,
+    pub(crate) current_path: Option<PathBuf>,
+    pub(crate) current_rule_id: Option<String>,
+    pub(crate) roots_finished: usize,
+    pub(crate) root_count: usize,
+    pub(crate) logical_bytes: u64,
+    pub(crate) files: u64,
+    pub(crate) directories: u64,
+    pub(crate) targets_started: u64,
+    pub(crate) targets_finished: u64,
+    pub(crate) estimated_bytes: u64,
+    pub(crate) cache_hits: u64,
+    pub(crate) cache_misses: u64,
+    pub(crate) cache_write_skipped: u64,
+    pub(crate) cache_pruned: usize,
+    pub(crate) last_event: String,
+    pub(crate) cancel_requested: bool,
+}
+
+impl TuiTaskStatus {
+    fn started(label: impl Into<String>) -> Self {
+        let label = label.into();
+        Self {
+            phase: label.clone(),
+            label,
+            backend: None,
+            current_root: None,
+            current_path: None,
+            current_rule_id: None,
+            roots_finished: 0,
+            root_count: 0,
+            logical_bytes: 0,
+            files: 0,
+            directories: 0,
+            targets_started: 0,
+            targets_finished: 0,
+            estimated_bytes: 0,
+            cache_hits: 0,
+            cache_misses: 0,
+            cache_write_skipped: 0,
+            cache_pruned: 0,
+            last_event: String::new(),
+            cancel_requested: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +231,7 @@ pub(crate) struct TuiApp {
     pub(crate) executed: Option<CleanupPlan>,
     pub(crate) history: Vec<HistoryEntry>,
     pub(crate) message: String,
+    pub(crate) task_status: Option<TuiTaskStatus>,
     pub(crate) scan_backend: ScanBackendKind,
     pub(crate) entry_limit: usize,
     should_quit: bool,
@@ -106,6 +258,7 @@ impl TuiApp {
             executed: None,
             history: Vec::new(),
             message: "Choose a root and press Enter to scan.".to_string(),
+            task_status: None,
             scan_backend,
             entry_limit,
             should_quit: false,
@@ -133,6 +286,7 @@ impl TuiApp {
             executed: None,
             history: Vec::new(),
             message: "Space stages a cleanup rule, c previews all matching targets.".to_string(),
+            task_status: None,
             scan_backend,
             entry_limit,
             should_quit: false,
@@ -209,12 +363,231 @@ impl TuiApp {
         self.message =
             "Scan complete. Space stages cleanup rules, c previews all matching targets."
                 .to_string();
+        self.task_status = None;
     }
 
     pub(crate) fn apply_task_started(&mut self, label: impl Into<String>) {
         self.previous_screen = self.screen;
         self.screen = TuiScreen::Busy;
-        self.message = label.into();
+        let label = label.into();
+        self.task_status = Some(TuiTaskStatus::started(label.clone()));
+        self.message = label;
+    }
+
+    pub(crate) fn apply_task_progress(&mut self, event: TuiTaskProgressEvent) {
+        let status = self
+            .task_status
+            .get_or_insert_with(|| TuiTaskStatus::started("Working..."));
+        match event {
+            TuiTaskProgressEvent::RootStarted {
+                root_index,
+                root_count,
+                root,
+                backend,
+            } => {
+                status.phase = format!("Scanning root {}/{}", root_index + 1, root_count);
+                status.backend = Some(backend);
+                status.current_root = Some(root.clone());
+                status.current_path = Some(root.clone());
+                status.root_count = root_count;
+                status.last_event = format!("Started {}", root.display());
+            }
+            TuiTaskProgressEvent::RootFinished {
+                root_index,
+                root_count,
+                root,
+                status: root_status,
+                logical_bytes,
+                files,
+                directories,
+            } => {
+                status.phase = format!("Finished root {}/{}", root_index + 1, root_count);
+                status.current_root = Some(root.clone());
+                status.current_path = Some(root.clone());
+                status.roots_finished = status.roots_finished.max(root_index + 1);
+                status.root_count = root_count;
+                status.logical_bytes = logical_bytes;
+                status.files = files;
+                status.directories = directories;
+                status.last_event = format!("{root_status}: {}", root.display());
+            }
+            TuiTaskProgressEvent::Traversal {
+                root,
+                counter,
+                value,
+                logical_bytes,
+                files,
+                directories,
+            } => {
+                status.phase = format!("Walking {counter} {value}");
+                status.current_root = Some(root);
+                status.logical_bytes = logical_bytes;
+                status.files = files;
+                status.directories = directories;
+                status.last_event = format!("{counter}: {value}");
+            }
+            TuiTaskProgressEvent::FileMeasured {
+                target_path,
+                path,
+                file_size,
+                files_scanned,
+                bytes_scanned,
+            } => {
+                status.phase = "Measuring files".to_string();
+                status.current_root = Some(target_path.clone());
+                status.current_path = Some(path.clone());
+                status.files = files_scanned;
+                status.logical_bytes = bytes_scanned;
+                status.last_event = format!("{} ({file_size} bytes)", path.display());
+            }
+            TuiTaskProgressEvent::BackendFallback {
+                root,
+                backend,
+                reason,
+            } => {
+                status.phase = "Backend fallback".to_string();
+                status.backend = Some(backend.clone());
+                status.current_root = Some(root.clone());
+                status.current_path = Some(root.clone());
+                status.last_event = format!("{backend}: {reason}");
+            }
+            TuiTaskProgressEvent::BackendStage {
+                root,
+                backend,
+                stage,
+                finished,
+            } => {
+                status.phase = if finished {
+                    format!("{stage} finished")
+                } else {
+                    format!("{stage} started")
+                };
+                status.backend = Some(backend);
+                status.current_root = Some(root.clone());
+                status.current_path = Some(root);
+                status.last_event = status.phase.clone();
+            }
+            TuiTaskProgressEvent::BackendMetric { metric, value } => {
+                status.phase = "Reading backend metrics".to_string();
+                status.last_event = format!("{metric}: {value}");
+            }
+            TuiTaskProgressEvent::Finalizing {
+                roots,
+                logical_bytes,
+                files,
+                directories,
+            } => {
+                status.phase = "Finalizing map".to_string();
+                status.root_count = roots;
+                status.roots_finished = roots;
+                status.logical_bytes = logical_bytes;
+                status.files = files;
+                status.directories = directories;
+                status.last_event = "Building ranked tree".to_string();
+            }
+            TuiTaskProgressEvent::CleanupTargetScanning { rule_id, path } => {
+                status.phase = "Scanning cleanup target".to_string();
+                status.current_rule_id = Some(rule_id.clone());
+                status.current_path = Some(path.clone());
+                status.targets_started = status.targets_started.saturating_add(1);
+                status.last_event = format!("{rule_id}: {}", path.display());
+            }
+            TuiTaskProgressEvent::CleanupTargetFinished {
+                rule_id,
+                path,
+                status: target_status,
+                estimated_bytes,
+            } => {
+                status.phase = "Measured cleanup target".to_string();
+                status.current_rule_id = Some(rule_id.clone());
+                status.current_path = Some(path.clone());
+                status.targets_finished = status.targets_finished.saturating_add(1);
+                status.estimated_bytes = status.estimated_bytes.saturating_add(estimated_bytes);
+                status.last_event = format!("{rule_id} {target_status}: {}", path.display());
+            }
+            TuiTaskProgressEvent::CleanupFileMeasured {
+                rule_id,
+                target_path,
+                path,
+                file_size,
+                files_scanned,
+                bytes_scanned,
+            } => {
+                status.phase = "Measuring cleanup files".to_string();
+                status.current_rule_id = Some(rule_id);
+                status.current_root = Some(target_path);
+                status.current_path = Some(path.clone());
+                status.files = files_scanned;
+                status.logical_bytes = bytes_scanned;
+                status.last_event = format!("{} ({file_size} bytes)", path.display());
+            }
+            TuiTaskProgressEvent::CleanupCacheHit {
+                rule_id,
+                path,
+                estimated_bytes,
+            } => {
+                status.phase = "Using scan cache".to_string();
+                status.current_rule_id = Some(rule_id.clone());
+                status.current_path = Some(path.clone());
+                status.cache_hits = status.cache_hits.saturating_add(1);
+                status.estimated_bytes = status.estimated_bytes.saturating_add(estimated_bytes);
+                status.last_event = format!("{rule_id} cache hit: {}", path.display());
+            }
+            TuiTaskProgressEvent::CleanupCacheMiss {
+                rule_id,
+                path,
+                reason,
+                pruned,
+            } => {
+                status.phase = "Refreshing scan cache".to_string();
+                status.current_rule_id = Some(rule_id.clone());
+                status.current_path = Some(path.clone());
+                status.cache_misses = status.cache_misses.saturating_add(1);
+                status.cache_pruned += usize::from(pruned);
+                status.last_event = format!("{rule_id} cache miss {reason}: {}", path.display());
+            }
+            TuiTaskProgressEvent::CleanupCacheWriteSkipped { rule_id, path } => {
+                status.phase = "Scan cache write skipped".to_string();
+                status.current_rule_id = Some(rule_id.clone());
+                status.current_path = Some(path.clone());
+                status.cache_write_skipped = status.cache_write_skipped.saturating_add(1);
+                status.last_event = format!("{rule_id}: {}", path.display());
+            }
+            TuiTaskProgressEvent::CleanupCachePruned {
+                inspected,
+                pruned,
+                retained,
+            } => {
+                status.phase = "Pruning scan cache".to_string();
+                status.cache_pruned = status.cache_pruned.saturating_add(pruned);
+                status.last_event =
+                    format!("cache inspected {inspected}, pruned {pruned}, retained {retained}");
+            }
+            TuiTaskProgressEvent::ExecutionFinished {
+                completed_targets,
+                freed_bytes,
+                pending_reclaim_bytes,
+            } => {
+                status.phase = "Cleanup execution finished".to_string();
+                status.targets_finished = completed_targets;
+                status.logical_bytes = freed_bytes.saturating_add(pending_reclaim_bytes);
+                status.last_event = format!("{completed_targets} target(s) completed");
+            }
+        }
+    }
+
+    pub(crate) fn apply_cancel_requested(&mut self) {
+        if let Some(status) = &mut self.task_status {
+            status.cancel_requested = true;
+            status.phase = "Cancel requested".to_string();
+        }
+        self.message = "Cancel requested; waiting for the worker to stop.".to_string();
+    }
+
+    pub(crate) fn apply_task_cancelled(&mut self) {
+        self.screen = self.previous_screen;
+        self.task_status = None;
+        self.message = "Task cancelled.".to_string();
     }
 
     pub(crate) fn apply_preview(&mut self, plan: CleanupPlan) {
@@ -227,6 +600,7 @@ impl TuiApp {
             "Preview ready: {allowed} allowed target(s), {}.",
             format_bytes(bytes)
         );
+        self.task_status = None;
     }
 
     pub(crate) fn apply_execution(&mut self, plan: CleanupPlan) {
@@ -235,6 +609,7 @@ impl TuiApp {
         self.basket.clear();
         self.preview = None;
         self.message = "Cleanup finished and history was updated.".to_string();
+        self.task_status = None;
     }
 
     pub(crate) fn set_history(&mut self, entries: Vec<HistoryEntry>) {
@@ -244,6 +619,7 @@ impl TuiApp {
     pub(crate) fn apply_error(&mut self, message: impl Into<String>) {
         self.screen = TuiScreen::Error;
         self.message = message.into();
+        self.task_status = None;
     }
 
     pub(crate) fn workbench_request(&self) -> CleanupWorkbenchRequest {
@@ -369,7 +745,8 @@ impl TuiApp {
 
     fn handle_busy_key(&mut self, key: TuiKey) -> TuiEffect {
         match key {
-            TuiKey::Char('q') | TuiKey::Esc => self.quit(),
+            TuiKey::Char('q') => self.quit(),
+            TuiKey::Esc => TuiEffect::CancelTask,
             TuiKey::Char('?') => self.open_help(),
             _ => {
                 self.message = "A background task is still running.".to_string();
@@ -693,6 +1070,49 @@ mod tests {
         assert_eq!(app.message, "A background task is still running.");
         assert_eq!(app.handle_key(TuiKey::Char('q')), TuiEffect::Quit);
         assert!(app.should_quit());
+    }
+
+    #[test]
+    fn busy_screen_escape_requests_task_cancellation_without_quitting() {
+        let mut app = test_app();
+        app.apply_task_started("Scanning fixture...");
+
+        assert_eq!(app.handle_key(TuiKey::Esc), TuiEffect::CancelTask);
+        assert!(!app.should_quit());
+
+        app.apply_cancel_requested();
+
+        let status = app.task_status.as_ref().unwrap();
+        assert!(status.cancel_requested);
+        assert_eq!(status.phase, "Cancel requested");
+
+        app.apply_task_cancelled();
+
+        assert_eq!(app.screen, TuiScreen::Map);
+        assert!(app.task_status.is_none());
+        assert_eq!(app.message, "Task cancelled.");
+    }
+
+    #[test]
+    fn task_progress_updates_structured_status() {
+        let mut app = test_app();
+        app.apply_task_started("Scanning fixture...");
+
+        app.apply_task_progress(TuiTaskProgressEvent::Traversal {
+            root: PathBuf::from("/tmp"),
+            counter: "files".to_string(),
+            value: 8,
+            logical_bytes: 42,
+            files: 8,
+            directories: 2,
+        });
+
+        let status = app.task_status.as_ref().unwrap();
+        assert_eq!(status.phase, "Walking files 8");
+        assert_eq!(status.files, 8);
+        assert_eq!(status.directories, 2);
+        assert_eq!(status.logical_bytes, 42);
+        assert_eq!(status.last_event, "files: 8");
     }
 
     fn test_app() -> TuiApp {

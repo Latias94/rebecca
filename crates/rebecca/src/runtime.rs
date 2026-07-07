@@ -12,6 +12,12 @@ impl CliRuntime {
         Self { cancellation }
     }
 
+    pub(crate) fn child_task(&self) -> Self {
+        Self {
+            cancellation: self.cancellation.child_token(),
+        }
+    }
+
     pub(crate) fn with_ctrlc_handler() -> Result<Self> {
         let cancellation = ScanCancellationToken::new();
         ctrlc::set_handler({
@@ -37,6 +43,22 @@ mod tests {
         let token = ScanCancellationToken::new();
         let runtime = CliRuntime::new(token.clone());
 
+        assert!(!runtime.cancellation().is_cancelled());
+
+        token.cancel();
+
+        assert!(runtime.cancellation().is_cancelled());
+    }
+
+    #[test]
+    fn task_runtime_can_cancel_without_poisoning_parent() {
+        let token = ScanCancellationToken::new();
+        let runtime = CliRuntime::new(token.clone());
+        let task_runtime = runtime.child_task();
+
+        task_runtime.cancellation().cancel();
+
+        assert!(task_runtime.cancellation().is_cancelled());
         assert!(!runtime.cancellation().is_cancelled());
 
         token.cancel();

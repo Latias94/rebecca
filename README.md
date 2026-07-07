@@ -16,7 +16,7 @@
 
 - Safe cleanup planning: `scan` and `clean` share the same plan builder, so dry-run output and real execution stay aligned.
 - Cleanup intelligence: `catalog` and `inspect` expose rules, warnings, safety categories, space reports, ranked disk maps, project artifact reports, and lint-style opportunities without deleting files.
-- Interactive cleanup workbench: `rebecca tui` and the short alias `rebecca i` open a terminal UI for root picking, ranked disk navigation, cleanup advice, rule staging, preview, and recoverable-trash execution.
+- Interactive cleanup workbench: `rebecca tui` and the short alias `rebecca i` open a terminal UI for root picking, ranked disk navigation, cleanup advice, rule staging, live task progress, cooperative Esc cancellation, preview, and recoverable-trash execution.
 - Windows app leftovers: `apps scan` and `apps clean` discover installed apps and target leftover cache data without uninstalling anything.
 - Project artifact purge: `purge` targets heavy build output such as `node_modules`, `target`, `build`, `dist`, and `CACHEDIR.TAG` directories after verifying project context.
 - Machine-readable output: JSON and NDJSON modes are available for wrappers, scripts, and automation, with CSV/TSV table export for disk maps.
@@ -191,7 +191,7 @@ Rebecca is a local cleanup tool, and the highest-risk behavior is unintended loc
 - `apps scan` and `apps clean` share the same planner. `apps clean` previews by default and requires `--yes` before moving leftover cache data to the recoverable trash.
 - `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the platform trash.
 - `catalog`, `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
-- `tui` is a human terminal surface. It refuses non-terminal execution unless the hidden CI `--once` path is used, and it executes cleanup only through the same planner, protection policy, recoverable trash backend, and history model as `clean`.
+- `tui` is a human terminal surface. It refuses non-terminal execution unless the hidden CI `--once` path is used, runs scan/preview/execute work through a shared background task runtime with live progress snapshots, and executes cleanup only through the same planner, protection policy, recoverable trash backend, and history model as `clean`.
 - Default execution uses the platform trash through the shared recoverable backend.
 - On Linux, user-scoped rules follow XDG cache/state/data defaults from `HOME`; package-manager archive rules under `/var/cache` are moderate, permission-sensitive, preview-first targets and may fail as a standard user instead of falling back to permanent deletion.
 - Execution can batch already revalidated, non-overlapping targets into fewer recoverable trash operations, but status, reason codes, pending bytes, and history remain per target.

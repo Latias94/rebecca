@@ -5,7 +5,9 @@ use rebecca::core::config::AppRuntimeConfig;
 use rebecca::core::environment::SystemEnvironment;
 use rebecca::core::executor::{RecoverableTrashBackend, execute_cleanup_plan_parallel_with_policy};
 use rebecca::core::history::HistoryStore;
-use rebecca::core::planner::{PlanBuildContext, build_cleanup_plan_with_context};
+use rebecca::core::planner::{
+    PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
+};
 use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
@@ -50,11 +52,24 @@ pub(crate) fn preview_cleanup_plan(
     runtime_config: &AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<CleanupPlan> {
+    preview_cleanup_plan_with_progress(request, runtime_config, runtime, |_| {})
+}
+
+pub(crate) fn preview_cleanup_plan_with_progress<F>(
+    request: &CleanupWorkbenchRequest,
+    runtime_config: &AppRuntimeConfig,
+    runtime: &CliRuntime,
+    progress: F,
+) -> Result<CleanupPlan>
+where
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
     build_plan(
         request.dry_run_plan_request(),
         request,
         runtime_config,
         runtime,
+        progress,
     )
 }
 
@@ -63,11 +78,24 @@ pub(crate) fn execute_recoverable_cleanup(
     runtime_config: &AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<CleanupPlan> {
+    execute_recoverable_cleanup_with_progress(request, runtime_config, runtime, |_| {})
+}
+
+pub(crate) fn execute_recoverable_cleanup_with_progress<F>(
+    request: &CleanupWorkbenchRequest,
+    runtime_config: &AppRuntimeConfig,
+    runtime: &CliRuntime,
+    progress: F,
+) -> Result<CleanupPlan>
+where
+    F: for<'a> FnMut(PlanProgressEvent<'a>),
+{
     let mut plan = build_plan(
         request.recoverable_delete_plan_request(),
         request,
         runtime_config,
         runtime,
+        progress,
     )?;
     if plan.summary.allowed_targets == 0 {
         return Ok(plan);
@@ -103,6 +131,7 @@ fn build_plan(
     request: &CleanupWorkbenchRequest,
     runtime_config: &AppRuntimeConfig,
     runtime: &CliRuntime,
+    progress: impl for<'a> FnMut(PlanProgressEvent<'a>),
 ) -> Result<CleanupPlan> {
     let catalog = rebecca::rules::builtin_rules()?;
     let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
@@ -135,7 +164,7 @@ fn build_plan(
         &SystemEnvironment,
         applications.as_ref(),
         context,
-        |_| {},
+        progress,
     )
     .map_err(Into::into)
 }

@@ -1,16 +1,10 @@
 use std::io::{self, IsTerminal};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::disk_map::{
-    DiskMapRequest, DiskMapSortField, inspect_map_with_progress as inspect_map_core,
-};
-use rebecca::core::disk_session::DiskMapSession;
 use rebecca::core::history::{HistoryEntry, HistoryStore};
 use rebecca::core::scan::ScanBackendKind;
 
@@ -19,6 +13,7 @@ use crate::runtime::CliRuntime;
 use crate::tui::app::{RootChoice, TuiApp, TuiEffect};
 
 mod app;
+mod task;
 mod terminal;
 mod view;
 
@@ -78,27 +73,33 @@ fn run_interactive(
 ) -> Result<()> {
     let mut terminal = terminal::TerminalGuard::enter()?;
     let mut active_task = match startup_effect {
-        Some(effect) => start_worker(&mut app, effect, runtime_config, runtime)?,
+        Some(effect) => task::start(&mut app, effect, runtime_config, runtime)?,
         None => None,
     };
     while !app.should_quit() {
-        poll_active_task(&mut app, &mut active_task, runtime_config)?;
+        task::poll(&mut app, &mut active_task, runtime_config)?;
         terminal
             .terminal_mut()
             .draw(|frame| view::render(frame, &app, view_options))?;
         if let Some(key) = terminal::poll_key(Duration::from_millis(120))? {
             let effect = app.handle_key(key);
-            if active_task.is_some() && starts_background_task(&effect) {
+            if matches!(effect, TuiEffect::CancelTask) {
+                if let Some(task) = active_task.as_ref() {
+                    task.cancel();
+                    app.apply_cancel_requested();
+                } else {
+                    app.apply_error("no active background task to cancel");
+                }
+            } else if active_task.is_some() && starts_background_task(&effect) {
                 app.apply_task_started("A background task is already running.");
-            } else if let Some(task) = start_worker(&mut app, effect, runtime_config, runtime)? {
+            } else if let Some(task) = task::start(&mut app, effect, runtime_config, runtime)? {
                 active_task = Some(task);
             }
         }
     }
 
     if let Some(task) = active_task.take() {
-        runtime.cancellation().cancel();
-        let _ = task.handle.join();
+        task.cancel_and_join();
     }
 
     Ok(())
@@ -131,7 +132,7 @@ fn initial_app(
         ));
     }
 
-    let session = scan_session(
+    let session = task::scan_session(
         options.roots.clone(),
         options.entry_limit,
         options.scan_backend,
@@ -171,8 +172,8 @@ fn handle_effect(
     runtime: &CliRuntime,
 ) -> Result<()> {
     match effect {
-        TuiEffect::None | TuiEffect::Quit => {}
-        TuiEffect::Scan(roots) => match scan_session(
+        TuiEffect::None | TuiEffect::CancelTask | TuiEffect::Quit => {}
+        TuiEffect::Scan(roots) => match task::scan_session(
             roots,
             app.entry_limit,
             app.scan_backend,
@@ -201,178 +202,11 @@ fn handle_effect(
     Ok(())
 }
 
-struct ActiveTask {
-    label: &'static str,
-    receiver: Receiver<WorkerMessage>,
-    handle: JoinHandle<()>,
-}
-
-enum WorkerMessage {
-    Scan(Result<DiskMapSession, String>),
-    Preview(Result<rebecca::core::CleanupPlan, String>),
-    Execute(Result<rebecca::core::CleanupPlan, String>),
-}
-
-fn start_worker(
-    app: &mut TuiApp,
-    effect: TuiEffect,
-    runtime_config: &AppRuntimeConfig,
-    runtime: &CliRuntime,
-) -> Result<Option<ActiveTask>> {
-    let runtime_config = runtime_config.clone();
-    let runtime = runtime.clone();
-    let (sender, receiver) = mpsc::channel();
-
-    let (label, handle) = match effect {
-        TuiEffect::None | TuiEffect::Quit => return Ok(None),
-        TuiEffect::Scan(roots) => {
-            let entry_limit = app.entry_limit;
-            let scan_backend = app.scan_backend;
-            app.apply_task_started(format!("Scanning {} root(s)...", roots.len()));
-            (
-                "scan",
-                thread::spawn(move || {
-                    let result =
-                        scan_session(roots, entry_limit, scan_backend, &runtime_config, &runtime)
-                            .map_err(|err| err.to_string());
-                    let _ = sender.send(WorkerMessage::Scan(result));
-                }),
-            )
-        }
-        TuiEffect::Preview(request) => {
-            app.apply_task_started("Building cleanup preview...");
-            (
-                "preview",
-                thread::spawn(move || {
-                    let result =
-                        crate::workbench::preview_cleanup_plan(&request, &runtime_config, &runtime)
-                            .map_err(|err| err.to_string());
-                    let _ = sender.send(WorkerMessage::Preview(result));
-                }),
-            )
-        }
-        TuiEffect::Execute(request) => {
-            app.apply_task_started("Moving allowed targets to recoverable trash...");
-            (
-                "execute",
-                thread::spawn(move || {
-                    let result = crate::workbench::execute_recoverable_cleanup(
-                        &request,
-                        &runtime_config,
-                        &runtime,
-                    )
-                    .map_err(|err| err.to_string());
-                    let _ = sender.send(WorkerMessage::Execute(result));
-                }),
-            )
-        }
-    };
-
-    Ok(Some(ActiveTask {
-        label,
-        receiver,
-        handle,
-    }))
-}
-
-fn poll_active_task(
-    app: &mut TuiApp,
-    active_task: &mut Option<ActiveTask>,
-    runtime_config: &AppRuntimeConfig,
-) -> Result<()> {
-    let Some(task) = active_task.as_ref() else {
-        return Ok(());
-    };
-
-    match task.receiver.try_recv() {
-        Ok(message) => {
-            let task = active_task.take().expect("active task exists");
-            let _ = task.handle.join();
-            apply_worker_message(app, message, runtime_config)?;
-        }
-        Err(TryRecvError::Empty) => {}
-        Err(TryRecvError::Disconnected) => {
-            let task = active_task.take().expect("active task exists");
-            let label = task.label;
-            let _ = task.handle.join();
-            app.apply_error(format!("{label} worker stopped before reporting a result"));
-        }
-    }
-
-    Ok(())
-}
-
-fn apply_worker_message(
-    app: &mut TuiApp,
-    message: WorkerMessage,
-    runtime_config: &AppRuntimeConfig,
-) -> Result<()> {
-    match message {
-        WorkerMessage::Scan(result) => match result {
-            Ok(session) => app.apply_scan_result(session),
-            Err(err) => app.apply_error(err),
-        },
-        WorkerMessage::Preview(result) => match result {
-            Ok(plan) => app.apply_preview(plan),
-            Err(err) => app.apply_error(err),
-        },
-        WorkerMessage::Execute(result) => match result {
-            Ok(plan) => {
-                app.apply_execution(plan);
-                app.set_history(load_recent_history(runtime_config)?);
-            }
-            Err(err) => app.apply_error(err),
-        },
-    }
-    Ok(())
-}
-
 fn starts_background_task(effect: &TuiEffect) -> bool {
     matches!(
         effect,
         TuiEffect::Scan(_) | TuiEffect::Preview(_) | TuiEffect::Execute(_)
     )
-}
-
-fn scan_session(
-    roots: Vec<PathBuf>,
-    entry_limit: usize,
-    scan_backend: ScanBackendKind,
-    runtime_config: &AppRuntimeConfig,
-    runtime: &CliRuntime,
-) -> Result<DiskMapSession> {
-    let roots = resolve_roots(roots)?;
-    let request = DiskMapRequest::new(roots)
-        .with_top_limit(entry_limit.max(1))
-        .with_top_sort(DiskMapSortField::Logical)
-        .with_diagnostic_limit(100)
-        .with_scan_backend(scan_backend);
-    let mut report = inspect_map_core(&request, runtime.cancellation(), |_| Ok(()))?;
-    crate::inspect::annotate_map_report_with_cleanup_advice(
-        &mut report,
-        runtime_config,
-        None,
-        runtime.cancellation(),
-    )?;
-    Ok(DiskMapSession::from_report(report))
-}
-
-fn resolve_roots(roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
-    roots
-        .into_iter()
-        .map(|root| {
-            if root.as_os_str().is_empty() {
-                bail!("tui root cannot be empty");
-            }
-            if root.is_absolute() {
-                Ok(root)
-            } else {
-                Ok(std::env::current_dir()
-                    .context("failed to resolve current directory")?
-                    .join(root))
-            }
-        })
-        .collect()
 }
 
 fn root_choices() -> Result<Vec<RootChoice>> {

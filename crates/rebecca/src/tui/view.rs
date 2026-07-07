@@ -10,7 +10,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::output::format_bytes;
 use crate::text::format_count;
-use crate::tui::app::{CleanupBasketItem, RootChoice, TuiApp, TuiScreen};
+use crate::tui::app::{CleanupBasketItem, RootChoice, TuiApp, TuiScreen, TuiTaskStatus};
 
 const BAR_WIDTH: usize = 12;
 
@@ -65,7 +65,12 @@ pub(crate) fn snapshot(app: &TuiApp, options: ViewOptions) -> String {
     match app.screen {
         TuiScreen::RootPicker => snapshot_root_picker(app, width, &mut lines),
         TuiScreen::Map => snapshot_map(app, options, &mut lines),
-        TuiScreen::Busy => lines.push(trim_to_width(format!("Busy: {}", app.message), width)),
+        TuiScreen::Busy => {
+            lines.push(trim_to_width(format!("Busy: {}", app.message), width));
+            for line in task_status_plain_lines(app.task_status.as_ref()) {
+                lines.push(trim_to_width(line, width));
+            }
+        }
         TuiScreen::Preview => {
             snapshot_plan("Cleanup preview", app.preview.as_ref(), width, &mut lines)
         }
@@ -243,12 +248,13 @@ fn render_plan(frame: &mut Frame<'_>, plan: Option<&CleanupPlan>, title: &'stati
 }
 
 fn render_busy(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
+    let mut lines = vec![Line::from(app.message.clone())];
+    lines.extend(task_status_lines(app.task_status.as_ref()));
+    lines.push(Line::from(
+        "Esc cancels the current task when possible. q quits.",
+    ));
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(app.message.clone()),
-            Line::from("Press q or Esc to cancel and exit."),
-        ])
-        .block(Block::default().borders(Borders::ALL).title("Working")),
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Working")),
         area,
     );
 }
@@ -456,6 +462,66 @@ fn history_lines(app: &TuiApp) -> Vec<Line<'static>> {
         )));
     }
     lines.push(Line::from("Esc returns to map, q quits."));
+    lines
+}
+
+fn task_status_lines(status: Option<&TuiTaskStatus>) -> Vec<Line<'static>> {
+    task_status_plain_lines(status)
+        .into_iter()
+        .map(Line::from)
+        .collect()
+}
+
+fn task_status_plain_lines(status: Option<&TuiTaskStatus>) -> Vec<String> {
+    let Some(status) = status else {
+        return Vec::new();
+    };
+
+    let mut lines = Vec::new();
+    lines.push(format!("Task: {} | {}", status.label, status.phase));
+    if status.cancel_requested {
+        lines.push("Cancel requested; waiting for cooperative checkpoint.".to_string());
+    }
+    if let Some(backend) = &status.backend {
+        lines.push(format!("Backend: {backend}"));
+    }
+    if status.root_count > 0 {
+        lines.push(format!(
+            "Roots: {}/{}",
+            status.roots_finished, status.root_count
+        ));
+    }
+    if status.files > 0 || status.directories > 0 || status.logical_bytes > 0 {
+        lines.push(format!(
+            "Scanned: {} files, {} directories, {}",
+            status.files,
+            status.directories,
+            format_bytes(status.logical_bytes)
+        ));
+    }
+    if status.targets_started > 0 || status.targets_finished > 0 {
+        lines.push(format!(
+            "Targets: {} started, {} finished, {} estimated",
+            status.targets_started,
+            status.targets_finished,
+            format_bytes(status.estimated_bytes)
+        ));
+    }
+    if status.cache_hits > 0 || status.cache_misses > 0 || status.cache_write_skipped > 0 {
+        lines.push(format!(
+            "Scan cache: {} hits, {} misses, {} skipped writes, {} pruned",
+            status.cache_hits, status.cache_misses, status.cache_write_skipped, status.cache_pruned
+        ));
+    }
+    if let Some(rule_id) = &status.current_rule_id {
+        lines.push(format!("Rule: {rule_id}"));
+    }
+    if let Some(path) = &status.current_path {
+        lines.push(format!("Current: {}", path.display()));
+    }
+    if !status.last_event.is_empty() {
+        lines.push(format!("Last: {}", status.last_event));
+    }
     lines
 }
 
