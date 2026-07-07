@@ -66,6 +66,7 @@ impl From<ScanBackendArg> for rebecca::core::scan::ScanBackendKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum DiskMapGroupKindArg {
+    Type,
     Extension,
     Depth,
     Age,
@@ -74,6 +75,7 @@ pub enum DiskMapGroupKindArg {
 impl From<DiskMapGroupKindArg> for rebecca::core::disk_map::DiskMapGroupKind {
     fn from(value: DiskMapGroupKindArg) -> Self {
         match value {
+            DiskMapGroupKindArg::Type => Self::Type,
             DiskMapGroupKindArg::Extension => Self::Extension,
             DiskMapGroupKindArg::Depth => Self::Depth,
             DiskMapGroupKindArg::Age => Self::Age,
@@ -365,7 +367,7 @@ pub struct InspectMapArgs {
     /// Keep only ranked entries with this cleanup advice status. Implies --cleanup-advice.
     #[arg(long = "advice-status", value_enum, value_name = "STATUS")]
     pub advice_status: Option<CleanupAdviceStatusArg>,
-    /// Add a file grouping section. Can be repeated: extension, depth, age.
+    /// Add a file grouping section. Can be repeated: type, extension, depth, age.
     #[arg(long = "group-by", value_enum)]
     pub group_kinds: Vec<DiskMapGroupKindArg>,
     /// Maximum number of groups to include across all requested group kinds.

@@ -91,7 +91,7 @@ fn run_interactive(
                     app.apply_error("no active background task to cancel");
                 }
             } else if active_task.is_some() && starts_background_task(&effect) {
-                app.apply_task_started("A background task is already running.");
+                app.apply_task_already_running();
             } else if let Some(task) = task::start(&mut app, effect, runtime_config, runtime)? {
                 active_task = Some(task);
             }
@@ -183,6 +183,20 @@ fn handle_effect(
             Ok(session) => app.apply_scan_result(session),
             Err(err) => app.apply_error(err.to_string()),
         },
+        TuiEffect::Refresh(roots) => {
+            let retry = TuiEffect::Refresh(roots.clone());
+            app.prepare_refresh();
+            match task::scan_session(
+                roots,
+                app.entry_limit,
+                app.scan_backend,
+                runtime_config,
+                runtime,
+            ) {
+                Ok(session) => app.apply_refresh_result(session),
+                Err(err) => app.apply_task_error(err.to_string(), retry),
+            }
+        }
         TuiEffect::Preview(request) => {
             match crate::workbench::preview_cleanup_plan(&request, runtime_config, runtime) {
                 Ok(plan) => app.apply_preview(plan),
@@ -205,7 +219,7 @@ fn handle_effect(
 fn starts_background_task(effect: &TuiEffect) -> bool {
     matches!(
         effect,
-        TuiEffect::Scan(_) | TuiEffect::Preview(_) | TuiEffect::Execute(_)
+        TuiEffect::Scan(_) | TuiEffect::Refresh(_) | TuiEffect::Preview(_) | TuiEffect::Execute(_)
     )
 }
 

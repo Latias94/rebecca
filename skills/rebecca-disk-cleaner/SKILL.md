@@ -45,6 +45,9 @@ Rebecca command.
      ```
 
      Use `rebecca i` as the short alias. The TUI can navigate the disk map,
+     switch to type distribution with `2`/`t`, switch to extension distribution
+     with `3`/`x`, cycle views with `Tab`, refresh the selected directory with
+     `r`, refresh the scan root with `R`, restore the previous scan with `b`,
      stage cleanup rules behind advised entries, preview all matching rule
      targets, show live task progress, and execute only after typed
      confirmation through recoverable trash. Press Esc on the working screen to
@@ -185,5 +188,6 @@ Rebecca command.
   explicitly asked for that scope.
 - Keep stdout clean for JSON, NDJSON, CSV, and TSV consumers; progress belongs
   on stderr or in NDJSON progress events.
-- Treat `rebecca tui` as a human-only terminal surface. For automation, use the
-  typed CLI API instead of replaying TUI output.
+- Treat `rebecca tui` as a human-only terminal surface. Its map, types, refresh,
+  and cleanup workbench views are not stable machine contracts. For automation,
+  use the typed CLI API instead of replaying TUI output.

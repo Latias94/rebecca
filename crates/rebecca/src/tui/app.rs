@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
-use rebecca::core::disk_map::DiskMapSortField;
+use rebecca::core::disk_map::{DiskMapEntryKind, DiskMapGroupKind, DiskMapSortField};
 use rebecca::core::disk_session::{
-    DiskMapNodeId, DiskMapSession, DiskMapSessionFilter, DiskMapVisibleRow,
+    DiskMapDistributionFilter, DiskMapDistributionRow, DiskMapNodeId, DiskMapSession,
+    DiskMapSessionFilter, DiskMapVisibleRow,
 };
 use rebecca::core::history::HistoryEntry;
 use rebecca::core::plan::CleanupPlan;
@@ -17,6 +18,8 @@ use crate::workbench::CleanupWorkbenchRequest;
 pub(crate) enum TuiScreen {
     RootPicker,
     Map,
+    Types,
+    Extensions,
     Busy,
     Preview,
     Confirm,
@@ -59,6 +62,7 @@ pub(crate) enum TuiKey {
 pub(crate) enum TuiEffect {
     None,
     Scan(Vec<PathBuf>),
+    Refresh(Vec<PathBuf>),
     Preview(CleanupWorkbenchRequest),
     Execute(CleanupWorkbenchRequest),
     CancelTask,
@@ -219,12 +223,17 @@ impl TuiTaskStatus {
 pub(crate) struct TuiApp {
     pub(crate) screen: TuiScreen,
     previous_screen: TuiScreen,
+    task_return_screen: TuiScreen,
     pub(crate) root_choices: Vec<RootChoice>,
     pub(crate) session: Option<DiskMapSession>,
     pub(crate) current_parent: Option<DiskMapNodeId>,
     pub(crate) selected: usize,
+    pub(crate) selected_type: usize,
+    pub(crate) selected_extension: usize,
     pub(crate) sort: DiskMapSortField,
     pub(crate) search_query: String,
+    pub(crate) type_search_query: String,
+    pub(crate) extension_search_query: String,
     search_editing: bool,
     pub(crate) basket: BTreeMap<String, CleanupBasketItem>,
     pub(crate) preview: Option<CleanupPlan>,
@@ -234,8 +243,30 @@ pub(crate) struct TuiApp {
     pub(crate) task_status: Option<TuiTaskStatus>,
     pub(crate) scan_backend: ScanBackendKind,
     pub(crate) entry_limit: usize,
+    session_stack: Vec<TuiSessionSnapshot>,
+    pending_refresh_snapshot: Option<TuiSessionSnapshot>,
+    failed_effect: Option<TuiEffect>,
+    error_return_screen: TuiScreen,
+    next_task_id: u64,
     should_quit: bool,
 }
+
+#[derive(Debug, Clone)]
+struct TuiSessionSnapshot {
+    session: DiskMapSession,
+    current_parent: Option<DiskMapNodeId>,
+    screen: TuiScreen,
+    selected: usize,
+    selected_type: usize,
+    selected_extension: usize,
+    search_query: String,
+    type_search_query: String,
+    extension_search_query: String,
+    message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TuiTaskId(u64);
 
 impl TuiApp {
     pub(crate) fn root_picker(
@@ -246,12 +277,17 @@ impl TuiApp {
         Self {
             screen: TuiScreen::RootPicker,
             previous_screen: TuiScreen::RootPicker,
+            task_return_screen: TuiScreen::RootPicker,
             root_choices,
             session: None,
             current_parent: None,
             selected: 0,
+            selected_type: 0,
+            selected_extension: 0,
             sort: DiskMapSortField::Logical,
             search_query: String::new(),
+            type_search_query: String::new(),
+            extension_search_query: String::new(),
             search_editing: false,
             basket: BTreeMap::new(),
             preview: None,
@@ -261,6 +297,11 @@ impl TuiApp {
             task_status: None,
             scan_backend,
             entry_limit,
+            session_stack: Vec::new(),
+            pending_refresh_snapshot: None,
+            failed_effect: None,
+            error_return_screen: TuiScreen::RootPicker,
+            next_task_id: 0,
             should_quit: false,
         }
     }
@@ -274,12 +315,17 @@ impl TuiApp {
         Self {
             screen: TuiScreen::Map,
             previous_screen: TuiScreen::Map,
+            task_return_screen: TuiScreen::Map,
             root_choices: Vec::new(),
             session: Some(session),
             current_parent,
             selected: 0,
+            selected_type: 0,
+            selected_extension: 0,
             sort: DiskMapSortField::Logical,
             search_query: String::new(),
+            type_search_query: String::new(),
+            extension_search_query: String::new(),
             search_editing: false,
             basket: BTreeMap::new(),
             preview: None,
@@ -289,6 +335,11 @@ impl TuiApp {
             task_status: None,
             scan_backend,
             entry_limit,
+            session_stack: Vec::new(),
+            pending_refresh_snapshot: None,
+            failed_effect: None,
+            error_return_screen: TuiScreen::Map,
+            next_task_id: 0,
             should_quit: false,
         }
     }
@@ -299,6 +350,12 @@ impl TuiApp {
 
     pub(crate) fn is_search_editing(&self) -> bool {
         self.search_editing
+    }
+
+    pub(crate) fn allocate_task_id(&mut self) -> TuiTaskId {
+        let id = TuiTaskId(self.next_task_id);
+        self.next_task_id = self.next_task_id.saturating_add(1);
+        id
     }
 
     pub(crate) fn selected_root(&self) -> Option<PathBuf> {
@@ -335,6 +392,60 @@ impl TuiApp {
         self.visible_rows().get(self.selected).cloned()
     }
 
+    pub(crate) fn distribution_rows(&self) -> Vec<DiskMapDistributionRow> {
+        let Some(kind) = self.active_distribution_kind() else {
+            return Vec::new();
+        };
+        self.distribution_rows_for(kind)
+    }
+
+    pub(crate) fn distribution_rows_for(
+        &self,
+        kind: DiskMapGroupKind,
+    ) -> Vec<DiskMapDistributionRow> {
+        let query = match kind {
+            DiskMapGroupKind::Type => self.type_search_query.as_str(),
+            DiskMapGroupKind::Extension => self.extension_search_query.as_str(),
+            DiskMapGroupKind::Depth | DiskMapGroupKind::Age => "",
+        };
+        self.session
+            .as_ref()
+            .map(|session| {
+                session.distribution_rows(
+                    kind,
+                    self.sort,
+                    DiskMapDistributionFilter {
+                        label_contains: (!query.is_empty()).then_some(query),
+                    },
+                )
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn selected_distribution_index(&self) -> usize {
+        match self.screen {
+            TuiScreen::Types => self.selected_type,
+            TuiScreen::Extensions => self.selected_extension,
+            _ => 0,
+        }
+    }
+
+    pub(crate) fn active_filter_text(&self) -> &str {
+        match self.screen {
+            TuiScreen::Types => &self.type_search_query,
+            TuiScreen::Extensions => &self.extension_search_query,
+            _ => &self.search_query,
+        }
+    }
+
+    pub(crate) fn active_distribution_kind(&self) -> Option<DiskMapGroupKind> {
+        match self.screen {
+            TuiScreen::Types => Some(DiskMapGroupKind::Type),
+            TuiScreen::Extensions => Some(DiskMapGroupKind::Extension),
+            _ => None,
+        }
+    }
+
     pub(crate) fn handle_key(&mut self, key: TuiKey) -> TuiEffect {
         if self.search_editing {
             return self.handle_search_key(key);
@@ -343,31 +454,64 @@ impl TuiApp {
         match self.screen {
             TuiScreen::RootPicker => self.handle_root_picker_key(key),
             TuiScreen::Map => self.handle_map_key(key),
+            TuiScreen::Types | TuiScreen::Extensions => self.handle_distribution_key(key),
             TuiScreen::Busy => self.handle_busy_key(key),
             TuiScreen::Preview => self.handle_preview_key(key),
             TuiScreen::Confirm => self.handle_confirm_key(key),
             TuiScreen::History => self.handle_history_key(key),
-            TuiScreen::Executed | TuiScreen::Error => self.handle_terminal_screen_key(key),
+            TuiScreen::Executed => self.handle_terminal_screen_key(key),
+            TuiScreen::Error => self.handle_error_key(key),
             TuiScreen::Help => self.handle_help_key(key),
         }
     }
 
     pub(crate) fn apply_scan_result(&mut self, session: DiskMapSession) {
         self.session = Some(session);
+        self.session_stack.clear();
+        self.pending_refresh_snapshot = None;
         self.current_parent = self
             .session
             .as_ref()
             .and_then(|session| session.root_ids().first().copied());
         self.screen = TuiScreen::Map;
         self.selected = 0;
+        self.selected_type = 0;
+        self.selected_extension = 0;
+        self.search_query.clear();
+        self.type_search_query.clear();
+        self.extension_search_query.clear();
         self.message =
             "Scan complete. Space stages cleanup rules, c previews all matching targets."
                 .to_string();
         self.task_status = None;
+        self.failed_effect = None;
+    }
+
+    pub(crate) fn apply_refresh_result(&mut self, session: DiskMapSession) {
+        if let Some(snapshot) = self.pending_refresh_snapshot.take() {
+            self.session_stack.push(snapshot);
+        } else {
+            self.push_session_snapshot();
+        }
+        self.session = Some(session);
+        self.current_parent = self
+            .session
+            .as_ref()
+            .and_then(|session| session.root_ids().first().copied());
+        self.screen = match self.task_return_screen {
+            TuiScreen::Map | TuiScreen::Types | TuiScreen::Extensions => self.task_return_screen,
+            _ => TuiScreen::Map,
+        };
+        self.selected = 0;
+        self.selected_type = 0;
+        self.selected_extension = 0;
+        self.message = "Refresh complete. Press b to restore the previous scan.".to_string();
+        self.task_status = None;
+        self.failed_effect = None;
     }
 
     pub(crate) fn apply_task_started(&mut self, label: impl Into<String>) {
-        self.previous_screen = self.screen;
+        self.task_return_screen = self.screen;
         self.screen = TuiScreen::Busy;
         let label = label.into();
         self.task_status = Some(TuiTaskStatus::started(label.clone()));
@@ -585,9 +729,18 @@ impl TuiApp {
     }
 
     pub(crate) fn apply_task_cancelled(&mut self) {
-        self.screen = self.previous_screen;
+        self.screen = self.task_return_screen;
         self.task_status = None;
+        self.pending_refresh_snapshot = None;
         self.message = "Task cancelled.".to_string();
+    }
+
+    pub(crate) fn apply_task_already_running(&mut self) {
+        self.message = "A background task is already running.".to_string();
+    }
+
+    pub(crate) fn prepare_refresh(&mut self) {
+        self.pending_refresh_snapshot = self.current_session_snapshot();
     }
 
     pub(crate) fn apply_preview(&mut self, plan: CleanupPlan) {
@@ -601,6 +754,7 @@ impl TuiApp {
             format_bytes(bytes)
         );
         self.task_status = None;
+        self.failed_effect = None;
     }
 
     pub(crate) fn apply_execution(&mut self, plan: CleanupPlan) {
@@ -610,6 +764,7 @@ impl TuiApp {
         self.preview = None;
         self.message = "Cleanup finished and history was updated.".to_string();
         self.task_status = None;
+        self.failed_effect = None;
     }
 
     pub(crate) fn set_history(&mut self, entries: Vec<HistoryEntry>) {
@@ -620,6 +775,17 @@ impl TuiApp {
         self.screen = TuiScreen::Error;
         self.message = message.into();
         self.task_status = None;
+        self.pending_refresh_snapshot = None;
+        self.failed_effect = None;
+    }
+
+    pub(crate) fn apply_task_error(&mut self, message: impl Into<String>, retry: TuiEffect) {
+        self.screen = TuiScreen::Error;
+        self.message = message.into();
+        self.task_status = None;
+        self.pending_refresh_snapshot = None;
+        self.failed_effect = Some(retry);
+        self.error_return_screen = self.task_return_screen;
     }
 
     pub(crate) fn workbench_request(&self) -> CleanupWorkbenchRequest {
@@ -690,6 +856,16 @@ impl TuiApp {
                 self.cycle_sort();
                 TuiEffect::None
             }
+            TuiKey::Char('1') => self.open_map_view(),
+            TuiKey::Char('2') | TuiKey::Char('t') => self.open_types_view(),
+            TuiKey::Char('3') | TuiKey::Char('x') => self.open_extensions_view(),
+            TuiKey::Tab => self.cycle_view_mode(),
+            TuiKey::Char('r') => self.refresh_selected_directory(),
+            TuiKey::Char('R') => self.refresh_current_root(),
+            TuiKey::Char('b') => {
+                self.restore_previous_session();
+                TuiEffect::None
+            }
             TuiKey::Space => {
                 self.toggle_selected_rule();
                 TuiEffect::None
@@ -704,10 +880,45 @@ impl TuiApp {
             }
             TuiKey::Char('?') => self.open_help(),
             TuiKey::Char('g') => self.open_history(),
-            TuiKey::Tab => {
-                self.message = "Details pane is always visible in this version.".to_string();
+            TuiKey::Char('q') => self.quit(),
+            _ => TuiEffect::None,
+        }
+    }
+
+    fn handle_distribution_key(&mut self, key: TuiKey) -> TuiEffect {
+        match key {
+            TuiKey::Up | TuiKey::Char('k') => {
+                self.move_distribution_selection(-1);
                 TuiEffect::None
             }
+            TuiKey::Down | TuiKey::Char('j') => {
+                self.move_distribution_selection(1);
+                TuiEffect::None
+            }
+            TuiKey::Char('/') => {
+                self.search_editing = true;
+                self.message = format!(
+                    "Type {} filter, Enter to apply, Esc to clear.",
+                    self.active_filter_singular_label()
+                );
+                TuiEffect::None
+            }
+            TuiKey::Char('s') => {
+                self.cycle_sort();
+                TuiEffect::None
+            }
+            TuiKey::Char('1') | TuiKey::Esc | TuiKey::Char('h') => self.open_map_view(),
+            TuiKey::Char('2') | TuiKey::Char('t') => self.open_types_view(),
+            TuiKey::Char('3') | TuiKey::Char('x') => self.open_extensions_view(),
+            TuiKey::Tab => self.cycle_view_mode(),
+            TuiKey::Char('r') => self.refresh_current_directory(),
+            TuiKey::Char('R') => self.refresh_current_root(),
+            TuiKey::Char('b') => {
+                self.restore_previous_session();
+                TuiEffect::None
+            }
+            TuiKey::Char('?') => self.open_help(),
+            TuiKey::Char('g') => self.open_history(),
             TuiKey::Char('q') => self.quit(),
             _ => TuiEffect::None,
         }
@@ -814,6 +1025,27 @@ impl TuiApp {
         }
     }
 
+    fn handle_error_key(&mut self, key: TuiKey) -> TuiEffect {
+        match key {
+            TuiKey::Char('r') => {
+                if let Some(effect) = self.failed_effect.clone() {
+                    self.message = "Retrying failed task.".to_string();
+                    return effect;
+                }
+                self.message = "No retry is available for this error.".to_string();
+                TuiEffect::None
+            }
+            TuiKey::Esc | TuiKey::Char('h') | TuiKey::Char('b') => {
+                self.screen = self.error_return_screen;
+                self.message = "Returned from error.".to_string();
+                TuiEffect::None
+            }
+            TuiKey::Char('?') => self.open_help(),
+            TuiKey::Char('q') => self.quit(),
+            _ => TuiEffect::None,
+        }
+    }
+
     fn handle_help_key(&mut self, key: TuiKey) -> TuiEffect {
         match key {
             TuiKey::Esc | TuiKey::Char('?') | TuiKey::Char('q') => {
@@ -828,27 +1060,29 @@ impl TuiApp {
         match key {
             TuiKey::Enter => {
                 self.search_editing = false;
-                self.selected = 0;
-                self.message = if self.search_query.is_empty() {
+                self.reset_active_selection();
+                let query = self.active_filter_text().to_string();
+                let label = self.active_filter_label();
+                self.message = if query.is_empty() {
                     "Search cleared.".to_string()
                 } else {
-                    format!("Filtering paths containing '{}'.", self.search_query)
+                    format!("Filtering {label} containing '{query}'.")
                 };
             }
             TuiKey::Esc => {
                 self.search_editing = false;
-                self.search_query.clear();
-                self.selected = 0;
+                self.active_search_query_mut().clear();
+                self.reset_active_selection();
                 self.message = "Search cleared.".to_string();
             }
             TuiKey::Backspace => {
-                self.search_query.pop();
+                self.active_search_query_mut().pop();
             }
             TuiKey::Space => {
-                self.search_query.push(' ');
+                self.active_search_query_mut().push(' ');
             }
             TuiKey::Char(ch) => {
-                self.search_query.push(ch);
+                self.active_search_query_mut().push(ch);
             }
             _ => {}
         }
@@ -879,6 +1113,100 @@ impl TuiApp {
             self.selected = 0;
             self.message = "Moved up one level.".to_string();
         }
+    }
+
+    fn refresh_selected_directory(&mut self) -> TuiEffect {
+        let Some(row) = self.selected_row() else {
+            return self.refresh_current_directory();
+        };
+        if row.kind == DiskMapEntryKind::Directory || row.has_children {
+            return TuiEffect::Refresh(vec![row.path]);
+        }
+        self.message = "Selected file cannot be refreshed as a subtree.".to_string();
+        TuiEffect::None
+    }
+
+    fn refresh_current_directory(&mut self) -> TuiEffect {
+        let Some(session) = self.session.as_ref() else {
+            self.message = "Scan a root before refreshing.".to_string();
+            return TuiEffect::None;
+        };
+        let Some(path) = self
+            .current_parent
+            .and_then(|id| session.node(id))
+            .map(|node| node.path.clone())
+        else {
+            self.message = "No current directory to refresh.".to_string();
+            return TuiEffect::None;
+        };
+        TuiEffect::Refresh(vec![path])
+    }
+
+    fn refresh_current_root(&mut self) -> TuiEffect {
+        let Some(session) = self.session.as_ref() else {
+            self.message = "Scan a root before refreshing.".to_string();
+            return TuiEffect::None;
+        };
+        let Some(path) = self
+            .current_parent
+            .and_then(|id| session.node(id))
+            .map(|node| node.root.clone())
+            .or_else(|| {
+                session
+                    .root_ids()
+                    .first()
+                    .and_then(|id| session.node(*id))
+                    .map(|node| node.path.clone())
+            })
+        else {
+            self.message = "No scan root to refresh.".to_string();
+            return TuiEffect::None;
+        };
+        TuiEffect::Refresh(vec![path])
+    }
+
+    fn push_session_snapshot(&mut self) {
+        if let Some(snapshot) = self.current_session_snapshot() {
+            self.session_stack.push(snapshot);
+        }
+    }
+
+    fn current_session_snapshot(&self) -> Option<TuiSessionSnapshot> {
+        self.session
+            .as_ref()
+            .cloned()
+            .map(|session| TuiSessionSnapshot {
+                session,
+                current_parent: self.current_parent,
+                screen: self.screen,
+                selected: self.selected,
+                selected_type: self.selected_type,
+                selected_extension: self.selected_extension,
+                search_query: self.search_query.clone(),
+                type_search_query: self.type_search_query.clone(),
+                extension_search_query: self.extension_search_query.clone(),
+                message: self.message.clone(),
+            })
+    }
+
+    fn restore_previous_session(&mut self) {
+        let Some(snapshot) = self.session_stack.pop() else {
+            self.message = "No previous scan to restore.".to_string();
+            return;
+        };
+        self.session = Some(snapshot.session);
+        self.current_parent = snapshot.current_parent;
+        self.selected = snapshot.selected;
+        self.selected_type = snapshot.selected_type;
+        self.selected_extension = snapshot.selected_extension;
+        self.search_query = snapshot.search_query;
+        self.type_search_query = snapshot.type_search_query;
+        self.extension_search_query = snapshot.extension_search_query;
+        self.screen = match snapshot.screen {
+            TuiScreen::Map | TuiScreen::Types | TuiScreen::Extensions => snapshot.screen,
+            _ => TuiScreen::Map,
+        };
+        self.message = format!("Restored previous scan. {}", snapshot.message);
     }
 
     fn toggle_selected_rule(&mut self) {
@@ -923,7 +1251,7 @@ impl TuiApp {
             DiskMapSortField::Files => DiskMapSortField::Unique,
             DiskMapSortField::Unique => DiskMapSortField::Logical,
         };
-        self.selected = 0;
+        self.reset_active_selection();
         self.message = format!("Sorted by {}.", self.sort.label());
     }
 
@@ -936,6 +1264,102 @@ impl TuiApp {
             .selected
             .saturating_add_signed(delta)
             .min(len.saturating_sub(1));
+    }
+
+    fn move_distribution_selection(&mut self, delta: isize) {
+        let len = self.distribution_rows().len();
+        let selected = match self.screen {
+            TuiScreen::Types => &mut self.selected_type,
+            TuiScreen::Extensions => &mut self.selected_extension,
+            _ => return,
+        };
+        if len == 0 {
+            *selected = 0;
+            return;
+        }
+        *selected = selected
+            .saturating_add_signed(delta)
+            .min(len.saturating_sub(1));
+    }
+
+    fn clamp_distribution_selection(&self, screen: TuiScreen) -> usize {
+        let kind = match screen {
+            TuiScreen::Types => DiskMapGroupKind::Type,
+            TuiScreen::Extensions => DiskMapGroupKind::Extension,
+            _ => return 0,
+        };
+        let len = self.distribution_rows_for(kind).len();
+        let selected = match screen {
+            TuiScreen::Types => self.selected_type,
+            TuiScreen::Extensions => self.selected_extension,
+            _ => 0,
+        };
+        if len == 0 { 0 } else { selected.min(len - 1) }
+    }
+
+    fn open_map_view(&mut self) -> TuiEffect {
+        self.screen = TuiScreen::Map;
+        self.selected = self
+            .selected
+            .min(self.visible_rows().len().saturating_sub(1));
+        self.message = "Returned to map view.".to_string();
+        TuiEffect::None
+    }
+
+    fn open_types_view(&mut self) -> TuiEffect {
+        self.screen = TuiScreen::Types;
+        self.selected_type = self.clamp_distribution_selection(TuiScreen::Types);
+        self.message =
+            "Types view shows file and directory distribution for this scan.".to_string();
+        TuiEffect::None
+    }
+
+    fn open_extensions_view(&mut self) -> TuiEffect {
+        self.screen = TuiScreen::Extensions;
+        self.selected_extension = self.clamp_distribution_selection(TuiScreen::Extensions);
+        self.message = "Extensions view shows suffix distribution for this scan.".to_string();
+        TuiEffect::None
+    }
+
+    fn cycle_view_mode(&mut self) -> TuiEffect {
+        match self.screen {
+            TuiScreen::Map => self.open_types_view(),
+            TuiScreen::Types => self.open_extensions_view(),
+            TuiScreen::Extensions => self.open_map_view(),
+            _ => TuiEffect::None,
+        }
+    }
+
+    fn reset_active_selection(&mut self) {
+        match self.screen {
+            TuiScreen::Types => self.selected_type = 0,
+            TuiScreen::Extensions => self.selected_extension = 0,
+            _ => self.selected = 0,
+        }
+    }
+
+    pub(crate) fn active_filter_label(&self) -> &'static str {
+        match self.screen {
+            TuiScreen::Types => "types",
+            TuiScreen::Extensions => "extensions",
+            _ => "paths",
+        }
+    }
+
+    fn active_filter_singular_label(&self) -> &'static str {
+        match self.screen {
+            TuiScreen::Types => "type",
+            TuiScreen::Extensions => "extension",
+            _ => "path",
+        }
+    }
+
+    fn active_search_query_mut(&mut self) -> &mut String {
+        match self.screen {
+            TuiScreen::Types => &mut self.type_search_query,
+            TuiScreen::Extensions => &mut self.extension_search_query,
+            _ => &mut self.search_query,
+        }
     }
 
     fn open_help(&mut self) -> TuiEffect {
@@ -975,8 +1399,8 @@ mod tests {
 
     use rebecca::core::cleanup_advice::{CleanupAdviceCommand, CleanupAdviceSource};
     use rebecca::core::disk_map::{
-        DiskMapEntry, DiskMapEntryKind, DiskMapMetrics, DiskMapReport, DiskMapRoot,
-        DiskMapRootStatus,
+        DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics,
+        DiskMapReport, DiskMapRoot, DiskMapRootStatus,
     };
     use rebecca::core::disk_session::DiskMapSession;
     use rebecca::core::plan::{CleanupPlan, EstimateProvenance, EstimateSource};
@@ -1115,6 +1539,85 @@ mod tests {
         assert_eq!(status.last_event, "files: 8");
     }
 
+    #[test]
+    fn distribution_views_switch_without_losing_map_state() {
+        let mut app = test_app();
+        app.selected = 0;
+
+        app.handle_key(TuiKey::Char('/'));
+        for ch in "cache".chars() {
+            app.handle_key(TuiKey::Char(ch));
+        }
+        app.handle_key(TuiKey::Enter);
+
+        assert_eq!(app.handle_key(TuiKey::Char('t')), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Types);
+        assert_eq!(app.distribution_rows()[app.selected_type].label, "Files");
+
+        assert_eq!(app.handle_key(TuiKey::Tab), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Extensions);
+        assert_eq!(
+            app.distribution_rows()[app.selected_extension].label,
+            ".tmp"
+        );
+
+        assert_eq!(app.handle_key(TuiKey::Tab), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Map);
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.search_query, "cache");
+    }
+
+    #[test]
+    fn distribution_refresh_uses_current_tree_scope() {
+        let mut app = test_app();
+
+        assert_eq!(app.handle_key(TuiKey::Char('x')), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Extensions);
+        assert_eq!(
+            app.handle_key(TuiKey::Char('r')),
+            TuiEffect::Refresh(vec![PathBuf::from("/tmp")])
+        );
+    }
+
+    #[test]
+    fn refresh_selected_directory_returns_refresh_effect() {
+        let mut app = test_app();
+
+        assert_eq!(
+            app.handle_key(TuiKey::Char('r')),
+            TuiEffect::Refresh(vec![PathBuf::from("/tmp/cache")])
+        );
+    }
+
+    #[test]
+    fn refresh_selected_file_is_explained_without_starting_task() {
+        let mut app = TuiApp::from_session(
+            DiskMapSession::from_report(test_file_report()),
+            ScanBackendKind::PortableRecursive,
+            100,
+        );
+
+        assert_eq!(app.handle_key(TuiKey::Char('r')), TuiEffect::None);
+        assert_eq!(
+            app.message,
+            "Selected file cannot be refreshed as a subtree."
+        );
+    }
+
+    #[test]
+    fn refresh_result_can_restore_previous_session() {
+        let mut app = test_app();
+        let refreshed = DiskMapSession::from_report(test_child_report());
+
+        app.apply_refresh_result(refreshed);
+        assert_eq!(app.current_node_name(), "cache");
+
+        app.handle_key(TuiKey::Char('b'));
+
+        assert_eq!(app.current_node_name(), "tmp");
+        assert!(app.message.contains("Restored previous scan."));
+    }
+
     fn test_app() -> TuiApp {
         TuiApp::from_session(
             DiskMapSession::from_report(test_report()),
@@ -1181,6 +1684,142 @@ mod tests {
                         args: vec!["clean".to_string(), "--rule".to_string()],
                     }),
                 }),
+            }],
+            groups: vec![
+                DiskMapGroup {
+                    kind: DiskMapGroupKind::Type,
+                    key: "file".to_string(),
+                    label: "Files".to_string(),
+                    metrics: DiskMapMetrics {
+                        logical_bytes: 42,
+                        allocated_bytes: None,
+                        unique_logical_bytes: Some(42),
+                        unique_allocated_bytes: None,
+                        files: 1,
+                        directories: 0,
+                    },
+                },
+                DiskMapGroup {
+                    kind: DiskMapGroupKind::Type,
+                    key: "directory".to_string(),
+                    label: "Directories".to_string(),
+                    metrics: DiskMapMetrics {
+                        logical_bytes: 0,
+                        allocated_bytes: None,
+                        unique_logical_bytes: Some(0),
+                        unique_allocated_bytes: None,
+                        files: 0,
+                        directories: 1,
+                    },
+                },
+                DiskMapGroup {
+                    kind: DiskMapGroupKind::Extension,
+                    key: ".tmp".to_string(),
+                    label: ".tmp".to_string(),
+                    metrics: DiskMapMetrics {
+                        logical_bytes: 42,
+                        allocated_bytes: None,
+                        unique_logical_bytes: Some(42),
+                        unique_allocated_bytes: None,
+                        files: 1,
+                        directories: 0,
+                    },
+                },
+            ],
+            diagnostic_summary: Default::default(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn test_file_report() -> DiskMapReport {
+        let root = PathBuf::from("/tmp");
+        let path = root.join("cache.tmp");
+        DiskMapReport {
+            roots: vec![DiskMapRoot {
+                path: root.clone(),
+                status: DiskMapRootStatus::Scanned,
+                metrics: DiskMapMetrics {
+                    logical_bytes: 42,
+                    allocated_bytes: None,
+                    unique_logical_bytes: Some(42),
+                    unique_allocated_bytes: None,
+                    files: 1,
+                    directories: 0,
+                },
+                estimate_source: EstimateSource::FreshScan,
+                estimate_provenance: EstimateProvenance::default(),
+                reason: None,
+            }],
+            totals: DiskMapMetrics {
+                logical_bytes: 42,
+                allocated_bytes: None,
+                unique_logical_bytes: Some(42),
+                unique_allocated_bytes: None,
+                files: 1,
+                directories: 0,
+            },
+            top_entries: vec![DiskMapEntry {
+                path,
+                root,
+                kind: DiskMapEntryKind::File,
+                depth: 1,
+                logical_bytes: 42,
+                allocated_bytes: None,
+                unique_logical_bytes: Some(42),
+                unique_allocated_bytes: None,
+                files: 1,
+                directories: 0,
+                estimate_source: EstimateSource::FreshScan,
+                estimate_provenance: EstimateProvenance::default(),
+                cleanup_advice: None,
+            }],
+            groups: Vec::new(),
+            diagnostic_summary: Default::default(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn test_child_report() -> DiskMapReport {
+        let root = PathBuf::from("/tmp/cache");
+        let path = root.join("data.tmp");
+        DiskMapReport {
+            roots: vec![DiskMapRoot {
+                path: root.clone(),
+                status: DiskMapRootStatus::Scanned,
+                metrics: DiskMapMetrics {
+                    logical_bytes: 42,
+                    allocated_bytes: None,
+                    unique_logical_bytes: Some(42),
+                    unique_allocated_bytes: None,
+                    files: 1,
+                    directories: 0,
+                },
+                estimate_source: EstimateSource::FreshScan,
+                estimate_provenance: EstimateProvenance::default(),
+                reason: None,
+            }],
+            totals: DiskMapMetrics {
+                logical_bytes: 42,
+                allocated_bytes: None,
+                unique_logical_bytes: Some(42),
+                unique_allocated_bytes: None,
+                files: 1,
+                directories: 0,
+            },
+            top_entries: vec![DiskMapEntry {
+                path,
+                root,
+                kind: DiskMapEntryKind::File,
+                depth: 1,
+                logical_bytes: 42,
+                allocated_bytes: None,
+                unique_logical_bytes: Some(42),
+                unique_allocated_bytes: None,
+                files: 1,
+                directories: 0,
+                estimate_source: EstimateSource::FreshScan,
+                estimate_provenance: EstimateProvenance::default(),
+                cleanup_advice: None,
             }],
             groups: Vec::new(),
             diagnostic_summary: Default::default(),

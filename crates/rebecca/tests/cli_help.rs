@@ -107,6 +107,7 @@ fn inspect_map_help_preserves_human_output_controls() {
     assert!(stdout.contains("--bar-width <COLUMNS>"));
     assert!(stdout.contains("--screen-reader"));
     assert!(stdout.contains("--group-by <GROUP_KINDS>"));
+    assert!(stdout.contains("type, extension, depth, age"));
     assert!(stdout.contains("--table <FORMAT>"));
     assert!(stdout.contains("--cleanup-advice"));
 }

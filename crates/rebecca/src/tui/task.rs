@@ -5,7 +5,8 @@ use std::thread::{self, JoinHandle};
 use anyhow::{Context, Result, bail};
 use rebecca::core::config::AppRuntimeConfig;
 use rebecca::core::disk_map::{
-    DiskMapRequest, DiskMapSortField, inspect_map_with_progress as inspect_map_core,
+    DiskMapGroupKind, DiskMapRequest, DiskMapSortField,
+    inspect_map_with_progress as inspect_map_core,
 };
 use rebecca::core::disk_session::DiskMapSession;
 use rebecca::core::planner::PlanProgressEvent;
@@ -14,10 +15,12 @@ use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
 use rebecca::core::{CleanupPlan, RebeccaError};
 
 use crate::runtime::CliRuntime;
-use crate::tui::app::{TuiApp, TuiEffect, TuiTaskProgressEvent};
+use crate::tui::app::{TuiApp, TuiEffect, TuiTaskId, TuiTaskProgressEvent};
 
 pub(super) struct ActiveTask {
+    id: TuiTaskId,
     label: &'static str,
+    effect: TuiEffect,
     cancellation: ScanCancellationToken,
     receiver: Receiver<TaskMessage>,
     handle: JoinHandle<()>,
@@ -35,12 +38,19 @@ impl ActiveTask {
 }
 
 enum TaskMessage {
-    Progress(TuiTaskProgressEvent),
-    Finished(Box<TaskOutcome>),
+    Progress {
+        task_id: TuiTaskId,
+        event: TuiTaskProgressEvent,
+    },
+    Finished {
+        task_id: TuiTaskId,
+        outcome: Box<TaskOutcome>,
+    },
 }
 
 enum TaskOutcome {
     Scan(Result<DiskMapSession, TaskFailure>),
+    Refresh(Result<DiskMapSession, TaskFailure>),
     Preview(Result<CleanupPlan, TaskFailure>),
     Execute(Result<CleanupPlan, TaskFailure>),
 }
@@ -60,6 +70,8 @@ pub(super) fn start(
     let task_runtime = runtime.child_task();
     let cancellation = task_runtime.cancellation().clone();
     let (sender, receiver) = mpsc::channel();
+    let active_effect = effect.clone();
+    let task_id = app.allocate_task_id();
 
     let (label, handle) = match effect {
         TuiEffect::None | TuiEffect::CancelTask | TuiEffect::Quit => return Ok(None),
@@ -76,10 +88,37 @@ pub(super) fn start(
                         scan_backend,
                         &runtime_config,
                         &task_runtime,
-                        progress_sender(sender.clone()),
+                        progress_sender(task_id, sender.clone()),
                     )
                     .map_err(task_failure);
-                    let _ = sender.send(TaskMessage::Finished(Box::new(TaskOutcome::Scan(result))));
+                    let _ = sender.send(TaskMessage::Finished {
+                        task_id,
+                        outcome: Box::new(TaskOutcome::Scan(result)),
+                    });
+                }),
+            )
+        }
+        TuiEffect::Refresh(roots) => {
+            let entry_limit = app.entry_limit;
+            let scan_backend = app.scan_backend;
+            app.prepare_refresh();
+            app.apply_task_started(format!("Refreshing {} root(s)...", roots.len()));
+            (
+                "refresh",
+                thread::spawn(move || {
+                    let result = scan_session_with_progress(
+                        roots,
+                        entry_limit,
+                        scan_backend,
+                        &runtime_config,
+                        &task_runtime,
+                        progress_sender(task_id, sender.clone()),
+                    )
+                    .map_err(task_failure);
+                    let _ = sender.send(TaskMessage::Finished {
+                        task_id,
+                        outcome: Box::new(TaskOutcome::Refresh(result)),
+                    });
                 }),
             )
         }
@@ -92,12 +131,13 @@ pub(super) fn start(
                         &request,
                         &runtime_config,
                         &task_runtime,
-                        plan_progress_sender(sender.clone()),
+                        plan_progress_sender(task_id, sender.clone()),
                     )
                     .map_err(task_failure);
-                    let _ = sender.send(TaskMessage::Finished(Box::new(TaskOutcome::Preview(
-                        result,
-                    ))));
+                    let _ = sender.send(TaskMessage::Finished {
+                        task_id,
+                        outcome: Box::new(TaskOutcome::Preview(result)),
+                    });
                 }),
             )
         }
@@ -110,28 +150,32 @@ pub(super) fn start(
                         &request,
                         &runtime_config,
                         &task_runtime,
-                        plan_progress_sender(sender.clone()),
+                        plan_progress_sender(task_id, sender.clone()),
                     )
                     .map_err(task_failure);
                     if let Ok(plan) = &result {
-                        let _ = sender.send(TaskMessage::Progress(
-                            TuiTaskProgressEvent::ExecutionFinished {
+                        let _ = sender.send(TaskMessage::Progress {
+                            task_id,
+                            event: TuiTaskProgressEvent::ExecutionFinished {
                                 completed_targets: plan.summary.completed_targets as u64,
                                 freed_bytes: plan.summary.freed_bytes,
                                 pending_reclaim_bytes: plan.summary.pending_reclaim_bytes,
                             },
-                        ));
+                        });
                     }
-                    let _ = sender.send(TaskMessage::Finished(Box::new(TaskOutcome::Execute(
-                        result,
-                    ))));
+                    let _ = sender.send(TaskMessage::Finished {
+                        task_id,
+                        outcome: Box::new(TaskOutcome::Execute(result)),
+                    });
                 }),
             )
         }
     };
 
     Ok(Some(ActiveTask {
+        id: task_id,
         label,
+        effect: active_effect,
         cancellation,
         receiver,
         handle,
@@ -149,10 +193,19 @@ pub(super) fn poll(
     if let Some(task) = active_task.as_ref() {
         loop {
             match task.receiver.try_recv() {
-                Ok(TaskMessage::Progress(event)) => app.apply_task_progress(event),
-                Ok(TaskMessage::Finished(result)) => {
-                    outcome = Some(*result);
-                    break;
+                Ok(TaskMessage::Progress { task_id, event }) => {
+                    if task_id == task.id {
+                        app.apply_task_progress(event);
+                    }
+                }
+                Ok(TaskMessage::Finished {
+                    task_id,
+                    outcome: result,
+                }) => {
+                    if task_id == task.id {
+                        outcome = Some(*result);
+                        break;
+                    }
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
@@ -165,9 +218,10 @@ pub(super) fn poll(
 
     if let Some(outcome) = outcome {
         if let Some(task) = active_task.take() {
+            let effect = task.effect.clone();
             let _ = task.handle.join();
+            apply_outcome(app, outcome, runtime_config, effect)?;
         }
-        apply_outcome(app, outcome, runtime_config)?;
     } else if disconnected && let Some(task) = active_task.take() {
         let label = task.label;
         let _ = task.handle.join();
@@ -181,32 +235,37 @@ fn apply_outcome(
     app: &mut TuiApp,
     outcome: TaskOutcome,
     runtime_config: &AppRuntimeConfig,
+    retry_effect: TuiEffect,
 ) -> Result<()> {
     match outcome {
         TaskOutcome::Scan(result) => match result {
             Ok(session) => app.apply_scan_result(session),
-            Err(err) => apply_failure(app, err),
+            Err(err) => apply_failure(app, err, retry_effect),
+        },
+        TaskOutcome::Refresh(result) => match result {
+            Ok(session) => app.apply_refresh_result(session),
+            Err(err) => apply_failure(app, err, retry_effect),
         },
         TaskOutcome::Preview(result) => match result {
             Ok(plan) => app.apply_preview(plan),
-            Err(err) => apply_failure(app, err),
+            Err(err) => apply_failure(app, err, retry_effect),
         },
         TaskOutcome::Execute(result) => match result {
             Ok(plan) => {
                 app.apply_execution(plan);
                 app.set_history(super::load_recent_history(runtime_config)?);
             }
-            Err(err) => apply_failure(app, err),
+            Err(err) => apply_failure(app, err, retry_effect),
         },
     }
     Ok(())
 }
 
-fn apply_failure(app: &mut TuiApp, failure: TaskFailure) {
+fn apply_failure(app: &mut TuiApp, failure: TaskFailure, retry_effect: TuiEffect) {
     if failure.cancelled {
         app.apply_task_cancelled();
     } else {
-        app.apply_error(failure.message);
+        app.apply_task_error(failure.message, retry_effect);
     }
 }
 
@@ -252,6 +311,9 @@ where
     let request = DiskMapRequest::new(roots)
         .with_top_limit(entry_limit.max(1))
         .with_top_sort(DiskMapSortField::Logical)
+        .with_group_kinds(vec![DiskMapGroupKind::Type, DiskMapGroupKind::Extension])
+        .with_group_limit(entry_limit.max(25))
+        .with_group_sort(DiskMapSortField::Logical)
         .with_diagnostic_limit(100)
         .with_scan_backend(scan_backend);
     let mut report = inspect_map_core(&request, runtime.cancellation(), |event| {
@@ -285,18 +347,27 @@ fn resolve_roots(roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
 }
 
 fn progress_sender(
+    task_id: TuiTaskId,
     sender: Sender<TaskMessage>,
 ) -> impl FnMut(TuiTaskProgressEvent) -> rebecca::core::Result<()> {
     move |event| {
-        sender.send(TaskMessage::Progress(event)).map_err(|_| {
-            RebeccaError::OperationCancelled("tui task receiver was closed".to_string())
-        })
+        sender
+            .send(TaskMessage::Progress { task_id, event })
+            .map_err(|_| {
+                RebeccaError::OperationCancelled("tui task receiver was closed".to_string())
+            })
     }
 }
 
-fn plan_progress_sender(sender: Sender<TaskMessage>) -> impl for<'a> FnMut(PlanProgressEvent<'a>) {
+fn plan_progress_sender(
+    task_id: TuiTaskId,
+    sender: Sender<TaskMessage>,
+) -> impl for<'a> FnMut(PlanProgressEvent<'a>) {
     move |event| {
-        let _ = sender.send(TaskMessage::Progress(plan_progress_event(event)));
+        let _ = sender.send(TaskMessage::Progress {
+            task_id,
+            event: plan_progress_event(event),
+        });
     }
 }
 

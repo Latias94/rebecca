@@ -149,7 +149,7 @@ fn disk_map_sorts_top_entries_by_requested_field() {
 }
 
 #[test]
-fn disk_map_groups_files_by_extension_depth_and_age() {
+fn disk_map_groups_files_by_type_extension_depth_and_age() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_file(root.join("alpha").join("src").join("main.rs"), b"abc");
@@ -161,6 +161,7 @@ fn disk_map_groups_files_by_extension_depth_and_age() {
         .with_top_limit(0)
         .with_group_kinds(vec![
             DiskMapGroupKind::Extension,
+            DiskMapGroupKind::Type,
             DiskMapGroupKind::Depth,
             DiskMapGroupKind::Age,
         ])
@@ -168,10 +169,12 @@ fn disk_map_groups_files_by_extension_depth_and_age() {
     let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
 
     assert_eq!(report.top_entries.len(), 0);
-    assert_eq!(report.groups.len(), 7);
+    assert_eq!(report.groups.len(), 9);
     assert_group_metrics(&report, DiskMapGroupKind::Extension, ".md", 5, 1);
     assert_group_metrics(&report, DiskMapGroupKind::Extension, ".rs", 3, 1);
     assert_group_metrics(&report, DiskMapGroupKind::Extension, "[no-extension]", 2, 1);
+    assert_group_metrics(&report, DiskMapGroupKind::Type, "file", 10, 3);
+    assert_group_directories(&report, DiskMapGroupKind::Type, "directory", 3);
     assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-1", 2, 1);
     assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-2", 5, 1);
     assert_group_metrics(&report, DiskMapGroupKind::Depth, "depth-3", 3, 1);
@@ -215,6 +218,22 @@ fn assert_group_metrics(
         .unwrap_or_else(|| panic!("missing group {kind:?}:{key}"));
     assert_eq!(group.metrics.logical_bytes, logical_bytes);
     assert_eq!(group.metrics.files, files);
+}
+
+fn assert_group_directories(
+    report: &rebecca_core::disk_map::DiskMapReport,
+    kind: DiskMapGroupKind,
+    key: &str,
+    directories: u64,
+) {
+    let group = report
+        .groups
+        .iter()
+        .find(|group| group.kind == kind && group.key == key)
+        .unwrap_or_else(|| panic!("missing group {kind:?}:{key}"));
+    assert_eq!(group.metrics.logical_bytes, 0);
+    assert_eq!(group.metrics.files, 0);
+    assert_eq!(group.metrics.directories, directories);
 }
 
 #[test]

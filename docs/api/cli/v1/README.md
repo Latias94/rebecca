@@ -21,9 +21,10 @@ canonical command for the `inspect-artifacts` payload.
 - `--no-progress` disables human stderr progress only. It does not suppress
   NDJSON machine progress events.
 - `rebecca tui` is intentionally outside the JSON/NDJSON API. It owns the
-  terminal screen in human mode and should not be used by wrappers; use
-  `inspect map`, `clean --dry-run`, and workflow JSON/NDJSON payloads for
-  automation.
+  terminal screen in human mode and should not be used by wrappers. Its map,
+  type distribution, extension distribution, scoped refresh, and cleanup
+  workbench views are human UI surfaces; use `inspect map`, `clean --dry-run`,
+  and workflow JSON/NDJSON payloads for automation.
 
 ## Path Encoding
 
@@ -225,8 +226,8 @@ inventory fills file allocation bytes and file-id-deduplicated unique bytes when
 the host API exposes them; NTFS/MFT inventory fills allocation from parsed stream
 metadata and uses NTFS record identity for unique metrics when all counted files
 have parser-backed evidence.
-When callers pass one or more `--group-by extension|depth|age` flags,
-`inspect-map` includes `groups`: bounded file-only distribution summaries with
+When callers pass one or more `--group-by type|extension|depth|age` flags,
+`inspect-map` includes `groups`: bounded distribution summaries with
 `kind`, stable `key`, human `label`, and the same `metrics` object used by roots
 and entries. `--group-limit` bounds the combined group list across all requested
 group kinds. Windows native and experimental NTFS/MFT disk-map inventory both
@@ -301,9 +302,9 @@ rebecca cache doctor --format json
 rebecca cache prune --format json --namespace scan-cache --stale-only
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
-rebecca inspect map --format ndjson --root . --top 20 --group-by extension
+rebecca inspect map --format ndjson --root . --top 20 --group-by type --group-by extension
 rebecca inspect map --format ndjson --progress-detail file --root . --top 20
-rebecca inspect map --table csv --table-row entry --table-row group --root . --top 20 --group-by extension
+rebecca inspect map --table csv --table-row entry --table-row group --root . --top 20 --group-by type --group-by extension
 rebecca inspect artifacts --format json --root . --min-age-days 0
 rebecca inspect lint --format json --root .
 rebecca doctor permissions --format json

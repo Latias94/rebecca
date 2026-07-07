@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use rebecca_core::disk_map::{DiskMapEntryKind, DiskMapRequest, DiskMapSortField, inspect_map};
-use rebecca_core::disk_session::{DiskMapSession, DiskMapSessionFilter};
+use rebecca_core::disk_map::{
+    DiskMapEntryKind, DiskMapGroupKind, DiskMapRequest, DiskMapSortField, inspect_map,
+};
+use rebecca_core::disk_session::{DiskMapDistributionFilter, DiskMapSession, DiskMapSessionFilter};
 use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken};
 
 fn write_file(path: impl AsRef<Path>, bytes: &[u8]) {
@@ -103,4 +105,45 @@ fn disk_session_filters_rows_by_path_text() {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, "target");
+}
+
+#[test]
+fn disk_session_preserves_extension_distribution_rows() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("src").join("main.rs"), b"abc");
+    write_file(root.join("docs").join("readme.md"), b"abcde");
+    write_file(root.join("LICENSE"), b"xy");
+
+    let report = inspect_map(
+        &DiskMapRequest::new(vec![root])
+            .with_scan_backend(ScanBackendKind::PortableRecursive)
+            .with_top_limit(10)
+            .with_group_kinds(vec![DiskMapGroupKind::Extension])
+            .with_group_limit(10),
+        &ScanCancellationToken::new(),
+    )
+    .unwrap();
+    let session = DiskMapSession::from_report(report);
+    let rows = session.distribution_rows(
+        DiskMapGroupKind::Extension,
+        DiskMapSortField::Logical,
+        DiskMapDistributionFilter::default(),
+    );
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row.key.as_str(),
+                row.label.as_str(),
+                row.metrics.logical_bytes
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (".md", ".md", 5),
+            (".rs", ".rs", 3),
+            ("[no-extension]", "No extension", 2),
+        ]
+    );
+    assert_eq!(rows.iter().map(|row| row.metrics.files).sum::<u64>(), 3);
 }

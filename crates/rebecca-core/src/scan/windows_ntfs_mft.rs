@@ -2128,6 +2128,7 @@ fn collect_mft_disk_map_entry(
         }
         extend_mft_directory_edge_caveats(index, entry.reference.record_id, caveats);
         aggregate.record_directory();
+        groups.record_directory();
     } else {
         aggregate.record_file_path(
             entry.reference.record_id,
@@ -3202,6 +3203,7 @@ where
             }
             if include_root_directory || node.directory_entry.is_some() {
                 aggregate.record_directory();
+                state.groups.record_directory();
             }
             self.collect_disk_map_children(
                 &record,

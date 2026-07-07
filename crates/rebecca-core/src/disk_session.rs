@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::cleanup_advice::CleanupAdvice;
 use crate::disk_map::{
-    DiskMapEntry, DiskMapEntryKind, DiskMapMetrics, DiskMapReport, DiskMapRootStatus,
-    DiskMapSortField,
+    DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics, DiskMapReport,
+    DiskMapRootStatus, DiskMapSortField,
 };
 use crate::plan::{EstimateProvenance, EstimateSource};
 
@@ -17,13 +17,24 @@ pub struct DiskMapNodeId(pub usize);
 pub struct DiskMapSession {
     nodes: Vec<DiskMapSessionNode>,
     root_ids: Vec<DiskMapNodeId>,
+    #[serde(default)]
+    totals: DiskMapMetrics,
+    #[serde(default)]
+    groups: Vec<DiskMapGroup>,
 }
 
 impl DiskMapSession {
     pub fn from_report(report: DiskMapReport) -> Self {
+        let DiskMapReport {
+            roots,
+            totals,
+            top_entries,
+            groups,
+            ..
+        } = report;
         let mut builder = DiskMapSessionBuilder::default();
 
-        for root in report.roots {
+        for root in roots {
             if matches!(root.status, DiskMapRootStatus::Scanned) {
                 builder.ensure_root(
                     root.path,
@@ -34,11 +45,11 @@ impl DiskMapSession {
             }
         }
 
-        for entry in report.top_entries {
+        for entry in top_entries {
             builder.insert_entry(entry);
         }
 
-        builder.finish()
+        builder.finish(totals, groups)
     }
 
     pub fn nodes(&self) -> &[DiskMapSessionNode] {
@@ -47,6 +58,43 @@ impl DiskMapSession {
 
     pub fn root_ids(&self) -> &[DiskMapNodeId] {
         &self.root_ids
+    }
+
+    pub fn totals(&self) -> DiskMapMetrics {
+        self.totals
+    }
+
+    pub fn groups(&self) -> &[DiskMapGroup] {
+        &self.groups
+    }
+
+    pub fn distribution_rows(
+        &self,
+        kind: DiskMapGroupKind,
+        sort: DiskMapSortField,
+        filter: DiskMapDistributionFilter<'_>,
+    ) -> Vec<DiskMapDistributionRow> {
+        let mut rows = self
+            .groups
+            .iter()
+            .filter(|group| group.kind == kind)
+            .filter(|group| filter.matches(group))
+            .map(|group| DiskMapDistributionRow {
+                kind: group.kind,
+                key: group.key.clone(),
+                label: group.label.clone(),
+                metrics: group.metrics,
+                scope_logical_bytes: self.totals.logical_bytes,
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| {
+            sort.metrics_value(&right.metrics)
+                .cmp(&sort.metrics_value(&left.metrics))
+                .then_with(|| right.metrics.logical_bytes.cmp(&left.metrics.logical_bytes))
+                .then_with(|| right.metrics.files.cmp(&left.metrics.files))
+                .then_with(|| left.key.cmp(&right.key))
+        });
+        rows
     }
 
     pub fn node(&self, id: DiskMapNodeId) -> Option<&DiskMapSessionNode> {
@@ -123,6 +171,26 @@ impl DiskMapSessionFilter<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DiskMapDistributionFilter<'a> {
+    pub label_contains: Option<&'a str>,
+}
+
+impl DiskMapDistributionFilter<'_> {
+    fn matches(self, group: &DiskMapGroup) -> bool {
+        let Some(needle) = self.label_contains else {
+            return true;
+        };
+        let needle = needle.trim();
+        if needle.is_empty() {
+            return true;
+        }
+        let needle = needle.to_ascii_lowercase();
+        group.key.to_ascii_lowercase().contains(&needle)
+            || group.label.to_ascii_lowercase().contains(&needle)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiskMapSessionNode {
     pub id: DiskMapNodeId,
@@ -162,6 +230,15 @@ pub struct DiskMapVisibleRow {
     pub cleanup_advice: Option<CleanupAdvice>,
     pub has_children: bool,
     pub synthetic: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskMapDistributionRow {
+    pub kind: DiskMapGroupKind,
+    pub key: String,
+    pub label: String,
+    pub metrics: DiskMapMetrics,
+    pub scope_logical_bytes: u64,
 }
 
 #[derive(Default)]
@@ -335,10 +412,12 @@ impl DiskMapSessionBuilder {
         id
     }
 
-    fn finish(self) -> DiskMapSession {
+    fn finish(self, totals: DiskMapMetrics, groups: Vec<DiskMapGroup>) -> DiskMapSession {
         DiskMapSession {
             nodes: self.nodes,
             root_ids: self.root_ids,
+            totals,
+            groups,
         }
     }
 }

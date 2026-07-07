@@ -328,6 +328,7 @@ impl DiskMapEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiskMapGroupKind {
+    Type,
     Extension,
     Depth,
     Age,
@@ -336,6 +337,7 @@ pub enum DiskMapGroupKind {
 impl DiskMapGroupKind {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Type => "type",
             Self::Extension => "extension",
             Self::Depth => "depth",
             Self::Age => "age",
@@ -1104,6 +1106,7 @@ impl DiskMapGroupCollector {
 
         for kind in self.kinds.clone() {
             let (key, label) = match kind {
+                DiskMapGroupKind::Type => disk_map_type_group(DiskMapEntryKind::File),
                 DiskMapGroupKind::Extension => disk_map_extension_group(path),
                 DiskMapGroupKind::Depth => disk_map_depth_group(depth),
                 DiskMapGroupKind::Age => disk_map_age_group(modified_time, self.now),
@@ -1117,6 +1120,24 @@ impl DiskMapGroupCollector {
                 .or_insert_with(|| DiskMapGroupAccumulator::new(kind, key, label))
                 .record_file(logical_bytes, allocated_bytes, semantics);
         }
+    }
+
+    pub(crate) fn record_directory(&mut self) {
+        if self.kinds.is_empty() || self.limit == 0 || !self.kinds.contains(&DiskMapGroupKind::Type)
+        {
+            return;
+        }
+
+        let (key, label) = disk_map_type_group(DiskMapEntryKind::Directory);
+        let map_key = DiskMapGroupMapKey {
+            kind: DiskMapGroupKind::Type,
+            key: key.clone(),
+        };
+        let accumulator = self
+            .groups
+            .entry(map_key)
+            .or_insert_with(|| DiskMapGroupAccumulator::new(DiskMapGroupKind::Type, key, label));
+        accumulator.metrics.directories = accumulator.metrics.directories.saturating_add(1);
     }
 
     #[cfg(windows)]
@@ -1148,7 +1169,15 @@ impl DiskMapGroupCollector {
                 .then_with(|| left.kind.cmp(&right.kind))
                 .then_with(|| left.key.cmp(&right.key))
         });
-        groups.truncate(self.limit);
+        let mut retained_by_kind = BTreeMap::<DiskMapGroupKind, usize>::new();
+        groups.retain(|group| {
+            let retained = retained_by_kind.entry(group.kind).or_default();
+            if *retained >= self.limit {
+                return false;
+            }
+            *retained += 1;
+            true
+        });
         groups
     }
 }
@@ -1162,6 +1191,16 @@ fn disk_map_extension_group(path: &Path) -> (String, String) {
             (key.clone(), key)
         })
         .unwrap_or_else(|| ("[no-extension]".to_string(), "No extension".to_string()))
+}
+
+fn disk_map_type_group(kind: DiskMapEntryKind) -> (String, String) {
+    let key = kind.label().to_string();
+    let label = match kind {
+        DiskMapEntryKind::File => "Files",
+        DiskMapEntryKind::Directory => "Directories",
+        DiskMapEntryKind::Other => "Other entries",
+    };
+    (key, label.to_string())
 }
 
 fn disk_map_depth_group(depth: usize) -> (String, String) {
@@ -1770,6 +1809,7 @@ where
             },
             unique_files: DiskMapUniqueFiles::default(),
         };
+        self.groups.record_directory();
         self.record_directory_progress()?;
         for child in child_entries {
             check_cancelled(self.cancellation)?;

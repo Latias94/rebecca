@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
 use rebecca::core::cleanup_advice::CleanupAdviceStatus;
-use rebecca::core::disk_session::DiskMapVisibleRow;
+use rebecca::core::disk_session::{DiskMapDistributionRow, DiskMapVisibleRow};
 use rebecca::core::plan::CleanupPlan;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -35,6 +35,9 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &TuiApp, options: ViewOptions) 
     match app.screen {
         TuiScreen::RootPicker => render_root_picker(frame, app, chunks[1], options.color),
         TuiScreen::Map => render_map(frame, app, chunks[1], options),
+        TuiScreen::Types | TuiScreen::Extensions => {
+            render_distribution(frame, app, chunks[1], options);
+        }
         TuiScreen::Busy => render_busy(frame, app, chunks[1]),
         TuiScreen::Preview => {
             render_plan(frame, app.preview.as_ref(), "Cleanup preview", chunks[1])
@@ -65,6 +68,7 @@ pub(crate) fn snapshot(app: &TuiApp, options: ViewOptions) -> String {
     match app.screen {
         TuiScreen::RootPicker => snapshot_root_picker(app, width, &mut lines),
         TuiScreen::Map => snapshot_map(app, options, &mut lines),
+        TuiScreen::Types | TuiScreen::Extensions => snapshot_distribution(app, options, &mut lines),
         TuiScreen::Busy => {
             lines.push(trim_to_width(format!("Busy: {}", app.message), width));
             for line in task_status_plain_lines(app.task_status.as_ref()) {
@@ -184,6 +188,58 @@ fn render_map(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: ViewOpti
     render_details(frame, app, chunks[1]);
 }
 
+fn render_distribution(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: ViewOptions) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
+        .split(area);
+    let rows = app.distribution_rows();
+    let max = max_distribution_logical(&rows);
+    let selected = app.selected_distribution_index();
+    let table_rows = rows.iter().enumerate().map(|(index, row)| {
+        let marker = if index == selected { ">" } else { " " };
+        Row::new(vec![
+            Cell::from(marker),
+            Cell::from(row.label.clone()),
+            Cell::from(format_bytes(row.metrics.logical_bytes)),
+            Cell::from(
+                row.metrics
+                    .allocated_bytes
+                    .map(format_bytes)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            Cell::from(distribution_count_label(row)),
+            Cell::from(distribution_share_label(row)),
+            Cell::from(if options.visual_bars {
+                byte_bar(row.metrics.logical_bytes, max, BAR_WIDTH)
+            } else {
+                String::new()
+            }),
+        ])
+        .style(selected_style(index == selected, options.color))
+    });
+    let table = Table::new(
+        table_rows,
+        [
+            Constraint::Length(2),
+            Constraint::Min(14),
+            Constraint::Length(11),
+            Constraint::Length(11),
+            Constraint::Length(18),
+            Constraint::Length(8),
+            Constraint::Length(BAR_WIDTH as u16),
+        ],
+    )
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(distribution_title(app.screen)),
+    )
+    .column_spacing(1);
+    frame.render_widget(table, chunks[0]);
+    render_distribution_details(frame, rows.get(selected), chunks[1]);
+}
+
 fn render_details(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let mut lines = Vec::new();
     if let Some(row) = app.selected_row() {
@@ -233,6 +289,58 @@ fn render_details(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
         Paragraph::new(lines)
             .wrap(Wrap { trim: true })
             .block(Block::default().borders(Borders::ALL).title("Details")),
+        area,
+    );
+}
+
+fn render_distribution_details(
+    frame: &mut Frame<'_>,
+    selected_row: Option<&DiskMapDistributionRow>,
+    area: Rect,
+) {
+    let mut lines = Vec::new();
+    if let Some(row) = selected_row {
+        lines.push(Line::from(row.label.clone()));
+        lines.push(Line::from(format!("Group: {}", row.kind.label())));
+        lines.push(Line::from(format!(
+            "Logical: {}",
+            format_bytes(row.metrics.logical_bytes)
+        )));
+        lines.push(Line::from(format!(
+            "Allocated: {}",
+            row.metrics
+                .allocated_bytes
+                .map(format_bytes)
+                .unwrap_or_else(|| "unknown".to_string())
+        )));
+        lines.push(Line::from(format!(
+            "Unique: {}",
+            row.metrics
+                .unique_logical_bytes
+                .map(format_bytes)
+                .unwrap_or_else(|| "unknown".to_string())
+        )));
+        lines.push(Line::from(format!(
+            "Count: {}",
+            distribution_count_label(row)
+        )));
+        lines.push(Line::from(format!(
+            "Share: {}",
+            distribution_share_label(row)
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from("Distribution rows are read-only."));
+        lines.push(Line::from("Stage cleanup from map entries."));
+    } else {
+        lines.push(Line::from("No distribution row selected."));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: true }).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Distribution details"),
+        ),
         area,
     );
 }
@@ -301,16 +409,18 @@ fn render_error(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
 }
 
 fn render_status(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
+    let filter_text = app.active_filter_text();
+    let filter_label = app.active_filter_label();
     let search = if app.is_search_editing() {
-        format!(" | search: {}", app.search_query)
-    } else if app.search_query.is_empty() {
+        format!(" | {filter_label} search: {filter_text}")
+    } else if filter_text.is_empty() {
         String::new()
     } else {
-        format!(" | filter: {}", app.search_query)
+        format!(" | {filter_label} filter: {filter_text}")
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}{} | j/k move Enter open h back Space stage-rule c preview g history ? help q quit",
+            "{}{} | 1 map 2/t types 3/x extensions Tab cycle s sort / filter r refresh R root b restore Space stage c preview g history ? help q quit",
             app.message, search
         )),
         area,
@@ -376,6 +486,42 @@ fn snapshot_map(app: &TuiApp, options: ViewOptions, lines: &mut Vec<String>) {
     }
 }
 
+fn snapshot_distribution(app: &TuiApp, options: ViewOptions, lines: &mut Vec<String>) {
+    let width = options.width;
+    let rows = app.distribution_rows();
+    let max = max_distribution_logical(&rows);
+    let selected = app.selected_distribution_index();
+    lines.push(trim_to_width(
+        distribution_title(app.screen).to_string(),
+        width,
+    ));
+    if rows.is_empty() {
+        lines.push(trim_to_width(
+            distribution_empty_label(app.screen).to_string(),
+            width,
+        ));
+        return;
+    }
+    for (index, row) in rows.iter().enumerate().take(20) {
+        lines.push(trim_to_width(
+            format!(
+                "{} {:>10} {:>7} {:>14}{} {}",
+                if index == selected { ">" } else { " " },
+                format_bytes(row.metrics.logical_bytes),
+                distribution_share_label(row),
+                distribution_count_label(row),
+                if options.visual_bars {
+                    format!(" {}", byte_bar(row.metrics.logical_bytes, max, BAR_WIDTH))
+                } else {
+                    String::new()
+                },
+                row.label,
+            ),
+            width,
+        ));
+    }
+}
+
 fn snapshot_plan(
     title: &'static str,
     plan: Option<&CleanupPlan>,
@@ -431,7 +577,9 @@ fn help_lines() -> Vec<Line<'static>> {
     vec![
         Line::from("j/k or arrows move"),
         Line::from("Enter/l opens a directory, h/Esc moves back"),
-        Line::from("/ searches visible paths, s cycles sort"),
+        Line::from("1 map, 2/t types, 3/x extensions, Tab cycles views"),
+        Line::from("/ filters the active view, s cycles sort"),
+        Line::from("r refreshes the active directory, R refreshes the root, b restores a scan"),
         Line::from("Space stages the cleanup rule; preview includes all matching targets"),
         Line::from("e executes only after typed confirmation"),
         Line::from("g shows recent cleanup history"),
@@ -529,6 +677,8 @@ fn screen_label(screen: TuiScreen) -> &'static str {
     match screen {
         TuiScreen::RootPicker => "root-picker",
         TuiScreen::Map => "map",
+        TuiScreen::Types => "types",
+        TuiScreen::Extensions => "extensions",
         TuiScreen::Busy => "working",
         TuiScreen::Preview => "preview",
         TuiScreen::Confirm => "confirm",
@@ -595,6 +745,51 @@ fn max_logical(rows: &[DiskMapVisibleRow]) -> u64 {
         .map(|row| row.metrics.logical_bytes)
         .max()
         .unwrap_or(0)
+}
+
+fn max_distribution_logical(rows: &[DiskMapDistributionRow]) -> u64 {
+    rows.iter()
+        .map(|row| row.metrics.logical_bytes)
+        .max()
+        .unwrap_or(0)
+}
+
+fn distribution_title(screen: TuiScreen) -> &'static str {
+    match screen {
+        TuiScreen::Types => "Types: file kind distribution",
+        TuiScreen::Extensions => "Extensions: suffix distribution",
+        _ => "Distribution",
+    }
+}
+
+fn distribution_empty_label(screen: TuiScreen) -> &'static str {
+    match screen {
+        TuiScreen::Types => "No type distribution for this scan.",
+        TuiScreen::Extensions => "No extension distribution for this scan.",
+        _ => "No distribution rows for this scan.",
+    }
+}
+
+fn distribution_count_label(row: &DiskMapDistributionRow) -> String {
+    match (row.metrics.files, row.metrics.directories) {
+        (files, 0) => format_count(files, "file", "files"),
+        (0, directories) => format_count(directories, "directory", "directories"),
+        (files, directories) => format!(
+            "{}, {}",
+            format_count(files, "file", "files"),
+            format_count(directories, "directory", "directories")
+        ),
+    }
+}
+
+fn distribution_share_label(row: &DiskMapDistributionRow) -> String {
+    if row.scope_logical_bytes == 0 {
+        return "0.0%".to_string();
+    }
+    format!(
+        "{:.1}%",
+        (row.metrics.logical_bytes as f64 / row.scope_logical_bytes as f64) * 100.0
+    )
 }
 
 fn byte_bar(value: u64, max: u64, width: usize) -> String {

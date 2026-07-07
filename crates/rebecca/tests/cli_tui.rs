@@ -93,6 +93,192 @@ fn tui_replay_can_change_sort_without_a_terminal() {
 }
 
 #[test]
+fn tui_replay_can_show_type_distribution_without_a_terminal() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("src").join("main.rs"), b"abc");
+    write_fixture_file(root.join("docs").join("readme.md"), b"abcde");
+    write_fixture_file(root.join("LICENSE"), b"xy");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "t",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | types"));
+    assert!(stdout.contains("Types: file kind distribution"));
+    assert!(stdout.contains("Files"));
+    assert!(stdout.contains("Directories"));
+}
+
+#[test]
+fn tui_replay_can_show_extension_distribution_without_a_terminal() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("src").join("main.rs"), b"abc");
+    write_fixture_file(root.join("docs").join("readme.md"), b"abcde");
+    write_fixture_file(root.join("LICENSE"), b"xy");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "x",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | extensions"));
+    assert!(stdout.contains("Extensions: suffix distribution"));
+    assert!(stdout.contains(".md"));
+    assert!(stdout.contains(".rs"));
+    assert!(stdout.contains("No extension"));
+}
+
+#[test]
+fn tui_replay_tab_reaches_type_distribution_without_a_terminal() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha.bin"), b"abcdef");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "tab",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | types"));
+    assert!(stdout.contains("Types: file kind distribution"));
+}
+
+#[test]
+fn tui_screen_reader_extension_distribution_omits_visual_bars() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha.bin"), b"abcdef");
+    write_fixture_file(root.join("beta.log"), b"abc");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--screen-reader",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "x",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | extensions"));
+    assert!(stdout.contains(".bin"));
+    assert!(stdout.contains(".log"));
+    assert!(stdout.contains("%"));
+    assert!(stdout.contains("file"));
+    assert!(
+        !stdout.contains("###"),
+        "screen-reader extension snapshot should not depend on visual bars: {stdout}"
+    );
+}
+
+#[test]
+fn tui_replay_can_refresh_selected_directory_and_restore_previous_scan() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let refreshed = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "r",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        refreshed.status.success(),
+        "stderr: {}",
+        common::support::stderr(&refreshed)
+    );
+    let refreshed_stdout = String::from_utf8_lossy(&refreshed.stdout);
+    assert!(refreshed_stdout.contains("Map: big"));
+    assert!(refreshed_stdout.contains("data.bin"));
+    assert!(refreshed_stdout.contains("Status: Refresh complete."));
+
+    let restored = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "r b",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        restored.status.success(),
+        "stderr: {}",
+        common::support::stderr(&restored)
+    );
+    let restored_stdout = String::from_utf8_lossy(&restored.stdout);
+    assert!(restored_stdout.contains("Map: workspace"));
+    assert!(restored_stdout.contains("big"));
+    assert!(restored_stdout.contains("small.txt"));
+}
+
+#[test]
 fn tui_replay_can_open_history_without_a_terminal() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

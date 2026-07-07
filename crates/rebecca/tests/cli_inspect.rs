@@ -353,6 +353,8 @@ fn inspect_map_json_reports_requested_groups() {
             "--top",
             "0",
             "--group-by",
+            "type",
+            "--group-by",
             "extension",
             "--group-by",
             "depth",
@@ -373,6 +375,8 @@ fn inspect_map_json_reports_requested_groups() {
     let envelope = common::support::api_envelope(&output.stdout);
     let value = &envelope["data"];
     assert!(value["top_entries"].as_array().unwrap().is_empty());
+    assert_json_group(value, "type", "file", 6, 2);
+    assert_json_group_directories(value, "type", "directory", 1);
     assert_json_group(value, "extension", ".rs", 4, 1);
     assert_json_group(value, "extension", ".md", 2, 1);
     assert_json_group(value, "depth", "depth-1", 2, 1);
@@ -1114,6 +1118,23 @@ fn assert_json_group(
         .unwrap_or_else(|| panic!("missing group {kind}:{key}"));
     assert_eq!(group["metrics"]["logical_bytes"], logical_bytes);
     assert_eq!(group["metrics"]["files"], files);
+}
+
+fn assert_json_group_directories(
+    value: &serde_json::Value,
+    kind: &str,
+    key: &str,
+    directories: u64,
+) {
+    let group = value["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["kind"] == kind && group["key"] == key)
+        .unwrap_or_else(|| panic!("missing group {kind}:{key}"));
+    assert_eq!(group["metrics"]["logical_bytes"], 0);
+    assert_eq!(group["metrics"]["files"], 0);
+    assert_eq!(group["metrics"]["directories"], directories);
 }
 
 const INSPECT_MAP_TABLE_HEADER_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason";
