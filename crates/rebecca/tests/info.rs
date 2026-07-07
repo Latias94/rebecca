@@ -64,6 +64,10 @@ fn doctor_permissions_prints_permission_label() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Privilege level:"));
     assert!(stdout.contains("Suggested action:"));
+    if cfg!(target_os = "macos") {
+        assert!(stdout.contains("macOS privacy:"));
+        assert!(stdout.contains("macOS privacy action:"));
+    }
 }
 
 #[test]
@@ -88,6 +92,14 @@ fn doctor_permissions_json_reports_supported_cleanup_platforms() {
         assert_eq!(data["platform_supported"], false);
         assert_eq!(data["cleanup_execution_supported"], false);
         assert_eq!(data["privilege_level"], "unsupported-platform");
+    }
+    if cfg!(target_os = "macos") {
+        let macos_privacy = data["macos_privacy"].as_object().unwrap();
+        assert!(macos_privacy["status"].as_str().is_some());
+        assert!(macos_privacy["probes"].as_array().is_some());
+        assert!(macos_privacy["suggested_action"].as_str().is_some());
+    } else {
+        assert!(data.get("macos_privacy").is_none());
     }
 }
 

@@ -1,5 +1,5 @@
 use std::num::NonZeroUsize;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::path::Path;
 
 use anyhow::Result;
@@ -26,6 +26,56 @@ struct PermissionDiagnostic<'a> {
     cleanup_execution_supported: bool,
     privilege_level: &'a str,
     suggested_action: &'a str,
+    #[cfg(target_os = "macos")]
+    macos_privacy: MacosPrivacyDiagnostic,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Serialize)]
+struct MacosPrivacyDiagnostic {
+    status: MacosPrivacyStatus,
+    probes: Vec<MacosPrivacyProbe>,
+    suggested_action: &'static str,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Serialize)]
+struct MacosPrivacyProbe {
+    label: &'static str,
+    path: String,
+    status: MacosPrivacyProbeStatus,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum MacosPrivacyStatus {
+    LikelyBlocked,
+    NoBlockDetected,
+    NotProbed,
+    Unknown,
+}
+
+#[cfg(target_os = "macos")]
+impl MacosPrivacyStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::LikelyBlocked => "likely-blocked",
+            Self::NoBlockDetected => "no-block-detected",
+            Self::NotProbed => "not-probed",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum MacosPrivacyProbeStatus {
+    Readable,
+    PermissionDenied,
+    Missing,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -234,6 +284,12 @@ pub fn print_privilege_level(output_mode: OutputMode) -> Result<()> {
             let diagnostic = permission_diagnostic();
             println!("Privilege level: {}", diagnostic.privilege_level);
             println!("Suggested action: {}", diagnostic.suggested_action);
+            #[cfg(target_os = "macos")]
+            {
+                let macos_privacy = &diagnostic.macos_privacy;
+                println!("macOS privacy: {}", macos_privacy.status.as_str());
+                println!("macOS privacy action: {}", macos_privacy.suggested_action);
+            }
             Ok(())
         },
     )
@@ -366,6 +422,8 @@ fn permission_diagnostic() -> PermissionDiagnostic<'static> {
         cleanup_execution_supported: cleanup_platform_supported(),
         privilege_level,
         suggested_action: permission_suggested_action(privilege_level),
+        #[cfg(target_os = "macos")]
+        macos_privacy: macos_privacy_diagnostic(),
     }
 }
 
@@ -392,6 +450,100 @@ fn permission_suggested_action(privilege_level: &str) -> &'static str {
 
 fn macos_permission_suggested_action() -> &'static str {
     "avoid sudo for macOS cleanup; preview as the current user and grant Full Disk Access to the terminal only when privacy controls block reviewed user-owned cache paths"
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_diagnostic() -> MacosPrivacyDiagnostic {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    macos_privacy_diagnostic_from_home(home.as_deref())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_diagnostic_from_home(home: Option<&Path>) -> MacosPrivacyDiagnostic {
+    let Some(home) = home else {
+        return MacosPrivacyDiagnostic {
+            status: MacosPrivacyStatus::NotProbed,
+            probes: Vec::new(),
+            suggested_action: macos_privacy_suggested_action(MacosPrivacyStatus::NotProbed),
+        };
+    };
+
+    let probes = [
+        ("mail", home.join("Library").join("Mail")),
+        ("messages", home.join("Library").join("Messages")),
+        ("safari", home.join("Library").join("Safari")),
+    ]
+    .into_iter()
+    .map(|(label, path)| MacosPrivacyProbe {
+        label,
+        path: path.display().to_string(),
+        status: macos_privacy_probe_status(&path),
+    })
+    .collect::<Vec<_>>();
+    let status = macos_privacy_status_from_probes(&probes);
+
+    MacosPrivacyDiagnostic {
+        status,
+        probes,
+        suggested_action: macos_privacy_suggested_action(status),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_probe_status(path: &Path) -> MacosPrivacyProbeStatus {
+    match std::fs::read_dir(path) {
+        Ok(_) => MacosPrivacyProbeStatus::Readable,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => MacosPrivacyProbeStatus::Missing,
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+            MacosPrivacyProbeStatus::PermissionDenied
+        }
+        Err(_) => MacosPrivacyProbeStatus::Unknown,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_status_from_probes(probes: &[MacosPrivacyProbe]) -> MacosPrivacyStatus {
+    if probes.is_empty() {
+        return MacosPrivacyStatus::NotProbed;
+    }
+    if probes
+        .iter()
+        .any(|probe| probe.status == MacosPrivacyProbeStatus::PermissionDenied)
+    {
+        return MacosPrivacyStatus::LikelyBlocked;
+    }
+    if probes
+        .iter()
+        .any(|probe| probe.status == MacosPrivacyProbeStatus::Readable)
+    {
+        return MacosPrivacyStatus::NoBlockDetected;
+    }
+    if probes
+        .iter()
+        .all(|probe| probe.status == MacosPrivacyProbeStatus::Missing)
+    {
+        return MacosPrivacyStatus::NotProbed;
+    }
+
+    MacosPrivacyStatus::Unknown
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_suggested_action(status: MacosPrivacyStatus) -> &'static str {
+    match status {
+        MacosPrivacyStatus::LikelyBlocked => {
+            "grant Full Disk Access to the terminal only if the blocked paths are reviewed user-owned cache paths; do not retry with sudo"
+        }
+        MacosPrivacyStatus::NoBlockDetected => {
+            "no macOS privacy block was detected by the read-only probes; keep cleanup preview-first as the current user"
+        }
+        MacosPrivacyStatus::NotProbed => {
+            "macOS privacy probes did not find local protected data to read; keep cleanup preview-first as the current user"
+        }
+        MacosPrivacyStatus::Unknown => {
+            "macOS privacy probe results were inconclusive; use dry-run preview and grant Full Disk Access only for reviewed user-owned cache paths"
+        }
+    }
 }
 
 fn cleanup_platform_supported() -> bool {

@@ -481,6 +481,14 @@ fn doctor_permissions_format_json_returns_diagnostic_payload() {
     );
     assert!(envelope["data"]["privilege_level"].as_str().is_some());
     assert!(envelope["data"]["suggested_action"].as_str().is_some());
+    if cfg!(target_os = "macos") {
+        let macos_privacy = envelope["data"]["macos_privacy"].as_object().unwrap();
+        assert!(macos_privacy["status"].as_str().is_some());
+        assert!(macos_privacy["probes"].as_array().is_some());
+        assert!(macos_privacy["suggested_action"].as_str().is_some());
+    } else {
+        assert!(envelope["data"].get("macos_privacy").is_none());
+    }
 
     let validator = validator_for_payload_def("permissionsDiagnostic");
     assert!(

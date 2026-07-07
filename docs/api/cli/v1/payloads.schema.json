@@ -341,6 +341,68 @@
         }
       }
     },
+    "macosPrivacyProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "path",
+        "status"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "mail",
+            "messages",
+            "safari"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "readable",
+            "permission-denied",
+            "missing",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "macosPrivacyDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "probes",
+        "suggested_action"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "likely-blocked",
+            "no-block-detected",
+            "not-probed",
+            "unknown"
+          ]
+        },
+        "probes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/macosPrivacyProbe"
+          }
+        },
+        "suggested_action": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "permissionsDiagnostic": {
       "type": "object",
       "additionalProperties": false,
@@ -374,6 +436,9 @@
         "suggested_action": {
           "type": "string",
           "minLength": 1
+        },
+        "macos_privacy": {
+          "$ref": "#/$defs/macosPrivacyDiagnostic"
         }
       }
     },

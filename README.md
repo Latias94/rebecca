@@ -310,6 +310,11 @@ cargo run -p rebecca -- doctor permissions
 cargo run -p rebecca -- doctor active-processes
 ```
 
+On macOS, `doctor permissions` also performs read-only privacy probes for Mail,
+Messages, and Safari paths. A `likely-blocked` result means Full Disk Access may
+be needed for the terminal before cleaning reviewed user-owned cache paths;
+`sudo` is not a TCC workaround.
+
 ## CLI API
 
 Use `--format json` when a caller needs one final result.
