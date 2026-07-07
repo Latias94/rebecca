@@ -160,6 +160,20 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         macos_policy.assess_path(&PathBuf::from("/System/Library")),
         ProtectionAssessment::Blocked(block) if block.kind == ProtectionBlockKind::CriticalPath
     ));
+    for path in [
+        "/Library/Caches/pip/http",
+        "/Library/Application Support/Slack/Cache",
+        "/Library/Logs/Zoom",
+    ] {
+        assert!(
+            matches!(
+                macos_policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Blocked(block)
+                    if block.kind == ProtectionBlockKind::CriticalPath
+            ),
+            "{path} should stay blocked as a macOS critical path"
+        );
+    }
     assert!(matches!(
         macos_policy.assess_path(&PathBuf::from("/Users/alice")),
         ProtectionAssessment::Blocked(block) if block.kind == ProtectionBlockKind::UserProfileRoot

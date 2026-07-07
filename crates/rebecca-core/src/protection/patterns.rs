@@ -883,21 +883,41 @@ fn has_linux_electron_cache_root_before(segments: &[&str], index: usize) -> bool
 fn macos_cache_home_tail_start(segments: &[&str]) -> Option<usize> {
     find_segment(segments, "%macos_cache_home%")
         .map(|index| index + 1)
-        .or_else(|| find_sequence(segments, &["library", "caches"]).map(|index| index + 2))
+        .or_else(|| macos_user_library_tail_start(segments, &["caches"]))
 }
 
 fn macos_application_support_tail_start(segments: &[&str]) -> Option<usize> {
     find_segment(segments, "%macos_application_support_home%")
         .map(|index| index + 1)
-        .or_else(|| {
-            find_sequence(segments, &["library", "application support"]).map(|index| index + 2)
-        })
+        .or_else(|| macos_user_library_tail_start(segments, &["application support"]))
 }
 
 fn macos_log_home_tail_start(segments: &[&str]) -> Option<usize> {
     find_segment(segments, "%macos_log_home%")
         .map(|index| index + 1)
-        .or_else(|| find_sequence(segments, &["library", "logs"]).map(|index| index + 2))
+        .or_else(|| macos_user_library_tail_start(segments, &["logs"]))
+}
+
+fn macos_user_library_tail_start(segments: &[&str], library_child: &[&str]) -> Option<usize> {
+    if library_child.is_empty() {
+        return None;
+    }
+
+    let required_len = 3 + library_child.len();
+    if segments.len() < required_len {
+        return None;
+    }
+
+    segments
+        .windows(required_len)
+        .position(|window| {
+            window[0] == "users"
+                && !window[1].is_empty()
+                && window[1] != "shared"
+                && window[2] == "library"
+                && &window[3..] == library_child
+        })
+        .map(|index| index + required_len)
 }
 
 fn macos_chromium_profile_tail_start(segments: &[&str]) -> Option<usize> {

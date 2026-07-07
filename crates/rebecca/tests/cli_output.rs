@@ -220,6 +220,7 @@ fn doctor_permissions_prints_permission_label() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Privilege level:"));
+    assert!(stdout.contains("Suggested action:"));
 }
 
 #[test]

@@ -200,7 +200,7 @@ Rebecca is a local cleanup tool, and the highest-risk behavior is unintended loc
 - Permanent deletion and administrator auto-elevation are not part of the MVP.
 - Junctions, symlinks, and other reparse-point traversal are blocked by default.
 - Moderate rules require `--allow-moderate`; risky and dangerous rules require `--allow-risky`.
-- Do not start with `sudo rebecca clean --yes`; first preview as the current user, then use elevated permissions only for reviewed permission-sensitive Linux system cache rules.
+- Do not start with `sudo rebecca clean --yes`; first preview as the current user. Use elevated permissions only for reviewed permission-sensitive Linux system cache rules. On macOS, grant Full Disk Access to the terminal only when privacy controls block reviewed user-owned cache paths; do not use `sudo` as a TCC workaround.
 - Use `--exclude <PATH>` or `[protection].protected_paths` to keep a path out of a run.
 - Dry-run human output highlights the largest estimated targets first, groups the full target list by status, prints a copyable next command, lists required opt-ins already present in that command, explains skipped or blocked pre-execution issues, and points active-process warning runs at `rebecca doctor active-processes`.
 - `clean --scan-cache` explicitly enables the rebuildable scan cache for eligible targets.

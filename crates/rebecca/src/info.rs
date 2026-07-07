@@ -231,7 +231,9 @@ pub fn print_privilege_level(output_mode: OutputMode) -> Result<()> {
         output_mode,
         permission_diagnostic,
         || {
-            println!("Privilege level: {}", current_privilege_label());
+            let diagnostic = permission_diagnostic();
+            println!("Privilege level: {}", diagnostic.privilege_level);
+            println!("Suggested action: {}", diagnostic.suggested_action);
             Ok(())
         },
     )
@@ -372,16 +374,12 @@ fn permission_suggested_action(privilege_level: &str) -> &'static str {
         "elevated" if cfg!(target_os = "linux") => {
             "cleanup execution can use elevated Linux permissions"
         }
-        "elevated" if cfg!(target_os = "macos") => {
-            "cleanup execution can use elevated macOS permissions"
-        }
+        "elevated" if cfg!(target_os = "macos") => macos_permission_suggested_action(),
         "elevated" => "cleanup execution can use elevated Windows permissions",
         "standard-user" if cfg!(target_os = "linux") => {
             "use sudo only for reviewed permission-sensitive system cache rules"
         }
-        "standard-user" if cfg!(target_os = "macos") => {
-            "use standard-user preview and recoverable cleanup for user-owned macOS cache rules"
-        }
+        "standard-user" if cfg!(target_os = "macos") => macos_permission_suggested_action(),
         "standard-user" => "run from an elevated shell if protected cleanup targets are blocked",
         "unsupported-platform" => {
             "cleanup execution is not supported on this platform; use preview commands only"
@@ -390,6 +388,10 @@ fn permission_suggested_action(privilege_level: &str) -> &'static str {
             "permission level could not be determined; use dry-run preview before executing cleanup"
         }
     }
+}
+
+fn macos_permission_suggested_action() -> &'static str {
+    "avoid sudo for macOS cleanup; preview as the current user and grant Full Disk Access to the terminal only when privacy controls block reviewed user-owned cache paths"
 }
 
 fn cleanup_platform_supported() -> bool {
@@ -839,6 +841,19 @@ mod tests {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macos_permission_advice_does_not_recommend_elevation() {
+        assert_eq!(
+            permission_suggested_action("elevated"),
+            macos_permission_suggested_action()
+        );
+        assert_eq!(
+            permission_suggested_action("standard-user"),
+            macos_permission_suggested_action()
+        );
+        assert!(!permission_suggested_action("elevated").contains("elevated macOS"));
+    }
 
     #[test]
     fn macos_process_snapshot_parses_ps_command_path() {

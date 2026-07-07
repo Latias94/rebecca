@@ -190,7 +190,10 @@ the current platform, whether cleanup execution is supported on that platform,
 the detected privilege level, and a short suggested action. Linux privilege
 labels are derived from the effective UID in `/proc/self/status`; standard-user
 Linux cleanup should stay preview-first and use elevated permissions only for
-reviewed permission-sensitive system cache rules.
+reviewed permission-sensitive system cache rules. macOS cleanup should stay
+current-user and preview-first; grant Full Disk Access to the terminal only when
+macOS privacy controls block reviewed user-owned cache paths, and do not treat
+`sudo` as a TCC or Full Disk Access workaround.
 
 `catalog` is emitted by `rebecca catalog`. The payload is a typed array of
 cleanup rules, project artifact policies, warning gates, safety categories, and

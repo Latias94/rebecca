@@ -425,23 +425,14 @@ steam_library_allowlist = [
 [platforms.maintenance_allowlist]
 sequences = [
   ["%macos_cache_home%", "pip"],
-  ["library", "caches", "pip"],
   ["%macos_cache_home%", "uv"],
-  ["library", "caches", "uv"],
   ["%macos_cache_home%", "pypoetry", "cache"],
   ["%macos_cache_home%", "pypoetry", "artifacts"],
-  ["library", "caches", "pypoetry", "cache"],
-  ["library", "caches", "pypoetry", "artifacts"],
   ["%macos_cache_home%", "go-build"],
-  ["library", "caches", "go-build"],
   ["%macos_cache_home%", "node", "corepack"],
-  ["library", "caches", "node", "corepack"],
   ["%macos_cache_home%", "nuget"],
-  ["library", "caches", "nuget"],
   ["%macos_cache_home%", "yarn"],
-  ["library", "caches", "yarn"],
   ["%macos_cache_home%", "mozilla", "sccache"],
-  ["library", "caches", "mozilla", "sccache"],
   ["%macos_cache_home%", "huggingface", "hub"],
   ["%macos_cache_home%", "huggingface", "datasets"],
   ["%macos_cache_home%", "huggingface", "assets"],
@@ -475,8 +466,6 @@ sequences = [
   ["%sccache_dir%"],
   ["%macos_log_home%", "zoom"],
   ["%macos_log_home%", "zoom.us"],
-  ["library", "logs", "zoom"],
-  ["library", "logs", "zoom.us"],
 ]
 
 [[platforms.protected_patterns]]

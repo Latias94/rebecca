@@ -66,7 +66,12 @@ fn default_safety_catalog_loads_auditable_platform_knowledge() {
     assert!(
         macos
             .maintenance_allowlist()
-            .matches(&["users", "alice", "library", "caches", "pip"])
+            .matches(&["%macos_cache_home%", "pip"])
+    );
+    assert!(
+        !macos
+            .maintenance_allowlist()
+            .matches(&["library", "caches", "pip"])
     );
     assert!(
         !macos
