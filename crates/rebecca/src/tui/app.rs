@@ -14,7 +14,10 @@ use crate::tui::basket::{CleanupBasket, confirmation_phrase, toggle_advice, work
 use crate::tui::effect::TuiEffect;
 use crate::tui::input::{TuiKey, TuiMouseAction};
 use crate::tui::model::{TuiGroupFilter, TuiScreen};
-use crate::tui::navigation::RootChoice;
+use crate::tui::navigation::{
+    RootChoice, clamp_index, cycle_workbench_screen, distribution_kind, filter_label,
+    filter_singular_label, move_index,
+};
 use crate::tui::progress::{TuiTaskId, TuiTaskProgressEvent, TuiTaskStatus};
 use crate::tui::projection::{
     TuiDistributionProjectionInput, TuiProjectionCache, TuiVisibleProjectionInput,
@@ -256,11 +259,7 @@ impl TuiApp {
     }
 
     pub(crate) fn active_distribution_kind(&self) -> Option<DiskMapGroupKind> {
-        match self.screen {
-            TuiScreen::Types => Some(DiskMapGroupKind::Type),
-            TuiScreen::Extensions => Some(DiskMapGroupKind::Extension),
-            _ => None,
-        }
+        distribution_kind(self.screen)
     }
 
     pub(crate) fn handle_key(&mut self, key: TuiKey) -> TuiEffect {
@@ -457,11 +456,11 @@ impl TuiApp {
     fn handle_root_picker_key(&mut self, key: TuiKey) -> TuiEffect {
         match key {
             TuiKey::Down | TuiKey::Char('j') => {
-                self.move_selection(self.root_choices.len(), 1);
+                self.selected = move_index(self.selected, self.root_choices.len(), 1);
                 TuiEffect::None
             }
             TuiKey::Up | TuiKey::Char('k') => {
-                self.move_selection(self.root_choices.len(), -1);
+                self.selected = move_index(self.selected, self.root_choices.len(), -1);
                 TuiEffect::None
             }
             TuiKey::Enter => self
@@ -477,11 +476,11 @@ impl TuiApp {
     fn handle_map_key(&mut self, key: TuiKey) -> TuiEffect {
         match key {
             TuiKey::Down | TuiKey::Char('j') => {
-                self.move_selection(self.visible_rows().len(), 1);
+                self.selected = move_index(self.selected, self.visible_rows().len(), 1);
                 TuiEffect::None
             }
             TuiKey::Up | TuiKey::Char('k') => {
-                self.move_selection(self.visible_rows().len(), -1);
+                self.selected = move_index(self.selected, self.visible_rows().len(), -1);
                 TuiEffect::None
             }
             TuiKey::Right | TuiKey::Enter | TuiKey::Char('l') => {
@@ -901,17 +900,6 @@ impl TuiApp {
         self.message = format!("Sorted by {}.", self.sort.label());
     }
 
-    fn move_selection(&mut self, len: usize, delta: isize) {
-        if len == 0 {
-            self.selected = 0;
-            return;
-        }
-        self.selected = self
-            .selected
-            .saturating_add_signed(delta)
-            .min(len.saturating_sub(1));
-    }
-
     fn move_distribution_selection(&mut self, delta: isize) {
         let len = self.distribution_rows().len();
         let selected = match self.screen {
@@ -919,25 +907,19 @@ impl TuiApp {
             TuiScreen::Extensions => &mut self.selected_extension,
             _ => return,
         };
-        if len == 0 {
-            *selected = 0;
-            return;
-        }
-        *selected = selected
-            .saturating_add_signed(delta)
-            .min(len.saturating_sub(1));
+        *selected = move_index(*selected, len, delta);
     }
 
     fn move_active_selection(&mut self, delta: isize) {
         match self.screen {
             TuiScreen::Map | TuiScreen::Treemap => {
                 let len = self.visible_rows().len();
-                self.move_selection(len, delta);
+                self.selected = move_index(self.selected, len, delta);
             }
             TuiScreen::Types | TuiScreen::Extensions => self.move_distribution_selection(delta),
             TuiScreen::RootPicker => {
                 let len = self.root_choices.len();
-                self.move_selection(len, delta);
+                self.selected = move_index(self.selected, len, delta);
             }
             _ => {}
         }
@@ -949,7 +931,7 @@ impl TuiApp {
             self.selected = 0;
             return;
         }
-        self.selected = index.min(len - 1);
+        self.selected = clamp_index(index, len);
         if let Some(row) = self.selected_row() {
             self.message = format!("Selected {}.", row.name);
         }
@@ -966,7 +948,7 @@ impl TuiApp {
             }
             return;
         }
-        let selected = index.min(len - 1);
+        let selected = clamp_index(index, len);
         match self.screen {
             TuiScreen::Types => self.selected_type = selected,
             TuiScreen::Extensions => self.selected_extension = selected,
@@ -1011,10 +993,8 @@ impl TuiApp {
     }
 
     fn clamp_distribution_selection(&self, screen: TuiScreen) -> usize {
-        let kind = match screen {
-            TuiScreen::Types => DiskMapGroupKind::Type,
-            TuiScreen::Extensions => DiskMapGroupKind::Extension,
-            _ => return 0,
+        let Some(kind) = distribution_kind(screen) else {
+            return 0;
         };
         let len = self.distribution_rows_for(kind).len();
         let selected = match screen {
@@ -1022,23 +1002,19 @@ impl TuiApp {
             TuiScreen::Extensions => self.selected_extension,
             _ => 0,
         };
-        if len == 0 { 0 } else { selected.min(len - 1) }
+        clamp_index(selected, len)
     }
 
     fn open_map_view(&mut self) -> TuiEffect {
         self.screen = TuiScreen::Map;
-        self.selected = self
-            .selected
-            .min(self.visible_rows().len().saturating_sub(1));
+        self.selected = clamp_index(self.selected, self.visible_rows().len());
         self.message = "Returned to map view.".to_string();
         TuiEffect::None
     }
 
     fn open_treemap_view(&mut self) -> TuiEffect {
         self.screen = TuiScreen::Treemap;
-        self.selected = self
-            .selected
-            .min(self.visible_rows().len().saturating_sub(1));
+        self.selected = clamp_index(self.selected, self.visible_rows().len());
         self.message = "Treemap view shows proportional disk usage for this scope.".to_string();
         TuiEffect::None
     }
@@ -1059,12 +1035,10 @@ impl TuiApp {
     }
 
     fn cycle_view_mode(&mut self) -> TuiEffect {
-        match self.screen {
-            TuiScreen::Map => self.open_treemap_view(),
-            TuiScreen::Treemap => self.open_types_view(),
-            TuiScreen::Types => self.open_extensions_view(),
-            TuiScreen::Extensions => self.open_map_view(),
-            _ => TuiEffect::None,
+        if let Some(screen) = cycle_workbench_screen(self.screen) {
+            self.open_screen(screen)
+        } else {
+            TuiEffect::None
         }
     }
 
@@ -1087,19 +1061,11 @@ impl TuiApp {
     }
 
     pub(crate) fn active_filter_label(&self) -> &'static str {
-        match self.screen {
-            TuiScreen::Types => "types",
-            TuiScreen::Extensions => "extensions",
-            _ => "paths",
-        }
+        filter_label(self.screen)
     }
 
     fn active_filter_singular_label(&self) -> &'static str {
-        match self.screen {
-            TuiScreen::Types => "type",
-            TuiScreen::Extensions => "extension",
-            _ => "path",
-        }
+        filter_singular_label(self.screen)
     }
 
     fn active_search_query_mut(&mut self) -> &mut String {
@@ -1337,6 +1303,33 @@ mod tests {
         assert_eq!(app.handle_key(TuiKey::Backspace), TuiEffect::None);
         assert_eq!(app.active_group_filter_label(), None);
         assert_eq!(app.visible_rows().len(), 3);
+    }
+
+    #[test]
+    fn distribution_mouse_click_filters_map_projection() {
+        let mut app = TuiApp::from_session(
+            DiskMapSession::from_report(test_mixed_distribution_report()),
+            ScanBackendKind::PortableRecursive,
+            100,
+        );
+
+        assert_eq!(app.handle_key(TuiKey::Char('x')), TuiEffect::None);
+        let tmp_index = app
+            .distribution_rows()
+            .iter()
+            .position(|row| row.key == ".tmp")
+            .expect("tmp distribution row");
+
+        assert_eq!(
+            app.handle_mouse_action(TuiMouseAction::SelectDistributionRow(tmp_index)),
+            TuiEffect::None
+        );
+
+        let rows = app.visible_rows();
+        assert_eq!(app.screen, TuiScreen::Map);
+        assert_eq!(app.active_group_filter_label(), Some(".tmp"));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "cache.tmp");
     }
 
     #[test]

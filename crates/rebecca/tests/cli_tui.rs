@@ -160,6 +160,71 @@ fn tui_replay_can_show_extension_distribution_without_a_terminal() {
 }
 
 #[test]
+fn tui_replay_can_filter_map_from_extension_distribution() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("cache.tmp"), b"abcdef");
+    write_fixture_file(root.join("notes.txt"), b"abc");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "x enter",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | map"));
+    assert!(stdout.contains("filter .tmp"));
+    assert!(stdout.contains("Map: workspace [.tmp]"));
+    assert!(stdout.contains("cache.tmp"));
+    assert!(!stdout.contains("notes.txt"));
+}
+
+#[test]
+fn tui_replay_can_clear_distribution_filter() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("cache.tmp"), b"abcdef");
+    write_fixture_file(root.join("notes.txt"), b"abc");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "x enter backspace",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | map"));
+    assert!(stdout.contains("Status: Cleared extension .tmp filter."));
+    assert!(stdout.contains("cache.tmp"));
+    assert!(stdout.contains("notes.txt"));
+}
+
+#[test]
 fn tui_replay_can_show_treemap_without_a_terminal() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
