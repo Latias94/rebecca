@@ -108,6 +108,40 @@ fn disk_session_filters_rows_by_path_text() {
 }
 
 #[test]
+fn disk_session_restores_node_identity_by_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let parent = root.join("target");
+    let child = parent.join("data.bin");
+    write_file(&child, b"abc");
+
+    let report = inspect_map(
+        &DiskMapRequest::new(vec![root.clone()])
+            .with_scan_backend(ScanBackendKind::PortableRecursive)
+            .with_top_limit(10),
+        &ScanCancellationToken::new(),
+    )
+    .unwrap();
+    let session = DiskMapSession::from_report(report);
+
+    let parent_id = session.node_id_by_path(&parent).expect("parent id");
+    assert_eq!(session.node_path(parent_id), Some(parent.as_path()));
+    assert_eq!(
+        session.nearest_existing_ancestor(parent.join("missing.bin")),
+        Some(parent_id)
+    );
+    assert_eq!(
+        session.restore_parent_by_path(Some(&parent)),
+        Some(parent_id)
+    );
+    assert_eq!(
+        session.restore_parent_by_path(Some(&root.join("missing"))),
+        session.root_ids().first().copied()
+    );
+    assert!(session.node_id_by_path(root.join("missing")).is_none());
+}
+
+#[test]
 fn disk_session_preserves_extension_distribution_rows() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

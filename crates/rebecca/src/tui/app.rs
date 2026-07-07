@@ -1,7 +1,5 @@
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
 use rebecca::core::disk_map::{DiskMapEntryKind, DiskMapGroupKind, DiskMapSortField};
 use rebecca::core::disk_session::{
     DiskMapDistributionFilter, DiskMapDistributionRow, DiskMapNodeId, DiskMapSession,
@@ -12,7 +10,7 @@ use rebecca::core::plan::CleanupPlan;
 use rebecca::core::scan::ScanBackendKind;
 
 use crate::output::format_bytes;
-use crate::tui::basket::CleanupBasketItem;
+use crate::tui::basket::{CleanupBasket, confirmation_phrase, toggle_advice, workbench_request};
 use crate::tui::effect::TuiEffect;
 use crate::tui::input::{TuiKey, TuiMouseAction};
 use crate::tui::model::TuiScreen;
@@ -36,7 +34,7 @@ pub(crate) struct TuiApp {
     pub(crate) type_search_query: String,
     pub(crate) extension_search_query: String,
     search_editing: bool,
-    pub(crate) basket: BTreeMap<String, CleanupBasketItem>,
+    pub(crate) basket: CleanupBasket,
     pub(crate) preview: Option<CleanupPlan>,
     pub(crate) executed: Option<CleanupPlan>,
     pub(crate) history: Vec<HistoryEntry>,
@@ -55,7 +53,7 @@ pub(crate) struct TuiApp {
 #[derive(Debug, Clone)]
 struct TuiSessionSnapshot {
     session: DiskMapSession,
-    current_parent: Option<DiskMapNodeId>,
+    current_parent_path: Option<PathBuf>,
     screen: TuiScreen,
     selected: usize,
     selected_type: usize,
@@ -87,7 +85,7 @@ impl TuiApp {
             type_search_query: String::new(),
             extension_search_query: String::new(),
             search_editing: false,
-            basket: BTreeMap::new(),
+            basket: CleanupBasket::new(),
             preview: None,
             executed: None,
             history: Vec::new(),
@@ -125,7 +123,7 @@ impl TuiApp {
             type_search_query: String::new(),
             extension_search_query: String::new(),
             search_editing: false,
-            basket: BTreeMap::new(),
+            basket: CleanupBasket::new(),
             preview: None,
             executed: None,
             history: Vec::new(),
@@ -308,16 +306,25 @@ impl TuiApp {
     }
 
     pub(crate) fn apply_refresh_result(&mut self, session: DiskMapSession) {
-        if let Some(snapshot) = self.pending_refresh_snapshot.take() {
+        let restore_parent_path = if let Some(snapshot) = self.pending_refresh_snapshot.take() {
+            let restore_parent_path = snapshot.current_parent_path.clone();
             self.session_stack.push(snapshot);
+            restore_parent_path
         } else {
-            self.push_session_snapshot();
-        }
+            let snapshot = self.current_session_snapshot();
+            let restore_parent_path = snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.current_parent_path.clone());
+            if let Some(snapshot) = snapshot {
+                self.session_stack.push(snapshot);
+            }
+            restore_parent_path
+        };
         self.session = Some(session);
         self.current_parent = self
             .session
             .as_ref()
-            .and_then(|session| session.root_ids().first().copied());
+            .and_then(|session| session.restore_parent_by_path(restore_parent_path.as_deref()));
         self.screen = match self.task_return_screen {
             TuiScreen::Map | TuiScreen::Treemap | TuiScreen::Types | TuiScreen::Extensions => {
                 self.task_return_screen
@@ -611,24 +618,11 @@ impl TuiApp {
     }
 
     pub(crate) fn workbench_request(&self) -> CleanupWorkbenchRequest {
-        CleanupWorkbenchRequest {
-            selected_rule_ids: self.basket.keys().cloned().collect(),
-            allow_moderate: false,
-            allow_risky: false,
-            allowed_warnings: Vec::new(),
-            scan_cache: true,
-            scan_backend: self.scan_backend,
-            exclude_paths: Vec::new(),
-        }
+        workbench_request(&self.basket, self.scan_backend)
     }
 
     pub(crate) fn confirmation_phrase(&self) -> String {
-        let bytes = self
-            .preview
-            .as_ref()
-            .map(|plan| plan.summary.estimated_bytes)
-            .unwrap_or(0);
-        format!("CLEAN {bytes}")
+        confirmation_phrase(self.preview.as_ref())
     }
 
     fn handle_root_picker_key(&mut self, key: TuiKey) -> TuiEffect {
@@ -989,19 +983,16 @@ impl TuiApp {
         TuiEffect::Refresh(vec![path])
     }
 
-    fn push_session_snapshot(&mut self) {
-        if let Some(snapshot) = self.current_session_snapshot() {
-            self.session_stack.push(snapshot);
-        }
-    }
-
     fn current_session_snapshot(&self) -> Option<TuiSessionSnapshot> {
-        self.session
-            .as_ref()
-            .cloned()
-            .map(|session| TuiSessionSnapshot {
+        self.session.as_ref().cloned().map(|session| {
+            let current_parent_path = self
+                .session
+                .as_ref()
+                .and_then(|session| self.current_parent.and_then(|id| session.node_path(id)))
+                .map(PathBuf::from);
+            TuiSessionSnapshot {
                 session,
-                current_parent: self.current_parent,
+                current_parent_path,
                 screen: self.screen,
                 selected: self.selected,
                 selected_type: self.selected_type,
@@ -1010,7 +1001,8 @@ impl TuiApp {
                 type_search_query: self.type_search_query.clone(),
                 extension_search_query: self.extension_search_query.clone(),
                 message: self.message.clone(),
-            })
+            }
+        })
     }
 
     fn restore_previous_session(&mut self) {
@@ -1018,8 +1010,11 @@ impl TuiApp {
             self.message = "No previous scan to restore.".to_string();
             return;
         };
+        let current_parent = snapshot
+            .session
+            .restore_parent_by_path(snapshot.current_parent_path.as_deref());
         self.session = Some(snapshot.session);
-        self.current_parent = snapshot.current_parent;
+        self.current_parent = current_parent;
         self.selected = snapshot.selected;
         self.selected_type = snapshot.selected_type;
         self.selected_extension = snapshot.selected_extension;
@@ -1039,35 +1034,7 @@ impl TuiApp {
         let Some(row) = self.selected_row() else {
             return;
         };
-        let Some(advice) = row.cleanup_advice.as_ref() else {
-            self.message = "Selected entry has no cleanup advice to stage.".to_string();
-            return;
-        };
-        if !stageable_advice(advice) {
-            self.message = format!("{} entries cannot be staged.", advice.status.label());
-            return;
-        }
-        let Some(rule_id) = advice.rule_id.as_ref() else {
-            self.message = "This advice is not backed by a cleanup rule yet.".to_string();
-            return;
-        };
-
-        if self.basket.remove(rule_id).is_some() {
-            self.message = format!("Unstaged rule {rule_id}.");
-            return;
-        }
-
-        self.basket.insert(
-            rule_id.clone(),
-            CleanupBasketItem {
-                rule_id: rule_id.clone(),
-                status: advice.status,
-                reason: advice.reason.clone(),
-                required_flags: advice.required_flags.clone(),
-                required_warnings: advice.required_warnings.clone(),
-            },
-        );
-        self.message = format!("Staged rule {rule_id}; preview covers all matching targets.");
+        self.message = toggle_advice(&mut self.basket, row.cleanup_advice.as_ref());
     }
 
     fn cycle_sort(&mut self) {
@@ -1279,20 +1246,13 @@ impl TuiApp {
     }
 }
 
-fn stageable_advice(advice: &CleanupAdvice) -> bool {
-    matches!(
-        advice.status,
-        CleanupAdviceStatus::Cleanable
-            | CleanupAdviceStatus::MaybeCleanable
-            | CleanupAdviceStatus::ContainsCleanable
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::cleanup_advice::{CleanupAdviceCommand, CleanupAdviceSource};
+    use rebecca::core::cleanup_advice::{
+        CleanupAdvice, CleanupAdviceCommand, CleanupAdviceSource, CleanupAdviceStatus,
+    };
     use rebecca::core::disk_map::{
         DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics,
         DiskMapReport, DiskMapRoot, DiskMapRootStatus,

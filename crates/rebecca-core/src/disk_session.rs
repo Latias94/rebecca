@@ -101,6 +101,37 @@ impl DiskMapSession {
         self.nodes.get(id.0)
     }
 
+    pub fn node_id_by_path(&self, path: impl AsRef<Path>) -> Option<DiskMapNodeId> {
+        let path = path.as_ref();
+        self.nodes
+            .iter()
+            .find(|node| same_path(&node.path, path))
+            .map(|node| node.id)
+    }
+
+    pub fn node_path(&self, id: DiskMapNodeId) -> Option<&Path> {
+        self.node(id).map(|node| node.path.as_path())
+    }
+
+    pub fn nearest_existing_ancestor(&self, path: impl AsRef<Path>) -> Option<DiskMapNodeId> {
+        let mut current = Some(path.as_ref());
+        while let Some(path) = current {
+            if let Some(id) = self.node_id_by_path(path) {
+                return Some(id);
+            }
+            current = path.parent();
+        }
+        None
+    }
+
+    pub fn restore_parent_by_path(&self, path: Option<&Path>) -> Option<DiskMapNodeId> {
+        path.and_then(|path| {
+            self.node_id_by_path(path)
+                .or_else(|| self.nearest_existing_ancestor(path))
+        })
+        .or_else(|| self.root_ids.first().copied())
+    }
+
     pub fn children_sorted_by(
         &self,
         id: Option<DiskMapNodeId>,

@@ -11,7 +11,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::output::format_bytes;
 use crate::text::format_count;
 use crate::tui::app::TuiApp;
-use crate::tui::basket::CleanupBasketItem;
+use crate::tui::basket;
 use crate::tui::input::{TuiMouseAction, TuiMouseEvent, TuiMouseEventKind};
 use crate::tui::model::TuiScreen;
 use crate::tui::navigation::RootChoice;
@@ -369,7 +369,7 @@ fn render_details(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     } else {
         lines.push(Line::from("  preview includes all matching rule targets"));
         for item in app.basket.values() {
-            lines.push(Line::from(format!("  {}", basket_label(item))));
+            lines.push(Line::from(format!("  {}", basket::label(item))));
         }
     }
 
@@ -982,19 +982,6 @@ fn advice_label(row: &DiskMapVisibleRow) -> String {
         .as_ref()
         .map(|advice| advice.status.label().to_string())
         .unwrap_or_else(|| CleanupAdviceStatus::Unknown.label().to_string())
-}
-
-fn basket_label(item: &CleanupBasketItem) -> String {
-    let mut label = format!("{} [{}]", item.rule_id, item.status.label());
-    if !item.required_flags.is_empty() {
-        label.push_str(" flags:");
-        label.push_str(&item.required_flags.join(","));
-    }
-    if !item.required_warnings.is_empty() {
-        label.push_str(" warnings:");
-        label.push_str(&item.required_warnings.join(","));
-    }
-    label
 }
 
 fn max_logical(rows: &[DiskMapVisibleRow]) -> u64 {
