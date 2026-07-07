@@ -100,11 +100,44 @@ fn disk_session_filters_rows_by_path_text() {
         DiskMapSortField::Logical,
         DiskMapSessionFilter {
             path_contains: Some("target"),
+            ..DiskMapSessionFilter::default()
         },
     );
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, "target");
+}
+
+#[test]
+fn disk_session_filters_rows_by_kind_and_extension() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("cache.tmp"), b"abc");
+    write_file(root.join("log.txt"), b"abc");
+    write_file(root.join("nested").join("ignored.tmp"), b"abc");
+
+    let report = inspect_map(
+        &DiskMapRequest::new(vec![root])
+            .with_scan_backend(ScanBackendKind::PortableRecursive)
+            .with_top_limit(10),
+        &ScanCancellationToken::new(),
+    )
+    .unwrap();
+    let session = DiskMapSession::from_report(report);
+    let root_id = session.root_ids()[0];
+
+    let rows = session.visible_rows(
+        Some(root_id),
+        DiskMapSortField::Logical,
+        DiskMapSessionFilter {
+            path_contains: None,
+            entry_kind: Some(DiskMapEntryKind::File),
+            extension: Some(".tmp"),
+        },
+    );
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "cache.tmp");
 }
 
 #[test]

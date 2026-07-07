@@ -1,9 +1,9 @@
+use std::cell::RefCell;
 use std::path::PathBuf;
 
 use rebecca::core::disk_map::{DiskMapEntryKind, DiskMapGroupKind, DiskMapSortField};
 use rebecca::core::disk_session::{
-    DiskMapDistributionFilter, DiskMapDistributionRow, DiskMapNodeId, DiskMapSession,
-    DiskMapSessionFilter, DiskMapVisibleRow,
+    DiskMapDistributionRow, DiskMapNodeId, DiskMapSession, DiskMapVisibleRow,
 };
 use rebecca::core::history::HistoryEntry;
 use rebecca::core::plan::CleanupPlan;
@@ -13,9 +13,12 @@ use crate::output::format_bytes;
 use crate::tui::basket::{CleanupBasket, confirmation_phrase, toggle_advice, workbench_request};
 use crate::tui::effect::TuiEffect;
 use crate::tui::input::{TuiKey, TuiMouseAction};
-use crate::tui::model::TuiScreen;
+use crate::tui::model::{TuiGroupFilter, TuiScreen};
 use crate::tui::navigation::RootChoice;
 use crate::tui::progress::{TuiTaskId, TuiTaskProgressEvent, TuiTaskStatus};
+use crate::tui::projection::{
+    TuiDistributionProjectionInput, TuiProjectionCache, TuiVisibleProjectionInput,
+};
 use crate::workbench::CleanupWorkbenchRequest;
 
 #[derive(Debug, Clone)]
@@ -33,6 +36,7 @@ pub(crate) struct TuiApp {
     pub(crate) search_query: String,
     pub(crate) type_search_query: String,
     pub(crate) extension_search_query: String,
+    pub(crate) group_filter: Option<TuiGroupFilter>,
     search_editing: bool,
     pub(crate) basket: CleanupBasket,
     pub(crate) preview: Option<CleanupPlan>,
@@ -47,6 +51,8 @@ pub(crate) struct TuiApp {
     failed_effect: Option<TuiEffect>,
     error_return_screen: TuiScreen,
     next_task_id: u64,
+    session_generation: u64,
+    projection: RefCell<TuiProjectionCache>,
     should_quit: bool,
 }
 
@@ -61,6 +67,7 @@ struct TuiSessionSnapshot {
     search_query: String,
     type_search_query: String,
     extension_search_query: String,
+    group_filter: Option<TuiGroupFilter>,
     message: String,
 }
 
@@ -84,6 +91,7 @@ impl TuiApp {
             search_query: String::new(),
             type_search_query: String::new(),
             extension_search_query: String::new(),
+            group_filter: None,
             search_editing: false,
             basket: CleanupBasket::new(),
             preview: None,
@@ -98,6 +106,8 @@ impl TuiApp {
             failed_effect: None,
             error_return_screen: TuiScreen::RootPicker,
             next_task_id: 0,
+            session_generation: 0,
+            projection: RefCell::new(TuiProjectionCache::default()),
             should_quit: false,
         }
     }
@@ -122,6 +132,7 @@ impl TuiApp {
             search_query: String::new(),
             type_search_query: String::new(),
             extension_search_query: String::new(),
+            group_filter: None,
             search_editing: false,
             basket: CleanupBasket::new(),
             preview: None,
@@ -136,6 +147,8 @@ impl TuiApp {
             failed_effect: None,
             error_return_screen: TuiScreen::Map,
             next_task_id: 0,
+            session_generation: 0,
+            projection: RefCell::new(TuiProjectionCache::default()),
             should_quit: false,
         }
     }
@@ -168,20 +181,27 @@ impl TuiApp {
             .unwrap_or_else(|| "Roots".to_string())
     }
 
+    pub(crate) fn active_group_filter_label(&self) -> Option<&str> {
+        self.group_filter.as_ref().map(TuiGroupFilter::label)
+    }
+
     pub(crate) fn visible_rows(&self) -> Vec<DiskMapVisibleRow> {
-        self.session
-            .as_ref()
-            .map(|session| {
-                session.visible_rows(
-                    self.current_parent,
-                    self.sort,
-                    DiskMapSessionFilter {
-                        path_contains: (!self.search_query.is_empty())
-                            .then_some(self.search_query.as_str()),
-                    },
-                )
+        let Some(session) = self.session.as_ref() else {
+            return Vec::new();
+        };
+        let parent_path = self.current_parent.and_then(|id| session.node_path(id));
+        self.projection
+            .borrow_mut()
+            .visible_rows(TuiVisibleProjectionInput {
+                session,
+                session_generation: self.session_generation,
+                parent: self.current_parent,
+                parent_path,
+                sort: self.sort,
+                search_query: self.search_query.as_str(),
+                group_filter: self.group_filter.as_ref(),
             })
-            .unwrap_or_default()
+            .to_vec()
     }
 
     pub(crate) fn selected_row(&self) -> Option<DiskMapVisibleRow> {
@@ -204,18 +224,19 @@ impl TuiApp {
             DiskMapGroupKind::Extension => self.extension_search_query.as_str(),
             DiskMapGroupKind::Depth | DiskMapGroupKind::Age => "",
         };
-        self.session
-            .as_ref()
-            .map(|session| {
-                session.distribution_rows(
-                    kind,
-                    self.sort,
-                    DiskMapDistributionFilter {
-                        label_contains: (!query.is_empty()).then_some(query),
-                    },
-                )
+        let Some(session) = self.session.as_ref() else {
+            return Vec::new();
+        };
+        self.projection
+            .borrow_mut()
+            .distribution_rows(TuiDistributionProjectionInput {
+                session,
+                session_generation: self.session_generation,
+                kind,
+                sort: self.sort,
+                search_query: query,
             })
-            .unwrap_or_default()
+            .to_vec()
     }
 
     pub(crate) fn selected_distribution_index(&self) -> usize {
@@ -270,6 +291,7 @@ impl TuiApp {
             }
             TuiMouseAction::SelectDistributionRow(index) => {
                 self.select_distribution_row(index);
+                self.apply_selected_group_filter();
                 TuiEffect::None
             }
             TuiMouseAction::ScrollUp => {
@@ -298,6 +320,8 @@ impl TuiApp {
         self.search_query.clear();
         self.type_search_query.clear();
         self.extension_search_query.clear();
+        self.group_filter = None;
+        self.bump_session_generation();
         self.message =
             "Scan complete. Space stages cleanup rules, c previews all matching targets."
                 .to_string();
@@ -334,6 +358,7 @@ impl TuiApp {
         self.selected = 0;
         self.selected_type = 0;
         self.selected_extension = 0;
+        self.bump_session_generation();
         self.message = "Refresh complete. Press b to restore the previous scan.".to_string();
         self.task_status = None;
         self.failed_effect = None;
@@ -351,208 +376,12 @@ impl TuiApp {
         let status = self
             .task_status
             .get_or_insert_with(|| TuiTaskStatus::started("Working..."));
-        match event {
-            TuiTaskProgressEvent::RootStarted {
-                root_index,
-                root_count,
-                root,
-                backend,
-            } => {
-                status.phase = format!("Scanning root {}/{}", root_index + 1, root_count);
-                status.backend = Some(backend);
-                status.current_root = Some(root.clone());
-                status.current_path = Some(root.clone());
-                status.root_count = root_count;
-                status.last_event = format!("Started {}", root.display());
-            }
-            TuiTaskProgressEvent::RootFinished {
-                root_index,
-                root_count,
-                root,
-                status: root_status,
-                logical_bytes,
-                files,
-                directories,
-            } => {
-                status.phase = format!("Finished root {}/{}", root_index + 1, root_count);
-                status.current_root = Some(root.clone());
-                status.current_path = Some(root.clone());
-                status.roots_finished = status.roots_finished.max(root_index + 1);
-                status.root_count = root_count;
-                status.logical_bytes = logical_bytes;
-                status.files = files;
-                status.directories = directories;
-                status.last_event = format!("{root_status}: {}", root.display());
-            }
-            TuiTaskProgressEvent::Traversal {
-                root,
-                counter,
-                value,
-                logical_bytes,
-                files,
-                directories,
-            } => {
-                status.phase = format!("Walking {counter} {value}");
-                status.current_root = Some(root);
-                status.logical_bytes = logical_bytes;
-                status.files = files;
-                status.directories = directories;
-                status.last_event = format!("{counter}: {value}");
-            }
-            TuiTaskProgressEvent::FileMeasured {
-                target_path,
-                path,
-                file_size,
-                files_scanned,
-                bytes_scanned,
-            } => {
-                status.phase = "Measuring files".to_string();
-                status.current_root = Some(target_path.clone());
-                status.current_path = Some(path.clone());
-                status.files = files_scanned;
-                status.logical_bytes = bytes_scanned;
-                status.last_event = format!("{} ({file_size} bytes)", path.display());
-            }
-            TuiTaskProgressEvent::BackendFallback {
-                root,
-                backend,
-                reason,
-            } => {
-                status.phase = "Backend fallback".to_string();
-                status.backend = Some(backend.clone());
-                status.current_root = Some(root.clone());
-                status.current_path = Some(root.clone());
-                status.last_event = format!("{backend}: {reason}");
-            }
-            TuiTaskProgressEvent::BackendStage {
-                root,
-                backend,
-                stage,
-                finished,
-            } => {
-                status.phase = if finished {
-                    format!("{stage} finished")
-                } else {
-                    format!("{stage} started")
-                };
-                status.backend = Some(backend);
-                status.current_root = Some(root.clone());
-                status.current_path = Some(root);
-                status.last_event = status.phase.clone();
-            }
-            TuiTaskProgressEvent::BackendMetric { metric, value } => {
-                status.phase = "Reading backend metrics".to_string();
-                status.last_event = format!("{metric}: {value}");
-            }
-            TuiTaskProgressEvent::Finalizing {
-                roots,
-                logical_bytes,
-                files,
-                directories,
-            } => {
-                status.phase = "Finalizing map".to_string();
-                status.root_count = roots;
-                status.roots_finished = roots;
-                status.logical_bytes = logical_bytes;
-                status.files = files;
-                status.directories = directories;
-                status.last_event = "Building ranked tree".to_string();
-            }
-            TuiTaskProgressEvent::CleanupTargetScanning { rule_id, path } => {
-                status.phase = "Scanning cleanup target".to_string();
-                status.current_rule_id = Some(rule_id.clone());
-                status.current_path = Some(path.clone());
-                status.targets_started = status.targets_started.saturating_add(1);
-                status.last_event = format!("{rule_id}: {}", path.display());
-            }
-            TuiTaskProgressEvent::CleanupTargetFinished {
-                rule_id,
-                path,
-                status: target_status,
-                estimated_bytes,
-            } => {
-                status.phase = "Measured cleanup target".to_string();
-                status.current_rule_id = Some(rule_id.clone());
-                status.current_path = Some(path.clone());
-                status.targets_finished = status.targets_finished.saturating_add(1);
-                status.estimated_bytes = status.estimated_bytes.saturating_add(estimated_bytes);
-                status.last_event = format!("{rule_id} {target_status}: {}", path.display());
-            }
-            TuiTaskProgressEvent::CleanupFileMeasured {
-                rule_id,
-                target_path,
-                path,
-                file_size,
-                files_scanned,
-                bytes_scanned,
-            } => {
-                status.phase = "Measuring cleanup files".to_string();
-                status.current_rule_id = Some(rule_id);
-                status.current_root = Some(target_path);
-                status.current_path = Some(path.clone());
-                status.files = files_scanned;
-                status.logical_bytes = bytes_scanned;
-                status.last_event = format!("{} ({file_size} bytes)", path.display());
-            }
-            TuiTaskProgressEvent::CleanupCacheHit {
-                rule_id,
-                path,
-                estimated_bytes,
-            } => {
-                status.phase = "Using scan cache".to_string();
-                status.current_rule_id = Some(rule_id.clone());
-                status.current_path = Some(path.clone());
-                status.cache_hits = status.cache_hits.saturating_add(1);
-                status.estimated_bytes = status.estimated_bytes.saturating_add(estimated_bytes);
-                status.last_event = format!("{rule_id} cache hit: {}", path.display());
-            }
-            TuiTaskProgressEvent::CleanupCacheMiss {
-                rule_id,
-                path,
-                reason,
-                pruned,
-            } => {
-                status.phase = "Refreshing scan cache".to_string();
-                status.current_rule_id = Some(rule_id.clone());
-                status.current_path = Some(path.clone());
-                status.cache_misses = status.cache_misses.saturating_add(1);
-                status.cache_pruned += usize::from(pruned);
-                status.last_event = format!("{rule_id} cache miss {reason}: {}", path.display());
-            }
-            TuiTaskProgressEvent::CleanupCacheWriteSkipped { rule_id, path } => {
-                status.phase = "Scan cache write skipped".to_string();
-                status.current_rule_id = Some(rule_id.clone());
-                status.current_path = Some(path.clone());
-                status.cache_write_skipped = status.cache_write_skipped.saturating_add(1);
-                status.last_event = format!("{rule_id}: {}", path.display());
-            }
-            TuiTaskProgressEvent::CleanupCachePruned {
-                inspected,
-                pruned,
-                retained,
-            } => {
-                status.phase = "Pruning scan cache".to_string();
-                status.cache_pruned = status.cache_pruned.saturating_add(pruned);
-                status.last_event =
-                    format!("cache inspected {inspected}, pruned {pruned}, retained {retained}");
-            }
-            TuiTaskProgressEvent::ExecutionFinished {
-                completed_targets,
-                freed_bytes,
-                pending_reclaim_bytes,
-            } => {
-                status.phase = "Cleanup execution finished".to_string();
-                status.targets_finished = completed_targets;
-                status.logical_bytes = freed_bytes.saturating_add(pending_reclaim_bytes);
-                status.last_event = format!("{completed_targets} target(s) completed");
-            }
-        }
+        status.apply_event(event);
     }
 
     pub(crate) fn apply_cancel_requested(&mut self) {
         if let Some(status) = &mut self.task_status {
-            status.cancel_requested = true;
-            status.phase = "Cancel requested".to_string();
+            status.mark_cancel_requested();
         }
         self.message = "Cancel requested; waiting for the worker to stop.".to_string();
     }
@@ -663,6 +492,10 @@ impl TuiApp {
                 self.open_parent_node();
                 TuiEffect::None
             }
+            TuiKey::Backspace => {
+                self.clear_group_filter();
+                TuiEffect::None
+            }
             TuiKey::Char('/') => {
                 self.search_editing = true;
                 self.message = "Type search text, Enter to apply, Esc to cancel.".to_string();
@@ -722,6 +555,14 @@ impl TuiApp {
             }
             TuiKey::Char('s') => {
                 self.cycle_sort();
+                TuiEffect::None
+            }
+            TuiKey::Enter => {
+                self.apply_selected_group_filter();
+                TuiEffect::None
+            }
+            TuiKey::Backspace => {
+                self.clear_group_filter();
                 TuiEffect::None
             }
             TuiKey::Char('1') | TuiKey::Esc | TuiKey::Char('h') => self.open_map_view(),
@@ -1000,6 +841,7 @@ impl TuiApp {
                 search_query: self.search_query.clone(),
                 type_search_query: self.type_search_query.clone(),
                 extension_search_query: self.extension_search_query.clone(),
+                group_filter: self.group_filter.clone(),
                 message: self.message.clone(),
             }
         })
@@ -1021,13 +863,24 @@ impl TuiApp {
         self.search_query = snapshot.search_query;
         self.type_search_query = snapshot.type_search_query;
         self.extension_search_query = snapshot.extension_search_query;
+        self.group_filter = snapshot.group_filter;
         self.screen = match snapshot.screen {
             TuiScreen::Map | TuiScreen::Treemap | TuiScreen::Types | TuiScreen::Extensions => {
                 snapshot.screen
             }
             _ => TuiScreen::Map,
         };
+        self.bump_session_generation();
         self.message = format!("Restored previous scan. {}", snapshot.message);
+    }
+
+    fn bump_session_generation(&mut self) {
+        self.session_generation = self.session_generation.saturating_add(1);
+        self.invalidate_projection();
+    }
+
+    fn invalidate_projection(&self) {
+        self.projection.borrow_mut().clear();
     }
 
     fn toggle_selected_rule(&mut self) {
@@ -1122,6 +975,39 @@ impl TuiApp {
         if let Some(row) = rows.get(selected) {
             self.message = format!("Selected {}.", row.label);
         }
+    }
+
+    fn apply_selected_group_filter(&mut self) {
+        let rows = self.distribution_rows();
+        let selected = match self.screen {
+            TuiScreen::Types => self.selected_type,
+            TuiScreen::Extensions => self.selected_extension,
+            _ => return,
+        };
+        let Some(row) = rows.get(selected) else {
+            self.message = "No distribution row to filter by.".to_string();
+            return;
+        };
+        let Some(filter) = TuiGroupFilter::from_distribution_row(row) else {
+            self.message = format!("{} cannot filter the map.", row.label);
+            return;
+        };
+        let summary = filter.summary();
+        self.group_filter = Some(filter);
+        self.selected = 0;
+        self.screen = TuiScreen::Map;
+        self.invalidate_projection();
+        self.message = format!("Filtering map and treemap by {summary}. Backspace clears it.");
+    }
+
+    fn clear_group_filter(&mut self) {
+        let Some(filter) = self.group_filter.take() else {
+            self.message = "No type or extension filter is active.".to_string();
+            return;
+        };
+        self.selected = 0;
+        self.invalidate_projection();
+        self.message = format!("Cleared {} filter.", filter.summary());
     }
 
     fn clamp_distribution_selection(&self, screen: TuiScreen) -> usize {
@@ -1248,7 +1134,7 @@ impl TuiApp {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use rebecca::core::cleanup_advice::{
         CleanupAdvice, CleanupAdviceCommand, CleanupAdviceSource, CleanupAdviceStatus,
@@ -1420,6 +1306,37 @@ mod tests {
         assert_eq!(app.screen, TuiScreen::Map);
         assert_eq!(app.selected, 0);
         assert_eq!(app.search_query, "cache");
+    }
+
+    #[test]
+    fn distribution_enter_filters_map_projection_and_backspace_clears() {
+        let mut app = TuiApp::from_session(
+            DiskMapSession::from_report(test_mixed_distribution_report()),
+            ScanBackendKind::PortableRecursive,
+            100,
+        );
+
+        assert_eq!(app.visible_rows().len(), 3);
+        assert_eq!(app.handle_key(TuiKey::Char('x')), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Extensions);
+
+        let tmp_index = app
+            .distribution_rows()
+            .iter()
+            .position(|row| row.key == ".tmp")
+            .expect("tmp distribution row");
+        app.select_distribution_row(tmp_index);
+
+        assert_eq!(app.handle_key(TuiKey::Enter), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Map);
+        assert_eq!(app.active_group_filter_label(), Some(".tmp"));
+        let rows = app.visible_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "cache.tmp");
+
+        assert_eq!(app.handle_key(TuiKey::Backspace), TuiEffect::None);
+        assert_eq!(app.active_group_filter_label(), None);
+        assert_eq!(app.visible_rows().len(), 3);
     }
 
     #[test]
@@ -1695,6 +1612,117 @@ mod tests {
             groups: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
+        }
+    }
+
+    fn test_mixed_distribution_report() -> DiskMapReport {
+        let root = PathBuf::from("/tmp");
+        DiskMapReport {
+            roots: vec![DiskMapRoot {
+                path: root.clone(),
+                status: DiskMapRootStatus::Scanned,
+                metrics: test_metrics(72, 2, 1),
+                estimate_source: EstimateSource::FreshScan,
+                estimate_provenance: EstimateProvenance::default(),
+                reason: None,
+            }],
+            totals: test_metrics(72, 2, 1),
+            top_entries: vec![
+                test_entry(
+                    &root,
+                    "cache.tmp",
+                    DiskMapEntryKind::File,
+                    test_metrics(10, 1, 0),
+                ),
+                test_entry(
+                    &root,
+                    "log.txt",
+                    DiskMapEntryKind::File,
+                    test_metrics(20, 1, 0),
+                ),
+                test_entry(
+                    &root,
+                    "build",
+                    DiskMapEntryKind::Directory,
+                    test_metrics(42, 0, 1),
+                ),
+            ],
+            groups: vec![
+                test_group(
+                    DiskMapGroupKind::Type,
+                    "file",
+                    "Files",
+                    test_metrics(30, 2, 0),
+                ),
+                test_group(
+                    DiskMapGroupKind::Type,
+                    "directory",
+                    "Directories",
+                    test_metrics(42, 0, 1),
+                ),
+                test_group(
+                    DiskMapGroupKind::Extension,
+                    ".tmp",
+                    ".tmp",
+                    test_metrics(10, 1, 0),
+                ),
+                test_group(
+                    DiskMapGroupKind::Extension,
+                    ".txt",
+                    ".txt",
+                    test_metrics(20, 1, 0),
+                ),
+            ],
+            diagnostic_summary: Default::default(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn test_entry(
+        root: &Path,
+        name: &str,
+        kind: DiskMapEntryKind,
+        metrics: DiskMapMetrics,
+    ) -> DiskMapEntry {
+        DiskMapEntry {
+            path: root.join(name),
+            root: root.to_path_buf(),
+            kind,
+            depth: 1,
+            logical_bytes: metrics.logical_bytes,
+            allocated_bytes: metrics.allocated_bytes,
+            unique_logical_bytes: metrics.unique_logical_bytes,
+            unique_allocated_bytes: metrics.unique_allocated_bytes,
+            files: metrics.files,
+            directories: metrics.directories,
+            estimate_source: EstimateSource::FreshScan,
+            estimate_provenance: EstimateProvenance::default(),
+            cleanup_advice: None,
+        }
+    }
+
+    fn test_group(
+        kind: DiskMapGroupKind,
+        key: &str,
+        label: &str,
+        metrics: DiskMapMetrics,
+    ) -> DiskMapGroup {
+        DiskMapGroup {
+            kind,
+            key: key.to_string(),
+            label: label.to_string(),
+            metrics,
+        }
+    }
+
+    fn test_metrics(logical_bytes: u64, files: u64, directories: u64) -> DiskMapMetrics {
+        DiskMapMetrics {
+            logical_bytes,
+            allocated_bytes: None,
+            unique_logical_bytes: Some(logical_bytes),
+            unique_allocated_bytes: None,
+            files,
+            directories,
         }
     }
 

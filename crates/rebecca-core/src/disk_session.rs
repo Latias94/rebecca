@@ -184,22 +184,57 @@ impl DiskMapSession {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DiskMapSessionFilter<'a> {
     pub path_contains: Option<&'a str>,
+    pub entry_kind: Option<DiskMapEntryKind>,
+    pub extension: Option<&'a str>,
 }
 
 impl DiskMapSessionFilter<'_> {
     fn matches(self, node: &DiskMapSessionNode) -> bool {
-        let Some(needle) = self.path_contains else {
-            return true;
-        };
-        let needle = needle.trim();
-        if needle.is_empty() {
-            return true;
+        if let Some(entry_kind) = self.entry_kind
+            && node.kind != entry_kind
+        {
+            return false;
         }
-        node.path
-            .to_string_lossy()
-            .to_ascii_lowercase()
-            .contains(&needle.to_ascii_lowercase())
+
+        if let Some(extension) = self.extension
+            && !node_matches_extension(node, extension)
+        {
+            return false;
+        }
+
+        if let Some(needle) = self.path_contains {
+            let needle = needle.trim();
+            if !needle.is_empty()
+                && !node
+                    .path
+                    .to_string_lossy()
+                    .to_ascii_lowercase()
+                    .contains(&needle.to_ascii_lowercase())
+            {
+                return false;
+            }
+        }
+
+        true
     }
+}
+
+fn node_matches_extension(node: &DiskMapSessionNode, extension: &str) -> bool {
+    if node.kind != DiskMapEntryKind::File {
+        return false;
+    }
+    let expected = extension.trim().to_ascii_lowercase();
+    if expected.is_empty() {
+        return true;
+    }
+    let actual = node
+        .path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| format!(".{}", extension.to_ascii_lowercase()))
+        .unwrap_or_else(|| "[no-extension]".to_string());
+    actual == expected
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

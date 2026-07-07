@@ -22,6 +22,7 @@ mod input;
 mod model;
 mod navigation;
 mod progress;
+mod projection;
 mod task;
 mod terminal;
 mod treemap;

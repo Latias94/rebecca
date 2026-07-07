@@ -59,10 +59,11 @@ pub(crate) fn snapshot(app: &TuiApp, options: ViewOptions) -> String {
     let width = options.width;
     lines.push(trim_to_width(
         format!(
-            "Rebecca TUI | {} | basket {} | sort {}",
+            "Rebecca TUI | {} | basket {} | sort {}{}",
             screen_label(app.screen),
             app.basket.len(),
-            app.sort.label()
+            app.sort.label(),
+            group_filter_suffix(app)
         ),
         width,
     ));
@@ -136,9 +137,10 @@ fn render_header(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, color: bool) {
         spans.push(Span::raw(" "));
     }
     spans.push(Span::raw(format!(
-        " basket:{}  sort:{}",
+        " basket:{}  sort:{}{}",
         app.basket.len(),
-        app.sort.label()
+        app.sort.label(),
+        group_filter_suffix(app)
     )));
     let title = Line::from(spans);
     frame.render_widget(Paragraph::new(title), area);
@@ -212,7 +214,7 @@ fn render_map(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: ViewOpti
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!("Map: {}", app.current_node_name())),
+            .title(map_title(app, "Map")),
     )
     .column_spacing(1);
     frame.render_widget(table, chunks[0]);
@@ -223,7 +225,7 @@ fn render_treemap(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: View
     let chunks = map_details_chunks(area);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!("Treemap: {}", app.current_node_name()));
+        .title(map_title(app, "Treemap"));
     let tile_area = bordered_inner(chunks[0]);
     frame.render_widget(block, chunks[0]);
 
@@ -508,8 +510,10 @@ fn render_status(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}{} | 1 map 4/w treemap 2/t types 3/x extensions Tab cycle s sort / filter r refresh R root b restore Space stage c preview g history ? help q quit | mouse click/wheel",
-            app.message, search
+            "{}{}{} | 1 map 4/w treemap 2/t types 3/x extensions Tab cycle s sort / filter Backspace clear-filter r refresh R root b restore Space stage c preview g history ? help q quit | mouse click/wheel",
+            app.message,
+            search,
+            active_group_filter_status(app)
         )),
         area,
     );
@@ -542,10 +546,7 @@ fn snapshot_root_choice(
 fn snapshot_map(app: &TuiApp, options: ViewOptions, lines: &mut Vec<String>) {
     let width = options.width;
     let rows = app.visible_rows();
-    lines.push(trim_to_width(
-        format!("Map: {}", app.current_node_name()),
-        width,
-    ));
+    lines.push(trim_to_width(map_title(app, "Map"), width));
     for (index, row) in rows.iter().enumerate().take(20) {
         let staged = row
             .cleanup_advice
@@ -581,10 +582,7 @@ fn snapshot_treemap(app: &TuiApp, lines: &mut Vec<String>, width: usize) {
         .map(|row| row.metrics.logical_bytes)
         .sum::<u64>()
         .max(1);
-    lines.push(trim_to_width(
-        format!("Treemap: {}", app.current_node_name()),
-        width,
-    ));
+    lines.push(trim_to_width(map_title(app, "Treemap"), width));
     if rows.is_empty() {
         lines.push(trim_to_width(
             "No entries for this scope.".to_string(),
@@ -699,9 +697,12 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from("j/k or arrows move"),
         Line::from("Enter/l opens a directory, h/Esc moves back"),
         Line::from("1 map, 4/w treemap, 2/t types, 3/x extensions, Tab cycles views"),
+        Line::from("Enter filters by selected type/extension; Backspace clears group filter"),
         Line::from("/ filters the active view, s cycles sort"),
         Line::from("r refreshes the active directory, R refreshes the root, b restores a scan"),
-        Line::from("Mouse: click tabs or rows to select, wheel moves selection"),
+        Line::from(
+            "Mouse: click tabs, map rows, treemap tiles, or distribution rows; wheel moves selection",
+        ),
         Line::from("Space stages the cleanup rule; preview includes all matching targets"),
         Line::from("e executes only after typed confirmation"),
         Line::from("g shows recent cleanup history"),
@@ -793,6 +794,25 @@ fn task_status_plain_lines(status: Option<&TuiTaskStatus>) -> Vec<String> {
         lines.push(format!("Last: {}", status.last_event));
     }
     lines
+}
+
+fn group_filter_suffix(app: &TuiApp) -> String {
+    app.active_group_filter_label()
+        .map(|label| format!(" | filter {label}"))
+        .unwrap_or_default()
+}
+
+fn active_group_filter_status(app: &TuiApp) -> String {
+    app.active_group_filter_label()
+        .map(|label| format!(" | group filter: {label}"))
+        .unwrap_or_default()
+}
+
+fn map_title(app: &TuiApp, prefix: &str) -> String {
+    match app.active_group_filter_label() {
+        Some(label) => format!("{prefix}: {} [{label}]", app.current_node_name()),
+        None => format!("{prefix}: {}", app.current_node_name()),
+    }
 }
 
 fn screen_label(screen: TuiScreen) -> &'static str {
