@@ -15,7 +15,9 @@ use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
 use rebecca::core::{CleanupPlan, RebeccaError};
 
 use crate::runtime::CliRuntime;
-use crate::tui::app::{TuiApp, TuiEffect, TuiTaskId, TuiTaskProgressEvent};
+use crate::tui::app::TuiApp;
+use crate::tui::effect::TuiEffect;
+use crate::tui::progress::{TuiTaskId, TuiTaskProgressEvent};
 
 pub(super) struct ActiveTask {
     id: TuiTaskId,

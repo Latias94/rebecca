@@ -13,7 +13,7 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-use crate::tui::app::{TuiInput, TuiKey, TuiMouseEvent, TuiMouseEventKind};
+use crate::tui::input::{TuiInput, TuiKey, TuiMouseEvent, TuiMouseEventKind};
 
 pub(crate) type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 

@@ -10,10 +10,12 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::output::format_bytes;
 use crate::text::format_count;
-use crate::tui::app::{
-    CleanupBasketItem, RootChoice, TuiApp, TuiMouseAction, TuiMouseEvent, TuiMouseEventKind,
-    TuiScreen, TuiTaskStatus,
-};
+use crate::tui::app::TuiApp;
+use crate::tui::basket::CleanupBasketItem;
+use crate::tui::input::{TuiMouseAction, TuiMouseEvent, TuiMouseEventKind};
+use crate::tui::model::TuiScreen;
+use crate::tui::navigation::RootChoice;
+use crate::tui::progress::TuiTaskStatus;
 use crate::tui::treemap::{self, TreemapItem, TreemapTile};
 
 const BAR_WIDTH: usize = 12;
@@ -1106,7 +1108,7 @@ mod tests {
     use rebecca::core::scan::ScanBackendKind;
 
     use super::*;
-    use crate::tui::app::{TuiKey, TuiMouseEvent, TuiMouseEventKind};
+    use crate::tui::input::{TuiKey, TuiMouseEvent, TuiMouseEventKind};
 
     #[test]
     fn trim_to_width_respects_display_width_for_cjk_text() {

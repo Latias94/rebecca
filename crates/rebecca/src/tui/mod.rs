@@ -10,9 +10,18 @@ use rebecca::core::scan::ScanBackendKind;
 
 use crate::cli::OutputMode;
 use crate::runtime::CliRuntime;
-use crate::tui::app::{RootChoice, TuiApp, TuiEffect, TuiInput};
+use crate::tui::app::TuiApp;
+use crate::tui::effect::TuiEffect;
+use crate::tui::input::TuiInput;
+use crate::tui::navigation::RootChoice;
 
 mod app;
+mod basket;
+mod effect;
+mod input;
+mod model;
+mod navigation;
+mod progress;
 mod task;
 mod terminal;
 mod treemap;
