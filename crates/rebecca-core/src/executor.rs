@@ -18,6 +18,7 @@ use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{
     PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy, is_reparse_like,
 };
+use crate::safety_catalog::default_safety_knowledge_for_platform;
 
 static CLEANUP_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
@@ -289,7 +290,8 @@ pub fn execute_cleanup_plan<B: CleanupBackend>(
     plan: &mut CleanupPlan,
     backend: &B,
 ) -> Result<ExecutionReport> {
-    execute_cleanup_plan_with_policy(plan, backend, ProtectionPolicy::new())
+    let policy = default_execution_policy(plan);
+    execute_cleanup_plan_with_policy(plan, backend, policy)
 }
 
 pub fn execute_cleanup_plan_with_policy<B: CleanupBackend>(
@@ -304,7 +306,15 @@ pub fn execute_cleanup_plan_parallel<B: CleanupBackend + Sync>(
     plan: &mut CleanupPlan,
     backend: &B,
 ) -> Result<ExecutionReport> {
-    execute_cleanup_plan_parallel_with_policy(plan, backend, ProtectionPolicy::new())
+    let policy = default_execution_policy(plan);
+    execute_cleanup_plan_parallel_with_policy(plan, backend, policy)
+}
+
+fn default_execution_policy(plan: &CleanupPlan) -> ProtectionPolicy<'static> {
+    match default_safety_knowledge_for_platform(plan.request.platform) {
+        Some(safety_knowledge) => ProtectionPolicy::new().with_safety_knowledge(safety_knowledge),
+        None => ProtectionPolicy::new(),
+    }
 }
 
 pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
@@ -568,10 +578,31 @@ fn apply_delete_result(target: &mut CleanupTarget, outcome: Result<ExecutionOutc
         Err(err) => {
             target.status = crate::TargetStatus::Failed;
             target.reason = Some(err.to_string());
-            target.reason_code = Some(CleanupTargetIssueReason::ExecutionFailed);
+            target.reason_code = Some(execution_issue_reason(&err));
             target.freed_bytes = 0;
             target.pending_reclaim_bytes = 0;
         }
+    }
+}
+
+fn execution_issue_reason(err: &RebeccaError) -> CleanupTargetIssueReason {
+    if is_permission_denied_execution_error(err) {
+        CleanupTargetIssueReason::ExecutionPermissionDenied
+    } else {
+        CleanupTargetIssueReason::ExecutionFailed
+    }
+}
+
+fn is_permission_denied_execution_error(err: &RebeccaError) -> bool {
+    match err {
+        RebeccaError::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => true,
+        RebeccaError::ExecutionFailed(message) => {
+            let normalized = message.to_ascii_lowercase();
+            normalized.contains("permission denied")
+                || normalized.contains("access is denied")
+                || normalized.contains("operation not permitted")
+        }
+        _ => false,
     }
 }
 

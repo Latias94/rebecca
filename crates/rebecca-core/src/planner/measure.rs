@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::app_leftovers::{AppLeftoverCandidate, AppLeftoverDeletionStyle};
-use crate::error::{RebeccaError, Result};
+use crate::error::{RebeccaError, Result, ScanFailureKind};
 use crate::model::Platform;
 use crate::plan::{
     CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle, CleanupTargetIssueReason,
@@ -155,6 +155,15 @@ pub(crate) fn app_leftover_skipped_target(
     .with_restore_hint(Some(leftover.restore_hint()))
     .with_deletion_style(cleanup_target_deletion_style(leftover.deletion_style()))
     .with_modified_at_unix_seconds(leftover.modified_at_unix_seconds)
+}
+
+pub(crate) fn scan_issue_reason(err: &RebeccaError) -> CleanupTargetIssueReason {
+    match err {
+        RebeccaError::ScanFailed(failure) if failure.kind == ScanFailureKind::PermissionDenied => {
+            CleanupTargetIssueReason::ScanPermissionDenied
+        }
+        _ => CleanupTargetIssueReason::ScanFailed,
+    }
 }
 
 pub(crate) fn emit_target_finished<F>(progress: &mut F, target: &CleanupTarget)
@@ -321,7 +330,7 @@ where
 
             let mut scan_cache_event = None;
             let measured_path =
-                measure_path_with_optional_scan_cache(T::path(&candidate), context, |event| {
+                match measure_path_with_optional_scan_cache(T::path(&candidate), context, |event| {
                     match event {
                         PathMeasureProgressEvent::Scan(ScanProgressEvent::FileMeasured {
                             ..
@@ -339,7 +348,17 @@ where
                             scan_cache_event = Some(MeasuredScanCacheEvent::WriteSkipped);
                         }
                     }
-                })?;
+                }) {
+                    Ok(measured_path) => measured_path,
+                    Err(err) => {
+                        let reason_code = scan_issue_reason(&err);
+                        let target = skipped_target(&candidate, mode, reason_code, err.to_string());
+                        return Ok(MeasuredTarget {
+                            target,
+                            scan_cache_event,
+                        });
+                    }
+                };
 
             let target = allowed_target(&candidate, measured_path.report.bytes_scanned, mode)
                 .with_estimate_source(measured_path.estimate_source)
@@ -578,5 +597,45 @@ fn cleanup_target_deletion_style(
         AppLeftoverDeletionStyle::PreserveRootContents => {
             CleanupTargetDeletionStyle::PreserveRootContents
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::error::{RebeccaError, ScanFailure, ScanFailureKind, ScanFailurePhase};
+    use crate::plan::CleanupTargetIssueReason;
+
+    use super::scan_issue_reason;
+
+    #[test]
+    fn scan_issue_reason_preserves_permission_denied() {
+        let err = RebeccaError::ScanFailed(ScanFailure {
+            kind: ScanFailureKind::PermissionDenied,
+            phase: ScanFailurePhase::RootMetadata,
+            path: PathBuf::from("/Users/alice/Library/Mail"),
+            message: "Operation not permitted".to_string(),
+        });
+
+        assert_eq!(
+            scan_issue_reason(&err),
+            CleanupTargetIssueReason::ScanPermissionDenied
+        );
+    }
+
+    #[test]
+    fn scan_issue_reason_uses_generic_scan_for_other_failures() {
+        let err = RebeccaError::ScanFailed(ScanFailure {
+            kind: ScanFailureKind::MetadataUnavailable,
+            phase: ScanFailurePhase::EntryMetadata,
+            path: PathBuf::from("/tmp/cache"),
+            message: "metadata unavailable".to_string(),
+        });
+
+        assert_eq!(
+            scan_issue_reason(&err),
+            CleanupTargetIssueReason::ScanFailed
+        );
     }
 }

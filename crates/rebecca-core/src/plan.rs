@@ -187,7 +187,9 @@ pub enum CleanupTargetIssueReason {
     ProjectArtifactRecentlyModified,
     ReclaimLimitSatisfied,
     ScanFailed,
+    ScanPermissionDenied,
     ExecutionFailed,
+    ExecutionPermissionDenied,
     Unclassified,
 }
 
@@ -206,7 +208,9 @@ impl CleanupTargetIssueReason {
             Self::ProjectArtifactRecentlyModified => "project-artifact-recently-modified",
             Self::ReclaimLimitSatisfied => "reclaim-limit-satisfied",
             Self::ScanFailed => "scan-failed",
+            Self::ScanPermissionDenied => "scan-permission-denied",
             Self::ExecutionFailed => "execution-failed",
+            Self::ExecutionPermissionDenied => "execution-permission-denied",
             Self::Unclassified => "unclassified",
         }
     }

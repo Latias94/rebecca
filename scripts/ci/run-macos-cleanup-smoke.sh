@@ -130,6 +130,18 @@ assert data["platform"] == "macos"
 assert data["platform_supported"] is True
 assert data["cleanup_execution_supported"] is True
 assert data["privilege_level"] in {"standard-user", "elevated", "unknown"}
+privacy = data["macos_privacy"]
+assert privacy["status"] in {"likely-blocked", "no-block-detected", "not-probed", "unknown"}
+assert privacy["action_kind"] in {
+    "grant-full-disk-access-if-needed",
+    "continue-preview-first",
+    "review-dry-run",
+    "no-action",
+}
+assert isinstance(privacy["full_disk_access_relevant"], bool)
+assert isinstance(privacy["affected_cleanup_families"], list)
+assert isinstance(privacy["probes"], list)
+assert privacy["suggested_action"]
 PY
 
 REBECCA_ACTIVE_PROCESSES="firefox:4242;Google Chrome:4243;Slack:4244;zoom.us:4245" \

@@ -74,7 +74,7 @@ fn executor_records_failure_without_aborting_plan() {
     ));
     plan.recompute_summary();
 
-    let backend = FakeBackend::failure();
+    let backend = FakeBackend::failure("backend unavailable");
     execute_cleanup_plan(&mut plan, &backend).unwrap();
 
     assert_eq!(plan.targets[0].status, TargetStatus::Failed);
@@ -87,6 +87,71 @@ fn executor_records_failure_without_aborting_plan() {
         plan.summary.issue_matrix[0].reason_code,
         CleanupTargetIssueReason::ExecutionFailed
     );
+}
+
+#[test]
+fn executor_records_permission_failure_reason_without_aborting_plan() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("file.tmp");
+    fs::write(&file, b"trash").unwrap();
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.user-temp",
+        file,
+        10,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::failure("permission denied");
+    execute_cleanup_plan(&mut plan, &backend).unwrap();
+
+    assert_eq!(plan.targets[0].status, TargetStatus::Failed);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionPermissionDenied)
+    );
+    assert_eq!(plan.summary.failed_targets, 1);
+    assert_eq!(
+        plan.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::ExecutionPermissionDenied
+    );
+}
+
+#[test]
+fn executor_default_policy_uses_plan_platform_safety_knowledge() {
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Macos,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "macos.unsafe-system",
+        PathBuf::from("/System/Library/Caches"),
+        10,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.recompute_summary();
+
+    let backend = FakeBackend::success();
+    let report = execute_cleanup_plan(&mut plan, &backend).unwrap();
+
+    assert_eq!(backend.calls.get(), 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("critical macos path"))
+    );
+    assert_eq!(report.summary.blocked_actions, 1);
+    assert_eq!(plan.summary.blocked_targets, 1);
 }
 
 #[test]
@@ -627,13 +692,13 @@ fn executor_parallel_maps_partial_batch_failures_per_target() {
     assert_eq!(plan.targets[1].status, TargetStatus::Failed);
     assert_eq!(
         plan.targets[1].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionFailed)
+        Some(CleanupTargetIssueReason::ExecutionPermissionDenied)
     );
     assert_eq!(plan.summary.completed_targets, 1);
     assert_eq!(plan.summary.failed_targets, 1);
     assert_eq!(
         plan.summary.issue_matrix[0].reason_code,
-        CleanupTargetIssueReason::ExecutionFailed
+        CleanupTargetIssueReason::ExecutionPermissionDenied
     );
 }
 
@@ -713,21 +778,21 @@ fn executor_blocks_app_leftover_durable_paths_before_backend_calls() {
 
 struct FakeBackend {
     calls: Cell<usize>,
-    fail: bool,
+    failure_message: Option<&'static str>,
 }
 
 impl FakeBackend {
     fn success() -> Self {
         Self {
             calls: Cell::new(0),
-            fail: false,
+            failure_message: None,
         }
     }
 
-    fn failure() -> Self {
+    fn failure(message: &'static str) -> Self {
         Self {
             calls: Cell::new(0),
-            fail: true,
+            failure_message: Some(message),
         }
     }
 }
@@ -735,9 +800,9 @@ impl FakeBackend {
 impl CleanupBackend for FakeBackend {
     fn delete(&self, target: &CleanupTarget) -> Result<ExecutionOutcome> {
         self.calls.set(self.calls.get() + 1);
-        if self.fail {
+        if let Some(message) = self.failure_message {
             return Err(rebecca_core::RebeccaError::ExecutionFailed(
-                "permission denied".to_string(),
+                message.to_string(),
             ));
         }
 

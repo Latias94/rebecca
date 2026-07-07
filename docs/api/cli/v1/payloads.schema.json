@@ -478,7 +478,9 @@
         "project-artifact-recently-modified",
         "reclaim-limit-satisfied",
         "scan-failed",
+        "scan-permission-denied",
         "execution-failed",
+        "execution-permission-denied",
         "unclassified"
       ]
     },
@@ -688,6 +690,9 @@
       "required": [
         "status",
         "probes",
+        "action_kind",
+        "full_disk_access_relevant",
+        "affected_cleanup_families",
         "suggested_action"
       ],
       "properties": {
@@ -705,6 +710,31 @@
           "items": {
             "$ref": "#/$defs/macosPrivacyProbe"
           }
+        },
+        "action_kind": {
+          "type": "string",
+          "enum": [
+            "grant-full-disk-access-if-needed",
+            "continue-preview-first",
+            "review-dry-run",
+            "no-action"
+          ]
+        },
+        "full_disk_access_relevant": {
+          "type": "boolean"
+        },
+        "affected_cleanup_families": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "mail",
+              "messages",
+              "safari",
+              "user-library-cache"
+            ]
+          },
+          "uniqueItems": true
         },
         "suggested_action": {
           "type": "string",

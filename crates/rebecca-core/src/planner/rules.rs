@@ -20,7 +20,7 @@ use crate::warnings::warning_gate_required_reason;
 
 use super::measure::{
     MeasuredPath, PathMeasureProgressEvent, dedupe_key, emit_target_finished, finalize_plan,
-    measure_path_with_optional_scan_cache, prune_scan_cache,
+    measure_path_with_optional_scan_cache, prune_scan_cache, scan_issue_reason,
 };
 use super::{PlanBuildContext, PlanProgressEvent};
 
@@ -328,12 +328,13 @@ impl RuleMeasurementCandidate {
     }
 
     fn failed_target(&self, err: RebeccaError, mode: crate::DeleteMode) -> CleanupTarget {
+        let reason_code = scan_issue_reason(&err);
         self.metadata.apply(CleanupTarget::failed_with_reason_code(
             self.metadata.rule_id.clone(),
             self.path.clone(),
             mode,
             0,
-            CleanupTargetIssueReason::ScanFailed,
+            reason_code,
             err.to_string(),
         ))
     }

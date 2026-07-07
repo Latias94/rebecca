@@ -986,6 +986,17 @@ fn doctor_permissions_format_json_returns_diagnostic_payload() {
         let macos_privacy = envelope["data"]["macos_privacy"].as_object().unwrap();
         assert!(macos_privacy["status"].as_str().is_some());
         assert!(macos_privacy["probes"].as_array().is_some());
+        assert!(macos_privacy["action_kind"].as_str().is_some());
+        assert!(
+            macos_privacy["full_disk_access_relevant"]
+                .as_bool()
+                .is_some()
+        );
+        assert!(
+            macos_privacy["affected_cleanup_families"]
+                .as_array()
+                .is_some()
+        );
         assert!(macos_privacy["suggested_action"].as_str().is_some());
     } else {
         assert!(envelope["data"].get("macos_privacy").is_none());

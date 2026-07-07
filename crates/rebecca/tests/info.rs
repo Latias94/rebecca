@@ -66,6 +66,7 @@ fn doctor_permissions_prints_permission_label() {
     assert!(stdout.contains("Suggested action:"));
     if cfg!(target_os = "macos") {
         assert!(stdout.contains("macOS privacy:"));
+        assert!(stdout.contains("macOS privacy action kind:"));
         assert!(stdout.contains("macOS privacy action:"));
     }
 }
@@ -97,6 +98,17 @@ fn doctor_permissions_json_reports_supported_cleanup_platforms() {
         let macos_privacy = data["macos_privacy"].as_object().unwrap();
         assert!(macos_privacy["status"].as_str().is_some());
         assert!(macos_privacy["probes"].as_array().is_some());
+        assert!(macos_privacy["action_kind"].as_str().is_some());
+        assert!(
+            macos_privacy["full_disk_access_relevant"]
+                .as_bool()
+                .is_some()
+        );
+        assert!(
+            macos_privacy["affected_cleanup_families"]
+                .as_array()
+                .is_some()
+        );
         assert!(macos_privacy["suggested_action"].as_str().is_some());
     } else {
         assert!(data.get("macos_privacy").is_none());
