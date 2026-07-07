@@ -63,6 +63,20 @@ fn default_safety_catalog_loads_auditable_platform_knowledge() {
             .iter()
             .any(|prefix| prefix == "/system")
     );
+    assert!(
+        macos
+            .maintenance_allowlist()
+            .matches(&["users", "alice", "library", "caches", "pip"])
+    );
+    assert!(
+        !macos
+            .maintenance_allowlist()
+            .matches(&["users", "alice", "library", "caches"])
+    );
+    assert!(macos.protected_patterns().iter().any(|pattern| {
+        pattern.category() == SafetyCategory::ApplicationDurableData
+            && pattern.matches(&["users", "alice", "library", "application support"])
+    }));
 }
 
 #[test]

@@ -2,8 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     let path = path.as_ref();
@@ -71,7 +69,7 @@ fn apps_scan_json_builds_app_leftovers_plan() {
     write_fixture_file(cache.join("cache.bin"), b"abc");
     write_fixture_file(durable.join("state.bin"), b"keep");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
@@ -121,7 +119,7 @@ fn apps_scan_ndjson_uses_apps_scan_command_identity() {
         b"abc",
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
@@ -157,7 +155,7 @@ fn apps_scan_json_builds_wechat_leftovers_plan() {
     let (local, roaming) = appdata_roots(&temp);
     write_app_leftover_fixture(&temp, "WeChat");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
         .env("LOCALAPPDATA", &local)
@@ -207,7 +205,7 @@ fn apps_clean_yes_deletes_wechat_leftover_cache_contents() {
     let cache_dir = local.join("WeChat").join("Cache");
     let durable_state = local.join("WeChat").join("Local Storage").join("state.bin");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
         .env("LOCALAPPDATA", &local)
@@ -271,7 +269,7 @@ fn apps_clean_yes_respects_exclude_path_during_execution() {
     write_fixture_file(code_cache_dir.join("code.bin"), b"def");
     let cache_dir = local.join("WeChat").join("Cache");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "WeChat")
         .env("LOCALAPPDATA", &local)
@@ -342,7 +340,7 @@ fn apps_scan_json_honors_exclude_flag() {
     let cache = local.join("Example App").join("Cache");
     write_fixture_file(cache.join("cache.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
@@ -389,7 +387,7 @@ fn apps_scan_human_output_names_app_leftovers_workflow() {
         b"abc",
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
@@ -417,7 +415,7 @@ fn apps_clean_defaults_to_preview_without_deleting() {
     let cache_file = local.join("Example App").join("Cache").join("cache.bin");
     write_fixture_file(&cache_file, b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
@@ -450,7 +448,7 @@ fn apps_clean_no_scan_cache_disables_preview_cache_writes() {
     let cache_file = local.join("Example App").join("Cache").join("cache.bin");
     write_fixture_file(&cache_file, b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
@@ -492,7 +490,7 @@ fn apps_clean_dry_run_blocks_rebecca_owned_storage_overlap() {
     let cache_file = local.join("Example App").join("Cache").join("cache.bin");
     write_fixture_file(&cache_file, b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
@@ -543,7 +541,7 @@ fn apps_clean_dry_run_blocks_rebecca_owned_storage_overlap() {
 fn apps_scan_empty_inventory_reports_empty_plan() {
     let temp = tempfile::tempdir().unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_APP_DISCOVERY", "none")
         .args(["apps", "scan", "--format", "json", "--no-progress"])
         .output()

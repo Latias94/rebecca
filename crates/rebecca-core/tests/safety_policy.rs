@@ -171,6 +171,83 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         ProtectionAssessment::Blocked(block)
             if block.kind == ProtectionBlockKind::ProtectedCategory(ProtectedCategory::StartupAutomation)
     ));
+    for path in [
+        "/Users/alice/Library/Caches/pip/http",
+        "/Users/alice/Library/Caches/go-build/ab/cd",
+        "/Users/alice/Library/Caches/NuGet/v3-cache",
+        "/Users/alice/Library/Caches/torch/hub/checkpoints",
+        "/Users/alice/Library/Caches/Google/AndroidStudio2025.1/caches",
+        "/Users/alice/Library/Caches/com.apple.QuickLook.thumbnailcache",
+        "/Users/alice/Library/Caches/org.videolan.vlc/art/artistalbum",
+        "/Users/alice/Library/Caches/Firefox/Profiles/abcd.default/cache2",
+        "/Users/alice/Library/Application Support/Google/Chrome/Default/Cache",
+        "/Users/alice/Library/Application Support/Slack/Code Cache",
+        "/Users/alice/Library/Logs/Zoom",
+        "/Users/alice/Library/Logs/zoom.us",
+    ] {
+        assert!(
+            matches!(
+                macos_policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Allowed
+            ),
+            "{path} should be allowed as a macOS cache or log path"
+        );
+    }
+    for (path, category) in [
+        (
+            "/Users/alice/Library/Caches",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Logs/UnknownApp",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Application Support",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Application Support/Google/Chrome/Default/History",
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            "/Users/alice/Library/Application Support/Slack/Local Storage",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Containers/com.example.App/Data",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Group Containers/group.example.App/Data",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Keychains/login.keychain-db",
+            ProtectedCategory::Credentials,
+        ),
+        (
+            "/Users/alice/Library/Safari/History.db",
+            ProtectedCategory::BrowserPrivateData,
+        ),
+        (
+            "/Users/alice/Library/Mail/V10/MailData",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Messages/chat.db",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+    ] {
+        assert!(
+            matches!(
+                macos_policy.assess_path(&PathBuf::from(path)),
+                ProtectionAssessment::Blocked(block)
+                    if block.kind == ProtectionBlockKind::ProtectedCategory(category)
+            ),
+            "{path} should be blocked as {category:?}"
+        );
+    }
 }
 
 #[test]

@@ -24,6 +24,13 @@ platform = "linux"
 kind = "template"
 value = "%HOME%/.zoom/logs"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_LOG_HOME%/zoom.us/logs"
+
 [provenance]
 source = "owned"
 license = "project-owned"

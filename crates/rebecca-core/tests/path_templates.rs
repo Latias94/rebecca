@@ -98,6 +98,111 @@ fn linux_tmpdir_is_not_synthesized() {
 }
 
 #[test]
+fn macos_cache_home_falls_back_to_home_library_caches_when_unset() {
+    let env = PlatformEnvironment::new(
+        Platform::Macos,
+        MapEnvironment::new().with_var("HOME", "/Users/alice"),
+    );
+    let template = PathTemplate::new("%MACOS_CACHE_HOME%/pip");
+
+    let path = expand_template(&template, &env)
+        .expect("template should expand")
+        .expect("MACOS_CACHE_HOME should be synthesized from HOME");
+
+    assert_eq!(normalized(path), "/Users/alice/Library/Caches/pip");
+}
+
+#[test]
+fn macos_application_support_home_falls_back_to_home_library_application_support_when_unset() {
+    let env = PlatformEnvironment::new(
+        Platform::Macos,
+        MapEnvironment::new().with_var("HOME", "/Users/alice"),
+    );
+    let template = PathTemplate::new("%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Cache");
+
+    let path = expand_template(&template, &env)
+        .expect("template should expand")
+        .expect("MACOS_APPLICATION_SUPPORT_HOME should be synthesized from HOME");
+
+    assert_eq!(
+        normalized(path),
+        "/Users/alice/Library/Application Support/Slack/Cache"
+    );
+}
+
+#[test]
+fn macos_log_home_falls_back_to_home_library_logs_when_unset() {
+    let env = PlatformEnvironment::new(
+        Platform::Macos,
+        MapEnvironment::new().with_var("HOME", "/Users/alice"),
+    );
+    let template = PathTemplate::new("%MACOS_LOG_HOME%/Zoom");
+
+    let path = expand_template(&template, &env)
+        .expect("template should expand")
+        .expect("MACOS_LOG_HOME should be synthesized from HOME");
+
+    assert_eq!(normalized(path), "/Users/alice/Library/Logs/Zoom");
+}
+
+#[test]
+fn macos_container_roots_fall_back_to_home_library_roots_when_unset() {
+    let env = PlatformEnvironment::new(
+        Platform::Macos,
+        MapEnvironment::new().with_var("HOME", "/Users/alice"),
+    );
+
+    let container = expand_template(
+        &PathTemplate::new("%MACOS_CONTAINER_HOME%/com.example.App"),
+        &env,
+    )
+    .expect("template should expand")
+    .expect("MACOS_CONTAINER_HOME should be synthesized from HOME");
+    let group_container = expand_template(
+        &PathTemplate::new("%MACOS_GROUP_CONTAINER_HOME%/group.example.App"),
+        &env,
+    )
+    .expect("template should expand")
+    .expect("MACOS_GROUP_CONTAINER_HOME should be synthesized from HOME");
+
+    assert_eq!(
+        normalized(container),
+        "/Users/alice/Library/Containers/com.example.App"
+    );
+    assert_eq!(
+        normalized(group_container),
+        "/Users/alice/Library/Group Containers/group.example.App"
+    );
+}
+
+#[test]
+fn macos_explicit_cache_home_wins() {
+    let env = PlatformEnvironment::new(
+        Platform::Macos,
+        MapEnvironment::new()
+            .with_var("HOME", "/Users/alice")
+            .with_var("MACOS_CACHE_HOME", "/Volumes/FastCache/alice"),
+    );
+    let template = PathTemplate::new("%MACOS_CACHE_HOME%/pip");
+
+    let path = expand_template(&template, &env)
+        .expect("template should expand")
+        .expect("explicit MACOS_CACHE_HOME should be present");
+
+    assert_eq!(normalized(path), "/Volumes/FastCache/alice/pip");
+}
+
+#[test]
+fn macos_missing_home_keeps_candidate_absent() {
+    let env = PlatformEnvironment::new(Platform::Macos, MapEnvironment::new());
+    let template = PathTemplate::new("%MACOS_CACHE_HOME%/pip");
+
+    let path = expand_template(&template, &env).expect("missing HOME is not a hard error");
+
+    assert!(path.is_none());
+}
+
+#[test]
 fn non_linux_platform_environment_does_not_synthesize_xdg_defaults() {
     let env = PlatformEnvironment::new(
         Platform::Windows,
@@ -107,6 +212,20 @@ fn non_linux_platform_environment_does_not_synthesize_xdg_defaults() {
 
     let path =
         expand_template(&template, &env).expect("missing XDG_CACHE_HOME is not a hard error");
+
+    assert!(path.is_none());
+}
+
+#[test]
+fn non_macos_platform_environment_does_not_synthesize_macos_defaults() {
+    let env = PlatformEnvironment::new(
+        Platform::Linux,
+        MapEnvironment::new().with_var("HOME", "/Users/alice"),
+    );
+    let template = PathTemplate::new("%MACOS_CACHE_HOME%/pip");
+
+    let path =
+        expand_template(&template, &env).expect("missing MACOS_CACHE_HOME is not a hard error");
 
     assert!(path.is_none());
 }

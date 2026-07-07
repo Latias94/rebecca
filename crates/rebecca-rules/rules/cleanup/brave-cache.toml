@@ -120,6 +120,58 @@ value = "%XDG_CACHE_HOME%/BraveSoftware/Brave-Browser/ShaderCache"
 kind = "template"
 value = "%XDG_CACHE_HOME%/BraveSoftware/Brave-Browser/GrShaderCache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Default/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Default/DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Default/Media Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Profile */Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Profile */Code Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Profile */GPUCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Profile */DawnCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/Profile */Media Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/ShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/BraveSoftware/Brave-Browser/GrShaderCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

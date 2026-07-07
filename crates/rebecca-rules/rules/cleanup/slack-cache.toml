@@ -44,6 +44,21 @@ value = "%HOME%/.var/app/com.slack.Slack/cache"
 kind = "template"
 value = "%HOME%/snap/slack/common/.cache"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Slack/GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

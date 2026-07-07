@@ -19,6 +19,13 @@ platform = "linux"
 kind = "template"
 value = "%XDG_CACHE_HOME%/go-build"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/go-build"
+
 [provenance]
 source = "owned"
 license = "project-owned"

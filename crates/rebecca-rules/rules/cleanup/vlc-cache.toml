@@ -28,6 +28,17 @@ value = "%XDG_CACHE_HOME%/vlc/art/artistalbum"
 kind = "template"
 value = "%XDG_CACHE_HOME%/vlc/crashdump"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/org.videolan.vlc/art/artistalbum"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/org.videolan.vlc/crashdump"
+
 [provenance]
 source = "owned"
 license = "project-owned"

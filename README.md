@@ -30,7 +30,7 @@
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.2.0/rebecca-installer.ps1 | iex"
 ```
 
-The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` to override the install directory. Linux users should install from crates.io until Linux release archives are published.
+The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` to override the install directory. Linux and macOS users should install from crates.io until Unix release archives are published.
 
 **Install from crates.io**
 
@@ -53,6 +53,7 @@ rebecca = "0.1"
 cargo run -p rebecca -- scan
 cargo run -p rebecca -- catalog
 cargo run -p rebecca -- catalog --kind cleanup-rule --platform linux
+cargo run -p rebecca -- catalog --kind cleanup-rule --platform macos
 cargo run -p rebecca -- inspect space --root .
 cargo run -p rebecca -- inspect map --root . --top 20 --max-depth 3
 cargo run -p rebecca -- inspect map --root . --top 20 --full-path --bar-width 32
@@ -62,6 +63,7 @@ cargo run -p rebecca -- inspect artifacts --root .
 cargo run -p rebecca -- inspect lint --root .
 cargo run -p rebecca -- clean --dry-run
 cargo run -p rebecca -- clean --dry-run --rule linux.pip-cache --allow-moderate
+cargo run -p rebecca -- clean --dry-run --rule macos.chrome-cache --allow-warning active-process
 cargo run -p rebecca -- doctor active-processes
 cargo run -p rebecca -- apps scan
 cargo run -p rebecca -- catalog --kind project-artifact
@@ -196,7 +198,7 @@ Reference material under `repo-ref/` is for behavior research only; Rebecca owns
 ## Tips
 
 - `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the recoverable trash, and `cache purge --yes --permanent` opts into irreversible deletion.
-- Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API. Add `--platform linux` or `--platform windows` when a wrapper needs a host-specific cleanup catalog.
+- Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API. Add `--platform windows`, `--platform linux`, or `--platform macos` when a wrapper needs a host-specific cleanup catalog.
 - Use `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
 - Use `cache inspect`, `cache doctor`, and `cache prune` when you need Rebecca cache inventory, recommendations, or targeted stale-record cleanup.
 - Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the recoverable trash.
@@ -214,6 +216,7 @@ cargo run -p rebecca -- scan --rule windows.thumbnail-cache
 cargo run -p rebecca -- catalog
 cargo run -p rebecca -- catalog --format json --kind warning
 cargo run -p rebecca -- catalog --format json --kind cleanup-rule --platform linux
+cargo run -p rebecca -- catalog --format json --kind cleanup-rule --platform macos
 cargo run -p rebecca -- catalog --format json --kind project-artifact --artifact node-modules
 
 cargo run -p rebecca -- inspect space --root .
@@ -234,7 +237,9 @@ cargo run -p rebecca -- clean --dry-run
 cargo run -p rebecca -- clean --dry-run --format json --category system
 cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.edge-cache
 cargo run -p rebecca -- clean --dry-run --no-progress --rule linux.chrome-cache --allow-warning active-process
+cargo run -p rebecca -- clean --dry-run --no-progress --rule macos.chrome-cache --allow-warning active-process
 cargo run -p rebecca -- clean --dry-run --format json --rule linux.pip-cache --allow-moderate
+cargo run -p rebecca -- clean --dry-run --format json --rule macos.pip-cache --allow-moderate
 cargo run -p rebecca -- clean --dry-run --rule linux.apt-cache --allow-moderate --allow-warning permission-sensitive
 cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system
@@ -297,14 +302,14 @@ The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/c
 
 ## Built-In Rules
 
-Rebecca ships conservative cleanup rule families under `crates/rebecca-rules/rules/cleanup/`. Each TOML file owns shared metadata and one or more platform blocks; the compiler expands those blocks into runtime rule ids such as `windows.user-temp` and `linux.user-temp`. Windows and Linux rules are both discoverable through `rebecca catalog --kind cleanup-rule --platform <platform>`; Linux currently ships 47 built-in cleanup rules across system, browser, application, Steam, and developer-cache categories.
+Rebecca ships conservative cleanup rule families under `crates/rebecca-rules/rules/cleanup/`. Each TOML file owns shared metadata and one or more platform blocks; the compiler expands those blocks into runtime rule ids such as `windows.user-temp`, `linux.user-temp`, and `macos.user-temp`. Windows, Linux, and macOS rules are discoverable through `rebecca catalog --kind cleanup-rule --platform <platform>`; Linux ships system, browser, application, Steam, and developer-cache rules, while macOS ships user-scoped cache/log rules for browsers, developer tools, desktop apps, Steam, thumbnails, and temp files.
 
 - System and browser caches: user temp files, Linux package-manager archives, thumbnail caches, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, DirectX shader cache, and Windows Error Reporting data.
-- App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video. Linux app rules include native XDG paths plus bounded Flatpak or Snap cache locations where the app id is known.
+- App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video. Linux app rules include native XDG paths plus bounded Flatpak or Snap cache locations where the app id is known; macOS app rules target narrow `Library/Application Support/<App>/Cache`-style leaves and avoid durable app state.
 - Developer caches: pip, uv, Poetry, Conda, Go, Cargo, ccache, rustup, sccache, JetBrains, npm, pnpm, yarn, bun, corepack, Gradle, Android, NuGet, Maven, Hugging Face, PyTorch, and VS Code.
-- Steam caches: the Steam client cache plus Windows install-root/library-root cache leaves and Linux Steam install/library cache leaves discovered under readable user Steam roots.
+- Steam caches: the Steam client cache plus Windows, Linux, and macOS install-root/library-root cache leaves discovered under readable user Steam roots.
 
-Linux XDG variables are resolved by the planner: `XDG_CACHE_HOME` falls back to `$HOME/.cache`, `XDG_CONFIG_HOME` to `$HOME/.config`, `XDG_DATA_HOME` to `$HOME/.local/share`, and `XDG_STATE_HOME` to `$HOME/.local/state` when those variables are unset. Package-manager rules such as `linux.apt-cache`, `linux.dnf-cache`, `linux.pacman-cache`, and `linux.zypper-cache` require `--allow-moderate` and the `permission-sensitive` warning gate because they target bounded archive leaves under `/var/cache`.
+Linux XDG variables are resolved by the planner: `XDG_CACHE_HOME` falls back to `$HOME/.cache`, `XDG_CONFIG_HOME` to `$HOME/.config`, `XDG_DATA_HOME` to `$HOME/.local/share`, and `XDG_STATE_HOME` to `$HOME/.local/state` when those variables are unset. macOS rule variables are also semantic: `MACOS_CACHE_HOME` falls back to `$HOME/Library/Caches`, `MACOS_APPLICATION_SUPPORT_HOME` to `$HOME/Library/Application Support`, and `MACOS_LOG_HOME` to `$HOME/Library/Logs`. Package-manager rules such as `linux.apt-cache`, `linux.dnf-cache`, `linux.pacman-cache`, and `linux.zypper-cache` require `--allow-moderate` and the `permission-sensitive` warning gate because they target bounded archive leaves under `/var/cache`.
 
 Rule metadata includes generated platform rule ids, category, safety level, restore hint, warnings, and provenance. Built-in rules use `source = "owned"` with `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface restore hints when available, and `--format json` preserves those fields under the CLI API envelope.
 

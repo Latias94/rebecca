@@ -1,12 +1,10 @@
 use std::fs;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use std::path::Path;
 #[cfg(windows)]
 use std::path::PathBuf;
 
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 #[cfg(windows)]
 fn steam_dry_run_json_output(
@@ -16,7 +14,7 @@ fn steam_dry_run_json_output(
     let steam = temp.path().join("Steam");
     case.write_fixture(&steam);
 
-    let mut command = isolated::isolated_rebecca(temp);
+    let mut command = common::isolated::isolated_rebecca(temp);
     command.env("REBECCA_STEAM_DISCOVERY_PATH", &steam).args([
         "clean",
         "--dry-run",
@@ -42,7 +40,7 @@ fn steam_dry_run_json_output(
     common::support::api_data(&output.stdout)
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -115,7 +113,7 @@ fn clean_dry_run_json_builds_plan_without_deleting() {
     let file = temp_cache.join("cache.tmp");
     fs::write(&file, b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -151,7 +149,7 @@ fn clean_dry_run_accepts_windows_native_scan_backend() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -186,7 +184,7 @@ fn clean_dry_run_accepts_windows_ntfs_mft_experimental_scan_backend() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -223,7 +221,7 @@ fn clean_defaults_to_preview_without_deleting() {
     let file = temp_cache.join("cache.tmp");
     fs::write(&file, b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -249,7 +247,7 @@ fn clean_dry_run_json_reports_slack_cache_rule() {
     let temp = tempfile::tempdir().unwrap();
     write_slack_cache_fixture(&temp);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -305,7 +303,7 @@ fn clean_dry_run_json_skips_warning_rule_without_named_gate() {
     let temp = tempfile::tempdir().unwrap();
     write_slack_cache_fixture(&temp);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -346,7 +344,7 @@ fn clean_dry_run_json_reports_wechat_cache_rule() {
     let temp = tempfile::tempdir().unwrap();
     write_wechat_cache_fixture(&temp);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("APPDATA", temp.path().join("roaming"))
         .args([
             "clean",
@@ -418,7 +416,7 @@ fn clean_dry_run_json_honors_exclude_flag() {
     write_slack_cache_fixture(&temp);
     let protected_cache = temp.path().join("roaming").join("Slack").join("Cache");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -488,7 +486,7 @@ protected_paths = ['{}']
     )
     .unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -525,7 +523,7 @@ protected_paths = ['{}']
 #[test]
 fn clean_exclude_rejects_relative_paths() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -553,7 +551,7 @@ fn clean_dry_run_json_deduplicates_overlapping_system_targets() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
         .env("LOCALAPPDATA", &local)
@@ -624,7 +622,7 @@ cache_dir = '{}'
     )
     .unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env_remove("REBECCA_CACHE_DIR")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -681,7 +679,7 @@ fn clean_human_output_reports_issue_matrix_for_skipped_targets() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
         .env("LOCALAPPDATA", &local)
@@ -709,7 +707,7 @@ fn clean_human_output_reports_slack_cache_rule() {
     let temp = tempfile::tempdir().unwrap();
     write_slack_cache_fixture(&temp);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -764,7 +762,7 @@ fn clean_human_output_explains_skipped_safety_opt_in() {
     fs::write(local_npm_cache.join("index.bin"), b"abcd").unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
         .args([
@@ -816,7 +814,7 @@ cache_dir = '{}'
     )
     .unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env_remove("REBECCA_CACHE_DIR")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -862,7 +860,7 @@ fn clean_human_output_highlights_largest_targets_by_size() {
     fs::write(chrome_profile_code_cache.join("code.bin"), b"123456").unwrap();
     fs::write(chrome_default_cache.join("chrome.bin"), b"1234").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("LOCALAPPDATA", &local)
         .args(["clean", "--dry-run", "--category", "browser"])
         .output()
@@ -908,7 +906,7 @@ fn clean_dry_run_accepts_no_progress_flag() {
     fs::create_dir_all(&temp_cache).unwrap();
     fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
         .args([
@@ -979,7 +977,7 @@ fn clean_dry_run_writes_scan_cache_by_default_for_file_targets() {
     fs::create_dir_all(&explorer).unwrap();
     fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1018,7 +1016,7 @@ fn clean_dry_run_no_scan_cache_does_not_write_file_target_cache() {
     fs::create_dir_all(&explorer).unwrap();
     fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1055,7 +1053,7 @@ fn clean_yes_does_not_write_scan_cache_by_default() {
     fs::create_dir_all(&explorer).unwrap();
     fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--yes",
@@ -1096,7 +1094,7 @@ fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {
     fs::create_dir_all(&explorer).unwrap();
     fs::write(explorer.join("thumbcache_96.db"), b"thumb").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1138,7 +1136,7 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
     fs::create_dir_all(&edge_cache).unwrap();
     fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1196,7 +1194,7 @@ fn clean_dry_run_scan_cache_flag_reuses_directory_target_cache() {
     record["report"]["bytes_scanned"] = serde_json::json!(99);
     fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1259,7 +1257,7 @@ directory_record_max_age_seconds = 1
     fs::create_dir_all(&edge_cache).unwrap();
     fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1297,7 +1295,7 @@ directory_record_max_age_seconds = 1
     record["written_at_unix_seconds"] = serde_json::json!(stale_written_at);
     fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1336,7 +1334,7 @@ directory_record_max_age_seconds = 0
     )
     .unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1372,7 +1370,7 @@ fn clean_human_output_summarizes_scan_cache_activity() {
     fs::create_dir_all(&edge_cache).unwrap();
     fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1391,7 +1389,7 @@ fn clean_human_output_summarizes_scan_cache_activity() {
         common::support::stderr(&output)
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1443,7 +1441,7 @@ directory_record_max_age_seconds = 1
     fs::create_dir_all(&edge_cache).unwrap();
     fs::write(edge_cache.join("cache.bin"), b"edge").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1503,7 +1501,7 @@ directory_record_max_age_seconds = 1
     .unwrap();
     fs::remove_dir_all(&stale_root).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1571,7 +1569,7 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
     fs::create_dir_all(&httpcache).unwrap();
     fs::write(httpcache.join("cache.bin"), b"abcd").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY_PATH", &steam)
         .args([
             "clean",
@@ -1623,7 +1621,7 @@ fn clean_dry_run_json_allows_moderate_rules_with_opt_in() {
     fs::write(local_npm_cache.join("index.bin"), b"abcd").unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1666,7 +1664,7 @@ fn clean_dry_run_json_gates_linux_developer_cache_rules() {
     fs::create_dir_all(&pip_cache).unwrap();
     fs::write(pip_cache.join("http-cache.bin"), b"abcd").unwrap();
 
-    let skipped = isolated::isolated_rebecca(&temp)
+    let skipped = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1691,7 +1689,7 @@ fn clean_dry_run_json_gates_linux_developer_cache_rules() {
     assert_eq!(skipped_value["targets"][0]["rule_id"], "linux.pip-cache");
     assert_eq!(skipped_value["targets"][0]["status"], "skipped");
 
-    let allowed = isolated::isolated_rebecca(&temp)
+    let allowed = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1727,7 +1725,7 @@ fn clean_dry_run_json_gates_linux_package_manager_cache_rules() {
 
     let temp = tempfile::tempdir().unwrap();
 
-    let without_moderate = isolated::isolated_rebecca(&temp)
+    let without_moderate = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1756,7 +1754,7 @@ fn clean_dry_run_json_gates_linux_package_manager_cache_rules() {
         "safety-opt-in-required"
     );
 
-    let without_warning = isolated::isolated_rebecca(&temp)
+    let without_warning = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1810,7 +1808,7 @@ fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
     fs::write(chrome_cache.join("data.bin"), b"abcd").unwrap();
     fs::write(&chrome_history, b"keep").unwrap();
 
-    let skipped = isolated::isolated_rebecca(&temp)
+    let skipped = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1848,7 +1846,7 @@ fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
     assert_eq!(skipped_cache_target["status"], "skipped");
     assert_eq!(skipped_cache_target["reason_code"], "warning-gate-required");
 
-    let allowed = isolated::isolated_rebecca(&temp)
+    let allowed = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1946,7 +1944,7 @@ fn clean_dry_run_json_gates_linux_desktop_app_cache_warnings() {
     write_fixture_file(&flatpak_data, b"keep");
     write_fixture_file(&snap_config, b"keep");
 
-    let skipped = isolated::isolated_rebecca(&temp)
+    let skipped = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -1994,7 +1992,7 @@ fn clean_dry_run_json_gates_linux_desktop_app_cache_warnings() {
         assert_eq!(target["reason_code"], "warning-gate-required");
     }
 
-    let allowed = isolated::isolated_rebecca(&temp)
+    let allowed = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -2072,7 +2070,7 @@ fn clean_dry_run_json_discovers_linux_steam_install_cache() {
     write_fixture_file(&httpcache, b"abcdef");
     write_fixture_file(&userdata, b"keep");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -2109,6 +2107,358 @@ fn clean_dry_run_json_discovers_linux_steam_install_cache() {
     assert!(userdata.exists(), "Steam userdata must remain untouched");
 }
 
+#[test]
+fn clean_dry_run_json_gates_macos_developer_cache_rules() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let pip_cache = temp.path().join("Library").join("Caches").join("pip");
+    write_fixture_file(pip_cache.join("http-cache.bin"), b"abcd");
+
+    let skipped = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--rule",
+            "macos.pip-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        skipped.status.success(),
+        "stderr: {}",
+        common::support::stderr(&skipped)
+    );
+    let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
+    assert_eq!(skipped_value["summary"]["total_targets"], 1);
+    assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
+    assert_eq!(skipped_value["summary"]["skipped_targets"], 1);
+    assert_eq!(skipped_value["targets"][0]["rule_id"], "macos.pip-cache");
+    assert_eq!(skipped_value["targets"][0]["status"], "skipped");
+
+    let allowed = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-moderate",
+            "--rule",
+            "macos.pip-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        allowed.status.success(),
+        "stderr: {}",
+        common::support::stderr(&allowed)
+    );
+    let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
+    assert_eq!(allowed_value["summary"]["total_targets"], 1);
+    assert_eq!(allowed_value["summary"]["allowed_targets"], 1);
+    assert_eq!(allowed_value["summary"]["skipped_targets"], 0);
+    assert_eq!(allowed_value["summary"]["estimated_bytes"], 4);
+    assert_eq!(allowed_value["targets"][0]["rule_id"], "macos.pip-cache");
+    assert_eq!(allowed_value["targets"][0]["status"], "allowed");
+}
+
+#[test]
+fn clean_dry_run_json_gates_macos_browser_cache_warnings() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let chrome_profile = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Google")
+        .join("Chrome")
+        .join("Default");
+    let chrome_cache = chrome_profile.join("Cache");
+    let chrome_history = chrome_profile.join("History");
+    write_fixture_file(chrome_cache.join("data.bin"), b"abcd");
+    write_fixture_file(&chrome_history, b"keep");
+
+    let skipped = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--rule",
+            "macos.chrome-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        skipped.status.success(),
+        "stderr: {}",
+        common::support::stderr(&skipped)
+    );
+    let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
+    let skipped_targets = skipped_value["targets"].as_array().unwrap();
+    assert_eq!(
+        skipped_value["summary"]["total_targets"],
+        skipped_targets.len()
+    );
+    assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
+    assert_eq!(
+        skipped_value["summary"]["skipped_targets"],
+        skipped_targets.len()
+    );
+    let skipped_cache_target = skipped_targets
+        .iter()
+        .find(|target| {
+            target["path"].as_str().unwrap()
+                == "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/Cache"
+        })
+        .expect("Chrome cache template target should be present before warning opt-in");
+    assert_eq!(skipped_cache_target["status"], "skipped");
+    assert_eq!(skipped_cache_target["reason_code"], "warning-gate-required");
+
+    let allowed = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-warning",
+            "active-process",
+            "--rule",
+            "macos.chrome-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        allowed.status.success(),
+        "stderr: {}",
+        common::support::stderr(&allowed)
+    );
+    let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
+    let allowed_targets = allowed_value["targets"].as_array().unwrap();
+    assert_eq!(
+        allowed_value["summary"]["total_targets"],
+        allowed_targets.len()
+    );
+    assert_eq!(allowed_value["summary"]["allowed_targets"], 1);
+    assert_eq!(
+        allowed_value["summary"]["skipped_targets"],
+        allowed_targets.len() - 1
+    );
+    assert_eq!(allowed_value["summary"]["estimated_bytes"], 4);
+    let allowed_cache_target = allowed_targets
+        .iter()
+        .find(|target| {
+            target["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("/Library/Application Support/Google/Chrome/Default/Cache")
+        })
+        .expect("existing Chrome cache target should be allowed after warning opt-in");
+    assert_eq!(allowed_cache_target["rule_id"], "macos.chrome-cache");
+    assert_eq!(allowed_cache_target["status"], "allowed");
+    assert_eq!(allowed_cache_target["estimated_bytes"], 4);
+    assert!(
+        chrome_history.exists(),
+        "private browser data must not be targeted"
+    );
+}
+
+#[test]
+fn clean_dry_run_json_gates_macos_desktop_app_cache_warnings() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let slack = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Slack");
+    write_fixture_file(slack.join("Cache").join("cache.bin"), b"ab");
+    write_fixture_file(slack.join("Code Cache").join("code.bin"), b"cde");
+    write_fixture_file(slack.join("GPUCache").join("gpu.bin"), b"fghi");
+    write_fixture_file(
+        slack.join("Local Storage").join("leveldb").join("LOG"),
+        b"keep",
+    );
+
+    let skipped = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--rule",
+            "macos.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        skipped.status.success(),
+        "stderr: {}",
+        common::support::stderr(&skipped)
+    );
+    let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
+    let skipped_targets = skipped_value["targets"].as_array().unwrap();
+    assert_eq!(
+        skipped_value["summary"]["total_targets"],
+        skipped_targets.len()
+    );
+    assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
+    assert_eq!(
+        skipped_value["summary"]["skipped_targets"],
+        skipped_targets.len()
+    );
+    for expected_path in [
+        "%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Cache",
+        "%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Code Cache",
+        "%MACOS_APPLICATION_SUPPORT_HOME%/Slack/GPUCache",
+    ] {
+        let target = skipped_targets
+            .iter()
+            .find(|target| target["path"].as_str().unwrap() == expected_path)
+            .unwrap_or_else(|| {
+                panic!("Slack cache template target missing before warning opt-in: {expected_path}")
+            });
+        assert_eq!(target["reason_code"], "warning-gate-required");
+    }
+
+    let allowed = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-warning",
+            "active-process",
+            "--rule",
+            "macos.slack-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        allowed.status.success(),
+        "stderr: {}",
+        common::support::stderr(&allowed)
+    );
+    let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
+    let allowed_targets = allowed_value["targets"].as_array().unwrap();
+    assert_eq!(
+        allowed_value["summary"]["total_targets"],
+        allowed_targets.len()
+    );
+    assert_eq!(allowed_value["summary"]["allowed_targets"], 3);
+    assert_eq!(
+        allowed_value["summary"]["skipped_targets"],
+        allowed_targets.len() - 3
+    );
+    assert_eq!(allowed_value["summary"]["estimated_bytes"], 9);
+    for suffix in [
+        "/Library/Application Support/Slack/Cache",
+        "/Library/Application Support/Slack/Code Cache",
+        "/Library/Application Support/Slack/GPUCache",
+    ] {
+        let target = allowed_targets
+            .iter()
+            .find(|target| target["path"].as_str().unwrap().ends_with(suffix))
+            .unwrap_or_else(|| panic!("existing Slack cache target missing: {suffix}"));
+        assert_eq!(target["status"], "allowed");
+    }
+
+    let target_paths = allowed_targets
+        .iter()
+        .map(|target| target["path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        target_paths
+            .iter()
+            .all(|path| !path.contains("/Library/Application Support/Slack/Local Storage")),
+        "durable macOS app state must not be targeted: {target_paths:?}"
+    );
+    assert!(
+        slack
+            .join("Local Storage")
+            .join("leveldb")
+            .join("LOG")
+            .exists(),
+        "Slack durable data must remain untouched"
+    );
+}
+
+#[test]
+fn clean_dry_run_json_discovers_macos_steam_install_cache() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let steam = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Steam");
+    let httpcache = steam.join("appcache").join("httpcache").join("cache.bin");
+    let userdata = steam.join("userdata").join("123").join("config.vdf");
+    write_fixture_file(&httpcache, b"abcdef");
+    write_fixture_file(&userdata, b"keep");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-warning",
+            "source-boundary",
+            "--rule",
+            "macos.steam-install-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["summary"]["total_targets"], 1);
+    assert_eq!(value["summary"]["allowed_targets"], 1);
+    assert_eq!(value["summary"]["skipped_targets"], 0);
+    assert_eq!(value["summary"]["estimated_bytes"], 6);
+    assert_eq!(value["targets"][0]["rule_id"], "macos.steam-install-cache");
+    assert_eq!(value["targets"][0]["status"], "allowed");
+    assert!(
+        value["targets"][0]["path"]
+            .as_str()
+            .unwrap()
+            .contains("/Library/Application Support/Steam/appcache/httpcache")
+    );
+    assert!(userdata.exists(), "Steam userdata must remain untouched");
+}
+
 #[cfg(windows)]
 #[test]
 fn clean_dry_run_json_accepts_allow_risky_flag() {
@@ -2122,7 +2472,7 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
     fs::write(local_npm_cache.join("index.bin"), b"abcd").unwrap();
     fs::write(npm_cache.join("index.bin"), b"abcd").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -2158,7 +2508,7 @@ fn clean_dry_run_json_accepts_allow_risky_flag() {
 #[test]
 fn clean_unknown_rule_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -2177,7 +2527,7 @@ fn clean_unknown_rule_returns_clear_error() {
 #[test]
 fn clean_unknown_category_returns_clear_error() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "clean",
             "--dry-run",
@@ -2202,7 +2552,7 @@ fn non_windows_execution_uses_recoverable_trash_backend() {
     let file = temp_cache.join("cache.tmp");
     fs::write(&file, b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
         .args([

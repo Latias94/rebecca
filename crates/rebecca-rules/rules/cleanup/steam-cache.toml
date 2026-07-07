@@ -48,6 +48,22 @@ value = "%HOME%/.local/share/Steam/htmlcache/Default/Code Cache"
 kind = "template"
 value = "%HOME%/.local/share/Steam/htmlcache/Default/GPUCache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Steam/htmlcache/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Steam/htmlcache/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Steam/htmlcache/Default/GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

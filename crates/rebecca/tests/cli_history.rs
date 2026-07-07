@@ -4,8 +4,6 @@ mod common;
 use rebecca::core::history::HistoryEntry;
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
 use rebecca::core::{DeleteMode, PlanRequest, Platform, TargetStatus};
-#[path = "common/isolated.rs"]
-mod isolated;
 
 fn completed_history_entry(
     recorded_at_unix_seconds: u64,
@@ -141,7 +139,7 @@ fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
 #[test]
 fn history_json_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--format", "json"])
         .output()
         .unwrap();
@@ -159,7 +157,7 @@ fn history_json_is_empty_when_no_history_file_exists() {
 #[test]
 fn history_human_output_is_empty_when_no_history_file_exists() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -183,7 +181,7 @@ fn history_skips_corrupted_history_file_with_line_number_warning() {
     }
     fs::write(&history_path, "{not json}\n").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -237,7 +235,7 @@ fn history_json_preserves_restore_hints() {
     let entry = HistoryEntry::from_plan(&plan);
     std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--format", "json"])
         .output()
         .unwrap();
@@ -263,7 +261,7 @@ fn history_json_preserves_execution_missing_issue_details() {
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
     write_history_entries(&history_path, &[missing_target_history_entry(100)]);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--format", "json"])
         .output()
         .unwrap();
@@ -301,7 +299,7 @@ fn history_json_preserves_app_leftovers_workflow() {
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
     write_history_entries(&history_path, &[app_leftovers_history_entry(42)]);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--format", "json"])
         .output()
         .unwrap();
@@ -335,7 +333,7 @@ fn history_json_preserves_protected_issue_details() {
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
     write_history_entries(&history_path, &[protected_history_entry(99)]);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--format", "json"])
         .output()
         .unwrap();
@@ -414,7 +412,7 @@ fn history_human_output_lists_restore_hints() {
     let entry = HistoryEntry::from_plan(&plan);
     std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -459,7 +457,7 @@ fn history_human_output_lists_saved_issue_matrix() {
     let entry = HistoryEntry::from_plan(&plan);
     std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -482,7 +480,7 @@ fn history_human_output_lists_protected_issue_targets() {
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
     write_history_entries(&history_path, &[protected_history_entry(99)]);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -509,7 +507,7 @@ fn history_human_output_lists_execution_missing_issue_targets() {
     let history_path = temp.path().join("rebecca-state").join("history.jsonl");
     write_history_entries(&history_path, &[missing_target_history_entry(100)]);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -562,7 +560,7 @@ fn history_human_output_includes_aggregate_summary() {
         ],
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -627,7 +625,7 @@ fn history_human_output_highlights_largest_cleanup_runs() {
         ],
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -668,7 +666,7 @@ fn history_human_output_omits_largest_runs_when_cleanup_bytes_are_zero() {
         ],
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history"])
         .output()
         .unwrap();
@@ -697,7 +695,7 @@ fn history_human_limit_shows_most_recent_entries_in_chronological_order() {
         ],
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--limit", "2"])
         .output()
         .unwrap();
@@ -736,7 +734,7 @@ fn history_json_limit_shows_most_recent_entries() {
         ],
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--format", "json", "--limit", "2"])
         .output()
         .unwrap();
@@ -757,7 +755,7 @@ fn history_json_limit_shows_most_recent_entries() {
 #[test]
 fn history_limit_rejects_zero() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--limit", "0"])
         .output()
         .unwrap();

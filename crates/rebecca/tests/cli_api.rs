@@ -1,6 +1,4 @@
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 const API_DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api/cli/v1");
 
@@ -103,7 +101,7 @@ fn clean_format_json_returns_success_envelope_without_human_text() {
     std::fs::create_dir_all(&temp_cache).unwrap();
     std::fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -140,7 +138,7 @@ fn clean_format_json_returns_success_envelope_without_human_text() {
 #[test]
 fn history_format_json_returns_empty_history_envelope() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["history", "--format", "json"])
         .output()
         .unwrap();
@@ -163,7 +161,7 @@ fn history_format_json_returns_empty_history_envelope() {
 #[test]
 fn clean_format_json_unknown_rule_returns_error_envelope_on_stderr() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["clean", "--format", "json", "--rule", "missing.rule"])
         .output()
         .unwrap();
@@ -235,7 +233,7 @@ fn clean_format_ndjson_emits_lifecycle_events() {
     std::fs::create_dir_all(&temp_cache).unwrap();
     std::fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_STEAM_DISCOVERY", "none")
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
@@ -302,7 +300,7 @@ fn clean_format_ndjson_omits_file_measured_events_by_default() {
         std::fs::write(temp_cache.join(format!("cache-{index}.tmp")), b"cache").unwrap();
     }
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
         .args([
@@ -351,7 +349,7 @@ fn clean_format_ndjson_file_progress_detail_emits_file_measured_events() {
         std::fs::write(temp_cache.join(format!("cache-{index}.tmp")), b"cache").unwrap();
     }
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
         .args([
@@ -393,7 +391,7 @@ fn clean_format_ndjson_file_progress_detail_emits_file_measured_events() {
 #[test]
 fn clean_format_ndjson_unknown_rule_terminates_with_error_event() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["clean", "--format", "ndjson", "--rule", "missing.rule"])
         .output()
         .unwrap();
@@ -423,7 +421,7 @@ fn clean_format_ndjson_unknown_rule_terminates_with_error_event() {
 fn inspect_artifacts_format_ndjson_invalid_root_returns_error_event() {
     let temp = tempfile::tempdir().unwrap();
     let missing = temp.path().join("missing-workspace");
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "artifacts",

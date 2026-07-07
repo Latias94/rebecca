@@ -2,8 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
     let path = path.as_ref();
@@ -30,6 +28,10 @@ fn npm_cache_rule_fixture(temp: &tempfile::TempDir) -> Option<(PathBuf, PathBuf,
         let root = temp.path().join(".npm");
         let target = root.join("_cacache");
         Some((root, target, "linux.npm-cache"))
+    } else if cfg!(target_os = "macos") {
+        let root = temp.path().join("Library").join("Caches").join("npm");
+        let target = root.join("_cacache");
+        Some((root, target, "macos.npm-cache"))
     } else {
         None
     }
@@ -77,7 +79,7 @@ fn inspect_space_json_reports_top_entries_and_diagnostics() {
     write_fixture_file(root.join("alpha").join("data.bin"), b"abc");
     write_fixture_file(root.join("small.txt"), b"x");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "space",
@@ -139,7 +141,7 @@ fn inspect_space_json_diagnostic_limit_zero_keeps_summary_only() {
     let missing = temp.path().join("missing");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "space",
@@ -180,7 +182,7 @@ fn inspect_space_human_diagnostic_limit_zero_keeps_summary_count() {
     let missing = temp.path().join("missing");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "space",
@@ -214,7 +216,7 @@ fn inspect_space_json_accepts_scan_backend_and_reports_provenance() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("target").join("app.bin"), b"abcd");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "space",
@@ -264,7 +266,7 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
     write_fixture_file(root.join("alpha").join("data.bin"), b"abc");
     write_fixture_file(root.join("small.txt"), b"x");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .args([
             "inspect",
@@ -338,7 +340,7 @@ fn inspect_map_json_reports_requested_groups() {
     write_fixture_file(root.join("src").join("main.rs"), b"abcd");
     write_fixture_file(root.join("readme.md"), b"xy");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -386,7 +388,7 @@ fn inspect_map_json_respects_requested_sort_fields() {
     write_fixture_file(root.join("many").join("b.txt"), b"x");
     write_fixture_file(root.join("large.bin"), b"abcdefghij");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -437,7 +439,7 @@ fn inspect_map_json_filters_ranked_entries_without_changing_totals() {
     write_fixture_file(root.join("small-cache.bin"), b"x");
     write_fixture_file(root.join("LargeCache").join("nested.bin"), b"xyz");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -486,7 +488,7 @@ fn inspect_map_table_uses_ranked_entry_filters() {
     write_fixture_file(root.join("LargeCache").join("nested.bin"), b"abcdef");
     write_fixture_file(root.join("other").join("nested.bin"), b"xyz");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -533,7 +535,7 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
     };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -591,7 +593,7 @@ fn inspect_map_human_summarizes_cleanup_advice_and_next_command() {
     };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -639,7 +641,7 @@ fn inspect_map_json_reports_project_artifact_cleanup_advice() {
     write_fixture_file(root.join("package.json"), b"{}");
     write_fixture_file(target.join(".cache").join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -692,7 +694,7 @@ fn inspect_map_json_reports_app_leftover_cleanup_advice() {
     let target = app_root.join("Cache");
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
@@ -761,7 +763,7 @@ fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
     };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -810,7 +812,7 @@ fn inspect_map_table_reports_app_leftover_advice_columns() {
     let target = app_root.join("Cache");
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_INSTALLED_APPLICATIONS", "Example App")
         .env("LOCALAPPDATA", &local)
         .env("APPDATA", &roaming)
@@ -866,7 +868,7 @@ fn inspect_map_table_quotes_cleanup_command_arguments_with_spaces_and_quotes() {
     write_fixture_file(root.join("package.json"), b"{}");
     write_fixture_file(root.join("node_modules").join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -914,7 +916,7 @@ fn inspect_map_table_csv_exports_flat_rows() {
     write_fixture_file(root.join("many,files").join("b.txt"), b"x");
     write_fixture_file(root.join("large.bin"), b"abcdefghij");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -964,7 +966,7 @@ fn inspect_map_table_tsv_exports_tab_separated_rows() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("src").join("main.rs"), b"abcd");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1003,7 +1005,7 @@ fn inspect_map_table_row_filters_selected_kinds() {
     write_fixture_file(root.join("many").join("b.txt"), b"x");
     write_fixture_file(root.join("large.bin"), b"abcdefghij");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1057,7 +1059,7 @@ fn inspect_map_table_rejects_machine_format() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1081,7 +1083,7 @@ fn inspect_map_table_row_requires_table_output() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1126,7 +1128,7 @@ fn inspect_map_json_windows_native_reports_native_provenance() {
     write_fixture_file(root.join("alpha").join("data.bin"), b"abcd");
     write_fixture_file(root.join("beta.bin"), b"xyz");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1188,7 +1190,7 @@ fn inspect_map_json_windows_native_reports_hardlink_caveat() {
     write_fixture_file(&original, b"abcd");
     fs::hard_link(&original, &linked).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1252,7 +1254,7 @@ fn inspect_map_json_top_zero_preserves_totals_without_entries() {
     write_fixture_file(root.join("large.bin"), b"abc");
     write_fixture_file(root.join("small.bin"), b"x");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1292,7 +1294,7 @@ fn inspect_map_human_ranks_entries_with_share_and_bars() {
     write_fixture_file(root.join("large.bin"), b"abcdefgh");
     write_fixture_file(root.join("small.bin"), b"xy");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1330,7 +1332,7 @@ fn inspect_map_human_screen_reader_omits_visual_bars() {
     write_fixture_file(root.join("large.bin"), b"abcdefgh");
     write_fixture_file(root.join("small.bin"), b"xy");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1371,7 +1373,7 @@ fn inspect_map_human_compacts_very_long_paths() {
         .join("final-large-cache-entry.bin");
     write_fixture_file(&long_path, b"abcdefgh");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1409,7 +1411,7 @@ fn inspect_map_human_full_path_disables_compaction() {
         .join("final-large-cache-entry.bin");
     write_fixture_file(&long_path, b"abcdefgh");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1444,7 +1446,7 @@ fn inspect_map_human_no_bars_hides_visual_bars() {
     write_fixture_file(root.join("large.bin"), b"abcdefgh");
     write_fixture_file(root.join("small.bin"), b"xy");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1481,7 +1483,7 @@ fn inspect_map_human_bar_width_controls_visual_bars() {
     write_fixture_file(root.join("large.bin"), b"abcdefgh");
     write_fixture_file(root.join("small.bin"), b"xy");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1517,7 +1519,7 @@ fn inspect_map_human_groups_show_rank_share_and_bars() {
     write_fixture_file(root.join("large.bin"), b"abcdefgh");
     write_fixture_file(root.join("small.txt"), b"xy");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1555,7 +1557,7 @@ fn inspect_map_json_diagnostic_limit_zero_keeps_summary_only() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .args([
             "inspect",
@@ -1592,7 +1594,7 @@ fn inspect_map_human_reports_diagnostic_summary_and_samples() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .args([
             "inspect",
@@ -1624,7 +1626,7 @@ fn inspect_map_human_diagnostic_limit_zero_keeps_summary_count() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .args([
             "inspect",
@@ -1659,7 +1661,7 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .args([
             "inspect",
@@ -1765,7 +1767,7 @@ fn inspect_map_ndjson_advice_status_filter_implies_cleanup_advice() {
     };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "map",
@@ -1833,7 +1835,7 @@ fn inspect_space_ndjson_uses_v1_completed_event() {
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("entry.bin"), b"abc");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "space",
@@ -1896,7 +1898,7 @@ fn inspect_artifacts_json_reports_read_only_project_artifact_insight() {
     write_node_project(workspace.join("app"));
     write_rust_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "artifacts",
@@ -1956,7 +1958,7 @@ fn inspect_lint_json_reports_duplicates_and_empty_entries_without_writes() {
     write_fixture_file(&large_file, b"abcdef");
     fs::create_dir_all(&empty_dir).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "lint",
@@ -2025,7 +2027,7 @@ fn inspect_lint_ndjson_uses_v1_completed_event() {
     write_fixture_file(workspace.join("a.bin"), b"same");
     write_fixture_file(workspace.join("b.bin"), b"same");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "lint",

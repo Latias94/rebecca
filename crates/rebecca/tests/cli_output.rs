@@ -4,13 +4,11 @@ mod common;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::{CleanupPlan, CleanupTarget};
 use rebecca::core::{DeleteMode, PlanRequest, Platform, TargetStatus};
-#[path = "common/isolated.rs"]
-mod isolated;
 
 #[test]
 fn config_paths_json_is_parseable() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["config", "paths", "--format", "json"])
         .output()
         .unwrap();
@@ -74,7 +72,7 @@ history_file = "C:\\Rebecca\\State\\audit.jsonl"
     )
     .unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env_remove("REBECCA_STATE_DIR")
         .env_remove("REBECCA_CACHE_DIR")
         .env_remove("REBECCA_HISTORY_FILE")
@@ -119,7 +117,7 @@ fn config_paths_reports_malformed_config_file() {
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("config.toml"), "[app_paths\n").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["config", "paths"])
         .output()
         .unwrap();
@@ -138,7 +136,7 @@ fn config_paths_reports_unsupported_config_version() {
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("config.toml"), "version = 2\n").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["config", "paths"])
         .output()
         .unwrap();
@@ -192,7 +190,7 @@ history_file = '{}'
         .append_plan(&plan)
         .unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env_remove("REBECCA_HISTORY_FILE")
         .args(["history", "--format", "json"])
         .output()

@@ -1,11 +1,9 @@
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 #[test]
 fn config_paths_json_is_parseable() {
     let temp = tempfile::tempdir().unwrap();
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["config", "paths", "--format", "json"])
         .output()
         .unwrap();
@@ -81,7 +79,7 @@ fn doctor_permissions_json_reports_supported_cleanup_platforms() {
     );
 
     let data = common::support::api_data(&output.stdout);
-    if cfg!(windows) || cfg!(target_os = "linux") {
+    if cfg!(windows) || cfg!(target_os = "linux") || cfg!(target_os = "macos") {
         assert_eq!(data["platform_supported"], true);
         assert_eq!(data["cleanup_execution_supported"], true);
         assert_ne!(data["privilege_level"], "unsupported-platform");
@@ -117,6 +115,11 @@ fn doctor_active_processes_json_reports_fake_matching_process() {
         assert_eq!(matches[0]["executable_name"], "slack.exe");
         assert_eq!(matches[0]["warning"], "active-process");
         assert_eq!(matches[0]["rule_ids"][0], "linux.slack-cache");
+    } else if cfg!(target_os = "macos") {
+        assert_eq!(matches[0]["process_id"], 4242);
+        assert_eq!(matches[0]["executable_name"], "slack.exe");
+        assert_eq!(matches[0]["warning"], "active-process");
+        assert_eq!(matches[0]["rule_ids"][0], "macos.slack-cache");
     } else if cfg!(windows) {
         assert_eq!(matches[0]["process_id"], 4242);
         assert_eq!(matches[0]["executable_name"], "slack.exe");
@@ -156,6 +159,10 @@ fn doctor_active_processes_json_matches_new_diagnostic_rules() {
         assert!(rule_ids.contains("linux.zoom-logs"));
         assert!(rule_ids.contains("linux.vlc-cache"));
         assert!(!rule_ids.contains("windows.teamviewer-logs"));
+    } else if cfg!(target_os = "macos") {
+        assert!(rule_ids.contains("macos.zoom-logs"));
+        assert!(rule_ids.contains("macos.vlc-cache"));
+        assert!(!rule_ids.contains("windows.teamviewer-logs"));
     } else if cfg!(windows) {
         assert!(rule_ids.contains("windows.zoom-logs"));
         assert!(rule_ids.contains("windows.teamviewer-logs"));
@@ -192,6 +199,9 @@ fn doctor_active_processes_json_matches_new_cache_rules() {
 
     if cfg!(target_os = "linux") {
         assert!(rule_ids.contains("linux.thunderbird-cache"));
+        assert!(!rule_ids.contains("windows.adobe-reader-cache"));
+    } else if cfg!(target_os = "macos") {
+        assert!(rule_ids.contains("macos.thunderbird-cache"));
         assert!(!rule_ids.contains("windows.adobe-reader-cache"));
     } else if cfg!(windows) {
         assert!(rule_ids.contains("windows.adobe-reader-cache"));

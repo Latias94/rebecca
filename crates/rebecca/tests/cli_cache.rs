@@ -1,8 +1,6 @@
 use std::fs;
 
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 #[test]
 fn cache_purge_json_defaults_to_preview_without_deleting() {
@@ -12,7 +10,7 @@ fn cache_purge_json_defaults_to_preview_without_deleting() {
     fs::write(cache_dir.join("cache.bin"), b"abc").unwrap();
     fs::write(cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "purge", "--format", "json"])
         .output()
         .unwrap();
@@ -59,7 +57,7 @@ fn cache_purge_human_output_reports_scope_and_status_counts() {
     fs::write(cache_dir.join("cache.bin"), b"abc").unwrap();
     fs::write(cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "purge"])
         .output()
         .unwrap();
@@ -93,7 +91,7 @@ fn cache_purge_yes_moves_direct_contents_to_recoverable_trash_by_default() {
     fs::write(cache_dir.join("cache.bin"), b"abc").unwrap();
     fs::write(cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "purge", "--yes", "--format", "json"])
         .output()
         .unwrap();
@@ -153,7 +151,7 @@ fn cache_purge_yes_uses_recoverable_backend_off_windows() {
     fs::write(cache_dir.join("cache.bin"), b"abc").unwrap();
     fs::write(cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "purge", "--yes", "--format", "json"])
         .output()
         .unwrap();
@@ -180,7 +178,7 @@ fn cache_purge_permanent_deletes_direct_contents_but_keeps_cache_dir() {
     fs::write(cache_dir.join("cache.bin"), b"abc").unwrap();
     fs::write(cache_dir.join("nested").join("nested.bin"), b"de").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "purge", "--yes", "--permanent", "--format", "json"])
         .output()
         .unwrap();
@@ -225,7 +223,7 @@ fn cache_purge_rejects_overlap_with_state_dir() {
     let state_dir = temp.path().join("rebecca-state");
     fs::create_dir_all(&state_dir).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("REBECCA_CACHE_DIR", &state_dir)
         .args(["cache", "purge", "--format", "json"])
         .output()
@@ -242,7 +240,7 @@ fn cache_purge_rejects_overlap_with_state_dir() {
 fn cache_inspect_json_reports_empty_inventory() {
     let temp = tempfile::tempdir().unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "inspect", "--format", "json"])
         .output()
         .unwrap();
@@ -266,7 +264,7 @@ fn cache_inspect_json_reports_corrupt_scan_cache_record() {
     fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
     fs::write(&corrupt, "{").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "cache",
             "inspect",
@@ -299,7 +297,7 @@ fn cache_doctor_json_recommends_pruning_corrupt_records() {
     fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
     fs::write(&corrupt, "{").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "doctor", "--format", "json"])
         .output()
         .unwrap();
@@ -325,7 +323,7 @@ fn cache_doctor_human_output_prioritizes_prune_command() {
     fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
     fs::write(&corrupt, "{").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["cache", "doctor"])
         .output()
         .unwrap();
@@ -350,7 +348,7 @@ fn cache_prune_yes_deletes_stale_records_with_execution_report() {
     fs::create_dir_all(corrupt.parent().unwrap()).unwrap();
     fs::write(&corrupt, "{").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "cache",
             "prune",

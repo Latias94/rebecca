@@ -23,6 +23,13 @@ platform = "linux"
 kind = "template"
 value = "%HOME%/.npm/_cacache"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.npm/_cacache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

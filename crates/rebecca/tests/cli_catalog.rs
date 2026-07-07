@@ -257,6 +257,44 @@ fn catalog_filters_cleanup_rules_by_platform() {
             .iter()
             .any(|item| item["id"] == "windows.npm-cache")
     );
+
+    let macos = common::command::rebecca()
+        .args([
+            "catalog",
+            "--format",
+            "json",
+            "--kind",
+            "cleanup-rule",
+            "--platform",
+            "macos",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        macos.status.success(),
+        "stderr: {}",
+        common::support::stderr(&macos)
+    );
+    let macos_items = catalog_data(&macos.stdout).as_array().unwrap().clone();
+    assert!(!macos_items.is_empty());
+    assert!(
+        macos_items
+            .iter()
+            .all(|item| item["kind"] == "cleanup-rule" && item["platform"] == "macos")
+    );
+    for expected in [
+        "macos.user-temp",
+        "macos.pip-cache",
+        "macos.chrome-cache",
+        "macos.firefox-profile-cache",
+        "macos.slack-cache",
+    ] {
+        assert!(
+            macos_items.iter().any(|item| item["id"] == expected),
+            "missing {expected}"
+        );
+    }
 }
 
 #[test]

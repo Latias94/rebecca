@@ -35,6 +35,17 @@ value = "%HOME%/.nuget/packages"
 kind = "template"
 value = "%XDG_CACHE_HOME%/NuGet"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.nuget/packages"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/NuGet"
+
 [provenance]
 source = "owned"
 license = "project-owned"

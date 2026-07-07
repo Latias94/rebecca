@@ -408,16 +408,123 @@ critical_path_prefixes = [
   "/var/root",
 ]
 
+steam_install_allowlist = [
+  "appcache/httpcache",
+  "appcache/download",
+  "appcache/shadercache",
+  "depotcache",
+  "logs",
+]
+
+steam_library_allowlist = [
+  "steamapps/shadercache",
+  "steamapps/downloading",
+  "steamapps/temp",
+]
+
 [platforms.maintenance_allowlist]
 sequences = [
-  ["library", "caches"],
+  ["%macos_cache_home%", "pip"],
+  ["library", "caches", "pip"],
+  ["%macos_cache_home%", "uv"],
+  ["library", "caches", "uv"],
+  ["%macos_cache_home%", "pypoetry", "cache"],
+  ["%macos_cache_home%", "pypoetry", "artifacts"],
+  ["library", "caches", "pypoetry", "cache"],
+  ["library", "caches", "pypoetry", "artifacts"],
+  ["%macos_cache_home%", "go-build"],
+  ["library", "caches", "go-build"],
+  ["%macos_cache_home%", "node", "corepack"],
+  ["library", "caches", "node", "corepack"],
+  ["%macos_cache_home%", "nuget"],
+  ["library", "caches", "nuget"],
+  ["%macos_cache_home%", "yarn"],
+  ["library", "caches", "yarn"],
+  ["%macos_cache_home%", "mozilla", "sccache"],
+  ["library", "caches", "mozilla", "sccache"],
+  ["%macos_cache_home%", "huggingface", "hub"],
+  ["%macos_cache_home%", "huggingface", "datasets"],
+  ["%macos_cache_home%", "huggingface", "assets"],
+  ["%macos_cache_home%", "huggingface", "xet"],
+  ["%macos_cache_home%", "torch", "hub"],
+  ["%macos_cache_home%", "nuget"],
+  ["%macos_cache_home%", "google", "androidstudio"],
+  ["%macos_cache_home%", "com.apple.quicklook.thumbnailcache"],
+  ["%macos_cache_home%", "org.videolan.vlc"],
   [".cache", "pip"],
   [".cache", "uv"],
   [".cache", "huggingface", "hub"],
   [".cache", "torch", "hub"],
   ["go", "pkg", "mod"],
+  ["%home%", ".npm", "_cacache"],
+  ["%home%", ".pnpm-store"],
+  ["%home%", ".bun", "install", "cache"],
+  ["%home%", ".cargo", "registry", "cache"],
+  ["%home%", ".cargo", "registry", "index"],
+  ["%home%", ".cargo", "registry", "src"],
+  ["%home%", ".cargo", "git", "db"],
+  ["%home%", ".cargo", "git", "checkouts"],
+  ["%home%", ".rustup", "downloads"],
+  ["%home%", ".rustup", "tmp"],
+  ["%home%", ".gradle", "caches"],
+  ["%home%", ".gradle", "notifications"],
+  ["%home%", ".m2", "repository"],
+  ["%home%", ".nuget", "packages"],
+  ["%ccache_dir%", "tmp"],
+  ["%home%", ".ccache", "tmp"],
+  ["%sccache_dir%"],
+  ["%macos_log_home%", "zoom"],
+  ["%macos_log_home%", "zoom.us"],
+  ["library", "logs", "zoom"],
+  ["library", "logs", "zoom.us"],
 ]
 
 [[platforms.protected_patterns]]
 category = "startup-automation"
 segments = ["launchagents", "launchdaemons"]
+
+[[platforms.protected_patterns]]
+category = "credentials"
+segments = ["keychains"]
+leaf_names = ["login.keychain-db"]
+sequences = [
+  ["library", "keychains"],
+]
+
+[[platforms.protected_patterns]]
+category = "browser-private-data"
+segments = ["safari"]
+leaf_names = [
+  "bookmarks",
+  "cookies",
+  "history",
+  "history.db",
+  "login data",
+  "local state",
+  "places.sqlite",
+  "preferences",
+  "web data",
+]
+sequences = [
+  ["library", "safari"],
+]
+
+[[platforms.protected_patterns]]
+category = "application-durable-data"
+segments = [
+  "%macos_cache_home%",
+  "%macos_application_support_home%",
+  "%macos_container_home%",
+  "%macos_group_container_home%",
+]
+sequences = [
+  ["library", "caches"],
+  ["library", "logs"],
+  ["library", "application support"],
+  ["library", "containers"],
+  ["library", "group containers"],
+  ["library", "mail"],
+  ["library", "messages"],
+  ["library", "photos"],
+  ["library", "preferences"],
+]

@@ -27,6 +27,17 @@ value = "%XDG_CACHE_HOME%/pypoetry/cache"
 kind = "template"
 value = "%XDG_CACHE_HOME%/pypoetry/artifacts"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/pypoetry/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/pypoetry/artifacts"
+
 [provenance]
 source = "owned"
 license = "project-owned"

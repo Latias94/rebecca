@@ -6,6 +6,7 @@ on:
       - main
       - master
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -43,6 +44,7 @@ jobs:
         os:
           - windows-2025
           - ubuntu-24.04
+          - macos-latest
     env:
       CARGO_TERM_COLOR: always
 
@@ -83,6 +85,11 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: bash scripts/ci/run-linux-cleanup-smoke.sh
+
+      - name: Run macOS cleanup smoke
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash scripts/ci/run-macos-cleanup-smoke.sh
 
   dist-plan:
     name: cargo-dist plan

@@ -44,6 +44,22 @@ value = "%HOME%/.var/app/com.getpostman.Postman/cache"
 kind = "template"
 value = "%HOME%/snap/postman/common/.cache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Postman/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Postman/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Postman/GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

@@ -20,6 +20,13 @@ platform = "linux"
 kind = "steam-install-template"
 value = "appcache/httpcache"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "appcache/httpcache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

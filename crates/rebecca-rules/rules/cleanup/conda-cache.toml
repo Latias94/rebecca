@@ -51,6 +51,29 @@ value = "%HOME%/miniforge3/pkgs"
 kind = "template"
 value = "%HOME%/mambaforge/pkgs"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.conda/pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/anaconda3/pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/miniconda3/pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/miniforge3/pkgs"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/mambaforge/pkgs"
+
 [provenance]
 source = "owned"
 license = "project-owned"

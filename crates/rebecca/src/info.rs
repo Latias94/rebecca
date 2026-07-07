@@ -372,9 +372,15 @@ fn permission_suggested_action(privilege_level: &str) -> &'static str {
         "elevated" if cfg!(target_os = "linux") => {
             "cleanup execution can use elevated Linux permissions"
         }
+        "elevated" if cfg!(target_os = "macos") => {
+            "cleanup execution can use elevated macOS permissions"
+        }
         "elevated" => "cleanup execution can use elevated Windows permissions",
         "standard-user" if cfg!(target_os = "linux") => {
             "use sudo only for reviewed permission-sensitive system cache rules"
+        }
+        "standard-user" if cfg!(target_os = "macos") => {
+            "use standard-user preview and recoverable cleanup for user-owned macOS cache rules"
         }
         "standard-user" => "run from an elevated shell if protected cleanup targets are blocked",
         "unsupported-platform" => {
@@ -387,11 +393,11 @@ fn permission_suggested_action(privilege_level: &str) -> &'static str {
 }
 
 fn cleanup_platform_supported() -> bool {
-    cfg!(windows) || cfg!(target_os = "linux")
+    cfg!(windows) || cfg!(target_os = "linux") || cfg!(target_os = "macos")
 }
 
 fn active_process_platform_supported() -> bool {
-    cfg!(windows) || cfg!(target_os = "linux")
+    cfg!(windows) || cfg!(target_os = "linux") || cfg!(target_os = "macos")
 }
 
 fn current_platform_label() -> &'static str {
@@ -431,7 +437,12 @@ fn active_process_snapshots() -> Result<Vec<ProcessSnapshot>> {
         linux_active_processes()
     }
 
-    #[cfg(all(not(windows), not(target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        macos_active_processes()
+    }
+
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
         Err(rebecca::core::RebeccaError::PlatformUnavailable(
             "process diagnostics are not available on this platform".to_string(),
@@ -496,6 +507,47 @@ fn linux_process_name(process_dir: &Path) -> Option<String> {
                 .map(|name| name.to_string_lossy().into_owned())
         })
         .filter(|name| !name.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_active_processes() -> Result<Vec<ProcessSnapshot>> {
+    let output = std::process::Command::new("ps")
+        .args(["-axo", "pid=,comm="])
+        .output()
+        .map_err(|err| {
+            rebecca::core::RebeccaError::PlatformUnavailable(format!(
+                "macOS ps process diagnostics are unavailable: {err}"
+            ))
+        })?;
+
+    if !output.status.success() {
+        return Err(rebecca::core::RebeccaError::PlatformUnavailable(
+            "macOS ps process diagnostics exited unsuccessfully".to_string(),
+        )
+        .into());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .filter_map(macos_process_snapshot_from_ps_line)
+        .collect())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_snapshot_from_ps_line(line: &str) -> Option<ProcessSnapshot> {
+    let line = line.trim();
+    let (pid, command) = line.split_once(char::is_whitespace)?;
+    let process_id = pid.trim().parse::<u32>().ok()?;
+    let executable_name = std::path::Path::new(command.trim())
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())?;
+
+    Some(ProcessSnapshot {
+        process_id,
+        executable_name,
+    })
 }
 
 #[cfg(debug_assertions)]
@@ -572,6 +624,22 @@ fn explicit_cleanup_rule_process_tokens(rule_id: &str) -> &'static [&'static str
         "linux.vlc-cache" => &["vlc"],
         "linux.zoom-logs" => &["zoom"],
         "linux.zen-browser-cache" => &["zen", "zen-browser", "zenbrowser"],
+        "macos.brave-cache" => &["brave", "brave browser"],
+        "macos.chrome-cache" => &["chrome", "google chrome"],
+        "macos.chromium-cache" => &["chromium"],
+        "macos.discord-cache" => &["discord", "discord ptb", "discord canary"],
+        "macos.edge-cache" => &["microsoft edge", "msedge"],
+        "macos.figma-cache" => &["figma"],
+        "macos.firefox-profile-cache" => &["firefox"],
+        "macos.notion-cache" => &["notion"],
+        "macos.postman-cache" => &["postman"],
+        "macos.slack-cache" => &["slack"],
+        "macos.thunderbird-cache" => &["thunderbird"],
+        "macos.vlc-cache" => &["vlc"],
+        "macos.vscode-cache" => &["code", "visual studio code"],
+        "macos.waterfox-cache" => &["waterfox"],
+        "macos.zoom-logs" => &["zoom", "zoom.us"],
+        "macos.zen-browser-cache" => &["zen", "zen browser", "zenbrowser"],
         "windows.adobe-reader-cache" => &["acrobat", "acroread"],
         "windows.teamviewer-logs" => &["teamviewer"],
         "windows.thunderbird-cache" => &["thunderbird"],
@@ -602,7 +670,12 @@ pub fn application_discovery() -> Box<dyn ApplicationDiscovery> {
         Box::new(rebecca::core::applications::LinuxApplicationDiscovery::new())
     }
 
-    #[cfg(all(not(windows), not(target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        Box::new(rebecca::core::applications::MacosApplicationDiscovery::new())
+    }
+
+    #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
         Box::new(rebecca::core::applications::NoopApplicationDiscovery::new())
     }
@@ -705,7 +778,28 @@ fn linux_effective_uid() -> Option<u32> {
     })
 }
 
-#[cfg(all(not(windows), not(target_os = "linux")))]
+#[cfg(target_os = "macos")]
+fn current_privilege_label() -> &'static str {
+    match macos_effective_uid() {
+        Some(0) => "elevated",
+        Some(_) => "standard-user",
+        None => "unknown",
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_effective_uid() -> Option<u32> {
+    let output = std::process::Command::new("id").arg("-u").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u32>()
+        .ok()
+}
+
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 fn current_privilege_label() -> &'static str {
     "unsupported-platform"
 }
@@ -739,5 +833,27 @@ mod tests {
             .to_string();
 
         assert!(error.contains("Linux /proc process diagnostics are unavailable"));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macos_process_snapshot_parses_ps_command_path() {
+        let process = macos_process_snapshot_from_ps_line(
+            " 4242 /Applications/Slack.app/Contents/MacOS/Slack",
+        )
+        .unwrap();
+
+        assert_eq!(process.process_id, 4242);
+        assert_eq!(process.executable_name, "Slack");
+    }
+
+    #[test]
+    fn macos_process_snapshot_ignores_invalid_ps_rows() {
+        assert!(macos_process_snapshot_from_ps_line("not-a-pid /Applications/Slack").is_none());
+        assert!(macos_process_snapshot_from_ps_line("4242").is_none());
     }
 }

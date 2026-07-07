@@ -1,15 +1,5 @@
 mod common;
 
-fn current_platform_prefix() -> &'static str {
-    if cfg!(target_os = "linux") {
-        "linux."
-    } else if cfg!(target_os = "macos") {
-        "macos."
-    } else {
-        "windows."
-    }
-}
-
 #[test]
 fn scan_json_lists_current_platform_builtin_rules() {
     let output = common::command::rebecca()
@@ -31,7 +21,7 @@ fn scan_json_lists_current_platform_builtin_rules() {
 
     assert!(
         ids.iter()
-            .all(|id| id.starts_with(current_platform_prefix())),
+            .all(|id| id.starts_with(common::support::current_platform_prefix())),
         "scan should only list current-platform rules: {ids:?}"
     );
     assert!(ids.contains(common::support::current_platform_user_temp_rule_id()));
@@ -61,16 +51,19 @@ fn scan_json_lists_current_platform_builtin_rules() {
         assert!(ids.contains("linux.apt-cache"));
         assert!(ids.contains("linux.chrome-cache"));
         assert!(!ids.contains("windows.steam-cache"));
+    } else if cfg!(target_os = "macos") {
+        assert!(ids.contains("macos.chrome-cache"));
+        assert!(ids.contains("macos.firefox-profile-cache"));
+        assert!(ids.contains("macos.slack-cache"));
+        assert!(ids.contains("macos.npm-cache"));
+        assert!(!ids.contains("windows.steam-cache"));
+        assert!(!ids.contains("linux.apt-cache"));
     }
 }
 
 #[test]
 fn scan_json_filters_by_category_and_rule() {
-    let rule_id = if cfg!(target_os = "linux") {
-        "linux.firefox-profile-cache"
-    } else {
-        "windows.firefox-profile-cache"
-    };
+    let rule_id = common::support::current_platform_rule_id("firefox-profile-cache");
 
     let output = common::command::rebecca()
         .args([
@@ -80,7 +73,7 @@ fn scan_json_filters_by_category_and_rule() {
             "--category",
             "browser",
             "--rule",
-            rule_id,
+            rule_id.as_str(),
         ])
         .output()
         .unwrap();
@@ -137,6 +130,13 @@ fn scan_human_output_groups_rules_by_category() {
         assert!(stdout.contains("  - linux.slack-cache [safe] Slack cache"));
         assert!(stdout.contains("  - linux.apt-cache [moderate] APT package archive cache"));
         assert!(!stdout.contains("windows.chrome-cache"));
+    } else if cfg!(target_os = "macos") {
+        assert!(stdout.contains("  - macos.chrome-cache [safe] Google Chrome cache"));
+        assert!(stdout.contains("  - macos.firefox-profile-cache [safe] Firefox profile cache"));
+        assert!(stdout.contains("  - macos.slack-cache [safe] Slack cache"));
+        assert!(stdout.contains("  - macos.zoom-logs [safe] Zoom logs"));
+        assert!(!stdout.contains("windows.chrome-cache"));
+        assert!(!stdout.contains("linux.chrome-cache"));
     }
     assert!(stdout.contains("- development ("));
     if cfg!(windows) {
@@ -150,6 +150,10 @@ fn scan_human_output_groups_rules_by_category() {
         assert!(stdout.contains("  - linux.npm-cache [moderate] npm cache"));
         assert!(stdout.contains("  - linux.ccache-cache [moderate] ccache compiler cache"));
         assert!(stdout.contains("  - linux.sccache-cache [moderate] sccache compiler cache"));
+    } else if cfg!(target_os = "macos") {
+        assert!(stdout.contains("  - macos.npm-cache [moderate] npm cache"));
+        assert!(stdout.contains("  - macos.ccache-cache [moderate] ccache compiler cache"));
+        assert!(stdout.contains("  - macos.sccache-cache [moderate] sccache compiler cache"));
     }
 }
 

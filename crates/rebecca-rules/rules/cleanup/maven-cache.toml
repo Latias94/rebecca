@@ -19,6 +19,13 @@ platform = "linux"
 kind = "template"
 value = "%HOME%/.m2/repository"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.m2/repository"
+
 [provenance]
 source = "owned"
 license = "project-owned"

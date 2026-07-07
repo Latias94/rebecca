@@ -28,6 +28,18 @@ value = "%XDG_CACHE_HOME%/mozilla/firefox/*/cache2"
 kind = "glob-template"
 value = "%XDG_CACHE_HOME%/mozilla/firefox/*/startupCache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Firefox/Profiles/*/cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Firefox/Profiles/*/startupCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

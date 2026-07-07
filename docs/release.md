@@ -4,7 +4,7 @@ Rebecca uses one tag-driven release workflow for crates.io publishing and cargo-
 
 Release handling is split across four workflows:
 
-- `ci.yml` runs formatting, linting, tests, Linux no-root cleanup smoke, cargo-dist planning, and a Windows release-packaging smoke test on pushes and pull requests;
+- `ci.yml` runs formatting, linting, tests, Linux and macOS no-root cleanup smokes, cargo-dist planning, and a Windows release-packaging smoke test on pushes and pull requests;
 - `release-gates.yml` is a manual evidence gate that runs the shared release gate wrapper, uploads dogfood/performance artifacts, and can compare full benchmark output against a prior workflow artifact;
 - `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks crate package file lists, dry-runs the first registry-independent crate publish, and exercises the repository PowerShell release archive scripts;
 - `release.yml` publishes `rebecca-core`, `rebecca-rules`, `rebecca-windows`, and `rebecca` to crates.io in dependency order, then publishes the tag-driven ZIP, PowerShell installer, and checksum files to GitHub Releases.

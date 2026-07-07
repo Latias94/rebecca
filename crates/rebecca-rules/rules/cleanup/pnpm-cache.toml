@@ -23,6 +23,13 @@ value = "%XDG_DATA_HOME%/pnpm/store"
 kind = "template"
 value = "%HOME%/.pnpm-store"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.pnpm-store"
+
 [provenance]
 source = "owned"
 license = "project-owned"

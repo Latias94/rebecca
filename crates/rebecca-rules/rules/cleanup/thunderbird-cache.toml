@@ -29,6 +29,17 @@ value = "%XDG_CACHE_HOME%/thunderbird/*/cache2"
 kind = "glob-template"
 value = "%XDG_CACHE_HOME%/thunderbird/*/startupCache"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Thunderbird/Profiles/*/cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Thunderbird/Profiles/*/startupCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

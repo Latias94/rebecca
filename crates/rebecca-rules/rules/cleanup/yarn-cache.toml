@@ -19,6 +19,13 @@ platform = "linux"
 kind = "template"
 value = "%XDG_CACHE_HOME%/yarn"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/yarn"
+
 [provenance]
 source = "owned"
 license = "project-owned"

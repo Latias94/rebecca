@@ -26,8 +26,8 @@ Rebecca command.
      cargo install rebecca --locked
      ```
 
-   - On Windows, the GitHub release installer is also available. On Linux,
-     keep using Cargo until Linux release archives are published:
+   - On Windows, the GitHub release installer is also available. On Linux and
+     macOS, keep using Cargo until Unix release archives are published:
 
      ```powershell
      powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/latest/download/rebecca-installer.ps1 | iex"
@@ -48,8 +48,9 @@ Rebecca command.
    - On large local Windows NTFS roots, consider `--scan-backend windows-native`;
      use `windows-ntfs-mft-experimental` only for read-only inspection when the
      user wants maximum NTFS provenance and accepts that it is experimental.
-   - On Linux, the portable scanner is the default. Use `catalog --platform linux`
-     before selecting Linux cleanup rule IDs.
+   - On Linux and macOS, the portable scanner is the default. Use
+     `catalog --platform linux` or `catalog --platform macos` before selecting
+     platform cleanup rule IDs.
    - Completion criterion: the user has a ranked, read-only report or a clear
      reason inspection cannot run.
 
@@ -66,11 +67,24 @@ Rebecca command.
      rebecca catalog --kind cleanup-rule --platform linux
      ```
 
+   - macOS cleanup catalog:
+
+     ```shell
+     rebecca catalog --kind cleanup-rule --platform macos
+     ```
+
    - Linux user-scoped cache examples:
 
      ```shell
      rebecca clean --dry-run --rule linux.chrome-cache --allow-warning active-process
      rebecca clean --dry-run --rule linux.pip-cache --allow-moderate
+     ```
+
+   - macOS user-scoped cache examples:
+
+     ```shell
+     rebecca clean --dry-run --rule macos.chrome-cache --allow-warning active-process
+     rebecca clean --dry-run --rule macos.pip-cache --allow-moderate
      ```
 
    - Linux package-manager archive caches are moderate and permission-sensitive;
@@ -116,9 +130,9 @@ Rebecca command.
 6. Execute only after confirmation.
    - Run the confirmed Rebecca command with `--yes`.
    - Keep the command otherwise identical to the preview.
-   - Do not add `sudo` on Linux unless the confirmed preview is for a reviewed
-     permission-sensitive system cache rule and the user explicitly chooses
-     elevated execution.
+   - Do not add `sudo` on Linux or macOS unless the confirmed preview is for a
+     reviewed target that actually needs elevated execution and the user
+     explicitly chooses it.
    - Avoid `--permanent` unless the user explicitly confirms irreversible
      deletion.
    - Do not use `Remove-Item`, `rm -rf`, shell wildcards, or ad hoc deletion as
@@ -148,6 +162,9 @@ Rebecca command.
   warning gates.
 - On Linux, prefer user-owned XDG cache rules before package-manager cache rules,
   and never use `sudo rebecca clean --yes` as the first command.
+- On macOS, prefer user-owned `Library/Caches`, browser, and developer-cache
+  rules; do not clean broad `Library/Application Support`, `Containers`, or
+  `Group Containers` roots.
 - Use `--exclude <PATH>` for user-protected paths instead of editing plans by
   hand.
 - Do not clean broad roots such as an entire profile or drive unless the user

@@ -83,6 +83,45 @@ value = "%XDG_CACHE_HOME%/JetBrains/PhpStorm*/caches"
 kind = "glob-template"
 value = "%XDG_CACHE_HOME%/JetBrains/RustRover*/caches"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/IntelliJIdea*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/PyCharm*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/WebStorm*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/Rider*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/CLion*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/GoLand*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/DataGrip*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/PhpStorm*"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/JetBrains/RustRover*"
+
 [provenance]
 source = "owned"
 license = "project-owned"

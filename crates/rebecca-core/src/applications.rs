@@ -99,6 +99,21 @@ impl ApplicationDiscovery for LinuxApplicationDiscovery {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MacosApplicationDiscovery;
+
+impl MacosApplicationDiscovery {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl ApplicationDiscovery for MacosApplicationDiscovery {
+    fn steam_installation(&self) -> Result<Option<SteamInstallation>> {
+        discover_macos_steam_installation()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct StaticApplicationDiscovery {
     steam_installation: Option<SteamInstallation>,
@@ -461,6 +476,27 @@ fn discover_linux_steam_installation() -> Result<Option<SteamInstallation>> {
                 candidate,
             )));
         }
+    }
+
+    Ok(None)
+}
+
+fn discover_macos_steam_installation() -> Result<Option<SteamInstallation>> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Ok(None);
+    };
+    if home.is_empty() {
+        return Ok(None);
+    }
+
+    let candidate = PathBuf::from(home)
+        .join("Library")
+        .join("Application Support")
+        .join("Steam");
+    if candidate.is_dir() {
+        return Ok(Some(SteamInstallation::from_install_path_best_effort(
+            candidate,
+        )));
     }
 
     Ok(None)

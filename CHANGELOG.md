@@ -11,6 +11,7 @@ All notable changes to Rebecca will be documented in this file.
 
 ### Added
 - Expanded the Linux built-in cleanup catalog from `linux.user-temp` to a first-class set of system, browser, desktop-app, Steam, package-manager, and developer-cache rules with XDG fallback semantics and package-manager warning gates.
+- Added first-class macOS cleanup support for user temp files, browser caches, desktop-app caches, developer caches, thumbnails, and app logs, with semantic `Library` path defaults, protected `Application Support`/container boundaries, active-process diagnostics, and a macOS CI cleanup smoke.
 - Added `skills/validate.py` and a CI skills job so shipped Codex skills have frontmatter, preview-first, and installer smoke coverage on Windows and Linux.
 - Added a `rebecca-disk-cleaner` Codex skill under `skills/`, plus a cross-platform Python installer, so agents can install Rebecca and run a preview-first cleanup workflow with the CLI.
 - Added a shared `RecoverableTrashBackend` in `rebecca-core` so `clean --yes`, `purge --yes`, and default `cache purge --yes` execution use the platform trash backend instead of a Windows-only execution adapter.

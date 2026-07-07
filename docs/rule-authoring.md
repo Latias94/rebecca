@@ -74,6 +74,14 @@ Keep each family small, explicit, and easy to audit.
 - Do not rely on Rebecca to synthesize `TMPDIR` on Linux. A missing `TMPDIR`
   stays missing so built-in user-scoped rules do not accidentally point at a
   shared `/tmp` root.
+- macOS rule templates should use Rebecca's semantic user-root variables:
+  `MACOS_CACHE_HOME`, `MACOS_APPLICATION_SUPPORT_HOME`, `MACOS_LOG_HOME`,
+  `MACOS_CONTAINER_HOME`, and `MACOS_GROUP_CONTAINER_HOME`. During planning,
+  Rebecca derives them from `HOME` as `Library/Caches`,
+  `Library/Application Support`, `Library/Logs`, `Library/Containers`, and
+  `Library/Group Containers` respectively when the variables are absent or
+  empty. If `HOME` is missing, the target is skipped instead of guessing a
+  user directory.
 
 ## Required Fields
 
@@ -105,6 +113,12 @@ Keep each family small, explicit, and easy to audit.
   `%APPDATA%\\<App>\\<cache leaf>` layouts; avoid app roots with path variants
   or mixed account/session state unless the durable-state boundary is proven
   with tests.
+- macOS application rules should keep `Library/Application Support` targets
+  scoped to explicit cache leaves such as `Cache`, `Code Cache`, `GPUCache`,
+  `ShaderCache`, `Crashpad`, or known log leaves. Do not target
+  `Preferences`, `Keychains`, `Containers`, `Group Containers`, browser
+  profile databases, `Local Storage`, `IndexedDB`, `Service Worker`, cookies,
+  sessions, or the application support root.
 - Domestic desktop-app cache rules must be app-specific and conservative. Use
   only observed AppData cache leaves such as WeChat `radium\cache`, Feishu
   `Cache`/`Code Cache`/shader-cache leaves, DingTalk `resource_cache`, WPS

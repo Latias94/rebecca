@@ -27,6 +27,17 @@ value = "%SCCACHE_DIR%"
 kind = "template"
 value = "%XDG_CACHE_HOME%/mozilla/sccache"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%SCCACHE_DIR%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/mozilla/sccache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

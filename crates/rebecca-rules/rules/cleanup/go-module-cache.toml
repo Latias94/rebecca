@@ -19,6 +19,13 @@ platform = "linux"
 kind = "template"
 value = "%HOME%/go/pkg/mod"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/go/pkg/mod"
+
 [provenance]
 source = "owned"
 license = "project-owned"

@@ -44,6 +44,26 @@ value = "%XDG_CACHE_HOME%/waterfox/*/jumpListCache"
 kind = "glob-template"
 value = "%XDG_CACHE_HOME%/waterfox/*/OfflineCache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Waterfox/Profiles/*/cache2"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Waterfox/Profiles/*/startupCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Waterfox/Profiles/*/jumpListCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Waterfox/Profiles/*/OfflineCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

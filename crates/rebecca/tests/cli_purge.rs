@@ -2,8 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 const CACHEDIR_TAG_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
 
@@ -99,7 +97,7 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
     write_node_project(workspace.join("app"));
     write_rust_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -214,7 +212,7 @@ fn purge_human_output_groups_project_artifacts_by_project_path() {
     );
     write_rust_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--no-progress",
@@ -278,7 +276,7 @@ fn purge_ndjson_uses_purge_command_identity() {
     );
     write_rust_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -328,7 +326,7 @@ fn inspect_artifacts_json_returns_read_only_project_artifact_insight() {
     write_node_project(workspace.join("app"));
     write_rust_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "artifacts",
@@ -409,7 +407,7 @@ min_age_days = 0
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "artifacts",
@@ -482,7 +480,7 @@ min_age_days = 0
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["inspect", "artifacts", "--no-progress"])
         .output()
         .unwrap();
@@ -516,7 +514,7 @@ fn inspect_artifacts_ndjson_uses_read_only_insight_payload() {
     );
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "artifacts",
@@ -579,7 +577,7 @@ fn inspect_artifacts_ndjson_file_progress_detail_keeps_artifact_progress_target_
     }
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "inspect",
             "artifacts",
@@ -629,7 +627,7 @@ fn purge_human_output_highlights_recently_modified_artifacts() {
     );
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--no-progress",
@@ -672,7 +670,7 @@ fn purge_json_filters_selected_artifacts() {
     );
     write_rust_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -721,7 +719,7 @@ fn purge_json_filters_context_sensitive_vendor_artifacts() {
     );
     write_fixture_file(workspace.join("go-app").join("go.mod"), b"module example");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -780,7 +778,7 @@ min_age_days = 0
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["purge", "--format", "json", "--no-progress"])
         .output()
         .unwrap();
@@ -822,7 +820,7 @@ min_age_days = 0
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["purge", "--format", "json", "--no-progress"])
         .output()
         .unwrap();
@@ -869,7 +867,7 @@ min_age_days = 0
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["purge", "--no-progress"])
         .output()
         .unwrap();
@@ -904,7 +902,7 @@ min_age_days = 0
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args(["purge", "--format", "ndjson", "--no-progress"])
         .output()
         .unwrap();
@@ -967,7 +965,7 @@ min_age_days = 0
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1029,7 +1027,7 @@ min_age_days = 30
         ),
     );
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1069,7 +1067,7 @@ fn purge_reclaim_limit_and_older_than_alias_stop_after_ranked_limit() {
     write_fixture_file(medium_target.join("debug").join("app.bin"), b"rust");
     write_rust_project(workspace.join("medium"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1131,7 +1129,7 @@ fn purge_json_skips_recent_artifacts_by_default() {
     );
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1174,7 +1172,7 @@ fn purge_json_reports_cachedir_tag_artifacts() {
     write_fixture_file(cache.join("entry.bin"), b"abc");
     write_cachedir_tag(&cache);
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1232,7 +1230,7 @@ fn purge_reports_estimate_source_for_scan_cache_reuse() {
     );
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1275,7 +1273,7 @@ fn purge_reports_estimate_source_for_scan_cache_reuse() {
     record["report"]["bytes_scanned"] = serde_json::json!(99);
     fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1305,7 +1303,7 @@ fn purge_reports_estimate_source_for_scan_cache_reuse() {
     );
     assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--no-progress",
@@ -1338,7 +1336,7 @@ fn purge_dry_run_uses_scan_cache_by_default_and_honors_no_scan_cache() {
     );
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1380,7 +1378,7 @@ fn purge_dry_run_uses_scan_cache_by_default_and_honors_no_scan_cache() {
     record["report"]["bytes_scanned"] = serde_json::json!(99);
     fs::write(cache_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1409,7 +1407,7 @@ fn purge_dry_run_uses_scan_cache_by_default_and_honors_no_scan_cache() {
     );
     assert_eq!(value["targets"][0]["estimate_confidence"], "exact");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1450,7 +1448,7 @@ fn purge_human_output_shows_modified_time_for_artifacts() {
     );
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--no-progress",
@@ -1480,7 +1478,7 @@ fn purge_json_honors_exclude_flag() {
     write_fixture_file(node_modules.join("pkg.bin"), b"abc");
     write_node_project(workspace.join("app"));
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1521,7 +1519,7 @@ fn purge_rejects_missing_root() {
     let temp = tempfile::tempdir().unwrap();
     let missing = temp.path().join("missing");
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",
@@ -1544,7 +1542,7 @@ fn purge_rejects_unknown_artifact_selector() {
     let workspace = temp.path().join("workspace");
     fs::create_dir_all(&workspace).unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .args([
             "purge",
             "--format",

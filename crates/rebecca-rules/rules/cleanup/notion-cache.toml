@@ -20,6 +20,22 @@ value = "%APPDATA%\\Notion\\Code Cache"
 kind = "template"
 value = "%APPDATA%\\Notion\\GPUCache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Notion/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Notion/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Notion/GPUCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

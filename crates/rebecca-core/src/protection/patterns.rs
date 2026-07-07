@@ -64,6 +64,7 @@ pub(super) fn is_regenerable_browser_cache_target_shape(spec: &RuleTargetSpec) -
 
     is_chromium_browser_cache_target_shape(&segments)
         || is_linux_chromium_browser_cache_target_shape(&segments)
+        || is_macos_chromium_browser_cache_target_shape(&segments)
         || is_gecko_browser_cache_target_shape(&segments)
         || is_linux_gecko_browser_cache_target_shape(&segments)
 }
@@ -141,12 +142,15 @@ pub(super) fn is_allowlisted_maintenance_path(
             || is_linux_snap_cache_path(&segments)
             || is_linux_steam_cache_path(&segments)
             || is_linux_package_manager_cache_path(&segments));
+    let macos_maintenance = knowledge.platform() == crate::Platform::Macos
+        && (is_macos_user_cache_path(&segments) || is_macos_user_log_path(&segments));
 
     knowledge.maintenance_allowlist().matches(&segments)
         || is_chromium_cache_path(&segments)
         || is_gecko_profile_cache_path(&segments)
         || is_electron_cache_path(&segments)
         || linux_maintenance
+        || macos_maintenance
         || is_jetbrains_cache_path(&segments)
         || is_ccache_cache_path(&segments)
         || is_android_cache_path(&segments)
@@ -191,10 +195,13 @@ pub(super) fn protected_category(
 
     let linux_durable = knowledge.platform() == crate::Platform::Linux
         && is_linux_app_package_durable_state_path(&segments);
+    let macos_durable =
+        knowledge.platform() == crate::Platform::Macos && is_macos_durable_data_path(&segments);
 
     if catalog_matches_category(knowledge, SafetyCategory::ApplicationDurableData, &segments)
         || is_application_durable_data_path(&segments)
         || linux_durable
+        || macos_durable
     {
         return Some(ProtectedCategory::ApplicationDurableData);
     }
@@ -240,6 +247,8 @@ fn is_chromium_cache_path(segments: &[&str]) -> bool {
             .is_some_and(|index| chromium_profile_cache_tail_is_allowed(segments, index + 1))
         || linux_chromium_cache_app_index(segments)
             .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index + 1))
+        || macos_chromium_profile_tail_start(segments)
+            .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index))
 }
 
 fn is_gecko_profile_cache_path(segments: &[&str]) -> bool {
@@ -282,6 +291,66 @@ fn is_electron_cache_path(segments: &[&str]) -> bool {
         segments
             .get(index + 1)
             .is_some_and(|cache| ELECTRON_CACHE_DIRS.contains(cache))
+    }) || macos_application_support_tail_start(segments).is_some_and(|index| {
+        let app = segments.get(index).copied().unwrap_or_default();
+        let cache = segments.get(index + 1).copied().unwrap_or_default();
+
+        ELECTRON_CACHE_APPS.contains(&app) && ELECTRON_CACHE_DIRS.contains(&cache)
+    })
+}
+
+fn is_macos_user_cache_path(segments: &[&str]) -> bool {
+    macos_cache_home_tail_start(segments).is_some_and(|index| {
+        let tail = &segments[index..];
+        match tail {
+            ["pip", ..]
+            | ["uv", ..]
+            | ["go-build", ..]
+            | ["node", "corepack", ..]
+            | ["yarn", ..]
+            | ["nuget", ..]
+            | ["android", ..]
+            | ["mozilla", "sccache", ..]
+            | ["com.apple.quicklook.thumbnailcache", ..]
+            | ["jetbrains", _, ..] => true,
+            ["google", app, ..]
+                if app.starts_with("androidstudio") || app.starts_with("android studio") =>
+            {
+                true
+            }
+            ["pypoetry", "cache", ..] | ["pypoetry", "artifacts", ..] => true,
+            ["huggingface", leaf, ..] if matches!(*leaf, "hub" | "datasets" | "assets" | "xet") => {
+                true
+            }
+            ["torch", "hub", ..] => true,
+            ["org.videolan.vlc", "art", "artistalbum", ..]
+            | ["org.videolan.vlc", "crashdump", ..] => true,
+            ["ccache", ..] => is_ccache_cache_path(tail),
+            _ => false,
+        }
+    }) || is_macos_chromium_cache_path(segments)
+        || is_macos_electron_cache_path(segments)
+}
+
+fn is_macos_user_log_path(segments: &[&str]) -> bool {
+    macos_log_home_tail_start(segments).is_some_and(|index| {
+        segments
+            .get(index)
+            .is_some_and(|app| matches!(*app, "zoom" | "zoom.us"))
+    })
+}
+
+fn is_macos_chromium_cache_path(segments: &[&str]) -> bool {
+    macos_chromium_profile_tail_start(segments)
+        .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index))
+}
+
+fn is_macos_electron_cache_path(segments: &[&str]) -> bool {
+    macos_application_support_tail_start(segments).is_some_and(|index| {
+        let app = segments.get(index).copied().unwrap_or_default();
+        let cache = segments.get(index + 1).copied().unwrap_or_default();
+
+        ELECTRON_CACHE_APPS.contains(&app) && ELECTRON_CACHE_DIRS.contains(&cache)
     })
 }
 
@@ -552,6 +621,11 @@ fn is_linux_chromium_browser_cache_target_shape(segments: &[&str]) -> bool {
         .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index + 1))
 }
 
+fn is_macos_chromium_browser_cache_target_shape(segments: &[&str]) -> bool {
+    macos_chromium_profile_tail_start(segments)
+        .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index))
+}
+
 fn chromium_user_data_cache_tail_is_allowed(segments: &[&str], start: usize) -> bool {
     segments
         .get(start)
@@ -607,6 +681,8 @@ fn is_browser_private_data_path(segments: &[&str]) -> bool {
         .is_some_and(|index| is_chromium_private_data_tail(segments, index + 1))
         || linux_chromium_app_index(segments)
             .is_some_and(|index| is_chromium_private_data_tail(segments, index + 1))
+        || macos_chromium_profile_tail_start(segments)
+            .is_some_and(|index| is_chromium_private_data_tail(segments, index))
     {
         return true;
     }
@@ -691,6 +767,23 @@ fn is_linux_app_package_durable_state_path(segments: &[&str]) -> bool {
                 .get(index + 3)
                 .is_none_or(|segment| *segment != ".cache")
     })
+}
+
+fn is_macos_durable_data_path(segments: &[&str]) -> bool {
+    has_sequence(segments, &["library", "application support"])
+        || has_sequence(segments, &["library", "caches"])
+        || has_sequence(segments, &["library", "containers"])
+        || has_sequence(segments, &["library", "group containers"])
+        || has_sequence(segments, &["library", "keychains"])
+        || has_sequence(segments, &["library", "mail"])
+        || has_sequence(segments, &["library", "messages"])
+        || has_sequence(segments, &["library", "photos"])
+        || has_sequence(segments, &["library", "preferences"])
+        || has_sequence(segments, &["library", "safari"])
+        || find_segment(segments, "%macos_cache_home%").is_some()
+        || find_segment(segments, "%macos_application_support_home%").is_some()
+        || find_segment(segments, "%macos_container_home%").is_some()
+        || find_segment(segments, "%macos_group_container_home%").is_some()
 }
 
 fn is_domestic_desktop_app_durable_state_path(segments: &[&str]) -> bool {
@@ -785,6 +878,46 @@ fn has_linux_electron_cache_root_before(segments: &[&str], index: usize) -> bool
             ".cache" | "%xdg_cache_home%" | ".config" | "%xdg_config_home%" | "cache"
         )
     })
+}
+
+fn macos_cache_home_tail_start(segments: &[&str]) -> Option<usize> {
+    find_segment(segments, "%macos_cache_home%")
+        .map(|index| index + 1)
+        .or_else(|| find_sequence(segments, &["library", "caches"]).map(|index| index + 2))
+}
+
+fn macos_application_support_tail_start(segments: &[&str]) -> Option<usize> {
+    find_segment(segments, "%macos_application_support_home%")
+        .map(|index| index + 1)
+        .or_else(|| {
+            find_sequence(segments, &["library", "application support"]).map(|index| index + 2)
+        })
+}
+
+fn macos_log_home_tail_start(segments: &[&str]) -> Option<usize> {
+    find_segment(segments, "%macos_log_home%")
+        .map(|index| index + 1)
+        .or_else(|| find_sequence(segments, &["library", "logs"]).map(|index| index + 2))
+}
+
+fn macos_chromium_profile_tail_start(segments: &[&str]) -> Option<usize> {
+    let start = macos_application_support_tail_start(segments)?;
+    let tail = segments.get(start..)?;
+
+    if tail.starts_with(&["google", "chrome"]) {
+        return Some(start + 2);
+    }
+    if tail.starts_with(&["bravesoftware", "brave-browser"]) {
+        return Some(start + 2);
+    }
+    if tail
+        .first()
+        .is_some_and(|app| matches!(*app, "chromium" | "microsoft edge"))
+    {
+        return Some(start + 1);
+    }
+
+    None
 }
 
 fn ccache_root_index(segments: &[&str]) -> Option<usize> {

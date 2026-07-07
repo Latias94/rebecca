@@ -67,6 +67,37 @@ value = "%HOME%/.android/build-cache"
 kind = "glob-template"
 value = "%XDG_CACHE_HOME%/Google/AndroidStudio*/caches"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_USER_HOME%/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_USER_HOME%/build-cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_SDK_HOME%/.android/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%ANDROID_SDK_HOME%/.android/build-cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.android/cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/.android/build-cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_CACHE_HOME%/Google/AndroidStudio*/caches"
+
 [provenance]
 source = "owned"
 license = "project-owned"

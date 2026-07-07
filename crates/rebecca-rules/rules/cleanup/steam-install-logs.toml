@@ -13,6 +13,13 @@ platform = "windows"
 kind = "steam-install-template"
 value = "logs"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "logs"
+
 [provenance]
 source = "owned"
 license = "project-owned"

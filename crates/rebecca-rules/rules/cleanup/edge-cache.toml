@@ -120,6 +120,58 @@ value = "%XDG_CACHE_HOME%/microsoft-edge/ShaderCache"
 kind = "template"
 value = "%XDG_CACHE_HOME%/microsoft-edge/GrShaderCache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Default/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Default/DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Default/Media Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Profile */Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Profile */Code Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Profile */GPUCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Profile */DawnCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/Profile */Media Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/ShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Microsoft Edge/GrShaderCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

@@ -39,6 +39,7 @@ Example prompts after restarting Codex:
 - "Scan this drive with Rebecca and show the largest folders with cleanup advice."
 - "Preview cleanup of project artifacts in this workspace, then ask before running anything with --yes."
 - "Preview Linux browser and developer caches with Rebecca, including any required --allow-moderate or warning gates, but do not use sudo unless I confirm."
+- "Preview macOS browser and developer caches with Rebecca, including active-process warning gates, but do not use sudo unless I confirm."
 - "Use Rebecca to check app leftovers and cache health, preview first."
 
 Validate repository skills before publishing changes:

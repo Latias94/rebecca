@@ -120,6 +120,58 @@ value = "%XDG_CACHE_HOME%/google-chrome/ShaderCache"
 kind = "template"
 value = "%XDG_CACHE_HOME%/google-chrome/GrShaderCache"
 
+[[platforms]]
+platform = "macos"
+warnings = ["active-process"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/Code Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/GPUCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/DawnCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/Media Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Profile */Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Profile */Code Cache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Profile */GPUCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Profile */DawnCache"
+
+[[platforms.targets]]
+kind = "glob-template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Profile */Media Cache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/ShaderCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/GrShaderCache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

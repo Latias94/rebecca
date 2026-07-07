@@ -20,6 +20,13 @@ platform = "linux"
 kind = "steam-install-template"
 value = "appcache/download"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "steam-install-template"
+value = "appcache/download"
+
 [provenance]
 source = "owned"
 license = "project-owned"

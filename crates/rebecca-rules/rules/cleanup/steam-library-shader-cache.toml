@@ -20,6 +20,13 @@ platform = "linux"
 kind = "steam-library-template"
 value = "steamapps/shadercache"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "steam-library-template"
+value = "steamapps/shadercache"
+
 [provenance]
 source = "owned"
 license = "project-owned"

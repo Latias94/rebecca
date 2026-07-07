@@ -1,6 +1,4 @@
 mod common;
-#[path = "common/isolated.rs"]
-mod isolated;
 
 #[test]
 fn scan_human_output_uses_lowercase_safety_labels() {
@@ -16,11 +14,7 @@ fn scan_human_output_uses_lowercase_safety_labels() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let expected_rule_id = if cfg!(target_os = "linux") {
-        "linux.npm-cache"
-    } else {
-        "windows.npm-cache"
-    };
+    let expected_rule_id = common::support::current_platform_rule_id("npm-cache");
     assert!(stdout.contains(&format!("  - {expected_rule_id} [moderate] npm cache")));
 }
 
@@ -33,7 +27,7 @@ fn clean_human_output_uses_lowercase_status_labels() {
     std::fs::create_dir_all(&temp_cache).unwrap();
     std::fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
 
-    let output = isolated::isolated_rebecca(&temp)
+    let output = common::isolated::isolated_rebecca(&temp)
         .env("TEMP", &temp_cache)
         .env("TMPDIR", &temp_cache)
         .args([

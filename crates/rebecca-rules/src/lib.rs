@@ -642,12 +642,25 @@ fn wildcard_appears_at_protected_platform_root(segments: &[&str]) -> bool {
             "%xdg_config_home%",
             "%xdg_data_home%",
             "%xdg_state_home%",
+            "%macos_cache_home%",
+            "%macos_application_support_home%",
+            "%macos_container_home%",
+            "%macos_group_container_home%",
+            "%macos_log_home%",
         ],
     ) || starts_with(segments, &["%home%", ".cache"]) && wildcard_at(segments, 2, &[])
         || starts_with(segments, &["%home%", ".config"]) && wildcard_at(segments, 2, &[])
         || starts_with(segments, &["%home%", ".local", "share"]) && wildcard_at(segments, 3, &[])
         || starts_with(segments, &["%home%", ".var", "app"]) && wildcard_at(segments, 3, &[])
         || starts_with(segments, &["%home%", "snap"]) && wildcard_at(segments, 2, &[])
+        || starts_with(segments, &["%home%", "library"]) && wildcard_at(segments, 2, &[])
+        || starts_with(segments, &["%home%", "library", "caches"]) && wildcard_at(segments, 3, &[])
+        || starts_with(segments, &["%home%", "library", "application support"])
+            && wildcard_at(segments, 3, &[])
+        || starts_with(segments, &["%home%", "library", "containers"])
+            && wildcard_at(segments, 3, &[])
+        || starts_with(segments, &["%home%", "library", "group containers"])
+            && wildcard_at(segments, 3, &[])
 }
 
 fn wildcard_at(segments: &[&str], index: usize, roots: &[&str]) -> bool {
@@ -1360,6 +1373,80 @@ mod tests {
     }
 
     #[test]
+    fn builtin_catalog_rejects_macos_root_globs_and_durable_roots() {
+        for target in [
+            "%HOME%/Library/*/Cache",
+            "%MACOS_CACHE_HOME%/*/Cache",
+            "%MACOS_APPLICATION_SUPPORT_HOME%/*/Cache",
+            "%MACOS_CONTAINER_HOME%/*/Data/Library/Caches",
+            "%MACOS_GROUP_CONTAINER_HOME%/*/Library/Caches",
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[macos_rule_with_target(
+                RuleTargetSpec::glob_template(target),
+            )])
+            .expect_err("macOS root-level discovery should be rejected");
+
+            let message = err.to_string();
+            assert!(
+                message.contains("starts discovery from a protected platform root")
+                    || message.contains("application-durable-data"),
+                "{target}: {err}"
+            );
+        }
+
+        for target in [
+            "%MACOS_CACHE_HOME%",
+            "%MACOS_APPLICATION_SUPPORT_HOME%",
+            "%MACOS_CONTAINER_HOME%/com.example.App/Data",
+            "%MACOS_GROUP_CONTAINER_HOME%/group.example.App/Data",
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[macos_rule_with_target(
+                RuleTargetSpec::template(target),
+            )])
+            .expect_err("macOS broad durable roots should be rejected");
+            assert!(
+                err.to_string().contains("application-durable-data"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_catalog_accepts_macos_cache_leaves_and_rejects_private_data() {
+        for target in [
+            RuleTargetSpec::template("%MACOS_CACHE_HOME%/pip"),
+            RuleTargetSpec::template("%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Cache"),
+            RuleTargetSpec::template(
+                "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/Cache",
+            ),
+            RuleTargetSpec::glob_template("%MACOS_CACHE_HOME%/Firefox/Profiles/*/cache2"),
+            RuleTargetSpec::template("%MACOS_LOG_HOME%/Zoom/logs"),
+        ] {
+            super::validate_builtin_rule_catalog(&[macos_rule_with_target(target)])
+                .expect("macOS cache or log leaf should be accepted");
+        }
+
+        for target in [
+            RuleTargetSpec::template(
+                "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/History",
+            ),
+            RuleTargetSpec::template("%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Local Storage"),
+            RuleTargetSpec::template("%HOME%/Library/Safari/History.db"),
+            RuleTargetSpec::template("%HOME%/Library/Keychains/login.keychain-db"),
+        ] {
+            let err = super::validate_builtin_rule_catalog(&[macos_rule_with_target(target)])
+                .expect_err("macOS private or durable data should be rejected");
+            let message = err.to_string();
+            assert!(
+                message.contains("browser-private-data")
+                    || message.contains("application-durable-data")
+                    || message.contains("credentials"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
     fn builtin_rule_fixture_matrix_catches_positive_and_near_miss_shapes() {
         super::validate_builtin_rule_catalog(&[rule_with_target(RuleTargetSpec::template(
             "%APPDATA%\\Slack\\Cache",
@@ -1435,6 +1522,46 @@ mod tests {
             "linux.zen-browser-cache",
             "linux.zoom-logs",
             "linux.zypper-cache",
+            "macos.android-cache",
+            "macos.brave-cache",
+            "macos.bun-cache",
+            "macos.cargo-cache",
+            "macos.ccache-cache",
+            "macos.chrome-cache",
+            "macos.chromium-cache",
+            "macos.conda-cache",
+            "macos.corepack-cache",
+            "macos.discord-cache",
+            "macos.edge-cache",
+            "macos.figma-cache",
+            "macos.firefox-profile-cache",
+            "macos.go-build-cache",
+            "macos.go-module-cache",
+            "macos.gradle-cache",
+            "macos.huggingface-cache",
+            "macos.jetbrains-cache",
+            "macos.maven-cache",
+            "macos.notion-cache",
+            "macos.npm-cache",
+            "macos.nuget-cache",
+            "macos.pip-cache",
+            "macos.pnpm-cache",
+            "macos.poetry-cache",
+            "macos.postman-cache",
+            "macos.pytorch-cache",
+            "macos.rustup-cache",
+            "macos.sccache-cache",
+            "macos.slack-cache",
+            "macos.thumbnail-cache",
+            "macos.thunderbird-cache",
+            "macos.user-temp",
+            "macos.uv-cache",
+            "macos.vlc-cache",
+            "macos.vscode-cache",
+            "macos.waterfox-cache",
+            "macos.yarn-cache",
+            "macos.zen-browser-cache",
+            "macos.zoom-logs",
             "windows.chrome-cache",
             "windows.chromium-cache",
             "windows.android-cache",
@@ -1847,6 +1974,14 @@ notes = "test"
         RuleDefinition {
             id: "linux.test".to_string(),
             platform: Platform::Linux,
+            ..rule_with_target(target)
+        }
+    }
+
+    fn macos_rule_with_target(target: RuleTargetSpec) -> RuleDefinition {
+        RuleDefinition {
+            id: "macos.test".to_string(),
+            platform: Platform::Macos,
             ..rule_with_target(target)
         }
     }

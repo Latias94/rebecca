@@ -27,6 +27,17 @@ value = "%TMPDIR%"
 kind = "template"
 value = "%TEMP%"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%TMPDIR%"
+
+[[platforms.targets]]
+kind = "template"
+value = "%TEMP%"
+
 [provenance]
 source = "owned"
 license = "project-owned"

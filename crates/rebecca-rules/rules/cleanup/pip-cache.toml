@@ -19,6 +19,13 @@ platform = "linux"
 kind = "template"
 value = "%XDG_CACHE_HOME%/pip"
 
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/pip"
+
 [provenance]
 source = "owned"
 license = "project-owned"
