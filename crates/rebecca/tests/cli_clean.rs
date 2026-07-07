@@ -1829,10 +1829,27 @@ fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
         common::support::stderr(&skipped)
     );
     let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
-    assert_eq!(skipped_value["summary"]["total_targets"], 1);
+    let skipped_targets = skipped_value["targets"].as_array().unwrap();
+    assert_eq!(
+        skipped_value["summary"]["total_targets"],
+        skipped_targets.len()
+    );
     assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
-    assert_eq!(skipped_value["summary"]["skipped_targets"], 1);
-    assert_eq!(skipped_value["targets"][0]["status"], "skipped");
+    assert_eq!(
+        skipped_value["summary"]["skipped_targets"],
+        skipped_targets.len()
+    );
+    let skipped_cache_target = skipped_targets
+        .iter()
+        .find(|target| {
+            target["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("/cache/google-chrome/Default/Cache")
+        })
+        .expect("existing Chrome cache target should be present");
+    assert_eq!(skipped_cache_target["status"], "skipped");
+    assert_eq!(skipped_cache_target["reason_code"], "warning-gate-required");
 
     let allowed = isolated::isolated_rebecca(&temp)
         .args([
@@ -1855,12 +1872,29 @@ fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
         common::support::stderr(&allowed)
     );
     let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
-    assert_eq!(allowed_value["summary"]["total_targets"], 1);
+    let allowed_targets = allowed_value["targets"].as_array().unwrap();
+    assert_eq!(
+        allowed_value["summary"]["total_targets"],
+        allowed_targets.len()
+    );
     assert_eq!(allowed_value["summary"]["allowed_targets"], 1);
-    assert_eq!(allowed_value["summary"]["skipped_targets"], 0);
+    assert_eq!(
+        allowed_value["summary"]["skipped_targets"],
+        allowed_targets.len() - 1
+    );
     assert_eq!(allowed_value["summary"]["estimated_bytes"], 4);
-    assert_eq!(allowed_value["targets"][0]["rule_id"], "linux.chrome-cache");
-    assert_eq!(allowed_value["targets"][0]["status"], "allowed");
+    let allowed_cache_target = allowed_targets
+        .iter()
+        .find(|target| {
+            target["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("/cache/google-chrome/Default/Cache")
+        })
+        .expect("existing Chrome cache target should be allowed after warning opt-in");
+    assert_eq!(allowed_cache_target["rule_id"], "linux.chrome-cache");
+    assert_eq!(allowed_cache_target["status"], "allowed");
+    assert_eq!(allowed_cache_target["estimated_bytes"], 4);
     assert!(
         chrome_history.exists(),
         "private browser data must not be targeted"
@@ -1934,16 +1968,32 @@ fn clean_dry_run_json_gates_linux_desktop_app_cache_warnings() {
         common::support::stderr(&skipped)
     );
     let skipped_value: serde_json::Value = common::support::api_data(&skipped.stdout);
-    assert_eq!(skipped_value["summary"]["total_targets"], 3);
+    let skipped_targets = skipped_value["targets"].as_array().unwrap();
+    assert_eq!(
+        skipped_value["summary"]["total_targets"],
+        skipped_targets.len()
+    );
     assert_eq!(skipped_value["summary"]["allowed_targets"], 0);
-    assert_eq!(skipped_value["summary"]["skipped_targets"], 3);
+    assert_eq!(
+        skipped_value["summary"]["skipped_targets"],
+        skipped_targets.len()
+    );
     assert!(
-        skipped_value["targets"]
-            .as_array()
-            .unwrap()
+        skipped_targets
             .iter()
             .all(|target| target["status"] == "skipped")
     );
+    for suffix in [
+        "/config/Slack/Cache",
+        "/.var/app/com.slack.Slack/cache",
+        "/snap/slack/common/.cache",
+    ] {
+        let target = skipped_targets
+            .iter()
+            .find(|target| target["path"].as_str().unwrap().ends_with(suffix))
+            .unwrap_or_else(|| panic!("existing Slack cache target missing: {suffix}"));
+        assert_eq!(target["reason_code"], "warning-gate-required");
+    }
 
     let allowed = isolated::isolated_rebecca(&temp)
         .args([
@@ -1966,14 +2016,30 @@ fn clean_dry_run_json_gates_linux_desktop_app_cache_warnings() {
         common::support::stderr(&allowed)
     );
     let allowed_value: serde_json::Value = common::support::api_data(&allowed.stdout);
-    assert_eq!(allowed_value["summary"]["total_targets"], 3);
+    let allowed_targets = allowed_value["targets"].as_array().unwrap();
+    assert_eq!(
+        allowed_value["summary"]["total_targets"],
+        allowed_targets.len()
+    );
     assert_eq!(allowed_value["summary"]["allowed_targets"], 3);
-    assert_eq!(allowed_value["summary"]["skipped_targets"], 0);
+    assert_eq!(
+        allowed_value["summary"]["skipped_targets"],
+        allowed_targets.len() - 3
+    );
     assert_eq!(allowed_value["summary"]["estimated_bytes"], 9);
+    for suffix in [
+        "/config/Slack/Cache",
+        "/.var/app/com.slack.Slack/cache",
+        "/snap/slack/common/.cache",
+    ] {
+        let target = allowed_targets
+            .iter()
+            .find(|target| target["path"].as_str().unwrap().ends_with(suffix))
+            .unwrap_or_else(|| panic!("existing Slack cache target missing: {suffix}"));
+        assert_eq!(target["status"], "allowed");
+    }
 
-    let target_paths = allowed_value["targets"]
-        .as_array()
-        .unwrap()
+    let target_paths = allowed_targets
         .iter()
         .map(|target| target["path"].as_str().unwrap())
         .collect::<Vec<_>>();
