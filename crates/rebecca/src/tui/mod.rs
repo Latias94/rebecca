@@ -18,6 +18,7 @@ use crate::tui::navigation::RootChoice;
 mod app;
 mod basket;
 mod effect;
+mod hit_test;
 mod input;
 mod layout;
 mod model;
@@ -98,7 +99,7 @@ fn run_interactive(
         if let Some(input) = terminal::poll_input(Duration::from_millis(120))? {
             let effect = match input {
                 TuiInput::Key(key) => app.handle_key(key),
-                TuiInput::Mouse(mouse) => view::hit_test(&app, view_options, draw_area, mouse)
+                TuiInput::Mouse(mouse) => hit_test::hit_test(&app, view_options, draw_area, mouse)
                     .map(|action| app.handle_mouse_action(action))
                     .unwrap_or(TuiEffect::None),
             };
