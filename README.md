@@ -159,11 +159,14 @@ The TUI is for humans at a terminal. It keeps Rebecca's preview-first model:
 choose a root, navigate the ranked map, press `4`/`w` for a proportional
 treemap, press `2`/`t` for file type distribution, press `3`/`x` for extension
 distribution, or use `Tab` to cycle between map, treemap, types, and
-extensions. Mouse-capable terminals can click view tabs, rows, and treemap
-tiles to select and can use the wheel to move selection; mouse input never
-executes cleanup. Press `r` to refresh the active directory, `R` to refresh the
-scan root, `b` to restore the previous scan, `Space` to stage the cleanup rule
-behind an advised entry, and `c` to preview all matching rule targets.
+extensions. Press `Enter` on a type or extension row to filter the map and
+treemap by that group, and press `Backspace` to clear the group filter. The
+header and status line show the active scope, selected filter, sort, and basket
+state. Mouse-capable terminals can click view tabs, rows, and treemap tiles to
+select and can use the wheel to move selection; mouse input never executes
+cleanup. Press `r` to refresh the active directory, `R` to refresh the scan
+root, `b` to restore the previous scan, `Space` to stage the cleanup rule behind
+an advised entry, and `c` to preview all matching rule targets.
 Execution still requires typing the `CLEAN <bytes>` confirmation. Press `g` to
 view recent cleanup history. Real TUI cleanup uses recoverable trash; use
 `inspect map --format json`, `--format ndjson`, or table export for automation.

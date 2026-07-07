@@ -12,6 +12,7 @@ All notable changes to Rebecca will be documented in this file.
 ### Added
 - Machine-mode clap parse failures are now rendered as structured `invalid-arguments` JSON/NDJSON errors when `--format json` or `--format ndjson` was already discoverable; invalid `--format` values still use clap's native error so callers can see the accepted format values.
 - Scan-cache records now persist `metric_semantics`, and cleanup/inspect cache lookups require compatible backend plus logical-byte semantics before reusing a record, preventing stale cross-backend estimates from being treated as authoritative hits.
+- TUI workbench internals now use path-aware session restore, projection caching, shared layout/hit-test/snapshot contracts, a bounded single-task manager, semantic replay input, actionable type/extension filters, and a squarified Treemap layout so future WizTree-like interactions can build on cleaner seams.
 - TUI disk analytics now includes a keyboard-reachable Treemap view (`4`/`w`), mouse tab/row/tile selection, mouse-wheel selection movement, and deterministic Treemap snapshot and hit-test coverage while keeping cleanup execution behind preview and typed confirmation.
 - TUI disk analytics now includes keyboard-reachable type and extension distribution views, scoped directory/root refresh with previous-scan restore, retryable task errors, and headless replay coverage for the new journeys.
 - `rebecca inspect map --group-by type` now emits file-vs-directory distribution groups alongside existing extension, depth, and age groups.
