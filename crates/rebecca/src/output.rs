@@ -4,7 +4,7 @@ use rebecca::core::plan::{CleanupIssueSummary, CleanupPlan};
 use rebecca::core::planner::PlanProgressEvent;
 use rebecca::core::progress::InspectProgressEvent;
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::fmt;
 use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -137,7 +137,7 @@ pub(crate) fn print_success<T: Serialize + ?Sized>(
         generated_at_unix_seconds: unix_now(),
         data,
     };
-    write_stdout_line(&serde_json::to_string_pretty(&envelope)?)?;
+    write_stdout_line(&to_machine_json_pretty(&envelope)?)?;
     Ok(())
 }
 
@@ -153,7 +153,7 @@ pub(crate) fn print_success_with_contract<T: Serialize + ?Sized>(
         generated_at_unix_seconds: unix_now(),
         data,
     };
-    write_stdout_line(&serde_json::to_string_pretty(&envelope)?)?;
+    write_stdout_line(&to_machine_json_pretty(&envelope)?)?;
     Ok(())
 }
 
@@ -216,7 +216,7 @@ pub(crate) fn render_error(contract: CliApiContract, mode: OutputMode, err: &any
                 generated_at_unix_seconds: unix_now(),
                 error,
             };
-            match serde_json::to_string_pretty(&envelope) {
+            match to_machine_json_pretty(&envelope) {
                 Ok(rendered) => eprintln!("{rendered}"),
                 Err(render_err) => eprintln!("{render_err}"),
             }
@@ -231,7 +231,7 @@ pub(crate) fn render_error(contract: CliApiContract, mode: OutputMode, err: &any
                 generated_at_unix_seconds: unix_now(),
                 error,
             };
-            match serde_json::to_string(&envelope) {
+            match to_machine_json(&envelope) {
                 Ok(rendered) => {
                     if let Err(err) = write_stdout_line(&rendered)
                         && err.kind() != io::ErrorKind::BrokenPipe
@@ -881,10 +881,82 @@ impl NdjsonEventWriter {
     fn write_event<T: Serialize + ?Sized>(&self, event: &T) -> Result<()> {
         let stdout = io::stdout();
         let mut writer = stdout.lock();
-        serde_json::to_writer(&mut writer, event)?;
+        let event = machine_json_value(event)?;
+        serde_json::to_writer(&mut writer, &event)?;
         writer.write_all(b"\n")?;
         Ok(())
     }
+}
+
+fn to_machine_json_pretty<T: Serialize + ?Sized>(value: &T) -> Result<String> {
+    let value = machine_json_value(value)?;
+    Ok(serde_json::to_string_pretty(&value)?)
+}
+
+fn to_machine_json<T: Serialize + ?Sized>(value: &T) -> Result<String> {
+    let value = machine_json_value(value)?;
+    Ok(serde_json::to_string(&value)?)
+}
+
+fn machine_json_value<T: Serialize + ?Sized>(value: &T) -> Result<Value> {
+    let mut value = serde_json::to_value(value)?;
+    normalize_machine_path_fields(&mut value);
+    Ok(value)
+}
+
+fn normalize_machine_path_fields(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            for (key, child) in fields {
+                if is_machine_path_field(key) {
+                    normalize_machine_path_value(child);
+                } else {
+                    normalize_machine_path_fields(child);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                normalize_machine_path_fields(item);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn normalize_machine_path_value(value: &mut Value) {
+    match value {
+        Value::String(path) => {
+            if path.contains('\\') {
+                *path = path.replace('\\', "/");
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                normalize_machine_path_value(item);
+            }
+        }
+        Value::Object(fields) => {
+            for child in fields.values_mut() {
+                normalize_machine_path_value(child);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+fn is_machine_path_field(key: &str) -> bool {
+    matches!(
+        key,
+        "path" | "paths" | "root" | "roots" | "install_locations"
+    ) || key.ends_with("_path")
+        || key.ends_with("_paths")
+        || key.ends_with("_dir")
+        || key.ends_with("_dirs")
+        || key.ends_with("_file")
+        || key.ends_with("_files")
+        || key.ends_with("_root")
+        || key.ends_with("_roots")
 }
 
 pub(crate) fn format_issue_matrix_entry(issue: &CleanupIssueSummary) -> String {
@@ -937,7 +1009,8 @@ pub(crate) fn format_shell_argument(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_shell_command, restore_hint_suffix};
+    use super::{format_shell_command, normalize_machine_path_fields, restore_hint_suffix};
+    use serde_json::json;
 
     #[test]
     fn restore_hint_suffix_deduplicates_and_formats_hints() {
@@ -963,6 +1036,52 @@ mod tests {
                 ],
             ),
             "rebecca clean --root 'C:\\Users\\Ada Lovelace\\Temp'"
+        );
+    }
+
+    #[test]
+    fn machine_json_normalizes_path_fields_without_rewriting_plain_text() {
+        let mut value = json!({
+            "path": "C:\\Users\\Ada\\Temp",
+            "cache_dir": "C:\\Users\\Ada\\AppData\\Local\\Rebecca\\cache",
+            "attempted_paths": [
+                "C:\\Users\\Ada\\Temp\\a.bin",
+                "D:\\Cache\\b.bin"
+            ],
+            "install_locations": [
+                "C:\\Program Files\\Example"
+            ],
+            "project_artifact": {
+                "project_root": "C:\\Users\\Ada\\workspace\\app"
+            },
+            "detail": "PowerShell showed C:\\Users\\Ada\\Temp in stderr",
+            "suggested_command": {
+                "command": "rebecca",
+                "args": ["clean", "--root", "C:\\Users\\Ada\\Temp"]
+            }
+        });
+
+        normalize_machine_path_fields(&mut value);
+
+        assert_eq!(value["path"], "C:/Users/Ada/Temp");
+        assert_eq!(
+            value["cache_dir"],
+            "C:/Users/Ada/AppData/Local/Rebecca/cache"
+        );
+        assert_eq!(value["attempted_paths"][0], "C:/Users/Ada/Temp/a.bin");
+        assert_eq!(value["attempted_paths"][1], "D:/Cache/b.bin");
+        assert_eq!(value["install_locations"][0], "C:/Program Files/Example");
+        assert_eq!(
+            value["project_artifact"]["project_root"],
+            "C:/Users/Ada/workspace/app"
+        );
+        assert_eq!(
+            value["detail"],
+            "PowerShell showed C:\\Users\\Ada\\Temp in stderr"
+        );
+        assert_eq!(
+            value["suggested_command"]["args"][2],
+            "C:\\Users\\Ada\\Temp"
         );
     }
 }

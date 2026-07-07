@@ -10,8 +10,8 @@
       "mode": "dry-run",
       "workflow": "project-artifacts",
       "project_artifact_roots": [
-        "D:\\SourceCodes\\Rust\\rebecca",
-        "D:\\SourceCodes\\Rust\\missing-workspace"
+        "D:/SourceCodes/Rust/rebecca",
+        "D:/SourceCodes/Rust/missing-workspace"
       ],
       "project_artifact_min_age_days": 0,
       "selected_categories": [],
@@ -35,14 +35,14 @@
     "discovery_diagnostics": [
       {
         "kind": "root-missing",
-        "path": "D:\\SourceCodes\\Rust\\missing-workspace",
+        "path": "D:/SourceCodes/Rust/missing-workspace",
         "detail": "project artifact root does not exist"
       }
     ],
     "targets": [
       {
         "rule_id": "portable.project-artifact-target",
-        "path": "D:\\SourceCodes\\Rust\\rebecca\\target",
+        "path": "D:/SourceCodes/Rust/rebecca/target",
         "estimated_bytes": 1048576,
         "estimate_source": "fresh-scan",
         "estimate_backend": "portable-recursive",
@@ -55,8 +55,8 @@
         "modified_at_unix_seconds": 1782659000,
         "project_artifact": {
           "matched_context": "target-project",
-          "project_root": "D:\\SourceCodes\\Rust\\rebecca",
-          "project_anchor": "D:\\SourceCodes\\Rust\\rebecca\\Cargo.toml"
+          "project_root": "D:/SourceCodes/Rust/rebecca",
+          "project_anchor": "D:/SourceCodes/Rust/rebecca/Cargo.toml"
         },
         "freed_bytes": 0,
         "pending_reclaim_bytes": 0

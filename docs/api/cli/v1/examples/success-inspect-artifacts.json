@@ -6,7 +6,7 @@
   "generated_at_unix_seconds": 1782660000,
   "data": {
     "roots": [
-      "C:\\Users\\example\\workspace"
+      "C:/Users/example/workspace"
     ],
     "summary": {
       "total_targets": 1,
@@ -23,16 +23,16 @@
     },
     "totals_by_root": [
       {
-        "key": "C:\\Users\\example\\workspace",
-        "label": "C:\\Users\\example\\workspace",
+        "key": "C:/Users/example/workspace",
+        "label": "C:/Users/example/workspace",
         "targets": 1,
         "estimated_bytes": 4
       }
     ],
     "totals_by_project": [
       {
-        "key": "C:\\Users\\example\\workspace\\app",
-        "label": "C:\\Users\\example\\workspace\\app",
+        "key": "C:/Users/example/workspace/app",
+        "label": "C:/Users/example/workspace/app",
         "targets": 1,
         "estimated_bytes": 4
       }
@@ -49,8 +49,8 @@
       {
         "rule_id": "portable.project-artifact-target",
         "artifact": "target",
-        "path": "C:\\Users\\example\\workspace\\app\\target",
-        "project_root": "C:\\Users\\example\\workspace\\app",
+        "path": "C:/Users/example/workspace/app/target",
+        "project_root": "C:/Users/example/workspace/app",
         "status": "allowed",
         "estimated_bytes": 4,
         "estimate_source": "fresh-scan",

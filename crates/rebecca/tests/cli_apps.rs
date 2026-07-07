@@ -323,7 +323,7 @@ fn apps_clean_yes_respects_exclude_path_during_execution() {
             && target["path"]
                 .as_str()
                 .unwrap()
-                .contains(r"AppData\Local\WeChat\Cache")
+                .contains("AppData/Local/WeChat/Cache")
     }));
     assert!(value["targets"].as_array().unwrap().iter().any(|target| {
         target["status"] == "completed"
@@ -331,7 +331,7 @@ fn apps_clean_yes_respects_exclude_path_during_execution() {
             && target["path"]
                 .as_str()
                 .unwrap()
-                .contains(r"AppData\Local\WeChat\Code Cache")
+                .contains("AppData/Local/WeChat/Code Cache")
     }));
 }
 

@@ -325,7 +325,7 @@ fn history_json_preserves_app_leftovers_workflow() {
         entry["targets"][0]["path"]
             .as_str()
             .unwrap()
-            .contains("WeChat\\Cache")
+            .contains("WeChat/Cache")
     );
 }
 

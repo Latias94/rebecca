@@ -6,10 +6,10 @@
   "generated_at_unix_seconds": 1782660000,
   "data": {
     "roots": [
-      "C:\\Users\\example\\workspace"
+      "C:/Users/example/workspace"
     ],
     "reference_roots": [
-      "C:\\Users\\example\\archive"
+      "C:/Users/example/archive"
     ],
     "summary": {
       "files_scanned": 4,
@@ -30,15 +30,15 @@
         "hash": "0123456789abcdef",
         "files": [
           {
-            "path": "C:\\Users\\example\\archive\\asset.bin",
-            "root": "C:\\Users\\example\\workspace",
+            "path": "C:/Users/example/archive/asset.bin",
+            "root": "C:/Users/example/workspace",
             "size_bytes": 4096,
             "modified_at_unix_seconds": 1782659000,
             "role": "reference"
           },
           {
-            "path": "C:\\Users\\example\\workspace\\copy.bin",
-            "root": "C:\\Users\\example\\workspace",
+            "path": "C:/Users/example/workspace/copy.bin",
+            "root": "C:/Users/example/workspace",
             "size_bytes": 4096,
             "modified_at_unix_seconds": 1782659100,
             "role": "scanned"
@@ -48,8 +48,8 @@
     ],
     "large_files": [
       {
-        "path": "C:\\Users\\example\\workspace\\video.mov",
-        "root": "C:\\Users\\example\\workspace",
+        "path": "C:/Users/example/workspace/video.mov",
+        "root": "C:/Users/example/workspace",
         "size_bytes": 209715200,
         "modified_at_unix_seconds": 1782659200,
         "role": "scanned"
@@ -57,8 +57,8 @@
     ],
     "empty_files": [
       {
-        "path": "C:\\Users\\example\\workspace\\empty.tmp",
-        "root": "C:\\Users\\example\\workspace",
+        "path": "C:/Users/example/workspace/empty.tmp",
+        "root": "C:/Users/example/workspace",
         "size_bytes": 0,
         "modified_at_unix_seconds": 1782659300,
         "role": "scanned"
@@ -66,8 +66,8 @@
     ],
     "empty_directories": [
       {
-        "path": "C:\\Users\\example\\workspace\\build\\empty",
-        "root": "C:\\Users\\example\\workspace",
+        "path": "C:/Users/example/workspace/build/empty",
+        "root": "C:/Users/example/workspace",
         "depth": 2,
         "role": "scanned"
       }

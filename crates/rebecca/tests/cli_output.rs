@@ -93,20 +93,23 @@ history_file = "C:\\Rebecca\\State\\audit.jsonl"
         value["state_dir"]
             .as_str()
             .unwrap()
-            .ends_with(r"Rebecca\State")
+            .ends_with("Rebecca/State")
     );
     assert!(
         value["cache_dir"]
             .as_str()
             .unwrap()
-            .ends_with(r"Rebecca\Cache")
+            .ends_with("Rebecca/Cache")
     );
     assert!(
         value["history_file"]
             .as_str()
             .unwrap()
-            .ends_with(r"Rebecca\State\audit.jsonl")
+            .ends_with("Rebecca/State/audit.jsonl")
     );
+    assert!(!value["state_dir"].as_str().unwrap().contains('\\'));
+    assert!(!value["cache_dir"].as_str().unwrap().contains('\\'));
+    assert!(!value["history_file"].as_str().unwrap().contains('\\'));
 }
 
 #[test]

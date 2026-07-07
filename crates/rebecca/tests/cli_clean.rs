@@ -1555,7 +1555,7 @@ fn clean_dry_run_json_expands_steam_rules_with_discovery_override() {
             targets[0]["path"]
                 .as_str()
                 .unwrap()
-                .ends_with(&case.relative_path.replace('/', r"\"))
+                .ends_with(case.relative_path)
         );
     }
 }
@@ -1606,7 +1606,7 @@ fn clean_dry_run_json_uses_install_root_when_libraryfolders_is_unreadable() {
         targets[0]["path"]
             .as_str()
             .unwrap()
-            .ends_with(r"appcache\httpcache")
+            .ends_with("appcache/httpcache")
     );
 }
 

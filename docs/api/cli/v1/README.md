@@ -21,6 +21,15 @@ canonical command for the `inspect-artifacts` payload.
 - `--no-progress` disables human stderr progress only. It does not suppress
   NDJSON machine progress events.
 
+## Path Encoding
+
+JSON and NDJSON path fields use `/` as the separator on every platform. This
+keeps machine output stable across Windows, Linux, and macOS while human output
+continues to use the host platform's native display style. The rule applies to
+fields named `path`, `root`, `roots`, and fields ending in suffixes such as
+`_path`, `_paths`, `_dir`, `_file`, `_root`, and `_roots`. App inventory
+fields such as `install_locations` follow the same path encoding rule.
+
 ## Envelopes
 
 Success responses use `envelope.schema.json`:

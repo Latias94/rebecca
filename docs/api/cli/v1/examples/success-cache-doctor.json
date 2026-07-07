@@ -6,7 +6,7 @@
   "generated_at_unix_seconds": 1782660000,
   "data": {
     "inventory": {
-      "cache_dir": "C:\\Users\\example\\AppData\\Local\\Rebecca\\cache",
+      "cache_dir": "C:/Users/example/AppData/Local/Rebecca/cache",
       "namespace": "all",
       "summary": {
         "total_entries": 1,
@@ -27,11 +27,11 @@
           "kind": "scan-cache-record",
           "status": "stale",
           "prunable": true,
-          "absolute_path": "C:\\Users\\example\\AppData\\Local\\Rebecca\\cache\\scan\\0000000000000001.json",
-          "display_path": "scan\\0000000000000001.json",
+          "absolute_path": "C:/Users/example/AppData/Local/Rebecca/cache/scan/0000000000000001.json",
+          "display_path": "scan/0000000000000001.json",
           "bytes": 360,
-          "record_root": "C:\\Users\\example\\AppData\\Local\\Temp",
-          "record_root_display": "%LOCALAPPDATA%\\Temp",
+          "record_root": "C:/Users/example/AppData/Local/Temp",
+          "record_root_display": "%LOCALAPPDATA%/Temp",
           "backend": "portable-recursive",
           "confidence": "exact",
           "age_seconds": 600,

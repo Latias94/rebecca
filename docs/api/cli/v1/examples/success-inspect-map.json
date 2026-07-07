@@ -7,7 +7,7 @@
   "data": {
     "roots": [
       {
-        "path": "C:\\Users\\example\\AppData\\Local\\Example App",
+        "path": "C:/Users/example/AppData/Local/Example App",
         "status": "scanned",
         "metrics": {
           "logical_bytes": 7,
@@ -32,8 +32,8 @@
     },
     "top_entries": [
       {
-        "path": "C:\\Users\\example\\AppData\\Local\\Example App\\Cache",
-        "root": "C:\\Users\\example\\AppData\\Local\\Example App",
+        "path": "C:/Users/example/AppData/Local/Example App/Cache",
+        "root": "C:/Users/example/AppData/Local/Example App",
         "kind": "directory",
         "depth": 1,
         "logical_bytes": 4,
@@ -51,7 +51,7 @@
           "relation": "exact",
           "rule_id": "windows.app-leftover-local-cache",
           "category": "app-leftover",
-          "matched_path": "C:\\Users\\example\\AppData\\Local\\Example App\\Cache",
+          "matched_path": "C:/Users/example/AppData/Local/Example App/Cache",
           "app_leftover": {
             "app": {
               "stable_id": "hklm/example-app",

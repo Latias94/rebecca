@@ -26,7 +26,7 @@
     "targets": [
       {
         "rule_id": "windows.user-temp",
-        "path": "C:\\Users\\Alice\\AppData\\Local\\Temp",
+        "path": "C:/Users/Alice/AppData/Local/Temp",
         "estimated_bytes": 5,
         "estimate_source": "fresh-scan",
         "estimate_backend": "portable-recursive",
