@@ -16,15 +16,21 @@ pub(crate) type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
 pub(crate) struct TerminalGuard {
     terminal: TuiTerminal,
+    _alternate_screen: AlternateScreenGuard,
+    _raw_mode: RawModeGuard,
 }
 
 impl TerminalGuard {
     pub(crate) fn enter() -> Result<Self> {
-        enable_raw_mode()?;
+        let raw_mode = RawModeGuard::enter()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        let alternate_screen = AlternateScreenGuard::enter(&mut stdout)?;
         let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
-        Ok(Self { terminal })
+        Ok(Self {
+            terminal,
+            _alternate_screen: alternate_screen,
+            _raw_mode: raw_mode,
+        })
     }
 
     pub(crate) fn terminal_mut(&mut self) -> &mut TuiTerminal {
@@ -34,9 +40,37 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let _ = self.terminal.show_cursor();
+    }
+}
+
+struct RawModeGuard;
+
+impl RawModeGuard {
+    fn enter() -> Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+    }
+}
+
+struct AlternateScreenGuard;
+
+impl AlternateScreenGuard {
+    fn enter(stdout: &mut Stdout) -> Result<Self> {
+        execute!(stdout, EnterAlternateScreen)?;
+        Ok(Self)
+    }
+}
+
+impl Drop for AlternateScreenGuard {
+    fn drop(&mut self) {
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
     }
 }
 

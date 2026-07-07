@@ -17,6 +17,7 @@ use crate::workbench::CleanupWorkbenchRequest;
 pub(crate) enum TuiScreen {
     RootPicker,
     Map,
+    Busy,
     Preview,
     Confirm,
     Executed,
@@ -131,7 +132,7 @@ impl TuiApp {
             preview: None,
             executed: None,
             history: Vec::new(),
-            message: "Space stages a rule, c previews cleanup, ? opens help.".to_string(),
+            message: "Space stages a cleanup rule, c previews all matching targets.".to_string(),
             scan_backend,
             entry_limit,
             should_quit: false,
@@ -188,6 +189,7 @@ impl TuiApp {
         match self.screen {
             TuiScreen::RootPicker => self.handle_root_picker_key(key),
             TuiScreen::Map => self.handle_map_key(key),
+            TuiScreen::Busy => self.handle_busy_key(key),
             TuiScreen::Preview => self.handle_preview_key(key),
             TuiScreen::Confirm => self.handle_confirm_key(key),
             TuiScreen::History => self.handle_history_key(key),
@@ -204,7 +206,15 @@ impl TuiApp {
             .and_then(|session| session.root_ids().first().copied());
         self.screen = TuiScreen::Map;
         self.selected = 0;
-        self.message = "Scan complete. Space stages cleanup advice, c previews.".to_string();
+        self.message =
+            "Scan complete. Space stages cleanup rules, c previews all matching targets."
+                .to_string();
+    }
+
+    pub(crate) fn apply_task_started(&mut self, label: impl Into<String>) {
+        self.previous_screen = self.screen;
+        self.screen = TuiScreen::Busy;
+        self.message = label.into();
     }
 
     pub(crate) fn apply_preview(&mut self, plan: CleanupPlan) {
@@ -357,6 +367,17 @@ impl TuiApp {
         }
     }
 
+    fn handle_busy_key(&mut self, key: TuiKey) -> TuiEffect {
+        match key {
+            TuiKey::Char('q') | TuiKey::Esc => self.quit(),
+            TuiKey::Char('?') => self.open_help(),
+            _ => {
+                self.message = "A background task is still running.".to_string();
+                TuiEffect::None
+            }
+        }
+    }
+
     fn handle_confirm_key(&mut self, key: TuiKey) -> TuiEffect {
         match key {
             TuiKey::Enter => {
@@ -501,7 +522,7 @@ impl TuiApp {
         };
 
         if self.basket.remove(rule_id).is_some() {
-            self.message = format!("Unstaged {rule_id}.");
+            self.message = format!("Unstaged rule {rule_id}.");
             return;
         }
 
@@ -515,7 +536,7 @@ impl TuiApp {
                 required_warnings: advice.required_warnings.clone(),
             },
         );
-        self.message = format!("Staged {rule_id}.");
+        self.message = format!("Staged rule {rule_id}; preview covers all matching targets.");
     }
 
     fn cycle_sort(&mut self) {
@@ -660,6 +681,18 @@ mod tests {
         app.handle_key(TuiKey::Char('/'));
         app.handle_key(TuiKey::Esc);
         assert!(app.search_query.is_empty());
+    }
+
+    #[test]
+    fn busy_screen_ignores_navigation_and_allows_quit() {
+        let mut app = test_app();
+        app.apply_task_started("Scanning fixture...");
+
+        assert_eq!(app.screen, TuiScreen::Busy);
+        assert_eq!(app.handle_key(TuiKey::Down), TuiEffect::None);
+        assert_eq!(app.message, "A background task is still running.");
+        assert_eq!(app.handle_key(TuiKey::Char('q')), TuiEffect::Quit);
+        assert!(app.should_quit());
     }
 
     fn test_app() -> TuiApp {

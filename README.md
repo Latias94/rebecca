@@ -16,7 +16,7 @@
 
 - Safe cleanup planning: `scan` and `clean` share the same plan builder, so dry-run output and real execution stay aligned.
 - Cleanup intelligence: `catalog` and `inspect` expose rules, warnings, safety categories, space reports, ranked disk maps, project artifact reports, and lint-style opportunities without deleting files.
-- Interactive cleanup workbench: `rebecca tui` and the short alias `rebecca i` open a terminal UI for root picking, ranked disk navigation, cleanup advice, staging, preview, and recoverable-trash execution.
+- Interactive cleanup workbench: `rebecca tui` and the short alias `rebecca i` open a terminal UI for root picking, ranked disk navigation, cleanup advice, rule staging, preview, and recoverable-trash execution.
 - Windows app leftovers: `apps scan` and `apps clean` discover installed apps and target leftover cache data without uninstalling anything.
 - Project artifact purge: `purge` targets heavy build output such as `node_modules`, `target`, `build`, `dist`, and `CACHEDIR.TAG` directories after verifying project context.
 - Machine-readable output: JSON and NDJSON modes are available for wrappers, scripts, and automation, with CSV/TSV table export for disk maps.
@@ -156,10 +156,10 @@ cargo run -p rebecca -- i
 ```
 
 The TUI is for humans at a terminal. It keeps Rebecca's preview-first model:
-choose a root, navigate the ranked map, press `Space` to stage cleanup advice,
-press `c` to preview the exact plan, and execute only after typing the required
-`CLEAN <bytes>` confirmation. Press `g` to view recent cleanup history. Real TUI
-cleanup uses recoverable trash; use
+choose a root, navigate the ranked map, press `Space` to stage the cleanup rule
+behind an advised entry, press `c` to preview all matching rule targets, and
+execute only after typing the required `CLEAN <bytes>` confirmation. Press `g`
+to view recent cleanup history. Real TUI cleanup uses recoverable trash; use
 `inspect map --format json`, `--format ndjson`, or table export for automation.
 Use `--screen-reader` to omit visual bars and `--no-color` when the terminal or
 capture environment should rely only on text cues.

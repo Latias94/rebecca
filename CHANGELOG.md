@@ -10,7 +10,7 @@ All notable changes to Rebecca will be documented in this file.
 - `scan` now lists current-host cleanup rules by default, `catalog` exposes cleanup-rule platform metadata with `--platform` filtering, and doctor diagnostics report Linux support instead of returning Windows-only placeholders.
 
 ### Added
-- Added `rebecca tui` with `rebecca i` as a short alias, providing a Ratatui-based interactive cleanup workbench for root picking, disk-map navigation, cleanup-advice staging, dry-run preview, strong typed confirmation, and recoverable-trash execution through Rebecca's existing safety policy.
+- Added `rebecca tui` with `rebecca i` as a short alias, providing a Ratatui-based interactive cleanup workbench for root picking, disk-map navigation, cleanup-rule staging, dry-run preview, background scan/preview/execute workers, strong typed confirmation, and recoverable-trash execution through Rebecca's existing safety policy.
 - Added a typed `DiskMapSession` projection in `rebecca-core` so interactive clients can navigate disk-map rows without parsing human, JSON, or NDJSON CLI output.
 - Added hidden TUI `--once`, `--replay-keys`, and `--terminal-width` entry points plus visible `--screen-reader` and `--no-color` modes so CI, scripted tests, and accessible terminals can verify terminal UI journeys without requiring an attached TTY.
 - Expanded the Linux built-in cleanup catalog from `linux.user-temp` to a first-class set of system, browser, desktop-app, Steam, package-manager, and developer-cache rules with XDG fallback semantics and package-manager warning gates.

@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
 use rebecca::core::cleanup_advice::CleanupAdviceStatus;
 use rebecca::core::disk_session::DiskMapVisibleRow;
 use rebecca::core::plan::CleanupPlan;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::output::format_bytes;
 use crate::text::format_count;
@@ -34,6 +35,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &TuiApp, options: ViewOptions) 
     match app.screen {
         TuiScreen::RootPicker => render_root_picker(frame, app, chunks[1], options.color),
         TuiScreen::Map => render_map(frame, app, chunks[1], options),
+        TuiScreen::Busy => render_busy(frame, app, chunks[1]),
         TuiScreen::Preview => {
             render_plan(frame, app.preview.as_ref(), "Cleanup preview", chunks[1])
         }
@@ -63,6 +65,7 @@ pub(crate) fn snapshot(app: &TuiApp, options: ViewOptions) -> String {
     match app.screen {
         TuiScreen::RootPicker => snapshot_root_picker(app, width, &mut lines),
         TuiScreen::Map => snapshot_map(app, options, &mut lines),
+        TuiScreen::Busy => lines.push(trim_to_width(format!("Busy: {}", app.message), width)),
         TuiScreen::Preview => {
             snapshot_plan("Cleanup preview", app.preview.as_ref(), width, &mut lines)
         }
@@ -211,10 +214,11 @@ fn render_details(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from("Basket"));
+    lines.push(Line::from("Rule basket"));
     if app.basket.is_empty() {
         lines.push(Line::from("  empty"));
     } else {
+        lines.push(Line::from("  preview includes all matching rule targets"));
         for item in app.basket.values() {
             lines.push(Line::from(format!("  {}", basket_label(item))));
         }
@@ -234,6 +238,17 @@ fn render_plan(frame: &mut Frame<'_>, plan: Option<&CleanupPlan>, title: &'stati
         Paragraph::new(lines)
             .wrap(Wrap { trim: true })
             .block(Block::default().borders(Borders::ALL).title(title)),
+        area,
+    );
+}
+
+fn render_busy(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(app.message.clone()),
+            Line::from("Press q or Esc to cancel and exit."),
+        ])
+        .block(Block::default().borders(Borders::ALL).title("Working")),
         area,
     );
 }
@@ -289,7 +304,7 @@ fn render_status(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}{} | j/k move Enter open h back Space stage c preview g history ? help q quit",
+            "{}{} | j/k move Enter open h back Space stage-rule c preview g history ? help q quit",
             app.message, search
         )),
         area,
@@ -411,7 +426,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from("j/k or arrows move"),
         Line::from("Enter/l opens a directory, h/Esc moves back"),
         Line::from("/ searches visible paths, s cycles sort"),
-        Line::from("Space stages cleanup advice, c previews the plan"),
+        Line::from("Space stages the cleanup rule; preview includes all matching targets"),
         Line::from("e executes only after typed confirmation"),
         Line::from("g shows recent cleanup history"),
         Line::from("q quits"),
@@ -448,6 +463,7 @@ fn screen_label(screen: TuiScreen) -> &'static str {
     match screen {
         TuiScreen::RootPicker => "root-picker",
         TuiScreen::Map => "map",
+        TuiScreen::Busy => "working",
         TuiScreen::Preview => "preview",
         TuiScreen::Confirm => "confirm",
         TuiScreen::Executed => "executed",
@@ -532,13 +548,24 @@ fn trim_to_width(value: String, width: usize) -> String {
     if width == 0 {
         return String::new();
     }
-    let mut chars = value.chars();
-    let trimmed = chars.by_ref().take(width).collect::<String>();
-    if chars.next().is_some() && width > 3 {
-        format!("{}...", trimmed.chars().take(width - 3).collect::<String>())
-    } else {
-        trimmed
+    if UnicodeWidthStr::width(value.as_str()) <= width {
+        return value;
     }
+
+    let suffix = if width > 3 { "..." } else { "" };
+    let target_width = width.saturating_sub(UnicodeWidthStr::width(suffix));
+    let mut rendered_width = 0;
+    let mut trimmed = String::new();
+    for ch in value.chars() {
+        let char_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if rendered_width + char_width > target_width {
+            break;
+        }
+        trimmed.push(ch);
+        rendered_width += char_width;
+    }
+    trimmed.push_str(suffix);
+    trimmed
 }
 
 fn line_to_plain(line: &Line<'_>) -> String {
@@ -546,4 +573,19 @@ fn line_to_plain(line: &Line<'_>) -> String {
         .iter()
         .map(|span| span.content.as_ref())
         .collect::<String>()
+}
+
+#[cfg(test)]
+mod tests {
+    use unicode_width::UnicodeWidthStr;
+
+    use super::trim_to_width;
+
+    #[test]
+    fn trim_to_width_respects_display_width_for_cjk_text() {
+        let line = trim_to_width("缓存目录-with-a-very-long-name".to_string(), 12);
+
+        assert!(UnicodeWidthStr::width(line.as_str()) <= 12, "{line}");
+        assert!(line.ends_with("..."));
+    }
 }

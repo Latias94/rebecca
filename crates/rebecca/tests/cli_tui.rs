@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
 
+use unicode_width::UnicodeWidthStr;
+
 mod common;
 
 fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
@@ -180,7 +182,11 @@ fn tui_once_respects_hidden_terminal_width_for_ci() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.lines().all(|line| line.chars().count() <= 40));
+    assert!(
+        stdout
+            .lines()
+            .all(|line| UnicodeWidthStr::width(line) <= 40)
+    );
 }
 
 #[test]
@@ -193,4 +199,17 @@ fn tui_rejects_machine_output_modes() {
     assert!(!output.status.success());
     let stderr = common::support::stderr(&output);
     assert!(stderr.contains("requires --format human"));
+}
+
+#[test]
+fn tui_non_tty_rejects_before_replay_or_scan_setup() {
+    let output = common::command::rebecca()
+        .args(["tui", "--replay-keys", "not-a-key"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("requires an interactive terminal"));
+    assert!(!stderr.contains("unknown tui replay key token"));
 }
