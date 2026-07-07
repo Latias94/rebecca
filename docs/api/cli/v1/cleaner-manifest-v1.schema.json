@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebecca.dev/schemas/cli/v1/cleaner-manifest-v1.schema.json",
+  "title": "Rebecca Cleaner Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "id",
+    "category",
+    "name",
+    "safety_level",
+    "platforms",
+    "provenance"
+  ],
+  "properties": {
+    "manifest_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "category": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "name": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "safety_level": {
+      "$ref": "#/$defs/safetyLevel"
+    },
+    "restore_hint": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "warnings": {
+      "$ref": "#/$defs/stringArray"
+    },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/platformCleaner"
+      }
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      },
+      "uniqueItems": true
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "windows",
+        "linux",
+        "macos"
+      ]
+    },
+    "safetyLevel": {
+      "type": "string",
+      "enum": [
+        "safe",
+        "moderate",
+        "risky",
+        "dangerous"
+      ]
+    },
+    "searchKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "glob",
+        "steam-install",
+        "steam-library"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "license",
+        "notes"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "owned",
+            "reference-only"
+          ]
+        },
+        "license": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "notes": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "platformCleaner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform"
+      ],
+      "properties": {
+        "platform": {
+          "$ref": "#/$defs/platform"
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "restore_hint": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "warnings": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/target"
+          }
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/option"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "targets"
+          ],
+          "not": {
+            "required": [
+              "options"
+            ]
+          }
+        },
+        {
+          "required": [
+            "options"
+          ],
+          "not": {
+            "required": [
+              "targets"
+            ]
+          }
+        }
+      ]
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "actions"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "restore_hint": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "warnings": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "target"
+      ],
+      "properties": {
+        "kind": {
+          "const": "delete"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        }
+      }
+    },
+    "target": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/stringTarget"
+        },
+        {
+          "$ref": "#/$defs/exactPathTarget"
+        }
+      ]
+    },
+    "stringTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "template",
+            "glob-template",
+            "steam-install-template",
+            "steam-library-template"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "search_kind": {
+          "$ref": "#/$defs/searchKind"
+        }
+      }
+    },
+    "exactPathTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "kind": {
+          "const": "exact-path"
+        },
+        "value": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "search_kind": {
+          "$ref": "#/$defs/searchKind"
+        }
+      }
+    }
+  }
+}

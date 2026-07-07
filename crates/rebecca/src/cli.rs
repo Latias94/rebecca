@@ -186,6 +186,8 @@ pub enum SchemaDocumentArg {
     Event,
     Error,
     Payloads,
+    Config,
+    CleanerManifestV1,
 }
 
 impl From<CatalogKindArg> for rebecca::core::catalog::CatalogItemKind {

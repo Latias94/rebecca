@@ -15,11 +15,14 @@ struct RuleValidationReport {
     enabled: bool,
     files: Vec<PathBuf>,
     discovery: RuleDiscoveryReport,
+    summary: RuleValidationSummary,
+    diagnostics: Vec<RuleValidationDiagnostic>,
     rule_count: usize,
     target_count: usize,
     platforms: Vec<&'static str>,
     categories: Vec<String>,
     rules: Vec<String>,
+    rule_previews: Vec<RuleValidationPreview>,
     checks: &'static [&'static str],
 }
 
@@ -28,6 +31,32 @@ struct RuleDiscoveryReport {
     directory_max_depth: usize,
     file_limit: usize,
     symlink_traversal: bool,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct RuleValidationSummary {
+    checks_passed: usize,
+    diagnostics: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct RuleValidationDiagnostic {
+    code: &'static str,
+    severity: &'static str,
+    path: Option<PathBuf>,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RuleValidationPreview {
+    rule_id: String,
+    platform: &'static str,
+    category: String,
+    safety_level: &'static str,
+    target_count: usize,
+    warning_gates: Vec<String>,
+    source: &'static str,
+    enabled_by_validation: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -58,10 +87,19 @@ pub fn validate(
     dirs: Vec<PathBuf>,
     discovery: RuleDiscoveryOptions,
 ) -> Result<()> {
-    validate_discovery_options(discovery)?;
-    let files = collect_rule_files(files, dirs, discovery)?;
-    let rules = rebecca::rules::validate_external_rule_files(&files)?;
-    let report = validation_report(files, discovery, &rules);
+    let report = match build_validation_report(files, dirs, discovery) {
+        Ok(report) => report,
+        Err(err) if !output_mode.is_human() => {
+            let report = failed_validation_report(discovery, &err);
+            crate::output::print_machine_success_payload_with_contract(
+                CliApiContract::v1("rules validate", "rule-validation"),
+                output_mode,
+                &report,
+            )?;
+            return Err(crate::output::MachineErrorRendered.into());
+        }
+        Err(err) => return Err(err),
+    };
 
     crate::output::print_command_success_with_contract(
         CliApiContract::v1("rules validate", "rule-validation"),
@@ -86,6 +124,17 @@ pub fn validate(
             Ok(())
         },
     )
+}
+
+fn build_validation_report(
+    files: Vec<PathBuf>,
+    dirs: Vec<PathBuf>,
+    discovery: RuleDiscoveryOptions,
+) -> Result<RuleValidationReport> {
+    validate_discovery_options(discovery)?;
+    let files = collect_rule_files(files, dirs, discovery)?;
+    let rules = rebecca::rules::validate_external_rule_files(&files)?;
+    Ok(validation_report(files, discovery, &rules))
 }
 
 fn validation_report(
@@ -115,6 +164,10 @@ fn validation_report(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
+    let rule_previews = rules
+        .iter()
+        .map(rule_validation_preview)
+        .collect::<Vec<_>>();
 
     RuleValidationReport {
         valid: true,
@@ -124,13 +177,86 @@ fn validation_report(
             file_limit: discovery.max_files,
             symlink_traversal: false,
         },
+        summary: RuleValidationSummary {
+            checks_passed: EXTERNAL_RULE_VALIDATION_CHECKS.len(),
+            diagnostics: 0,
+        },
+        diagnostics: Vec::new(),
         files,
         rule_count: rule_ids.len(),
         target_count,
         platforms,
         categories,
         rules: rule_ids,
+        rule_previews,
         checks: EXTERNAL_RULE_VALIDATION_CHECKS,
+    }
+}
+
+fn failed_validation_report(
+    discovery: RuleDiscoveryOptions,
+    err: &anyhow::Error,
+) -> RuleValidationReport {
+    RuleValidationReport {
+        valid: false,
+        enabled: false,
+        files: Vec::new(),
+        discovery: RuleDiscoveryReport {
+            directory_max_depth: discovery.max_depth,
+            file_limit: discovery.max_files,
+            symlink_traversal: false,
+        },
+        summary: RuleValidationSummary {
+            checks_passed: 0,
+            diagnostics: 1,
+        },
+        diagnostics: vec![rule_validation_diagnostic(err)],
+        rule_count: 0,
+        target_count: 0,
+        platforms: Vec::new(),
+        categories: Vec::new(),
+        rules: Vec::new(),
+        rule_previews: Vec::new(),
+        checks: EXTERNAL_RULE_VALIDATION_CHECKS,
+    }
+}
+
+fn rule_validation_preview(rule: &RuleDefinition) -> RuleValidationPreview {
+    RuleValidationPreview {
+        rule_id: rule.id.clone(),
+        platform: rule.platform.label(),
+        category: rule.category.clone(),
+        safety_level: rule.safety_level.label(),
+        target_count: rule.path_templates.len(),
+        warning_gates: rule.warnings.clone(),
+        source: rule.provenance.source.label(),
+        enabled_by_validation: false,
+    }
+}
+
+fn rule_validation_diagnostic(err: &anyhow::Error) -> RuleValidationDiagnostic {
+    if let Some(core_error) = err.downcast_ref::<RebeccaError>() {
+        return match core_error {
+            RebeccaError::RuleCatalogInvalid(message) => RuleValidationDiagnostic {
+                code: "rule-catalog-invalid",
+                severity: "error",
+                path: None,
+                message: message.clone(),
+            },
+            _ => RuleValidationDiagnostic {
+                code: "rule-validation-failed",
+                severity: "error",
+                path: None,
+                message: core_error.to_string(),
+            },
+        };
+    }
+
+    RuleValidationDiagnostic {
+        code: "rule-validation-failed",
+        severity: "error",
+        path: None,
+        message: err.to_string(),
     }
 }
 

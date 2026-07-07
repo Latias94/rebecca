@@ -248,10 +248,36 @@ fn capabilities_format_json_reports_gui_backend_contract() {
             .unwrap()
             .contains(&"clean".into())
     );
-    assert!(data["commands"].as_array().unwrap().iter().any(|command| {
+    assert!(
+        data["schema_documents"]
+            .as_array()
+            .unwrap()
+            .contains(&"config".into())
+    );
+    assert!(
+        data["recommended_startup_commands"]
+            .as_array()
+            .unwrap()
+            .contains(&"doctor permissions".into())
+    );
+    let commands = data["commands"].as_array().unwrap();
+    assert!(commands.iter().any(|command| {
         command["name"] == "rules validate"
             && command["payload_kind"] == "rule-validation"
             && command["machine_readable"] == true
+            && command["schema_documents"]
+                .as_array()
+                .unwrap()
+                .contains(&"cleaner-manifest-v1".into())
+    }));
+    assert!(commands.iter().any(|command| {
+        command["name"] == "clean"
+            && command["required_execution_flag"] == "--yes"
+            && command["preflight_commands"]
+                .as_array()
+                .unwrap()
+                .contains(&"doctor permissions".into())
+            && command["macos_privacy_relevant"] == true
     }));
 
     let validator = validator_for_payload_def("capabilities");
@@ -287,6 +313,38 @@ fn schema_export_format_json_returns_requested_schema_document() {
     assert_eq!(
         envelope["data"]["schema"]["$id"],
         "https://rebecca.local/schemas/cli/v1/payloads.schema.json"
+    );
+
+    let validator = validator_for_payload_def("cliSchema");
+    validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn schema_export_format_json_returns_config_schema_document() {
+    let output = common::command::rebecca()
+        .args([
+            "schema",
+            "export",
+            "--document",
+            "config",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["data"]["document"], "config");
+    assert_eq!(
+        envelope["data"]["schema"]["$id"],
+        "https://rebecca.dev/schemas/cli/v1/config.schema.json"
     );
 
     let validator = validator_for_payload_def("cliSchema");
@@ -350,6 +408,15 @@ search_kind = "file"
     assert_eq!(envelope["data"]["target_count"], 1);
     assert_eq!(envelope["data"]["rules"][0], "macos.example-cache");
     assert_eq!(envelope["data"]["enabled"], false);
+    assert_eq!(envelope["data"]["summary"]["diagnostics"], 0);
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["rule_id"],
+        "macos.example-cache"
+    );
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["enabled_by_validation"],
+        false
+    );
 
     let validator = validator_for_payload_def("ruleValidation");
     validator.validate(&envelope["data"]).unwrap();
@@ -363,16 +430,24 @@ fn rules_validate_format_json_missing_inputs_returns_rule_catalog_error() {
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let envelope = parse_json(&output.stderr);
-    assert_error_schema(&envelope);
+    assert!(output.stderr.is_empty());
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
     assert_eq!(envelope["command"], "rules validate");
-    assert_eq!(envelope["error"]["code"], "rule-catalog-invalid");
+    assert_eq!(envelope["payload_kind"], "rule-validation");
+    assert_eq!(envelope["data"]["valid"], false);
+    assert_eq!(
+        envelope["data"]["diagnostics"][0]["code"],
+        "rule-catalog-invalid"
+    );
     assert!(
-        envelope["error"]["detail"]
+        envelope["data"]["diagnostics"][0]["message"]
             .as_str()
             .is_some_and(|detail| detail.contains("at least one --file or --dir"))
     );
+
+    let validator = validator_for_payload_def("ruleValidation");
+    validator.validate(&envelope["data"]).unwrap();
 }
 
 #[cfg(unix)]
@@ -456,6 +531,15 @@ value = "MACOS_HOME/.ssh"
     assert_success_schema(&envelope);
     assert_eq!(envelope["data"]["rule_count"], 1);
     assert_eq!(envelope["data"]["rules"][0], "macos.example-cache");
+    assert_eq!(envelope["data"]["summary"]["diagnostics"], 0);
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["rule_id"],
+        "macos.example-cache"
+    );
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["enabled_by_validation"],
+        false
+    );
 }
 
 #[test]
@@ -500,16 +584,24 @@ value = "MACOS_HOME/.ssh"
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let envelope = parse_json(&output.stderr);
-    assert_error_schema(&envelope);
+    assert!(output.stderr.is_empty());
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
     assert_eq!(envelope["command"], "rules validate");
-    assert_eq!(envelope["error"]["code"], "rule-catalog-invalid");
+    assert_eq!(envelope["payload_kind"], "rule-validation");
+    assert_eq!(envelope["data"]["valid"], false);
+    assert_eq!(
+        envelope["data"]["diagnostics"][0]["code"],
+        "rule-catalog-invalid"
+    );
     assert!(
-        envelope["error"]["detail"]
+        envelope["data"]["diagnostics"][0]["message"]
             .as_str()
             .is_some_and(|detail| detail.contains("blocked by credentials"))
     );
+
+    let validator = validator_for_payload_def("ruleValidation");
+    validator.validate(&envelope["data"]).unwrap();
 }
 
 #[test]
@@ -532,6 +624,13 @@ fn config_validate_format_json_reports_effective_config_contract() {
     assert_eq!(envelope["payload_kind"], "config-validation");
     assert_eq!(envelope["data"]["valid"], true);
     assert_eq!(envelope["data"]["schema_version"], 1);
+    assert_eq!(envelope["data"]["summary"]["diagnostics"], 0);
+    assert!(
+        envelope["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 
     let validator = validator_for_payload_def("configValidation");
     validator.validate(&envelope["data"]).unwrap();
@@ -554,11 +653,19 @@ fn config_validate_format_json_missing_explicit_file_returns_read_error() {
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let envelope = parse_json(&output.stderr);
-    assert_error_schema(&envelope);
+    assert!(output.stderr.is_empty());
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
     assert_eq!(envelope["command"], "config validate");
-    assert_eq!(envelope["error"]["code"], "config-read-failed");
+    assert_eq!(envelope["payload_kind"], "config-validation");
+    assert_eq!(envelope["data"]["valid"], false);
+    assert_eq!(
+        envelope["data"]["diagnostics"][0]["code"],
+        "config-read-failed"
+    );
+
+    let validator = validator_for_payload_def("configValidation");
+    validator.validate(&envelope["data"]).unwrap();
 }
 
 #[test]
@@ -1050,6 +1157,8 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         "error.schema.json",
         "event.schema.json",
         "payloads.schema.json",
+        "config.schema.json",
+        "cleaner-manifest-v1.schema.json",
     ] {
         let schema = read_doc_json(relative);
         assert_eq!(

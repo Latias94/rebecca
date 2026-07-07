@@ -48,6 +48,8 @@ fn document_name(document: SchemaDocumentArg) -> &'static str {
         SchemaDocumentArg::Event => "event",
         SchemaDocumentArg::Error => "error",
         SchemaDocumentArg::Payloads => "payloads",
+        SchemaDocumentArg::Config => "config",
+        SchemaDocumentArg::CleanerManifestV1 => "cleaner-manifest-v1",
     }
 }
 
@@ -60,6 +62,10 @@ fn schema_raw(document: SchemaDocumentArg) -> &'static str {
         SchemaDocumentArg::Error => include_str!("../../../docs/api/cli/v1/error.schema.json"),
         SchemaDocumentArg::Payloads => {
             include_str!("../../../docs/api/cli/v1/payloads.schema.json")
+        }
+        SchemaDocumentArg::Config => include_str!("../../../docs/api/cli/v1/config.schema.json"),
+        SchemaDocumentArg::CleanerManifestV1 => {
+            include_str!("../../../docs/api/cli/v1/cleaner-manifest-v1.schema.json")
         }
     }
 }

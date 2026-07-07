@@ -49,6 +49,12 @@
         "$ref": "#/$defs/nonEmptyString"
       }
     },
+    "stringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
     "capabilities": {
       "type": "object",
       "additionalProperties": false,
@@ -59,6 +65,7 @@
         "features",
         "output_formats",
         "schema_documents",
+        "recommended_startup_commands",
         "commands",
         "long_running_commands",
         "safety_model"
@@ -80,6 +87,9 @@
           "$ref": "#/$defs/nonEmptyStringArray"
         },
         "schema_documents": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "recommended_startup_commands": {
           "$ref": "#/$defs/nonEmptyStringArray"
         },
         "commands": {
@@ -140,7 +150,14 @@
         "payload_kind",
         "machine_readable",
         "ndjson",
-        "mutates_files"
+        "mutates_files",
+        "availability",
+        "platforms",
+        "schema_documents",
+        "preflight_commands",
+        "required_execution_flag",
+        "required_confirmation_flags",
+        "macos_privacy_relevant"
       ],
       "properties": {
         "name": {
@@ -156,6 +173,41 @@
           "type": "boolean"
         },
         "mutates_files": {
+          "type": "boolean"
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "available",
+            "preview-only",
+            "unsupported-platform"
+          ]
+        },
+        "platforms": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "schema_documents": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "preflight_commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "required_execution_flag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required_confirmation_flags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "macos_privacy_relevant": {
           "type": "boolean"
         }
       }
@@ -207,7 +259,9 @@
             "envelope",
             "event",
             "error",
-            "payloads"
+            "payloads",
+            "config",
+            "cleaner-manifest-v1"
           ]
         },
         "media_type": {
@@ -226,6 +280,8 @@
         "schema_version",
         "config_file",
         "loaded_from_file",
+        "summary",
+        "diagnostics",
         "checks"
       ],
       "properties": {
@@ -240,6 +296,15 @@
         },
         "loaded_from_file": {
           "type": "boolean"
+        },
+        "summary": {
+          "$ref": "#/$defs/validationSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationDiagnostic"
+          }
         },
         "checks": {
           "$ref": "#/$defs/nonEmptyStringArray"
@@ -274,6 +339,54 @@
         }
       }
     },
+    "validationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks_passed",
+        "diagnostics"
+      ],
+      "properties": {
+        "checks_passed": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "validationDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "path",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
     "ruleValidation": {
       "type": "object",
       "additionalProperties": false,
@@ -282,11 +395,14 @@
         "enabled",
         "files",
         "discovery",
+        "summary",
+        "diagnostics",
         "rule_count",
         "target_count",
         "platforms",
         "categories",
         "rules",
+        "rule_previews",
         "checks"
       ],
       "properties": {
@@ -297,10 +413,19 @@
           "type": "boolean"
         },
         "files": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
         },
         "discovery": {
           "$ref": "#/$defs/ruleDiscovery"
+        },
+        "summary": {
+          "$ref": "#/$defs/validationSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationDiagnostic"
+          }
         },
         "rule_count": {
           "$ref": "#/$defs/nonNegativeInteger"
@@ -309,13 +434,19 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "platforms": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
         },
         "categories": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
         },
         "rules": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
+        },
+        "rule_previews": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ruleValidationPreview"
+          }
         },
         "checks": {
           "$ref": "#/$defs/nonEmptyStringArray"
@@ -338,6 +469,46 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "symlink_traversal": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ruleValidationPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "platform",
+        "category",
+        "safety_level",
+        "target_count",
+        "warning_gates",
+        "source",
+        "enabled_by_validation"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "platform": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "category": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "safety_level": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "target_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "warning_gates": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "source": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled_by_validation": {
           "type": "boolean"
         }
       }

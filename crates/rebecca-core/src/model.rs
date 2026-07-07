@@ -287,6 +287,15 @@ pub enum RuleSource {
     ReferenceOnly,
 }
 
+impl RuleSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Owned => "owned",
+            Self::ReferenceOnly => "reference-only",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanRequest {
     pub platform: Platform,

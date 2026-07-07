@@ -226,13 +226,17 @@ filters those entries before rendering the API envelope. `catalog-validation` is
 `capabilities` is emitted by `rebecca capabilities`. GUI wrappers should call it
 before choosing workflows instead of hard-coding feature assumptions. It reports
 the CLI API version, package version, current platform, compile-time features
-such as `rules`, `windows`, and `ntfs`, available schema documents, command
-payload kinds, NDJSON support, mutating commands, and safety-model facts such as
-preview-by-default cleanup and recoverable deletion.
+such as `rules`, `windows`, and `ntfs`, available schema documents, recommended
+startup commands, command payload kinds, NDJSON support, mutating commands,
+platform availability, preflight commands, required execution flags, macOS
+privacy relevance, and safety-model facts such as preview-by-default cleanup
+and recoverable deletion.
 
 `cli-schema` is emitted by `rebecca schema export --document <name>`. It returns
 one embedded JSON Schema document from this directory inside a normal API
-envelope. Use it when a GUI wants to validate Rebecca payloads at runtime.
+envelope. Exportable documents are `envelope`, `event`, `error`, `payloads`,
+`config`, and `cleaner-manifest-v1`. Use them when a GUI wants to validate
+Rebecca payloads, config files, or external rule manifests at runtime.
 
 `rule-validation` is emitted by `rebecca rules validate`. This command validates
 external Cleaner Manifest v1 TOML files or directories before import. A success
