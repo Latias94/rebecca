@@ -9,29 +9,338 @@
       "enum": [
         "active-process-diagnostic",
         "app-leftovers-cleanup-plan",
+        "capabilities",
         "cache-doctor",
         "cache-inventory",
         "cache-purge-report",
         "cache-prune-report",
         "catalog",
         "catalog-validation",
+        "cli-schema",
         "cleanup-plan",
         "config-paths",
+        "config-validation",
+        "config-view",
         "history-list",
         "inspect-artifacts",
         "inspect-lint",
         "inspect-map",
         "inspect-map-entry",
         "inspect-map-group",
+        "inspect-progress",
         "inspect-space",
         "permissions-diagnostic",
         "project-artifact-cleanup-plan",
+        "rule-validation",
         "rule-catalog"
       ]
     },
     "nonNegativeInteger": {
       "type": "integer",
       "minimum": 0
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nonEmptyStringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "cli_version",
+        "platform",
+        "features",
+        "output_formats",
+        "schema_documents",
+        "commands",
+        "long_running_commands",
+        "safety_model"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "rebecca.cli.v1"
+        },
+        "cli_version": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "platform": {
+          "$ref": "#/$defs/capabilitiesPlatform"
+        },
+        "features": {
+          "$ref": "#/$defs/capabilitiesFeatures"
+        },
+        "output_formats": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "schema_documents": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/commandCapability"
+          }
+        },
+        "long_running_commands": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "safety_model": {
+          "$ref": "#/$defs/capabilitiesSafetyModel"
+        }
+      }
+    },
+    "capabilitiesPlatform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "cleanup_execution_supported"
+      ],
+      "properties": {
+        "current": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "cleanup_execution_supported": {
+          "type": "boolean"
+        }
+      }
+    },
+    "capabilitiesFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rules",
+        "windows",
+        "ntfs"
+      ],
+      "properties": {
+        "rules": {
+          "type": "boolean"
+        },
+        "windows": {
+          "type": "boolean"
+        },
+        "ntfs": {
+          "type": "boolean"
+        }
+      }
+    },
+    "commandCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "payload_kind",
+        "machine_readable",
+        "ndjson",
+        "mutates_files"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "payload_kind": {
+          "$ref": "#/$defs/payloadKind"
+        },
+        "machine_readable": {
+          "type": "boolean"
+        },
+        "ndjson": {
+          "type": "boolean"
+        },
+        "mutates_files": {
+          "type": "boolean"
+        }
+      }
+    },
+    "capabilitiesSafetyModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview_default",
+        "explicit_execution_flag",
+        "recoverable_delete_default",
+        "persistent_risky_opt_in",
+        "external_rules_enabled_by_validation"
+      ],
+      "properties": {
+        "preview_default": {
+          "type": "boolean"
+        },
+        "explicit_execution_flag": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "recoverable_delete_default": {
+          "type": "boolean"
+        },
+        "persistent_risky_opt_in": {
+          "type": "boolean"
+        },
+        "external_rules_enabled_by_validation": {
+          "type": "boolean"
+        }
+      }
+    },
+    "cliSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "document",
+        "media_type",
+        "schema"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "rebecca.cli.v1"
+        },
+        "document": {
+          "type": "string",
+          "enum": [
+            "envelope",
+            "event",
+            "error",
+            "payloads"
+          ]
+        },
+        "media_type": {
+          "const": "application/schema+json"
+        },
+        "schema": {
+          "type": "object"
+        }
+      }
+    },
+    "configValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "schema_version",
+        "config_file",
+        "loaded_from_file",
+        "checks"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "config_file": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "loaded_from_file": {
+          "type": "boolean"
+        },
+        "checks": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "configView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "config_file",
+        "loaded_from_file",
+        "config",
+        "runtime"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "config_file": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "loaded_from_file": {
+          "type": "boolean"
+        },
+        "config": {
+          "type": "object"
+        },
+        "runtime": {
+          "type": "object"
+        }
+      }
+    },
+    "ruleValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "enabled",
+        "files",
+        "discovery",
+        "rule_count",
+        "target_count",
+        "platforms",
+        "categories",
+        "rules",
+        "checks"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "files": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "discovery": {
+          "$ref": "#/$defs/ruleDiscovery"
+        },
+        "rule_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "target_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "platforms": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "categories": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "rules": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "checks": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "ruleDiscovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory_max_depth",
+        "file_limit",
+        "symlink_traversal"
+      ],
+      "properties": {
+        "directory_max_depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "file_limit": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "symlink_traversal": {
+          "type": "boolean"
+        }
+      }
     },
     "estimateSource": {
       "type": "string",

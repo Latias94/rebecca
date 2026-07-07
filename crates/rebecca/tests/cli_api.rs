@@ -213,6 +213,416 @@ fn catalog_format_json_invalid_selector_returns_error_envelope() {
 }
 
 #[test]
+fn capabilities_format_json_reports_gui_backend_contract() {
+    let output = common::command::rebecca()
+        .args(["capabilities", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["command"], "capabilities");
+    assert_eq!(envelope["payload_kind"], "capabilities");
+
+    let data = &envelope["data"];
+    assert_eq!(data["api_version"], "rebecca.cli.v1");
+    assert!(data["cli_version"].as_str().is_some());
+    assert!(data["platform"]["current"].as_str().is_some());
+    assert!(data["features"]["rules"].as_bool().is_some());
+    assert!(data["features"]["ntfs"].as_bool().is_some());
+    assert!(
+        data["output_formats"]
+            .as_array()
+            .unwrap()
+            .contains(&"json".into())
+    );
+    assert!(
+        data["long_running_commands"]
+            .as_array()
+            .unwrap()
+            .contains(&"clean".into())
+    );
+    assert!(data["commands"].as_array().unwrap().iter().any(|command| {
+        command["name"] == "rules validate"
+            && command["payload_kind"] == "rule-validation"
+            && command["machine_readable"] == true
+    }));
+
+    let validator = validator_for_payload_def("capabilities");
+    validator.validate(data).unwrap();
+}
+
+#[test]
+fn schema_export_format_json_returns_requested_schema_document() {
+    let output = common::command::rebecca()
+        .args([
+            "schema",
+            "export",
+            "--document",
+            "payloads",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["command"], "schema export");
+    assert_eq!(envelope["payload_kind"], "cli-schema");
+    assert_eq!(envelope["data"]["document"], "payloads");
+    assert_eq!(envelope["data"]["api_version"], "rebecca.cli.v1");
+    assert_eq!(
+        envelope["data"]["schema"]["$id"],
+        "https://rebecca.local/schemas/cli/v1/payloads.schema.json"
+    );
+
+    let validator = validator_for_payload_def("cliSchema");
+    validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn rules_validate_format_json_accepts_external_manifest_without_importing_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let rule_file = temp.path().join("example-cache.toml");
+    std::fs::write(
+        &rule_file,
+        r#"
+manifest_version = 1
+id = "example-cache"
+category = "development"
+name = "Example cache"
+safety_level = "safe"
+restore_hint = "Example rebuilds this cache automatically."
+
+[provenance]
+source = "reference-only"
+license = "example-user-rule"
+notes = "Local user-authored validation fixture; no external rule data copied."
+
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "MACOS_CACHE_HOME/Example"
+search_kind = "file"
+"#,
+    )
+    .unwrap();
+
+    let output = common::command::rebecca()
+        .args([
+            "rules",
+            "validate",
+            "--format",
+            "json",
+            "--file",
+            rule_file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["command"], "rules validate");
+    assert_eq!(envelope["payload_kind"], "rule-validation");
+    assert_eq!(envelope["data"]["valid"], true);
+    assert_eq!(envelope["data"]["rule_count"], 1);
+    assert_eq!(envelope["data"]["target_count"], 1);
+    assert_eq!(envelope["data"]["rules"][0], "macos.example-cache");
+    assert_eq!(envelope["data"]["enabled"], false);
+
+    let validator = validator_for_payload_def("ruleValidation");
+    validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn rules_validate_format_json_missing_inputs_returns_rule_catalog_error() {
+    let output = common::command::rebecca()
+        .args(["rules", "validate", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let envelope = parse_json(&output.stderr);
+    assert_error_schema(&envelope);
+    assert_eq!(envelope["command"], "rules validate");
+    assert_eq!(envelope["error"]["code"], "rule-catalog-invalid");
+    assert!(
+        envelope["error"]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("at least one --file or --dir"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rules_validate_dir_does_not_follow_symlinked_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let rules_dir = temp.path().join("rules");
+    let linked_dir = temp.path().join("linked");
+    std::fs::create_dir_all(&rules_dir).unwrap();
+    std::fs::create_dir_all(&linked_dir).unwrap();
+    std::fs::write(
+        rules_dir.join("example-cache.toml"),
+        r#"
+manifest_version = 1
+id = "example-cache"
+category = "development"
+name = "Example cache"
+safety_level = "safe"
+restore_hint = "Example rebuilds this cache automatically."
+
+[provenance]
+source = "reference-only"
+license = "example-user-rule"
+notes = "Local user-authored validation fixture; no external rule data copied."
+
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "MACOS_CACHE_HOME/Example"
+search_kind = "file"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        linked_dir.join("bad.toml"),
+        r#"
+manifest_version = 1
+id = "bad-state"
+category = "development"
+name = "Bad credential target"
+safety_level = "safe"
+restore_hint = "Do not use."
+
+[provenance]
+source = "reference-only"
+license = "example-user-rule"
+notes = "Local user-authored validation fixture; no external rule data copied."
+
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "MACOS_HOME/.ssh"
+"#,
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&linked_dir, rules_dir.join("linked")).unwrap();
+
+    let output = common::command::rebecca()
+        .args([
+            "rules",
+            "validate",
+            "--format",
+            "json",
+            "--dir",
+            rules_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["data"]["rule_count"], 1);
+    assert_eq!(envelope["data"]["rules"][0], "macos.example-cache");
+}
+
+#[test]
+fn rules_validate_format_json_rejects_protected_external_manifest() {
+    let temp = tempfile::tempdir().unwrap();
+    let rule_file = temp.path().join("bad.toml");
+    std::fs::write(
+        &rule_file,
+        r#"
+manifest_version = 1
+id = "bad-state"
+category = "development"
+name = "Bad credential target"
+safety_level = "safe"
+restore_hint = "Do not use."
+
+[provenance]
+source = "reference-only"
+license = "example-user-rule"
+notes = "Local user-authored validation fixture; no external rule data copied."
+
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "MACOS_HOME/.ssh"
+"#,
+    )
+    .unwrap();
+
+    let output = common::command::rebecca()
+        .args([
+            "rules",
+            "validate",
+            "--format",
+            "json",
+            "--file",
+            rule_file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let envelope = parse_json(&output.stderr);
+    assert_error_schema(&envelope);
+    assert_eq!(envelope["command"], "rules validate");
+    assert_eq!(envelope["error"]["code"], "rule-catalog-invalid");
+    assert!(
+        envelope["error"]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("blocked by credentials"))
+    );
+}
+
+#[test]
+fn config_validate_format_json_reports_effective_config_contract() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args(["config", "validate", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["command"], "config validate");
+    assert_eq!(envelope["payload_kind"], "config-validation");
+    assert_eq!(envelope["data"]["valid"], true);
+    assert_eq!(envelope["data"]["schema_version"], 1);
+
+    let validator = validator_for_payload_def("configValidation");
+    validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn config_validate_format_json_missing_explicit_file_returns_read_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let missing_config = temp.path().join("missing.toml");
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "config",
+            "validate",
+            "--format",
+            "json",
+            "--file",
+            missing_config.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let envelope = parse_json(&output.stderr);
+    assert_error_schema(&envelope);
+    assert_eq!(envelope["command"], "config validate");
+    assert_eq!(envelope["error"]["code"], "config-read-failed");
+}
+
+#[test]
+fn config_show_format_json_returns_loaded_and_effective_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args(["config", "show", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["command"], "config show");
+    assert_eq!(envelope["payload_kind"], "config-view");
+    assert_eq!(envelope["data"]["schema_version"], 1);
+    assert!(
+        envelope["data"]["config"]["scan_cache"]["directory_record_max_age_seconds"]
+            .as_u64()
+            .is_some()
+    );
+    assert!(
+        envelope["data"]["runtime"]["app_paths"]["history_file"]
+            .as_str()
+            .unwrap()
+            .contains("history.jsonl")
+    );
+
+    let validator = validator_for_payload_def("configView");
+    validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn config_show_format_json_malformed_explicit_file_returns_parse_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_file = temp.path().join("broken.toml");
+    std::fs::write(&config_file, "version = 2\n").unwrap();
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "config",
+            "show",
+            "--format",
+            "json",
+            "--file",
+            config_file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let envelope = parse_json(&output.stderr);
+    assert_error_schema(&envelope);
+    assert_eq!(envelope["command"], "config show");
+    assert_eq!(envelope["error"]["code"], "config-parse-failed");
+}
+
+#[test]
 fn invalid_format_is_rejected_by_clap() {
     let output = common::command::rebecca()
         .args(["clean", "--format", "invalid"])
@@ -568,6 +978,11 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
         .iter()
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
+    assert!(payload_kinds.contains(&"capabilities"));
+    assert!(payload_kinds.contains(&"cli-schema"));
+    assert!(payload_kinds.contains(&"config-validation"));
+    assert!(payload_kinds.contains(&"config-view"));
+    assert!(payload_kinds.contains(&"rule-validation"));
     assert!(payload_kinds.contains(&"catalog"));
     assert!(payload_kinds.contains(&"catalog-validation"));
     assert!(payload_kinds.contains(&"cache-doctor"));
@@ -578,8 +993,14 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"inspect-map"));
     assert!(payload_kinds.contains(&"inspect-map-entry"));
     assert!(payload_kinds.contains(&"inspect-map-group"));
+    assert!(payload_kinds.contains(&"inspect-progress"));
     assert!(payload_kinds.contains(&"inspect-space"));
 
+    assert_eq!(payloads["$defs"]["capabilities"]["type"], "object");
+    assert_eq!(payloads["$defs"]["cliSchema"]["type"], "object");
+    assert_eq!(payloads["$defs"]["configValidation"]["type"], "object");
+    assert_eq!(payloads["$defs"]["configView"]["type"], "object");
+    assert_eq!(payloads["$defs"]["ruleValidation"]["type"], "object");
     let catalog_item = &payloads["$defs"]["catalogItem"];
     assert_eq!(catalog_item["oneOf"].as_array().unwrap().len(), 5);
     assert_eq!(payloads["$defs"]["inspectSpace"]["type"], "object");
@@ -715,5 +1136,43 @@ fn cli_api_cache_examples_validate_against_payload_schema() {
     assert_eq!(prune["payload_kind"], "cache-prune-report");
     validator_for_payload_def("cachePruneReport")
         .validate(&prune["data"])
+        .unwrap();
+}
+
+#[test]
+fn cli_api_gui_backend_examples_validate_against_payload_schema() {
+    let capabilities = read_doc_json("examples/success-capabilities.json");
+    assert_success_schema(&capabilities);
+    assert_eq!(capabilities["payload_kind"], "capabilities");
+    validator_for_payload_def("capabilities")
+        .validate(&capabilities["data"])
+        .unwrap();
+
+    let schema = read_doc_json("examples/success-cli-schema.json");
+    assert_success_schema(&schema);
+    assert_eq!(schema["payload_kind"], "cli-schema");
+    validator_for_payload_def("cliSchema")
+        .validate(&schema["data"])
+        .unwrap();
+
+    let config_validation = read_doc_json("examples/success-config-validation.json");
+    assert_success_schema(&config_validation);
+    assert_eq!(config_validation["payload_kind"], "config-validation");
+    validator_for_payload_def("configValidation")
+        .validate(&config_validation["data"])
+        .unwrap();
+
+    let config_view = read_doc_json("examples/success-config-view.json");
+    assert_success_schema(&config_view);
+    assert_eq!(config_view["payload_kind"], "config-view");
+    validator_for_payload_def("configView")
+        .validate(&config_view["data"])
+        .unwrap();
+
+    let rule_validation = read_doc_json("examples/success-rule-validation.json");
+    assert_success_schema(&rule_validation);
+    assert_eq!(rule_validation["payload_kind"], "rule-validation");
+    validator_for_payload_def("ruleValidation")
+        .validate(&rule_validation["data"])
         .unwrap();
 }

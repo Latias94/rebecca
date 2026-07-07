@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use rebecca_core::{
     Platform, RebeccaError, Result, RuleDefinition, RuleSource, RuleTargetSpec, SafetyLevel,
@@ -144,6 +145,102 @@ pub fn validate_builtin_rules() -> Result<()> {
     builtin_rules().map(|_| ())
 }
 
+pub fn validate_external_rule_files(paths: &[PathBuf]) -> Result<Vec<RuleDefinition>> {
+    let safety_knowledge = builtin_safety_knowledge()?;
+    let mut rules = Vec::new();
+
+    for path in paths {
+        let raw = std::fs::read_to_string(path).map_err(|err| {
+            RebeccaError::RuleCatalogInvalid(format!(
+                "external rule file {} could not be read: {err}",
+                path.display()
+            ))
+        })?;
+        let path_label = path.to_string_lossy();
+        let parsed_rules = parse_rule_file(path_label.as_ref(), raw.as_str(), &safety_knowledge)?;
+        if parsed_rules.is_empty() {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "external rule file {} must compile at least one rule",
+                path.display()
+            )));
+        }
+        rules.extend(parsed_rules);
+    }
+
+    validate_external_rule_catalog(&rules)?;
+    Ok(rules)
+}
+
+pub fn validate_external_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
+    validate_rule_catalog(rules)?;
+    let safety_catalog = builtin_safety_catalog()?;
+
+    for rule in rules {
+        if rule.platform == Platform::Unknown {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "external rule {} must target a supported platform",
+                rule.id
+            )));
+        }
+        let safety_knowledge = safety_catalog
+            .knowledge_for_platform(rule.platform)
+            .ok_or_else(|| {
+                RebeccaError::RuleCatalogInvalid(format!(
+                    "external rule {} targets platform {} without safety knowledge",
+                    rule.id,
+                    rule.platform.label()
+                ))
+            })?;
+        let policy = ProtectionPolicy::new().with_safety_knowledge(safety_knowledge);
+
+        validate_external_rule_metadata(rule, safety_knowledge)?;
+
+        if rule
+            .restore_hint
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
+        {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "external rule {} must define a restore hint before it can be imported",
+                rule.id
+            )));
+        }
+
+        if rule.safety_level == SafetyLevel::Dangerous {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "external rule {} must not use dangerous safety level",
+                rule.id
+            )));
+        }
+
+        for spec in &rule.path_templates {
+            if rule.category.eq_ignore_ascii_case("browser") {
+                validate_browser_cache_target_shape("external rule", rule, spec)?;
+            }
+
+            validate_builtin_glob_shape("external rule", rule, spec)?;
+
+            if let ProtectionAssessment::Blocked(block) = policy.assess_catalog_target_shape(spec) {
+                return Err(RebeccaError::RuleCatalogInvalid(format!(
+                    "external rule {} target {} is blocked by {}: {}",
+                    rule.id,
+                    spec.placeholder_path().display(),
+                    block.kind.label(),
+                    block.message
+                )));
+            }
+
+            validate_builtin_linux_package_manager_boundary("external rule", rule, spec)?;
+            validate_builtin_target_shape_basis("external rule", rule, spec)?;
+            validate_builtin_required_shape_warnings("external rule", rule, spec)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn parse_rule_file(
     path: &str,
     raw: &str,
@@ -273,10 +370,10 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
 
         for spec in &rule.path_templates {
             if rule.category.eq_ignore_ascii_case("browser") {
-                validate_browser_cache_target_shape(rule, spec)?;
+                validate_browser_cache_target_shape("built-in rule", rule, spec)?;
             }
 
-            validate_builtin_glob_shape(rule, spec)?;
+            validate_builtin_glob_shape("built-in rule", rule, spec)?;
 
             if let ProtectionAssessment::Blocked(block) = policy.assess_catalog_target_shape(spec) {
                 return Err(RebeccaError::RuleCatalogInvalid(format!(
@@ -288,9 +385,9 @@ fn validate_builtin_rule_catalog(rules: &[RuleDefinition]) -> Result<()> {
                 )));
             }
 
-            validate_builtin_linux_package_manager_boundary(rule, spec)?;
-            validate_builtin_target_shape_basis(rule, spec)?;
-            validate_builtin_required_shape_warnings(rule, spec)?;
+            validate_builtin_linux_package_manager_boundary("built-in rule", rule, spec)?;
+            validate_builtin_target_shape_basis("built-in rule", rule, spec)?;
+            validate_builtin_required_shape_warnings("built-in rule", rule, spec)?;
         }
     }
 
@@ -342,10 +439,49 @@ fn validate_builtin_rule_metadata(
     validate_builtin_rule_warnings(rule, safety_knowledge)
 }
 
+fn validate_external_rule_metadata(
+    rule: &RuleDefinition,
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<()> {
+    validate_external_trimmed_rule_metadata(rule, "id", &rule.id)?;
+    validate_external_trimmed_rule_metadata(rule, "category", &rule.category)?;
+    validate_external_trimmed_rule_metadata(rule, "name", &rule.name)?;
+    if let Some(restore_hint) = &rule.restore_hint {
+        validate_external_trimmed_rule_metadata(rule, "restore hint", restore_hint)?;
+    }
+    validate_external_trimmed_rule_metadata(rule, "provenance license", &rule.provenance.license)?;
+    validate_external_trimmed_rule_metadata(rule, "provenance notes", &rule.provenance.notes)?;
+
+    let platform_prefix = rule.platform.label();
+    if !is_canonical_platform_rule_id(&rule.id, platform_prefix) {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "external rule {} must use canonical lowercase {}.<slug> rule id syntax",
+            rule.id, platform_prefix
+        )));
+    }
+
+    validate_external_rule_warnings(rule, safety_knowledge)
+}
+
 fn validate_trimmed_rule_metadata(rule: &RuleDefinition, field: &str, value: &str) -> Result<()> {
     if value != value.trim() {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
             "built-in rule {} {field} must not contain leading or trailing whitespace",
+            rule.id
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_external_trimmed_rule_metadata(
+    rule: &RuleDefinition,
+    field: &str,
+    value: &str,
+) -> Result<()> {
+    if value != value.trim() {
+        return Err(RebeccaError::RuleCatalogInvalid(format!(
+            "external rule {} {field} must not contain leading or trailing whitespace",
             rule.id
         )));
     }
@@ -442,19 +578,56 @@ fn validate_builtin_rule_warnings(
     Ok(())
 }
 
-fn validate_browser_cache_target_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> Result<()> {
+fn validate_external_rule_warnings(
+    rule: &RuleDefinition,
+    safety_knowledge: &SafetyKnowledge,
+) -> Result<()> {
+    let mut seen = BTreeSet::new();
+
+    for warning in &rule.warnings {
+        if !seen.insert(warning.as_str()) {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "external rule {} contains duplicate warning kind {}",
+                rule.id, warning
+            )));
+        }
+
+        if !safety_knowledge
+            .warning_kinds()
+            .iter()
+            .any(|kind| kind.id() == warning)
+        {
+            return Err(RebeccaError::RuleCatalogInvalid(format!(
+                "external rule {} warning kind {} must match a canonical safety catalog warning id",
+                rule.id, warning
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_browser_cache_target_shape(
+    scope: &str,
+    rule: &RuleDefinition,
+    spec: &RuleTargetSpec,
+) -> Result<()> {
     if is_regenerable_browser_cache_target_shape(spec) {
         return Ok(());
     }
 
     Err(RebeccaError::RuleCatalogInvalid(format!(
-        "built-in browser rule {} target {} is outside the regenerable browser cache boundary",
+        "{scope} {} browser target {} is outside the regenerable browser cache boundary",
         rule.id,
         spec.placeholder_path().display()
     )))
 }
 
-fn validate_builtin_target_shape_basis(rule: &RuleDefinition, spec: &RuleTargetSpec) -> Result<()> {
+fn validate_builtin_target_shape_basis(
+    scope: &str,
+    rule: &RuleDefinition,
+    spec: &RuleTargetSpec,
+) -> Result<()> {
     if matches!(
         spec,
         RuleTargetSpec::SteamInstallTemplate(_) | RuleTargetSpec::SteamLibraryTemplate(_)
@@ -474,13 +647,17 @@ fn validate_builtin_target_shape_basis(rule: &RuleDefinition, spec: &RuleTargetS
     }
 
     Err(RebeccaError::RuleCatalogInvalid(format!(
-        "built-in rule {} target {} must have a positive cleanup basis such as a cache, temp, log, package-store, shader, download, or approved maintenance shape",
+        "{scope} {} target {} must have a positive cleanup basis such as a cache, temp, log, package-store, shader, download, or approved maintenance shape",
         rule.id,
         spec.placeholder_path().display()
     )))
 }
 
-fn validate_builtin_glob_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> Result<()> {
+fn validate_builtin_glob_shape(
+    scope: &str,
+    rule: &RuleDefinition,
+    spec: &RuleTargetSpec,
+) -> Result<()> {
     let RuleTargetSpec::GlobTemplate(template) = spec else {
         return Ok(());
     };
@@ -493,14 +670,14 @@ fn validate_builtin_glob_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> 
 
     if wildcard_segments == 0 {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule {} glob target {} must contain an explicit wildcard",
+            "{scope} {} glob target {} must contain an explicit wildcard",
             rule.id,
             spec.placeholder_path().display()
         )));
     }
     if wildcard_segments > 3 {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule {} glob target {} uses too many wildcard segments; keep discovery bounded",
+            "{scope} {} glob target {} uses too many wildcard segments; keep discovery bounded",
             rule.id,
             spec.placeholder_path().display()
         )));
@@ -508,7 +685,7 @@ fn validate_builtin_glob_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> 
 
     if wildcard_appears_at_protected_platform_root(&segments) {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule {} glob target {} starts discovery from a protected platform root",
+            "{scope} {} glob target {} starts discovery from a protected platform root",
             rule.id,
             spec.placeholder_path().display()
         )));
@@ -516,7 +693,7 @@ fn validate_builtin_glob_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> 
 
     if wildcard_appears_at_profile_root(&segments) || wildcard_appears_at_drive_root(&segments) {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule {} glob target {} starts discovery from a profile or drive root",
+            "{scope} {} glob target {} starts discovery from a profile or drive root",
             rule.id,
             spec.placeholder_path().display()
         )));
@@ -526,13 +703,14 @@ fn validate_builtin_glob_shape(rule: &RuleDefinition, spec: &RuleTargetSpec) -> 
 }
 
 fn validate_builtin_required_shape_warnings(
+    scope: &str,
     rule: &RuleDefinition,
     spec: &RuleTargetSpec,
 ) -> Result<()> {
     for warning in required_shape_warnings(spec) {
         if !rule.warnings.iter().any(|known| known == warning) {
             return Err(RebeccaError::RuleCatalogInvalid(format!(
-                "built-in rule {} target {} requires warning kind {}",
+                "{scope} {} target {} requires warning kind {}",
                 rule.id,
                 spec.placeholder_path().display(),
                 warning
@@ -544,6 +722,7 @@ fn validate_builtin_required_shape_warnings(
 }
 
 fn validate_builtin_linux_package_manager_boundary(
+    scope: &str,
     rule: &RuleDefinition,
     spec: &RuleTargetSpec,
 ) -> Result<()> {
@@ -557,7 +736,7 @@ fn validate_builtin_linux_package_manager_boundary(
         && !is_linux_package_manager_cache_shape(&segments)
     {
         return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "built-in rule {} target {} is inside a Linux package-manager cache namespace but not an approved package archive/cache leaf",
+            "{scope} {} target {} is inside a Linux package-manager cache namespace but not an approved package archive/cache leaf",
             rule.id,
             spec.placeholder_path().display()
         )));

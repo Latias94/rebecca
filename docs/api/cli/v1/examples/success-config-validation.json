@@ -1,0 +1,18 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "config validate",
+  "payload_kind": "config-validation",
+  "generated_at_unix_seconds": 1783420000,
+  "data": {
+    "valid": true,
+    "schema_version": 1,
+    "config_file": "/Users/example/Library/Application Support/Rebecca/config.toml",
+    "loaded_from_file": false,
+    "checks": [
+      "config file is readable when present",
+      "TOML shape matches Rebecca config schema",
+      "runtime app paths resolve"
+    ]
+  }
+}
