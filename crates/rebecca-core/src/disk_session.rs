@@ -755,13 +755,19 @@ fn subtree_refresh_caveat(path: &Path) -> DiskMapSessionCaveat {
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
-    if cfg!(windows) {
-        left.as_os_str()
-            .to_string_lossy()
-            .eq_ignore_ascii_case(&right.as_os_str().to_string_lossy())
-    } else {
+    #[cfg(windows)]
+    {
+        windows_path_key(left).eq_ignore_ascii_case(&windows_path_key(right))
+    }
+    #[cfg(not(windows))]
+    {
         left == right
     }
+}
+
+#[cfg(windows)]
+fn windows_path_key(path: &Path) -> String {
+    path.as_os_str().to_string_lossy().replace('/', "\\")
 }
 
 #[cfg(test)]

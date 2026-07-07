@@ -47,16 +47,21 @@ Rebecca command.
      Use `rebecca i` as the short alias. The TUI can navigate the disk map,
      switch to Treemap with `4`/`w`, switch to type distribution with `2`/`t`,
      switch to extension distribution with `3`/`x`, cycle views with `Tab`,
-     press `Enter` on a type or extension row to filter the map and Treemap,
-     press `Backspace` to clear the group filter, refresh the selected directory
-     with `r`, refresh the scan root with `R`, restore the previous scan with
-     `b`, stage cleanup rules behind advised entries, preview all matching rule
+     press `Enter`/`l` on a directory or Treemap tile to drill into that scope,
+     press `h`/`Esc` to move back, press `Enter` on a type or extension row to
+     filter the map and Treemap, press `Backspace` to clear the group filter,
+     patch-refresh the selected directory with `r`, refresh the scan root with
+     `R`, stage cleanup rules behind advised entries, preview all matching rule
      targets, show live task progress, and execute only after typed confirmation
      through recoverable trash. In mouse-capable terminals, clicks select tabs,
      rows, and Treemap tiles, and the wheel moves selection; mouse input never
-     executes cleanup. Press Esc on the working screen to request cooperative
-     cancellation. Use `--screen-reader` or `--no-color` when the terminal needs
-     plain text cues.
+     executes cleanup. Press Esc on the working screen to request cancellation:
+     scan and preview stop at cooperative checkpoints, while cleanup execution
+     stops before the next target or after the current recoverable-trash
+     operation returns. Interactive human runs persist private display
+     preferences without scanned paths; hidden `--once` and replay smoke runs do
+     not write preferences. Use `--screen-reader` / `--visual-bars` or
+     `--no-color` / `--color` when the terminal needs explicit display behavior.
    - For a size map:
 
      ```powershell

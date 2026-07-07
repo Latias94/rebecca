@@ -439,7 +439,7 @@ fn render_status(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}{}{} | 1 map 4/w treemap 2/t types 3/x extensions Tab cycle s sort / filter Backspace clear-filter r refresh R root b restore Space stage c preview g history ? help q quit | mouse click/wheel",
+            "{}{}{} | 1 map 4/w treemap 2/t types 3/x extensions Tab cycle s sort / filter Backspace clear-filter r refresh R root Space stage c preview g history ? help q quit | mouse click/wheel",
             app.message,
             search,
             active_group_filter_status(app)
@@ -482,7 +482,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from("1 map, 4/w treemap, 2/t types, 3/x extensions, Tab cycles views"),
         Line::from("Enter filters by selected type/extension; Backspace clears group filter"),
         Line::from("/ filters the active view, s cycles sort"),
-        Line::from("r refreshes the active directory, R refreshes the root, b restores a scan"),
+        Line::from("r patches the active directory, R refreshes the root"),
         Line::from(
             "Mouse: click tabs, map rows, treemap tiles, or distribution rows; click selects only",
         ),

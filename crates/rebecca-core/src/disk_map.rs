@@ -855,6 +855,16 @@ pub(crate) struct DiskMapFileIdentity {
     file_index: u64,
 }
 
+#[cfg(all(windows, feature = "ntfs"))]
+impl DiskMapFileIdentity {
+    pub(crate) const fn new(volume_serial_number: u64, file_index: u64) -> Self {
+        Self {
+            volume_serial_number,
+            file_index,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct DiskMapMetadataSemantics {
     compressed: bool,
@@ -865,6 +875,14 @@ pub(crate) struct DiskMapMetadataSemantics {
 }
 
 impl DiskMapMetadataSemantics {
+    #[cfg(all(windows, feature = "ntfs"))]
+    pub(crate) fn with_file_identity(file_identity: DiskMapFileIdentity) -> Self {
+        Self {
+            file_identity: Some(file_identity),
+            ..Self::default()
+        }
+    }
+
     fn with_reparse_like(mut self) -> Self {
         self.reparse_like = true;
         self

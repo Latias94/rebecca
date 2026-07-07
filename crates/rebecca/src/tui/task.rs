@@ -245,7 +245,6 @@ fn spawn_task(
         TuiEffect::Refresh { anchor } => {
             let entry_limit = app.entry_limit;
             let scan_backend = app.scan_backend;
-            app.prepare_refresh();
             app.apply_task_started(format!("Refreshing {}...", anchor.display()));
             (
                 "refresh",

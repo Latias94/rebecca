@@ -265,7 +265,6 @@ pub(super) fn handle_effect(
             let retry = TuiEffect::Refresh {
                 anchor: anchor.clone(),
             };
-            app.prepare_refresh();
             match task::scan_session(
                 vec![anchor.clone()],
                 app.entry_limit,

@@ -26,7 +26,7 @@ pub use windows_native::WindowsNativeDirectoryScanBackend;
 
 #[cfg(all(windows, feature = "ntfs"))]
 use crate::disk_map::{DiskMapBackendOptions, DiskMapBackendRoot};
-use crate::error::{RebeccaError, Result};
+use crate::error::Result;
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
@@ -386,7 +386,8 @@ where
     Err(windows_ntfs_mft_unavailable_error("scan backend"))
 }
 
-pub(crate) fn windows_ntfs_mft_unavailable_error(capability: &str) -> RebeccaError {
+#[cfg(not(all(windows, feature = "ntfs")))]
+pub(crate) fn windows_ntfs_mft_unavailable_error(capability: &str) -> crate::error::RebeccaError {
     let reason = if cfg!(all(windows, not(feature = "ntfs"))) {
         "requires the rebecca-core ntfs feature; the ntfs feature is disabled in this build"
     } else if cfg!(windows) {
@@ -396,7 +397,7 @@ pub(crate) fn windows_ntfs_mft_unavailable_error(capability: &str) -> RebeccaErr
     } else {
         "requires Windows and the rebecca-core ntfs feature; the ntfs feature is disabled in this build"
     };
-    RebeccaError::PlatformUnavailable(format!(
+    crate::error::RebeccaError::PlatformUnavailable(format!(
         "windows-ntfs-mft-experimental {capability} {reason}"
     ))
 }

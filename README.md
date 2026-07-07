@@ -16,7 +16,7 @@
 
 - Safe cleanup planning: `scan` and `clean` share the same plan builder, so dry-run output and real execution stay aligned.
 - Cleanup intelligence: `catalog` and `inspect` expose rules, warnings, safety categories, space reports, ranked disk maps, project artifact reports, and lint-style opportunities without deleting files.
-- Interactive cleanup workbench: `rebecca tui` and the short alias `rebecca i` open a terminal UI for root picking, ranked disk navigation, type and extension distribution, scoped refresh, cleanup advice, rule staging, live task progress, cooperative Esc cancellation, preview, and recoverable-trash execution.
+- Interactive cleanup workbench: `rebecca tui` and the short alias `rebecca i` open a terminal UI for root picking, ranked disk navigation, Treemap drilldown, type and extension distribution, path-stable scoped refresh, cleanup advice, rule staging, persisted display preferences, live task progress, target-boundary cancellation, preview, and recoverable-trash execution.
 - Windows app leftovers: `apps scan` and `apps clean` discover installed apps and target leftover cache data without uninstalling anything.
 - Project artifact purge: `purge` targets heavy build output such as `node_modules`, `target`, `build`, `dist`, and `CACHEDIR.TAG` directories after verifying project context.
 - Machine-readable output: JSON and NDJSON modes are available for wrappers, scripts, and automation, with CSV/TSV table export for disk maps.
@@ -159,19 +159,28 @@ The TUI is for humans at a terminal. It keeps Rebecca's preview-first model:
 choose a root, navigate the ranked map, press `4`/`w` for a proportional
 treemap, press `2`/`t` for file type distribution, press `3`/`x` for extension
 distribution, or use `Tab` to cycle between map, treemap, types, and
-extensions. Press `Enter` on a type or extension row to filter the map and
-treemap by that group, and press `Backspace` to clear the group filter. The
-header and status line show the active scope, selected filter, sort, and basket
-state. Mouse-capable terminals can click view tabs, rows, and treemap tiles to
-select and can use the wheel to move selection; mouse input never executes
-cleanup. Press `r` to refresh the active directory, `R` to refresh the scan
-root, `b` to restore the previous scan, `Space` to stage the cleanup rule behind
-an advised entry, and `c` to preview all matching rule targets.
-Execution still requires typing the `CLEAN <bytes>` confirmation. Press `g` to
-view recent cleanup history. Real TUI cleanup uses recoverable trash; use
-`inspect map --format json`, `--format ndjson`, or table export for automation.
-Use `--screen-reader` to omit visual bars and `--no-color` when the terminal or
-capture environment should rely only on text cues.
+extensions. Press `Enter`/`l` on a directory or treemap tile to drill into that
+scope, and press `h`/`Esc` to move back. Press `Enter` on a type or extension
+row to filter the map and treemap by that group, and press `Backspace` to clear
+the group filter. The header and status line show the active scope, selected
+filter, sort, basket state, and current background task. Mouse-capable terminals
+can click view tabs, rows, and treemap tiles to select and can use the wheel to
+move selection; mouse input never executes cleanup. Press `r` to patch-refresh
+the active directory in place, `R` to refresh the scan root, `Space` to stage
+the cleanup rule behind an advised entry, and `c` to preview all matching rule
+targets. Execution still requires typing the `CLEAN <bytes>` confirmation.
+Press `Esc` on the working screen to request cancellation: scan and preview stop
+at cooperative checkpoints, while cleanup execution stops before the next target
+or after the current recoverable-trash operation returns. Press `g` to view
+recent cleanup history. Interactive human runs remember private display
+preferences such as the last workbench view, sort, entry limit, scan backend,
+screen-reader mode, and color mode; hidden `--once` and replay smoke runs do not
+write preferences. Real TUI cleanup uses recoverable trash; use
+`inspect map --format json`, `--format ndjson`, or table export for automation. Use
+`--screen-reader` to omit visual bars, `--visual-bars` to override a saved
+screen-reader preference, `--no-color` when the terminal or capture environment
+should rely only on text cues, and `--color` to override a saved no-color
+preference.
 
 **Cache doctor**
 
@@ -201,7 +210,7 @@ Rebecca is a local cleanup tool, and the highest-risk behavior is unintended loc
 - `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the platform trash.
 - `--dry-run` and `--yes` are mutually exclusive on cleanup-capable commands. Preview with `--dry-run`; execute by replacing it with `--yes`.
 - `catalog`, `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
-- `tui` is a human terminal surface. It refuses non-terminal execution unless the hidden CI `--once` path is used, runs scan/refresh/preview/execute work through a shared background task runtime with live progress snapshots, exposes ranked map, treemap, type distribution, and extension distribution views, treats mouse input as selection/navigation only, and executes cleanup only through the same planner, protection policy, recoverable trash backend, and history model as `clean`.
+- `tui` is a human terminal surface. It refuses non-terminal execution unless the hidden CI `--once` path is used, runs scan/refresh/preview/execute work through a shared background task runtime with live progress snapshots, exposes ranked map, drilldown treemap, type distribution, and extension distribution views, treats mouse input as selection/navigation only, stores only private display preferences, and executes cleanup only through the same planner, protection policy, recoverable trash backend, cancellation boundaries, and history model as `clean`.
 - Default execution uses the platform trash through the shared recoverable backend.
 - On Linux, user-scoped rules follow XDG cache/state/data defaults from `HOME`; package-manager archive rules under `/var/cache` are moderate, permission-sensitive, preview-first targets and may fail as a standard user instead of falling back to permanent deletion.
 - Execution can batch already revalidated, non-overlapping targets into fewer recoverable trash operations, but status, reason codes, pending bytes, and history remain per target.

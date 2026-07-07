@@ -51,31 +51,12 @@ pub(crate) struct TuiApp {
     pub(crate) task_status: Option<TuiTaskStatus>,
     pub(crate) scan_backend: ScanBackendKind,
     pub(crate) entry_limit: usize,
-    session_stack: Vec<TuiSessionSnapshot>,
-    pending_refresh_snapshot: Option<TuiSessionSnapshot>,
     failed_effect: Option<TuiEffect>,
     error_return_screen: TuiScreen,
     next_task_id: u64,
     session_generation: u64,
     projection: RefCell<TuiProjectionCache>,
     should_quit: bool,
-}
-
-#[derive(Debug, Clone)]
-struct TuiSessionSnapshot {
-    session: DiskMapSession,
-    current_parent_path: Option<PathBuf>,
-    selected_path: Option<PathBuf>,
-    zoom_stack: Vec<PathBuf>,
-    screen: TuiScreen,
-    selected: usize,
-    selected_type: usize,
-    selected_extension: usize,
-    search_query: String,
-    type_search_query: String,
-    extension_search_query: String,
-    group_filter: Option<TuiGroupFilter>,
-    message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,8 +100,6 @@ impl TuiApp {
             task_status: None,
             scan_backend,
             entry_limit,
-            session_stack: Vec::new(),
-            pending_refresh_snapshot: None,
             failed_effect: None,
             error_return_screen: TuiScreen::RootPicker,
             next_task_id: 0,
@@ -162,8 +141,6 @@ impl TuiApp {
             task_status: None,
             scan_backend,
             entry_limit,
-            session_stack: Vec::new(),
-            pending_refresh_snapshot: None,
             failed_effect: None,
             error_return_screen: TuiScreen::Map,
             next_task_id: 0,
@@ -409,8 +386,6 @@ impl TuiApp {
 
     pub(crate) fn apply_scan_result(&mut self, session: DiskMapSession) {
         self.session = Some(session);
-        self.session_stack.clear();
-        self.pending_refresh_snapshot = None;
         self.zoom_stack.clear();
         self.current_parent = self
             .session
@@ -434,19 +409,8 @@ impl TuiApp {
     }
 
     pub(crate) fn apply_refresh_result(&mut self, anchor: PathBuf, refreshed: DiskMapSession) {
-        let snapshot = self
-            .pending_refresh_snapshot
-            .take()
-            .or_else(|| self.current_session_snapshot());
-        let restore_parent_path = snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.current_parent_path.clone());
-        let restore_selected_path = snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.selected_path.clone());
-        if let Some(snapshot) = snapshot {
-            self.session_stack.push(snapshot);
-        }
+        let restore_parent_path = self.current_scope_path();
+        let restore_selected_path = self.selected_row().map(|row| row.path);
 
         if let Some(session) = self.session.as_mut() {
             let outcome = session
@@ -454,13 +418,15 @@ impl TuiApp {
             self.current_parent = session.restore_parent_by_path(restore_parent_path.as_deref());
             self.message = if outcome.anchor_missing {
                 format!(
-                    "Refresh complete; {} no longer exists. Press b to restore the previous scan.",
+                    "Refresh complete; {} no longer exists. Scope moved to the nearest remaining ancestor.",
                     anchor.display()
                 )
             } else {
                 format!(
-                    "Refresh complete for {}. Aggregates may be stale until a root refresh. Press b to restore the previous scan.",
-                    anchor.display()
+                    "Refresh patched {}: {} replaced, {} inserted. Aggregates may be stale until a root refresh.",
+                    anchor.display(),
+                    outcome.replaced_node_count,
+                    outcome.inserted_node_count
                 )
             };
         } else {
@@ -469,7 +435,7 @@ impl TuiApp {
                 .session
                 .as_ref()
                 .and_then(|session| session.restore_parent_by_path(Some(anchor.as_path())));
-            self.message = "Refresh complete. Press b to restore the previous scan.".to_string();
+            self.message = format!("Refresh complete for {}.", anchor.display());
         }
         self.screen = match self.task_return_screen {
             TuiScreen::Map | TuiScreen::Treemap | TuiScreen::Types | TuiScreen::Extensions => {
@@ -515,16 +481,11 @@ impl TuiApp {
     pub(crate) fn apply_task_cancelled(&mut self) {
         self.screen = self.task_return_screen;
         self.task_status = None;
-        self.pending_refresh_snapshot = None;
         self.message = "Task cancelled.".to_string();
     }
 
     pub(crate) fn apply_task_already_running(&mut self) {
         self.message = "A background task is already running.".to_string();
-    }
-
-    pub(crate) fn prepare_refresh(&mut self) {
-        self.pending_refresh_snapshot = self.current_session_snapshot();
     }
 
     pub(crate) fn apply_preview(&mut self, plan: CleanupPlan) {
@@ -559,7 +520,6 @@ impl TuiApp {
         self.screen = TuiScreen::Error;
         self.message = message.into();
         self.task_status = None;
-        self.pending_refresh_snapshot = None;
         self.failed_effect = None;
     }
 
@@ -567,7 +527,6 @@ impl TuiApp {
         self.screen = TuiScreen::Error;
         self.message = message.into();
         self.task_status = None;
-        self.pending_refresh_snapshot = None;
         self.failed_effect = Some(retry);
         self.error_return_screen = self.task_return_screen;
     }
@@ -646,10 +605,6 @@ impl TuiApp {
             TuiKey::Tab => self.cycle_view_mode(),
             TuiKey::Char('r') => self.refresh_selected_directory(),
             TuiKey::Char('R') => self.refresh_current_root(),
-            TuiKey::Char('b') => {
-                self.restore_previous_session();
-                TuiEffect::None
-            }
             TuiKey::Space => {
                 self.toggle_selected_rule();
                 TuiEffect::None
@@ -706,10 +661,6 @@ impl TuiApp {
             TuiKey::Tab => self.cycle_view_mode(),
             TuiKey::Char('r') => self.refresh_current_directory(),
             TuiKey::Char('R') => self.refresh_current_root(),
-            TuiKey::Char('b') => {
-                self.restore_previous_session();
-                TuiEffect::None
-            }
             TuiKey::Char('?') => self.open_help(),
             TuiKey::Char('g') => self.open_history(),
             TuiKey::Char('q') => self.quit(),
@@ -1013,65 +964,11 @@ impl TuiApp {
         TuiEffect::Refresh { anchor: path }
     }
 
-    fn current_session_snapshot(&self) -> Option<TuiSessionSnapshot> {
-        self.session.as_ref().cloned().map(|session| {
-            let current_parent_path = self
-                .session
-                .as_ref()
-                .and_then(|session| self.current_parent.and_then(|id| session.node_path(id)))
-                .map(PathBuf::from);
-            let selected_path = self.selected_row().map(|row| row.path);
-            TuiSessionSnapshot {
-                session,
-                current_parent_path,
-                selected_path,
-                zoom_stack: self.zoom_stack.clone(),
-                screen: self.screen,
-                selected: self.selected,
-                selected_type: self.selected_type,
-                selected_extension: self.selected_extension,
-                search_query: self.search_query.clone(),
-                type_search_query: self.type_search_query.clone(),
-                extension_search_query: self.extension_search_query.clone(),
-                group_filter: self.group_filter.clone(),
-                message: self.message.clone(),
-            }
-        })
-    }
-
     fn selected_index_for_path(&self, path: Option<&Path>) -> Option<usize> {
         let path = path?;
         self.visible_rows()
             .iter()
             .position(|row| paths_equal(&row.path, path))
-    }
-
-    fn restore_previous_session(&mut self) {
-        let Some(snapshot) = self.session_stack.pop() else {
-            self.message = "No previous scan to restore.".to_string();
-            return;
-        };
-        let current_parent = snapshot
-            .session
-            .restore_parent_by_path(snapshot.current_parent_path.as_deref());
-        self.session = Some(snapshot.session);
-        self.current_parent = current_parent;
-        self.zoom_stack = snapshot.zoom_stack;
-        self.selected = snapshot.selected;
-        self.selected_type = snapshot.selected_type;
-        self.selected_extension = snapshot.selected_extension;
-        self.search_query = snapshot.search_query;
-        self.type_search_query = snapshot.type_search_query;
-        self.extension_search_query = snapshot.extension_search_query;
-        self.group_filter = snapshot.group_filter;
-        self.screen = match snapshot.screen {
-            TuiScreen::Map | TuiScreen::Treemap | TuiScreen::Types | TuiScreen::Extensions => {
-                snapshot.screen
-            }
-            _ => TuiScreen::Map,
-        };
-        self.bump_session_generation();
-        self.message = format!("Restored previous scan. {}", snapshot.message);
     }
 
     fn bump_session_generation(&mut self) {
@@ -1319,7 +1216,17 @@ impl TuiApp {
 }
 
 fn paths_equal(left: &Path, right: &Path) -> bool {
-    left == right
+    #[cfg(windows)]
+    {
+        left.as_os_str()
+            .to_string_lossy()
+            .replace('/', "\\")
+            .eq_ignore_ascii_case(&right.as_os_str().to_string_lossy().replace('/', "\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
 }
 
 fn is_drillable_row(row: &DiskMapVisibleRow) -> bool {
@@ -1773,23 +1680,27 @@ mod tests {
     }
 
     #[test]
-    fn refresh_result_can_restore_previous_session() {
+    fn refresh_result_patches_subtree_without_scan_restore_stack() {
         let mut app = test_app();
         let refreshed = DiskMapSession::from_report(test_child_report());
 
-        app.prepare_refresh();
         app.apply_refresh_result(PathBuf::from("/tmp/cache"), refreshed);
         assert_eq!(app.current_node_name(), "tmp");
         assert_eq!(app.selected_row().unwrap().name, "cache");
+        assert!(
+            app.message.contains("Refresh patched"),
+            "message: {}",
+            app.message
+        );
+        assert!(app.message.contains("cache"));
 
         app.handle_key(TuiKey::Enter);
         assert_eq!(app.current_node_name(), "cache");
         assert!(app.visible_rows().iter().any(|row| row.name == "data.tmp"));
 
-        app.handle_key(TuiKey::Char('b'));
+        assert_eq!(app.handle_key(TuiKey::Char('b')), TuiEffect::None);
 
-        assert_eq!(app.current_node_name(), "tmp");
-        assert!(app.message.contains("Restored previous scan."));
+        assert_eq!(app.current_node_name(), "cache");
     }
 
     fn test_app() -> TuiApp {

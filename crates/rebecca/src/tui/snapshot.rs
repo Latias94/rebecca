@@ -239,7 +239,7 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from("1 map, 4/w treemap, 2/t types, 3/x extensions, Tab cycles views"),
         Line::from("Enter filters by selected type/extension; Backspace clears group filter"),
         Line::from("/ filters the active view, s cycles sort"),
-        Line::from("r refreshes the active directory, R refreshes the root, b restores a scan"),
+        Line::from("r patches the active directory, R refreshes the root"),
         Line::from(
             "Mouse: click tabs, map rows, treemap tiles, or distribution rows; click selects only",
         ),

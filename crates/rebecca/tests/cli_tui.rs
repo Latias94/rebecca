@@ -735,7 +735,7 @@ fn tui_screen_reader_extension_distribution_omits_visual_bars() {
 }
 
 #[test]
-fn tui_replay_can_refresh_selected_directory_and_restore_previous_scan() {
+fn tui_replay_can_patch_refresh_selected_directory_without_scan_restore() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
@@ -762,7 +762,7 @@ fn tui_replay_can_refresh_selected_directory_and_restore_previous_scan() {
     assert!(refreshed_stdout.contains("Map: workspace"));
     assert!(refreshed_stdout.contains("big"));
     assert!(refreshed_stdout.contains("small.txt"));
-    assert!(refreshed_stdout.contains("Status: Refresh complete for "));
+    assert!(refreshed_stdout.contains("Status: Refresh patched "));
 
     let opened = common::isolated::isolated_rebecca(&temp)
         .args([
@@ -785,7 +785,7 @@ fn tui_replay_can_refresh_selected_directory_and_restore_previous_scan() {
     assert!(opened_stdout.contains("Map: big"));
     assert!(opened_stdout.contains("data.bin"));
 
-    let restored = common::isolated::isolated_rebecca(&temp)
+    let no_restore = common::isolated::isolated_rebecca(&temp)
         .args([
             "tui",
             "--once",
@@ -798,14 +798,15 @@ fn tui_replay_can_refresh_selected_directory_and_restore_previous_scan() {
         .unwrap();
 
     assert!(
-        restored.status.success(),
+        no_restore.status.success(),
         "stderr: {}",
-        common::support::stderr(&restored)
+        common::support::stderr(&no_restore)
     );
-    let restored_stdout = String::from_utf8_lossy(&restored.stdout);
-    assert!(restored_stdout.contains("Map: workspace"));
-    assert!(restored_stdout.contains("big"));
-    assert!(restored_stdout.contains("small.txt"));
+    let no_restore_stdout = String::from_utf8_lossy(&no_restore.stdout);
+    assert!(no_restore_stdout.contains("Map: workspace"));
+    assert!(no_restore_stdout.contains("big"));
+    assert!(no_restore_stdout.contains("small.txt"));
+    assert!(no_restore_stdout.contains("Status: Refresh patched "));
 }
 
 #[test]
