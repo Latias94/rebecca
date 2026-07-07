@@ -157,7 +157,7 @@ fn render_treemap(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: View
     let rows = app.visible_rows();
     let tiles = layout::treemap_tiles(&rows, tile_area);
     if tiles.is_empty() {
-        frame.render_widget(Paragraph::new("No non-empty entries."), tile_area);
+        frame.render_widget(Paragraph::new(treemap_empty_message(app)), tile_area);
     } else {
         for (index, tile) in tiles.iter().enumerate() {
             render_treemap_tile(
@@ -257,6 +257,10 @@ fn render_treemap_tile(
 
 fn render_details(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let mut lines = Vec::new();
+    if app.screen == TuiScreen::Treemap {
+        lines.extend(treemap_context_lines(app));
+        lines.push(Line::from(""));
+    }
     if let Some(row) = app.selected_row() {
         lines.push(Line::from(row.path.display().to_string()));
         lines.push(Line::from(format!(
@@ -474,13 +478,13 @@ fn plan_lines(_title: &'static str, plan: Option<&CleanupPlan>) -> Vec<Line<'sta
 fn help_lines() -> Vec<Line<'static>> {
     vec![
         Line::from("j/k or arrows move"),
-        Line::from("Enter/l opens a directory, h/Esc moves back"),
+        Line::from("Enter/l opens a directory or treemap tile, h/Esc moves back"),
         Line::from("1 map, 4/w treemap, 2/t types, 3/x extensions, Tab cycles views"),
         Line::from("Enter filters by selected type/extension; Backspace clears group filter"),
         Line::from("/ filters the active view, s cycles sort"),
         Line::from("r refreshes the active directory, R refreshes the root, b restores a scan"),
         Line::from(
-            "Mouse: click tabs, map rows, treemap tiles, or distribution rows; wheel moves selection",
+            "Mouse: click tabs, map rows, treemap tiles, or distribution rows; click selects only",
         ),
         Line::from("Space stages the cleanup rule; preview includes all matching targets"),
         Line::from("e executes only after typed confirmation"),
@@ -591,6 +595,46 @@ fn map_title(app: &TuiApp, prefix: &str) -> String {
     match app.active_group_filter_label() {
         Some(label) => format!("{prefix}: {} [{label}]", app.current_node_name()),
         None => format!("{prefix}: {}", app.current_node_name()),
+    }
+}
+
+fn treemap_context_lines(app: &TuiApp) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(Line::from(format!("Scope: {}", app.current_node_name())));
+    lines.push(Line::from(format!(
+        "Breadcrumb: {}",
+        app.current_scope_breadcrumb()
+    )));
+    lines.push(Line::from(format!("Zoom depth: {}", app.zoom_depth())));
+    lines.push(Line::from(format!(
+        "Filter: {}",
+        app.active_scope_filter_summary()
+            .unwrap_or_else(|| "none".to_string())
+    )));
+    if let Some(summary) = app.treemap_selection_summary() {
+        lines.push(Line::from(format!("Selected tile: {}", summary.name)));
+        lines.push(Line::from(format!("Kind: {}", summary.kind)));
+        lines.push(Line::from(format!(
+            "Drillable: {}",
+            if summary.drillable { "yes" } else { "no" }
+        )));
+        if let Some(reason) = summary.non_drillable_reason {
+            lines.push(Line::from(format!("Reason: {reason}")));
+        }
+        lines.push(Line::from(format!("Action: {}", summary.primary_action)));
+    } else {
+        lines.push(Line::from("Selected tile: none"));
+        lines.push(Line::from("Drillable: no"));
+        lines.push(Line::from("Action: select a directory tile"));
+    }
+    lines
+}
+
+fn treemap_empty_message(app: &TuiApp) -> String {
+    if app.active_scope_filter_summary().is_some() {
+        "No entries match the active filters in this scope.".to_string()
+    } else {
+        "No non-empty entries.".to_string()
     }
 }
 

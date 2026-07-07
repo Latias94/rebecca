@@ -39,6 +39,8 @@ pub(crate) enum TuiMouseAction {
     SwitchScreen(TuiScreen),
     SelectMapRow(usize),
     SelectDistributionRow(usize),
+    OpenTreemapRow(usize),
+    OpenTreemapAggregate,
     ScrollUp,
     ScrollDown,
 }

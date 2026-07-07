@@ -32,6 +32,7 @@ pub(crate) struct TuiApp {
     pub(crate) root_choices: Vec<RootChoice>,
     pub(crate) session: Option<DiskMapSession>,
     pub(crate) current_parent: Option<DiskMapNodeId>,
+    zoom_stack: Vec<PathBuf>,
     pub(crate) selected: usize,
     pub(crate) selected_type: usize,
     pub(crate) selected_extension: usize,
@@ -64,6 +65,7 @@ struct TuiSessionSnapshot {
     session: DiskMapSession,
     current_parent_path: Option<PathBuf>,
     selected_path: Option<PathBuf>,
+    zoom_stack: Vec<PathBuf>,
     screen: TuiScreen,
     selected: usize,
     selected_type: usize,
@@ -73,6 +75,15 @@ struct TuiSessionSnapshot {
     extension_search_query: String,
     group_filter: Option<TuiGroupFilter>,
     message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TuiTreemapSelectionSummary {
+    pub(crate) name: String,
+    pub(crate) kind: &'static str,
+    pub(crate) drillable: bool,
+    pub(crate) non_drillable_reason: Option<String>,
+    pub(crate) primary_action: &'static str,
 }
 
 impl TuiApp {
@@ -88,6 +99,7 @@ impl TuiApp {
             root_choices,
             session: None,
             current_parent: None,
+            zoom_stack: Vec::new(),
             selected: 0,
             selected_type: 0,
             selected_extension: 0,
@@ -129,6 +141,7 @@ impl TuiApp {
             root_choices: Vec::new(),
             session: Some(session),
             current_parent,
+            zoom_stack: Vec::new(),
             selected: 0,
             selected_type: 0,
             selected_extension: 0,
@@ -185,8 +198,52 @@ impl TuiApp {
             .unwrap_or_else(|| "Roots".to_string())
     }
 
+    pub(crate) fn current_scope_path(&self) -> Option<PathBuf> {
+        self.session
+            .as_ref()
+            .and_then(|session| self.current_parent.and_then(|id| session.node_path(id)))
+            .map(PathBuf::from)
+    }
+
+    pub(crate) fn current_scope_breadcrumb(&self) -> String {
+        let Some(session) = self.session.as_ref() else {
+            return "Roots".to_string();
+        };
+        let mut current = self.current_parent;
+        let mut parts = Vec::new();
+        while let Some(id) = current {
+            let Some(node) = session.node(id) else {
+                break;
+            };
+            parts.push(node.display_name());
+            current = node.parent;
+        }
+        if parts.is_empty() {
+            "Roots".to_string()
+        } else {
+            parts.reverse();
+            parts.join(" > ")
+        }
+    }
+
+    pub(crate) fn zoom_depth(&self) -> usize {
+        self.zoom_stack.len()
+    }
+
     pub(crate) fn active_group_filter_label(&self) -> Option<&str> {
         self.group_filter.as_ref().map(TuiGroupFilter::label)
+    }
+
+    pub(crate) fn active_scope_filter_summary(&self) -> Option<String> {
+        let mut filters = Vec::new();
+        let search = self.search_query.trim();
+        if !search.is_empty() {
+            filters.push(format!("search '{search}'"));
+        }
+        if let Some(label) = self.active_group_filter_label() {
+            filters.push(format!("group {label}"));
+        }
+        (!filters.is_empty()).then(|| filters.join(", "))
     }
 
     pub(crate) fn visible_rows(&self) -> Vec<DiskMapVisibleRow> {
@@ -210,6 +267,30 @@ impl TuiApp {
 
     pub(crate) fn selected_row(&self) -> Option<DiskMapVisibleRow> {
         self.visible_rows().get(self.selected).cloned()
+    }
+
+    pub(crate) fn treemap_selection_summary(&self) -> Option<TuiTreemapSelectionSummary> {
+        self.selected_row().map(|row| {
+            let drillable = is_drillable_row(&row);
+            let non_drillable_reason = (!drillable).then(|| {
+                format!(
+                    "{} is a {} and cannot be opened as a scope.",
+                    row.name,
+                    row.kind.label()
+                )
+            });
+            TuiTreemapSelectionSummary {
+                name: row.name,
+                kind: row.kind.label(),
+                drillable,
+                non_drillable_reason,
+                primary_action: if drillable {
+                    "Enter/l opens this scope"
+                } else {
+                    "Select a directory tile"
+                },
+            }
+        })
     }
 
     pub(crate) fn distribution_rows(&self) -> Vec<DiskMapDistributionRow> {
@@ -294,6 +375,17 @@ impl TuiApp {
                 self.apply_selected_group_filter();
                 TuiEffect::None
             }
+            TuiMouseAction::OpenTreemapRow(index) => {
+                self.select_map_row(index);
+                self.open_selected_treemap_tile();
+                TuiEffect::None
+            }
+            TuiMouseAction::OpenTreemapAggregate => {
+                self.message =
+                    "Aggregate Other tile cannot be opened as a scope; narrow the filter or increase the terminal size."
+                        .to_string();
+                TuiEffect::None
+            }
             TuiMouseAction::ScrollUp => {
                 self.move_active_selection(-1);
                 TuiEffect::None
@@ -309,6 +401,7 @@ impl TuiApp {
         self.session = Some(session);
         self.session_stack.clear();
         self.pending_refresh_snapshot = None;
+        self.zoom_stack.clear();
         self.current_parent = self
             .session
             .as_ref()
@@ -504,11 +597,19 @@ impl TuiApp {
                 TuiEffect::None
             }
             TuiKey::Right | TuiKey::Enter | TuiKey::Char('l') => {
-                self.open_selected_node();
+                if self.screen == TuiScreen::Treemap {
+                    self.open_selected_treemap_tile();
+                } else {
+                    self.open_selected_node();
+                }
                 TuiEffect::None
             }
             TuiKey::Left | TuiKey::Char('h') | TuiKey::Esc => {
-                self.open_parent_node();
+                if self.screen == TuiScreen::Treemap {
+                    self.open_treemap_previous_scope();
+                } else {
+                    self.open_parent_node();
+                }
                 TuiEffect::None
             }
             TuiKey::Backspace => {
@@ -769,12 +870,66 @@ impl TuiApp {
 
     fn open_selected_node(&mut self) {
         let Some(row) = self.selected_row() else {
+            self.message = "No entry is selected.".to_string();
             return;
         };
-        if row.has_children {
+        if is_drillable_row(&row) {
             self.current_parent = Some(row.id);
+            self.zoom_stack.clear();
             self.selected = 0;
             self.message = format!("Opened {}.", row.name);
+        } else {
+            self.message = format!(
+                "{} is a {} and cannot be opened as a scope.",
+                row.name,
+                row.kind.label()
+            );
+        }
+    }
+
+    fn open_selected_treemap_tile(&mut self) {
+        let Some(row) = self.selected_row() else {
+            self.message = "No treemap tile is selected.".to_string();
+            return;
+        };
+        if !is_drillable_row(&row) {
+            self.message = format!(
+                "{} is a {} and cannot be opened as a scope.",
+                row.name,
+                row.kind.label()
+            );
+            return;
+        }
+        if let Some(scope_path) = self.current_scope_path() {
+            self.zoom_stack.push(scope_path);
+        }
+        self.current_parent = Some(row.id);
+        self.selected = 0;
+        self.message = format!(
+            "Opened {}. Zoom depth {}. Esc returns to the previous scope.",
+            row.name,
+            self.zoom_depth()
+        );
+    }
+
+    fn open_treemap_previous_scope(&mut self) {
+        let selected_path = self.current_scope_path();
+        if let Some(previous_scope) = self.zoom_stack.pop() {
+            let Some(session) = self.session.as_ref() else {
+                self.message = "No scan is loaded.".to_string();
+                return;
+            };
+            self.current_parent = session.restore_parent_by_path(Some(previous_scope.as_path()));
+            self.selected = self
+                .selected_index_for_path(selected_path.as_deref())
+                .unwrap_or(0);
+            self.message = format!(
+                "Returned to {}. Zoom depth {}.",
+                self.current_node_name(),
+                self.zoom_depth()
+            );
+        } else {
+            self.open_parent_node();
         }
     }
 
@@ -788,6 +943,7 @@ impl TuiApp {
         let parent = session.node(current_parent).and_then(|node| node.parent);
         if parent.is_some() {
             self.current_parent = parent;
+            self.zoom_stack.clear();
             self.selected = 0;
             self.message = "Moved up one level.".to_string();
         }
@@ -855,6 +1011,7 @@ impl TuiApp {
                 session,
                 current_parent_path,
                 selected_path,
+                zoom_stack: self.zoom_stack.clone(),
                 screen: self.screen,
                 selected: self.selected,
                 selected_type: self.selected_type,
@@ -885,6 +1042,7 @@ impl TuiApp {
             .restore_parent_by_path(snapshot.current_parent_path.as_deref());
         self.session = Some(snapshot.session);
         self.current_parent = current_parent;
+        self.zoom_stack = snapshot.zoom_stack;
         self.selected = snapshot.selected;
         self.selected_type = snapshot.selected_type;
         self.selected_extension = snapshot.selected_extension;
@@ -1129,6 +1287,10 @@ impl TuiApp {
 
 fn paths_equal(left: &Path, right: &Path) -> bool {
     left == right
+}
+
+fn is_drillable_row(row: &DiskMapVisibleRow) -> bool {
+    row.kind == DiskMapEntryKind::Directory || row.has_children
 }
 
 #[cfg(test)]
@@ -1395,6 +1557,113 @@ mod tests {
             app.handle_key(TuiKey::Char('c')),
             TuiEffect::Preview(_)
         ));
+    }
+
+    #[test]
+    fn treemap_enter_drills_down_and_escape_returns_zoom_scope() {
+        let mut app = TuiApp::from_session(
+            DiskMapSession::from_report(test_nested_report()),
+            ScanBackendKind::PortableRecursive,
+            100,
+        );
+
+        assert_eq!(app.handle_key(TuiKey::Char('4')), TuiEffect::None);
+        assert_eq!(app.handle_key(TuiKey::Enter), TuiEffect::None);
+
+        assert_eq!(app.screen, TuiScreen::Treemap);
+        assert_eq!(app.current_node_name(), "cache");
+        assert_eq!(app.zoom_depth(), 1);
+        assert_eq!(app.visible_rows()[0].name, "data.tmp");
+
+        assert_eq!(app.handle_key(TuiKey::Esc), TuiEffect::None);
+
+        assert_eq!(app.current_node_name(), "tmp");
+        assert_eq!(app.selected_row().unwrap().name, "cache");
+        assert_eq!(app.zoom_depth(), 0);
+    }
+
+    #[test]
+    fn treemap_file_open_reports_non_drillable_without_changing_scope() {
+        let mut app = TuiApp::from_session(
+            DiskMapSession::from_report(test_file_report()),
+            ScanBackendKind::PortableRecursive,
+            100,
+        );
+
+        assert_eq!(app.handle_key(TuiKey::Char('4')), TuiEffect::None);
+        assert_eq!(app.handle_key(TuiKey::Enter), TuiEffect::None);
+
+        assert_eq!(app.current_node_name(), "tmp");
+        assert!(app.message.contains("cache.tmp is a file"));
+        assert_eq!(app.zoom_depth(), 0);
+    }
+
+    #[test]
+    fn treemap_open_action_drills_down_but_click_only_selects() {
+        let mut app = TuiApp::from_session(
+            DiskMapSession::from_report(test_nested_report()),
+            ScanBackendKind::PortableRecursive,
+            100,
+        );
+        app.handle_key(TuiKey::Char('4'));
+
+        assert_eq!(
+            app.handle_mouse_action(TuiMouseAction::SelectMapRow(0)),
+            TuiEffect::None
+        );
+        assert_eq!(app.current_node_name(), "tmp");
+        assert!(app.preview.is_none());
+        assert!(app.executed.is_none());
+
+        assert_eq!(
+            app.handle_mouse_action(TuiMouseAction::OpenTreemapRow(0)),
+            TuiEffect::None
+        );
+        assert_eq!(app.current_node_name(), "cache");
+        assert_eq!(app.zoom_depth(), 1);
+    }
+
+    #[test]
+    fn treemap_opening_aggregate_other_reports_non_drillable() {
+        let mut app = test_app();
+        app.handle_key(TuiKey::Char('4'));
+
+        assert_eq!(
+            app.handle_mouse_action(TuiMouseAction::OpenTreemapAggregate),
+            TuiEffect::None
+        );
+
+        assert_eq!(app.current_node_name(), "tmp");
+        assert!(
+            app.message
+                .contains("Aggregate Other tile cannot be opened")
+        );
+    }
+
+    #[test]
+    fn treemap_drilldown_preserves_group_filter_and_empty_scope_state() {
+        let mut app = TuiApp::from_session(
+            DiskMapSession::from_report(test_mixed_distribution_report()),
+            ScanBackendKind::PortableRecursive,
+            100,
+        );
+
+        assert_eq!(app.handle_key(TuiKey::Char('t')), TuiEffect::None);
+        let directory_index = app
+            .distribution_rows()
+            .iter()
+            .position(|row| row.key == "directory")
+            .expect("directory distribution row");
+        app.select_distribution_row(directory_index);
+        assert_eq!(app.handle_key(TuiKey::Enter), TuiEffect::None);
+        assert_eq!(app.active_group_filter_label(), Some("Directories"));
+        assert_eq!(app.handle_key(TuiKey::Char('4')), TuiEffect::None);
+        assert_eq!(app.handle_key(TuiKey::Enter), TuiEffect::None);
+
+        assert_eq!(app.current_node_name(), "build");
+        assert_eq!(app.active_group_filter_label(), Some("Directories"));
+        assert!(app.visible_rows().is_empty());
+        assert_eq!(app.zoom_depth(), 1);
     }
 
     #[test]
@@ -1709,6 +1978,71 @@ mod tests {
                     test_metrics(20, 1, 0),
                 ),
             ],
+            diagnostic_summary: Default::default(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn test_nested_report() -> DiskMapReport {
+        let root = PathBuf::from("/tmp");
+        DiskMapReport {
+            roots: vec![DiskMapRoot {
+                path: root.clone(),
+                status: DiskMapRootStatus::Scanned,
+                metrics: test_metrics(43, 2, 1),
+                estimate_source: EstimateSource::FreshScan,
+                estimate_provenance: EstimateProvenance::default(),
+                reason: None,
+            }],
+            totals: test_metrics(43, 2, 1),
+            top_entries: vec![
+                DiskMapEntry {
+                    path: root.join("cache"),
+                    root: root.clone(),
+                    kind: DiskMapEntryKind::Directory,
+                    depth: 1,
+                    logical_bytes: 42,
+                    allocated_bytes: None,
+                    unique_logical_bytes: Some(42),
+                    unique_allocated_bytes: None,
+                    files: 1,
+                    directories: 1,
+                    estimate_source: EstimateSource::FreshScan,
+                    estimate_provenance: EstimateProvenance::default(),
+                    cleanup_advice: None,
+                },
+                DiskMapEntry {
+                    path: root.join("cache").join("data.tmp"),
+                    root: root.clone(),
+                    kind: DiskMapEntryKind::File,
+                    depth: 2,
+                    logical_bytes: 42,
+                    allocated_bytes: None,
+                    unique_logical_bytes: Some(42),
+                    unique_allocated_bytes: None,
+                    files: 1,
+                    directories: 0,
+                    estimate_source: EstimateSource::FreshScan,
+                    estimate_provenance: EstimateProvenance::default(),
+                    cleanup_advice: None,
+                },
+                DiskMapEntry {
+                    path: root.join("small.txt"),
+                    root: root.clone(),
+                    kind: DiskMapEntryKind::File,
+                    depth: 1,
+                    logical_bytes: 1,
+                    allocated_bytes: None,
+                    unique_logical_bytes: Some(1),
+                    unique_allocated_bytes: None,
+                    files: 1,
+                    directories: 0,
+                    estimate_source: EstimateSource::FreshScan,
+                    estimate_provenance: EstimateProvenance::default(),
+                    cleanup_advice: None,
+                },
+            ],
+            groups: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }

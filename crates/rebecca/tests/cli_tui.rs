@@ -257,6 +257,162 @@ fn tui_replay_can_show_treemap_without_a_terminal() {
 }
 
 #[test]
+fn tui_replay_click_tile_selects_without_drilling_down() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "4 click:tile:0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Treemap: workspace"));
+    assert!(stdout.contains("Selected tile: big"));
+    assert!(stdout.contains("Action: Enter/l opens this scope"));
+    assert!(stdout.contains("small.txt"));
+}
+
+#[test]
+fn tui_replay_open_tile_drills_down_and_escape_returns_scope() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let opened = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--screen-reader",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "4 open:tile:0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        opened.status.success(),
+        "stderr: {}",
+        common::support::stderr(&opened)
+    );
+
+    let opened_stdout = String::from_utf8_lossy(&opened.stdout);
+    assert!(opened_stdout.contains("Rebecca TUI | treemap"));
+    assert!(opened_stdout.contains("Treemap: big"));
+    assert!(opened_stdout.contains("Breadcrumb: workspace > big"));
+    assert!(opened_stdout.contains("Zoom depth: 1"));
+    assert!(opened_stdout.contains("data.bin"));
+
+    let returned = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--screen-reader",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "4 open:tile:0 esc",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        returned.status.success(),
+        "stderr: {}",
+        common::support::stderr(&returned)
+    );
+
+    let returned_stdout = String::from_utf8_lossy(&returned.stdout);
+    assert!(returned_stdout.contains("Treemap: workspace"));
+    assert!(returned_stdout.contains("Zoom depth: 0"));
+    assert!(returned_stdout.contains("Selected tile: big"));
+}
+
+#[test]
+fn tui_replay_open_file_tile_reports_non_drillable() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("single.bin"), b"abcdef");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--screen-reader",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "4 open:tile:0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Treemap: workspace"));
+    assert!(stdout.contains("Drillable: no"));
+    assert!(stdout.contains("single.bin is a file"));
+    assert!(stdout.contains("Status: single.bin is a file"));
+}
+
+#[test]
+fn tui_replay_open_other_tile_reports_aggregate_non_drillable() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    for index in 0..28 {
+        write_fixture_file(root.join(format!("file-{index:02}.bin")), b"x");
+    }
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--screen-reader",
+            "--terminal-width",
+            "100",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "4 open:tile:23",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Treemap: workspace"));
+    assert!(stdout.contains("Status: Aggregate Other tile cannot be opened"));
+}
+
+#[test]
 fn tui_replay_tab_reaches_treemap_without_a_terminal() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

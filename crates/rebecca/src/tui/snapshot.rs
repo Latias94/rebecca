@@ -123,11 +123,11 @@ fn snapshot_treemap(app: &TuiApp, lines: &mut Vec<String>, width: usize) {
         .sum::<u64>()
         .max(1);
     lines.push(trim_to_width(map_title(app, "Treemap"), width));
+    for line in treemap_context_lines(app) {
+        lines.push(trim_to_width(line, width));
+    }
     if rows.is_empty() {
-        lines.push(trim_to_width(
-            "No entries for this scope.".to_string(),
-            width,
-        ));
+        lines.push(trim_to_width(treemap_empty_message(app), width));
         return;
     }
     for (index, row) in rows.iter().enumerate().take(20) {
@@ -235,13 +235,13 @@ fn plan_lines(plan: Option<&CleanupPlan>) -> Vec<Line<'static>> {
 fn help_lines() -> Vec<Line<'static>> {
     vec![
         Line::from("j/k or arrows move"),
-        Line::from("Enter/l opens a directory, h/Esc moves back"),
+        Line::from("Enter/l opens a directory or treemap tile, h/Esc moves back"),
         Line::from("1 map, 4/w treemap, 2/t types, 3/x extensions, Tab cycles views"),
         Line::from("Enter filters by selected type/extension; Backspace clears group filter"),
         Line::from("/ filters the active view, s cycles sort"),
         Line::from("r refreshes the active directory, R refreshes the root, b restores a scan"),
         Line::from(
-            "Mouse: click tabs, map rows, treemap tiles, or distribution rows; wheel moves selection",
+            "Mouse: click tabs, map rows, treemap tiles, or distribution rows; click selects only",
         ),
         Line::from("Space stages the cleanup rule; preview includes all matching targets"),
         Line::from("e executes only after typed confirmation"),
@@ -339,6 +339,43 @@ fn map_title(app: &TuiApp, prefix: &str) -> String {
     match app.active_group_filter_label() {
         Some(label) => format!("{prefix}: {} [{label}]", app.current_node_name()),
         None => format!("{prefix}: {}", app.current_node_name()),
+    }
+}
+
+fn treemap_context_lines(app: &TuiApp) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!("Scope: {}", app.current_node_name()));
+    lines.push(format!("Breadcrumb: {}", app.current_scope_breadcrumb()));
+    lines.push(format!("Zoom depth: {}", app.zoom_depth()));
+    lines.push(format!(
+        "Filter: {}",
+        app.active_scope_filter_summary()
+            .unwrap_or_else(|| "none".to_string())
+    ));
+    if let Some(summary) = app.treemap_selection_summary() {
+        lines.push(format!("Selected tile: {}", summary.name));
+        lines.push(format!("Kind: {}", summary.kind));
+        lines.push(format!(
+            "Drillable: {}",
+            if summary.drillable { "yes" } else { "no" }
+        ));
+        if let Some(reason) = summary.non_drillable_reason {
+            lines.push(format!("Reason: {reason}"));
+        }
+        lines.push(format!("Action: {}", summary.primary_action));
+    } else {
+        lines.push("Selected tile: none".to_string());
+        lines.push("Drillable: no".to_string());
+        lines.push("Action: select a directory tile".to_string());
+    }
+    lines
+}
+
+fn treemap_empty_message(app: &TuiApp) -> String {
+    if app.active_scope_filter_summary().is_some() {
+        "No entries match the active filters in this scope.".to_string()
+    } else {
+        "No entries for this scope.".to_string()
     }
 }
 

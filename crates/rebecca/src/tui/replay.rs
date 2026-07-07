@@ -60,6 +60,16 @@ fn mouse_action_for_token(
             app,
             parse_index(index_token, token)?,
             terminal_width,
+            false,
+        )?));
+    }
+
+    if let Some(index_token) = token.strip_prefix("open:tile:") {
+        return Ok(Some(tile_action(
+            app,
+            parse_index(index_token, token)?,
+            terminal_width,
+            true,
         )?));
     }
 
@@ -90,9 +100,14 @@ fn row_action(app: &TuiApp, index: usize) -> Result<TuiMouseAction> {
     }
 }
 
-fn tile_action(app: &TuiApp, index: usize, terminal_width: usize) -> Result<TuiMouseAction> {
+fn tile_action(
+    app: &TuiApp,
+    index: usize,
+    terminal_width: usize,
+    open: bool,
+) -> Result<TuiMouseAction> {
     if app.screen != TuiScreen::Treemap {
-        bail!("click:tile is only available on the treemap screen");
+        bail!("tile replay actions are only available on the treemap screen");
     }
 
     let rows = app.visible_rows();
@@ -102,9 +117,17 @@ fn tile_action(app: &TuiApp, index: usize, terminal_width: usize) -> Result<TuiM
         bail!("tui replay tile index {index} is outside the visible treemap");
     };
     let Some(row_index) = tile.row_index else {
-        bail!("tui replay tile index {index} points to a synthetic treemap bucket");
+        return if open {
+            Ok(TuiMouseAction::OpenTreemapAggregate)
+        } else {
+            bail!("tui replay tile index {index} points to a synthetic treemap bucket")
+        };
     };
-    Ok(TuiMouseAction::SelectMapRow(row_index))
+    Ok(if open {
+        TuiMouseAction::OpenTreemapRow(row_index)
+    } else {
+        TuiMouseAction::SelectMapRow(row_index)
+    })
 }
 
 fn replay_treemap_area(terminal_width: usize) -> Rect {
@@ -157,5 +180,21 @@ mod tests {
     fn key_tokens_still_parse_through_terminal_mapping() {
         assert_eq!(terminal::replay_token_to_key("j"), Some(TuiKey::Down));
         assert_eq!(terminal::replay_token_to_key("4"), Some(TuiKey::Char('4')));
+    }
+
+    #[test]
+    fn tile_open_token_uses_treemap_open_action() {
+        let mut app = TuiApp::root_picker(
+            Vec::new(),
+            rebecca::core::scan::ScanBackendKind::PortableRecursive,
+            10,
+        );
+        app.screen = TuiScreen::Treemap;
+
+        let err = mouse_action_for_token(&app, "open:tile:0", 80)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("outside the visible treemap"));
     }
 }
