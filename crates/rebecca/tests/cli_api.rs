@@ -47,6 +47,8 @@ fn external_rule_manifest(family_id: &str) -> String {
         ("windows", "%TEMP%\\RebeccaExternalFixture")
     };
 
+    let target = target.replace('\\', "\\\\");
+
     format!(
         r#"
 manifest_version = 1
