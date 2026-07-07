@@ -122,6 +122,40 @@ fn executor_records_permission_failure_reason_without_aborting_plan() {
 }
 
 #[test]
+fn executor_records_final_safety_block_as_blocked_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("file.tmp");
+    fs::write(&file, b"trash").unwrap();
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Windows,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "windows.user-temp",
+        file,
+        10,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.recompute_summary();
+
+    let backend = FinalSafetyBlockBackend::new();
+    execute_cleanup_plan(&mut plan, &backend).unwrap();
+
+    assert_eq!(backend.calls.get(), 1);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert_eq!(plan.summary.blocked_targets, 1);
+    assert_eq!(plan.summary.failed_targets, 0);
+    assert_eq!(
+        plan.summary.issue_matrix[0].reason_code,
+        CleanupTargetIssueReason::SafetyPolicyBlocked
+    );
+}
+
+#[test]
 fn executor_default_policy_uses_plan_platform_safety_knowledge() {
     let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
         Platform::Macos,
@@ -794,6 +828,27 @@ impl FakeBackend {
             calls: Cell::new(0),
             failure_message: Some(message),
         }
+    }
+}
+
+struct FinalSafetyBlockBackend {
+    calls: Cell<usize>,
+}
+
+impl FinalSafetyBlockBackend {
+    fn new() -> Self {
+        Self {
+            calls: Cell::new(0),
+        }
+    }
+}
+
+impl CleanupBackend for FinalSafetyBlockBackend {
+    fn delete(&self, _target: &CleanupTarget) -> Result<ExecutionOutcome> {
+        self.calls.set(self.calls.get() + 1);
+        Err(rebecca_core::RebeccaError::SafetyBlocked(
+            "recoverable trash refused reparse target".to_string(),
+        ))
     }
 }
 

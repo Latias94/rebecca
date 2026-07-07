@@ -286,6 +286,9 @@ fn catalog_filters_cleanup_rules_by_platform() {
     for expected in [
         "macos.user-temp",
         "macos.pip-cache",
+        "macos.homebrew-cache",
+        "macos.cocoapods-cache",
+        "macos.xcode-cache",
         "macos.chrome-cache",
         "macos.firefox-profile-cache",
         "macos.slack-cache",

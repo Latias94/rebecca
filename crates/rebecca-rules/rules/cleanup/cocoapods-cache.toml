@@ -1,0 +1,18 @@
+manifest_version = 1
+id = "cocoapods-cache"
+category = "development"
+name = "CocoaPods cache"
+safety_level = "moderate"
+restore_hint = "CocoaPods may need to redownload pod archives and specs."
+
+[[platforms]]
+platform = "macos"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/CocoaPods"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Project-owned macOS rule for rebuildable CocoaPods cache data. Project Pods directories, specs repositories, and CocoaPods configuration are excluded."

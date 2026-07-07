@@ -1,0 +1,31 @@
+manifest_version = 1
+id = "xcode-cache"
+category = "development"
+name = "Xcode build cache"
+safety_level = "moderate"
+restore_hint = "Xcode may need to rebuild derived data, module cache, documentation cache, and SwiftPM cache data."
+
+[[platforms]]
+platform = "macos"
+warnings = ["active-process", "permission-sensitive"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/Library/Developer/Xcode/DerivedData"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/com.apple.dt.Xcode"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/com.apple.dt.Xcode.InstallCheckCache"
+
+[[platforms.targets]]
+kind = "template"
+value = "%MACOS_CACHE_HOME%/org.swift.swiftpm"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Project-owned macOS rule for rebuildable Xcode derived data and cache leaves. Archives, device support payloads, preferences, provisioning profiles, and project data are excluded."

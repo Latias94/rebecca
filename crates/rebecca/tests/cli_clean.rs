@@ -2406,6 +2406,142 @@ fn clean_dry_run_json_gates_macos_desktop_app_cache_warnings() {
 }
 
 #[test]
+fn clean_dry_run_json_discovers_macos_curated_developer_rules() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let homebrew_cache = temp.path().join("Library").join("Caches").join("Homebrew");
+    write_fixture_file(
+        homebrew_cache.join("downloads").join("bottle.tar.gz"),
+        b"abcd",
+    );
+    write_fixture_file(homebrew_cache.join("api").join("formula.json"), b"ef");
+    write_fixture_file(homebrew_cache.join("Cask").join("app.dmg"), b"ghij");
+    let homebrew_tap = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Homebrew")
+        .join("Library")
+        .join("Taps")
+        .join("keep.rb");
+    write_fixture_file(&homebrew_tap, b"keep");
+
+    let cocoapods_cache = temp.path().join("Library").join("Caches").join("CocoaPods");
+    write_fixture_file(cocoapods_cache.join("Pods").join("Alamofire.zip"), b"klm");
+
+    let xcode = temp.path().join("Library").join("Developer").join("Xcode");
+    write_fixture_file(
+        xcode
+            .join("DerivedData")
+            .join("Rebecca-abc123")
+            .join("Build")
+            .join("cache.bin"),
+        b"nopq",
+    );
+    write_fixture_file(
+        xcode
+            .join("Archives")
+            .join("2026-07-07")
+            .join("Rebecca.xcarchive")
+            .join("Info.plist"),
+        b"keep",
+    );
+    write_fixture_file(
+        xcode
+            .join("iOS DeviceSupport")
+            .join("18.0")
+            .join("Symbols")
+            .join("keep.bin"),
+        b"keep",
+    );
+    write_fixture_file(
+        temp.path()
+            .join("Library")
+            .join("MobileDevice")
+            .join("Provisioning Profiles")
+            .join("example.mobileprovision"),
+        b"keep",
+    );
+    let xcode_cache = temp
+        .path()
+        .join("Library")
+        .join("Caches")
+        .join("com.apple.dt.Xcode");
+    write_fixture_file(xcode_cache.join("cache.db"), b"rst");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--no-scan-cache",
+            "--format",
+            "json",
+            "--allow-moderate",
+            "--allow-warning",
+            "active-process",
+            "--allow-warning",
+            "permission-sensitive",
+            "--rule",
+            "macos.homebrew-cache",
+            "--rule",
+            "macos.cocoapods-cache",
+            "--rule",
+            "macos.xcode-cache",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    let targets = value["targets"].as_array().unwrap();
+    assert_eq!(value["summary"]["allowed_targets"], 6);
+
+    let allowed_paths = targets
+        .iter()
+        .filter(|target| target["status"] == "allowed")
+        .map(|target| target["path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    let target_paths = targets
+        .iter()
+        .map(|target| target["path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    for expected in [
+        "/Library/Caches/Homebrew/downloads",
+        "/Library/Caches/Homebrew/api",
+        "/Library/Caches/Homebrew/Cask",
+        "/Library/Caches/CocoaPods",
+        "/Library/Developer/Xcode/DerivedData",
+        "/Library/Caches/com.apple.dt.Xcode",
+    ] {
+        assert!(
+            allowed_paths.iter().any(|path| path.ends_with(expected)),
+            "missing allowed macOS developer cache target {expected}: {allowed_paths:?}"
+        );
+    }
+
+    for forbidden in [
+        "/Library/Application Support/Homebrew",
+        "/Library/Developer/Xcode/Archives",
+        "/Library/Developer/Xcode/iOS DeviceSupport",
+        "/Library/MobileDevice/Provisioning Profiles",
+    ] {
+        assert!(
+            target_paths.iter().all(|path| !path.contains(forbidden)),
+            "durable macOS developer state must not be targeted: {target_paths:?}"
+        );
+    }
+    assert!(homebrew_tap.exists(), "Homebrew taps must remain untouched");
+}
+
+#[test]
 fn clean_dry_run_json_discovers_macos_steam_install_cache() {
     if !cfg!(target_os = "macos") {
         return;

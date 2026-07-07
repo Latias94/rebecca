@@ -193,6 +193,14 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         "/Users/alice/Library/Caches/NuGet/v3-cache",
         "/Users/alice/Library/Caches/torch/hub/checkpoints",
         "/Users/alice/Library/Caches/Google/AndroidStudio2025.1/caches",
+        "/Users/alice/Library/Caches/Homebrew/downloads",
+        "/Users/alice/Library/Caches/Homebrew/api",
+        "/Users/alice/Library/Caches/Homebrew/Cask",
+        "/Users/alice/Library/Caches/CocoaPods",
+        "/Users/alice/Library/Caches/com.apple.dt.Xcode",
+        "/Users/alice/Library/Caches/com.apple.dt.Xcode.InstallCheckCache",
+        "/Users/alice/Library/Caches/org.swift.swiftpm",
+        "/Users/alice/Library/Developer/Xcode/DerivedData/Rebecca-abc123",
         "/Users/alice/Library/Caches/com.apple.QuickLook.thumbnailcache",
         "/Users/alice/Library/Caches/org.videolan.vlc/art/artistalbum",
         "/Users/alice/Library/Caches/Firefox/Profiles/abcd.default/cache2",
@@ -236,6 +244,22 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         ),
         (
             "/Users/alice/Library/Application Support/Steam/userdata/123/config.vdf",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Developer/Xcode/Archives/2026-07-07/App.xcarchive",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Developer/Xcode/iOS DeviceSupport/18.0",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/MobileDevice/Provisioning Profiles/example.mobileprovision",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Preferences/com.apple.dt.Xcode.plist",
             ProtectedCategory::ApplicationDurableData,
         ),
         (

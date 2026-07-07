@@ -313,9 +313,18 @@ fn is_macos_user_cache_path(segments: &[&str]) -> bool {
             | ["yarn", ..]
             | ["nuget", ..]
             | ["android", ..]
+            | ["cocoapods", ..]
             | ["mozilla", "sccache", ..]
+            | ["com.apple.dt.xcode", ..]
+            | ["com.apple.dt.xcode.installcheckcache", ..]
+            | ["org.swift.swiftpm", ..]
             | ["com.apple.quicklook.thumbnailcache", ..]
             | ["jetbrains", _, ..] => true,
+            ["homebrew", leaf, ..]
+                if matches!(*leaf, "downloads" | "api" | "cask" | "caskroom") =>
+            {
+                true
+            }
             ["google", app, ..]
                 if app.starts_with("androidstudio") || app.starts_with("android studio") =>
             {
