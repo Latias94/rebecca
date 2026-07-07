@@ -159,3 +159,22 @@ jobs:
           path: target/release-gates/github
           if-no-files-found: warn
           retention-days: 30
+
+  macos-cleanup-smoke:
+    name: macOS cleanup smoke
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Run macOS cleanup smoke
+        run: bash scripts/ci/run-macos-cleanup-smoke.sh

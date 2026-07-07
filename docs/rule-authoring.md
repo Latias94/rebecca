@@ -119,6 +119,12 @@ Keep each family small, explicit, and easy to audit.
   `Preferences`, `Keychains`, `Containers`, `Group Containers`, browser
   profile databases, `Local Storage`, `IndexedDB`, `Service Worker`, cookies,
   sessions, or the application support root.
+- macOS developer-cache rules should stay on narrow rebuildable leaves. Current
+  built-ins allow Homebrew download/API/cask cache leaves, CocoaPods cache data,
+  and Xcode DerivedData plus Xcode/SwiftPM cache leaves. Do not target Homebrew
+  taps or installs, CocoaPods specs/config outside `Library/Caches`, Xcode
+  Archives, device support payloads, provisioning profiles, preferences, or
+  project directories.
 - Domestic desktop-app cache rules must be app-specific and conservative. Use
   only observed AppData cache leaves such as WeChat `radium\cache`, Feishu
   `Cache`/`Code Cache`/shader-cache leaves, DingTalk `resource_cache`, WPS
@@ -247,6 +253,8 @@ Keep each family small, explicit, and easy to audit.
 - `cargo nextest run -p rebecca --test cli_apps`
 - `cargo nextest run --workspace`
 - `cargo run -p rebecca -- scan`
+- `cargo run -p rebecca -- rules validate --format json --file <manifest.toml>`
+- `cargo run -p rebecca -- rules import --format json --file <manifest.toml>`
 
 ## Provenance
 
@@ -257,6 +265,12 @@ Keep each family small, explicit, and easy to audit.
 - Built-in rules must include a concise non-empty `restore_hint`, because dry-run,
   history, and grouped human output surface it as part of the safety contract.
 - Document the source of each rule in `provenance.notes`.
+- External rules follow the same Cleaner Manifest v1 validation contract but are
+  stored separately from built-ins. `rules import` copies a validated manifest
+  into Rebecca-owned state with `enabled=false`; imported rules affect planning
+  only after `rules enable <IMPORT_ID>` revalidates the stored manifest. Use
+  `rules list`, `rules disable`, and `rules remove` instead of editing Rebecca's
+  state files by hand.
 - When a rule family is cross-checked against an external reference, keep the
   reference in `provenance.notes` with the upstream project name, repository or
   file path, license, and any relevant commit or release tag. Treat GPL sources

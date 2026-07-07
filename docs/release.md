@@ -5,8 +5,8 @@ Rebecca uses one tag-driven release workflow for crates.io publishing and cargo-
 Release handling is split across four workflows:
 
 - `ci.yml` runs formatting, linting, tests, Linux and macOS no-root cleanup smokes, cargo-dist planning, and a Windows release-packaging smoke test on pushes and pull requests;
-- `release-gates.yml` is a manual evidence gate that runs the shared release gate wrapper, uploads dogfood/performance artifacts, and can compare full benchmark output against a prior workflow artifact;
-- `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks crate package file lists, dry-runs the first registry-independent crate publish, and exercises the repository PowerShell release archive scripts;
+- `release-gates.yml` is a manual evidence gate that runs the shared release gate wrapper, uploads dogfood/performance artifacts, runs macOS cleanup smoke, and can compare full benchmark output against a prior workflow artifact;
+- `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks crate package file lists, dry-runs the first registry-independent crate publish, exercises the repository PowerShell release archive scripts, and runs macOS cleanup smoke;
 - `release.yml` publishes `rebecca-core`, `rebecca-rules`, `rebecca-windows`, and `rebecca` to crates.io in dependency order, then publishes the tag-driven ZIP, PowerShell installer, and checksum files to GitHub Releases.
 
 ## Artifact Names
@@ -104,10 +104,12 @@ collecting additional evidence.
 
 The same gate can be run from GitHub Actions with the manual `Release Gates`
 workflow. Its default `benchmark=smoke` and `dogfood=stable` inputs are the
-branch-landing profile. For release-candidate evidence, run it with
-`benchmark=full` and `dogfood=all` on a representative Windows runner. Every
-run uploads a `release-gates` artifact containing the gate report, raw command
-stdout/stderr, benchmark reports, and dogfood reports.
+branch-landing profile. The workflow also runs `scripts/ci/run-macos-cleanup-smoke.sh`
+on a macOS runner so release evidence covers macOS catalog, clean dry-run,
+doctor permissions, and active-process contracts. For release-candidate
+evidence, run it with `benchmark=full` and `dogfood=all` on a representative
+Windows runner. Every run uploads a `release-gates` artifact containing the
+gate report, raw command stdout/stderr, benchmark reports, and dogfood reports.
 
 Use a successful full benchmark run on `main` as the blessed baseline for the
 next release-candidate comparison. Pass that workflow run id as

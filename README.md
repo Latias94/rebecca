@@ -67,10 +67,13 @@ cargo run -p rebecca -- inspect lint --root .
 cargo run -p rebecca -- clean --dry-run
 cargo run -p rebecca -- clean --dry-run --rule linux.pip-cache --allow-moderate
 cargo run -p rebecca -- clean --dry-run --rule macos.chrome-cache --allow-warning active-process
+cargo run -p rebecca -- clean --dry-run --rule macos.xcode-cache --allow-moderate --allow-warning active-process --allow-warning permission-sensitive
 cargo run -p rebecca -- doctor active-processes
 cargo run -p rebecca -- apps scan
 cargo run -p rebecca -- catalog --kind project-artifact
 cargo run -p rebecca -- cache doctor
+cargo run -p rebecca -- capabilities --format json
+cargo run -p rebecca -- schema export --document payloads --format json
 ```
 
 **Preview safely**
@@ -218,6 +221,7 @@ Rebecca is a local cleanup tool, and the highest-risk behavior is unintended loc
 - Human `inspect space` and `inspect map` runs also keep progress on stderr, with compact root, fallback, cache, traversal, and backend-stage messages. Use `--no-progress` for quiet human logs; JSON, NDJSON, and raw table stdout never receive spinner text.
 - `--format ndjson` keeps machine output clean for long-running cleanup and inspect workflows. Cleanup emits target-level progress by default. Inspect emits `started`, bounded `inspect-progress`, final report rows or payloads, and `completed`; add `--progress-detail file` only when a wrapper needs per-file scan events.
 - Warning-bearing cleanup rules are blocked until their named gate is selected with `--allow-warning <WARNING>`; `--allow-moderate` and `--allow-risky` still control safety-level admission.
+- The recoverable trash backend performs a final lstat-style reparse-point check before handing paths to the platform trash adapter. If a planned path is replaced with a symlink or other reparse point between preview and execution, that target is blocked with `safety-policy-blocked` instead of being deleted.
 
 For the current destructive-operation boundary and known safety gaps, see [Rebecca Cleanup Safety Audit](docs/security-audit.md).
 
@@ -342,11 +346,16 @@ Rebecca ships conservative cleanup rule families under `crates/rebecca-rules/rul
 - System and browser caches: user temp files, Linux package-manager archives, thumbnail caches, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, DirectX shader cache, and Windows Error Reporting data.
 - App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video. Linux app rules include native XDG paths plus bounded Flatpak or Snap cache locations where the app id is known; macOS app rules target narrow `Library/Application Support/<App>/Cache`-style leaves and avoid durable app state.
 - Developer caches: pip, uv, Poetry, Conda, Go, Cargo, ccache, rustup, sccache, JetBrains, npm, pnpm, yarn, bun, corepack, Gradle, Android, NuGet, Maven, Hugging Face, PyTorch, and VS Code.
+- macOS developer caches: Homebrew download/API/cask cache leaves, CocoaPods cache data, and Xcode DerivedData plus Xcode/SwiftPM cache leaves. Rebecca keeps Homebrew taps, Xcode Archives, device support payloads, provisioning profiles, preferences, and project data out of built-in cache rules.
 - Steam caches: the Steam client cache plus Windows, Linux, and macOS install-root/library-root cache leaves discovered under readable user Steam roots.
 
 Linux XDG variables are resolved by the planner: `XDG_CACHE_HOME` falls back to `$HOME/.cache`, `XDG_CONFIG_HOME` to `$HOME/.config`, `XDG_DATA_HOME` to `$HOME/.local/share`, and `XDG_STATE_HOME` to `$HOME/.local/state` when those variables are unset. macOS rule variables are also semantic: `MACOS_CACHE_HOME` falls back to `$HOME/Library/Caches`, `MACOS_APPLICATION_SUPPORT_HOME` to `$HOME/Library/Application Support`, and `MACOS_LOG_HOME` to `$HOME/Library/Logs`. Package-manager rules such as `linux.apt-cache`, `linux.dnf-cache`, `linux.pacman-cache`, and `linux.zypper-cache` require `--allow-moderate` and the `permission-sensitive` warning gate because they target bounded archive leaves under `/var/cache`.
 
 Rule metadata includes generated platform rule ids, category, safety level, restore hint, warnings, and provenance. Built-in rules use `source = "owned"` with `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface restore hints when available, and `--format json` preserves those fields under the CLI API envelope.
+
+External Cleaner Manifest v1 rules are managed explicitly. `rebecca rules validate` checks a manifest without importing it. `rebecca rules import --file <PATH>` copies a validated manifest into Rebecca state with provenance, hash, rule ids, platforms, and `enabled=false`; imported rules do not affect planning until `rebecca rules enable <IMPORT_ID>` revalidates the stored manifest. Use `rules list`, `rules disable`, and `rules remove` for the rest of the lifecycle.
+
+GUI wrappers should start with `rebecca capabilities --format json`, then export the needed schemas with `schema export --document envelope|event|error|payloads|config|cleaner-manifest-v1`, run `doctor permissions --format json` and `config validate --format json`, and keep cleanup destructive commands behind preview plus explicit `--yes`.
 
 Rule authoring notes live in [docs/rule-authoring.md](docs/rule-authoring.md).
 

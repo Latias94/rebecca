@@ -131,6 +131,9 @@ The `payload_kind` field identifies the shape under `data`:
 - `config-view`
 - `config-validation`
 - `rule-validation`
+- `rule-import`
+- `rule-import-list`
+- `rule-import-mutation`
 - `permissions-diagnostic`
 - `active-process-diagnostic`
 
@@ -232,6 +235,14 @@ platform availability, preflight commands, required execution flags, macOS
 privacy relevance, and safety-model facts such as preview-by-default cleanup
 and recoverable deletion.
 
+A GUI startup sequence should stay read-only until the user confirms a cleanup:
+call `capabilities --format json`, export the schemas it needs with
+`schema export --document ...`, run `doctor permissions --format json`, then run
+`config validate --format json` and any `rules validate --format json` checks
+for user-selected manifests. Preview cleanup with `clean --dry-run --format json`
+or NDJSON progress, and execute only by replaying the reviewed command with
+`--yes` and the same rule, warning, safety, exclude, and scan-cache choices.
+
 `cli-schema` is emitted by `rebecca schema export --document <name>`. It returns
 one embedded JSON Schema document from this directory inside a normal API
 envelope. Exportable documents are `envelope`, `event`, `error`, `payloads`,
@@ -248,6 +259,14 @@ levels are rejected. Directory inputs are bounded by `--max-depth` and
 manifests. The payload includes a `discovery` object so wrappers can show those
 limits. Validation does not enable or import those rules; the payload includes
 `enabled = false` to make that boundary explicit.
+
+`rule-import`, `rule-import-list`, and `rule-import-mutation` are emitted by
+`rebecca rules import`, `rules list`, `rules enable`, `rules disable`, and
+`rules remove`. Import validates and copies a manifest into Rebecca-owned state,
+records source display path, stored manifest path, content hash, import time,
+rule ids, platforms, and `enabled = false`. Enable revalidates the stored
+manifest before planning can consume it; corrupted or now-invalid stored
+manifests fail closed instead of silently participating in cleanup planning.
 
 `cache-inventory`, `cache-doctor`, and `cache-prune-report` are emitted by
 `rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune`.

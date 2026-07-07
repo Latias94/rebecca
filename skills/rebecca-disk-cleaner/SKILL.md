@@ -106,6 +106,22 @@ Rebecca command.
      ```shell
      rebecca clean --dry-run --rule macos.chrome-cache --allow-warning active-process
      rebecca clean --dry-run --rule macos.pip-cache --allow-moderate
+     rebecca clean --dry-run --rule macos.xcode-cache --allow-moderate --allow-warning active-process --allow-warning permission-sensitive
+     ```
+
+   - External Cleaner Manifest v1 rules:
+
+     ```shell
+     rebecca rules validate --format json --file <manifest.toml>
+     rebecca rules import --format json --file <manifest.toml>
+     rebecca rules list --format json
+     ```
+
+     Imported rules are disabled by default. Enable them only after the preview
+     is reviewed:
+
+     ```shell
+     rebecca rules enable <IMPORT_ID>
      ```
 
    - Linux package-manager archive caches are moderate and permission-sensitive;
@@ -186,7 +202,11 @@ Rebecca command.
   and never use `sudo rebecca clean --yes` as the first command.
 - On macOS, prefer user-owned `Library/Caches`, browser, and developer-cache
   rules; do not clean broad `Library/Application Support`, `Containers`, or
-  `Group Containers` roots.
+  `Group Containers` roots. Homebrew, CocoaPods, and Xcode rules are scoped to
+  cache leaves and DerivedData; do not target Homebrew taps, Xcode Archives,
+  device support payloads, provisioning profiles, or preferences. If privacy
+  probes report a likely Full Disk Access block, grant access to the terminal
+  for reviewed user-owned cache paths instead of adding `sudo`.
 - Use `--exclude <PATH>` for user-protected paths instead of editing plans by
   hand.
 - Treat `--dry-run` and `--yes` as mutually exclusive: preview first, then
