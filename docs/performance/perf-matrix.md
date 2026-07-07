@@ -76,7 +76,7 @@ scenario as pass, regression, improvement, skipped, missing-baseline, or
 missing-current with the normal 10% threshold.
 
 The default matrix does not read a live NTFS volume because that requires host privileges and can make Criterion results depend on the whole workstation disk.
-Use the inspect-map dogfood script for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_backend_source`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios.
+Use the inspect-map dogfood script for live `windows-ntfs-mft-experimental` evidence, then compare the JSON `estimate_backend`, `estimate_backend_source`, `estimate_fallback_reason`, and `estimate_caveats` fields against the portable and Windows native scenarios. The script enables the `ntfs` Cargo feature only for the experimental backend run.
 NTFS parser-core performance work should keep the first-party parser path distinguishable from any future external adapter or oracle path in report labels before adding new speed thresholds.
 The script runs one `inspect map --format json` scan per backend/repetition, then derives JSON, CSV, and Markdown artifacts without re-running table mode:
 

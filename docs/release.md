@@ -152,6 +152,10 @@ identity, and byte/file/directory deltas for each backend/repetition.
 pwsh -File scripts\dogfood\run-inspect-map-report.ps1 -Root docs\plans -Backend portable-recursive,windows-native,windows-ntfs-mft-experimental -Repeat 1 -Top 20 -GroupBy extension,depth,age -DiagnosticLimit 0
 ```
 
+The dogfood script enables the `ntfs` Cargo feature only for
+`windows-ntfs-mft-experimental` runs; portable and Windows-native runs keep the
+default build graph.
+
 For a focused NTFS physical-semantics fixture, run:
 
 ```powershell
@@ -202,10 +206,10 @@ cargo run -p rebecca -- inspect lint --root . --top 10 --format json
 cargo run -p rebecca -- clean --dry-run --scan-cache --category system
 cargo run -p rebecca -- clean --dry-run --scan-cache --category system
 cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system --format json
-cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system --format json
-cargo run -p rebecca -- inspect space --scan-backend windows-ntfs-mft-experimental --root . --top 10 --format json
+cargo run -p rebecca --features ntfs -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system --format json
+cargo run -p rebecca --features ntfs -- inspect space --scan-backend windows-ntfs-mft-experimental --root . --top 10 --format json
 cargo run -p rebecca -- inspect map --scan-backend windows-native --root docs\plans --top 10 --format json
-cargo run -p rebecca -- inspect map --scan-backend windows-ntfs-mft-experimental --root docs\plans --top 10 --format json
+cargo run -p rebecca --features ntfs -- inspect map --scan-backend windows-ntfs-mft-experimental --root docs\plans --top 10 --format json
 ```
 
 Prefer the script for repeatable backend comparison; use the raw commands above when diagnosing a single CLI behavior, dry-run safety, or reproducing a script-captured failure.

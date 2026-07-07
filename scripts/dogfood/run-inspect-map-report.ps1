@@ -920,7 +920,14 @@ function Invoke-InspectMapRun {
     $stdoutPath = Join-Path $RawDirectory "$runId.stdout.json"
     $stderrPath = Join-Path $RawDirectory "$runId.stderr.txt"
     $arguments = [System.Collections.Generic.List[string]]::new()
-    foreach ($arg in @("run", "-q", "-p", "rebecca", "--", "inspect", "map", "--format", "json", "--root", $RootPath, "--top", [string]$TopLimit, "--diagnostic-limit", [string]$DiagnosticLimitValue, "--scan-backend", $RequestedBackend)) {
+    foreach ($arg in @("run", "-q", "-p", "rebecca")) {
+        $arguments.Add($arg)
+    }
+    if ($RequestedBackend -eq "windows-ntfs-mft-experimental") {
+        $arguments.Add("--features")
+        $arguments.Add("ntfs")
+    }
+    foreach ($arg in @("--", "inspect", "map", "--format", "json", "--root", $RootPath, "--top", [string]$TopLimit, "--diagnostic-limit", [string]$DiagnosticLimitValue, "--scan-backend", $RequestedBackend)) {
         $arguments.Add($arg)
     }
     foreach ($group in $GroupKinds) {

@@ -20,7 +20,9 @@ evidence. Use `-SelfTest` to test the wrapper without invoking Cargo.
 `run-inspect-map-report.ps1` runs `rebecca inspect map --format json` once per
 requested backend and repetition, then derives JSON, CSV, and Markdown report
 files from those parsed payloads. It does not run a second table-mode scan for
-formatting.
+formatting. When `windows-ntfs-mft-experimental` is requested, the script runs
+that backend with Cargo's `ntfs` feature enabled; the portable and
+Windows-native backends use the default feature set.
 
 Example:
 

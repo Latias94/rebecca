@@ -453,7 +453,7 @@ function Invoke-InspectMapPhase {
     $stderrPath = Join-Path $RawDirectory "$safePhase.stderr.txt"
 
     $arguments = [System.Collections.Generic.List[string]]::new()
-    foreach ($arg in @("run", "-q", "-p", "rebecca", "--", "inspect", "map", "--format", "json", "--root", $TargetRoot, "--top", [string]$TopLimit, "--diagnostic-limit", [string]$DiagnosticLimitValue, "--scan-backend", "windows-ntfs-mft-experimental", "--group-by", "extension", "--group-by", "depth")) {
+    foreach ($arg in @("run", "-q", "-p", "rebecca", "--features", "ntfs", "--", "inspect", "map", "--format", "json", "--root", $TargetRoot, "--top", [string]$TopLimit, "--diagnostic-limit", [string]$DiagnosticLimitValue, "--scan-backend", "windows-ntfs-mft-experimental", "--group-by", "extension", "--group-by", "depth")) {
         $arguments.Add($arg)
     }
 

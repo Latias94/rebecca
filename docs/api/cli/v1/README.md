@@ -155,13 +155,14 @@ When known, targets also include:
   `counters`, and `cache_events`. Consumers should prefer this object over
   parsing human caveat text when comparing scan/cache behavior.
 
-The `windows-ntfs-mft-experimental` backend is read-only and opt-in. When live
-NTFS metadata is available, `estimate_backend_source` distinguishes the
-normal targeted per-record FSCTL traversal source from explicit full-index
-diagnostic sources. When live metadata is unavailable or ambiguous, Rebecca
-reports fallback provenance instead of treating raw metadata as cleanup
-authority. Parser caveats may include sequence mismatches, hardlink path
-candidates, resident or nonresident attribute-list handling, resident or
+The `windows-ntfs-mft-experimental` backend is read-only, opt-in, and only live
+in binaries compiled with the `ntfs` Cargo feature. When live NTFS metadata is
+available, `estimate_backend_source` distinguishes the normal targeted
+per-record FSCTL traversal source from explicit full-index diagnostic sources.
+When the feature is disabled, live metadata is unavailable, or metadata is
+ambiguous, Rebecca reports fallback provenance instead of treating raw metadata
+as cleanup authority. Parser caveats may include sequence mismatches, hardlink
+path candidates, resident or nonresident attribute-list handling, resident or
 nonresident `$I30` directory-index fallback, unreadable or unsupported stream
 expansion, or bounded parse-error summaries. Valid nonresident
 `$ATTRIBUTE_LIST` and `$INDEX_ALLOCATION:$I30` metadata can supplement record
