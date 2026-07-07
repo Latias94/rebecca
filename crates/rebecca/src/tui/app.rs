@@ -29,6 +29,7 @@ pub(crate) struct TuiApp {
     pub(crate) screen: TuiScreen,
     previous_screen: TuiScreen,
     task_return_screen: TuiScreen,
+    pending_initial_screen: Option<TuiScreen>,
     pub(crate) root_choices: Vec<RootChoice>,
     pub(crate) session: Option<DiskMapSession>,
     pub(crate) current_parent: Option<DiskMapNodeId>,
@@ -96,6 +97,7 @@ impl TuiApp {
             screen: TuiScreen::RootPicker,
             previous_screen: TuiScreen::RootPicker,
             task_return_screen: TuiScreen::RootPicker,
+            pending_initial_screen: None,
             root_choices,
             session: None,
             current_parent: None,
@@ -138,6 +140,7 @@ impl TuiApp {
             screen: TuiScreen::Map,
             previous_screen: TuiScreen::Map,
             task_return_screen: TuiScreen::Map,
+            pending_initial_screen: None,
             root_choices: Vec::new(),
             session: Some(session),
             current_parent,
@@ -182,6 +185,13 @@ impl TuiApp {
         let id = TuiTaskId(self.next_task_id);
         self.next_task_id = self.next_task_id.saturating_add(1);
         id
+    }
+
+    pub(crate) fn set_pending_initial_screen(&mut self, screen: Option<TuiScreen>) {
+        self.pending_initial_screen = screen;
+        if self.session.is_some() {
+            self.apply_pending_initial_screen();
+        }
     }
 
     pub(crate) fn selected_root(&self) -> Option<PathBuf> {
@@ -407,6 +417,7 @@ impl TuiApp {
             .as_ref()
             .and_then(|session| session.root_ids().first().copied());
         self.screen = TuiScreen::Map;
+        self.apply_pending_initial_screen();
         self.selected = 0;
         self.selected_type = 0;
         self.selected_extension = 0;
@@ -1200,6 +1211,25 @@ impl TuiApp {
         self.selected = clamp_index(self.selected, self.visible_rows().len());
         self.message = "Returned to map view.".to_string();
         TuiEffect::None
+    }
+
+    fn apply_pending_initial_screen(&mut self) {
+        let Some(screen) = self.pending_initial_screen.take() else {
+            return;
+        };
+        match screen {
+            TuiScreen::Map | TuiScreen::Treemap | TuiScreen::Types | TuiScreen::Extensions => {
+                self.screen = screen;
+            }
+            TuiScreen::RootPicker
+            | TuiScreen::Busy
+            | TuiScreen::Preview
+            | TuiScreen::Confirm
+            | TuiScreen::Executed
+            | TuiScreen::History
+            | TuiScreen::Help
+            | TuiScreen::Error => {}
+        }
     }
 
     fn open_treemap_view(&mut self) -> TuiEffect {

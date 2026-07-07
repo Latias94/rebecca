@@ -40,6 +40,74 @@ fn tui_once_renders_disk_map_snapshot_for_root() {
 }
 
 #[test]
+fn tui_once_loads_saved_display_preferences() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let state = temp.path().join("rebecca-state");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("tui-preferences.json"),
+        r#"{
+  "version": 1,
+  "last_screen": "treemap",
+  "sort": "files",
+  "entry_limit": 100,
+  "scan_backend": "portable-recursive",
+  "screen_reader": true,
+  "no_color": true
+}
+"#,
+    )
+    .unwrap();
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args(["tui", "--once", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | treemap"));
+    assert!(stdout.contains("sort files"));
+    assert!(
+        !stdout.contains("###"),
+        "screen-reader preference should omit visual bars: {stdout}"
+    );
+}
+
+#[test]
+fn tui_once_does_not_write_preferences() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha.bin"), b"abc");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args(["tui", "--once", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(
+        !temp
+            .path()
+            .join("rebecca-state")
+            .join("tui-preferences.json")
+            .exists()
+    );
+}
+
+#[test]
 fn tui_replay_can_scan_current_directory_from_root_picker() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

@@ -589,17 +589,23 @@ pub struct TuiArgs {
     #[arg(long = "root", value_name = "PATH")]
     pub roots: Vec<PathBuf>,
     /// Select the scan backend used for disk-map inventory.
-    #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
-    pub scan_backend: ScanBackendArg,
+    #[arg(long = "scan-backend", value_enum)]
+    pub scan_backend: Option<ScanBackendArg>,
     /// Maximum ranked entries loaded into the initial interactive session.
-    #[arg(long = "entry-limit", value_name = "N", default_value_t = 2_000)]
-    pub entry_limit: usize,
+    #[arg(long = "entry-limit", value_name = "N")]
+    pub entry_limit: Option<usize>,
     /// Prefer plain text cues and omit visual bars for screen readers.
-    #[arg(long = "screen-reader")]
+    #[arg(long = "screen-reader", conflicts_with = "visual_bars")]
     pub screen_reader: bool,
+    /// Show visual bars even when saved preferences default to screen-reader mode.
+    #[arg(long = "visual-bars", conflicts_with = "screen_reader")]
+    pub visual_bars: bool,
     /// Disable color styling in the interactive terminal UI.
-    #[arg(long = "no-color")]
+    #[arg(long = "no-color", conflicts_with = "color")]
     pub no_color: bool,
+    /// Enable color styling even when saved preferences default to no-color mode.
+    #[arg(long = "color", conflicts_with = "no_color")]
+    pub color: bool,
     /// Render one deterministic frame and exit. Intended for CI and automated smoke tests.
     #[arg(long, hide = true)]
     pub once: bool,

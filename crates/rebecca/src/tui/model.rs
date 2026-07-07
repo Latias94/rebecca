@@ -1,7 +1,9 @@
 use rebecca::core::disk_map::{DiskMapEntryKind, DiskMapGroupKind};
 use rebecca::core::disk_session::DiskMapDistributionRow;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) enum TuiScreen {
     RootPicker,
     Map,

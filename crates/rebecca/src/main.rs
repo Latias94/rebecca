@@ -320,10 +320,22 @@ fn run_tui(args: TuiArgs, global_mode: OutputMode, runtime: &CliRuntime) -> Resu
         tui::TuiOptions {
             output_mode: global_mode,
             roots: args.roots,
-            scan_backend: args.scan_backend.into(),
+            scan_backend: args.scan_backend.map(Into::into),
             entry_limit: args.entry_limit,
-            screen_reader: args.screen_reader,
-            no_color: args.no_color,
+            screen_reader: if args.screen_reader {
+                Some(true)
+            } else if args.visual_bars {
+                Some(false)
+            } else {
+                None
+            },
+            no_color: if args.no_color {
+                Some(true)
+            } else if args.color {
+                Some(false)
+            } else {
+                None
+            },
             once: args.once,
             replay_keys: args.replay_keys,
             terminal_width: args.terminal_width,
