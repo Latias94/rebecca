@@ -81,11 +81,12 @@ flows, optimize flows, disk mapping, and broad orphan-data cleanup.
 
 Cleanup planning routes target paths through `ProtectionPolicy`, with
 `crates/rebecca-core/src/safety.rs` preserving the older compatibility wrapper.
-The policy consumes compiled `SafetyKnowledge` from
-`crates/rebecca-rules/safety/cleanup.toml`; `rebecca-core` also embeds the same
-catalog shape so library callers get safe defaults without the rules crate. The
-catalog has shared warning/category knowledge plus explicit platform blocks for
-Windows, Linux, and macOS protected roots and patterns.
+The policy consumes compiled `SafetyKnowledge` from the canonical safety
+catalog data in `crates/rebecca-safety/safety/cleanup.toml`, which both
+`rebecca-core` and `rebecca-rules` embed so library callers get safe defaults
+without duplicated TOML. The catalog has shared warning/category knowledge plus
+explicit platform blocks for Windows, Linux, and macOS protected roots and
+patterns.
 
 The policy blocks:
 
@@ -216,7 +217,7 @@ delete durable user data are not.
 Built-in cleanup rule families live under `crates/rebecca-rules/rules/cleanup/`
 and are embedded from Cleaner Manifest v1 TOML files with shared metadata plus
 explicit `[[platforms]]` blocks. The safety catalog lives under
-`crates/rebecca-rules/safety/cleanup.toml`. The loaders and validators enforce:
+`crates/rebecca-safety/safety/cleanup.toml`. The loaders and validators enforce:
 
 - `manifest_version = 1` for rule manifests and `catalog_version = 1` for the
   safety catalog;

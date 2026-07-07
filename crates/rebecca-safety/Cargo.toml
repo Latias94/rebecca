@@ -1,0 +1,16 @@
+[package]
+name = "rebecca-safety"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Canonical built-in cleanup safety catalog data for Rebecca."
+documentation = "https://docs.rs/rebecca-safety"
+readme = "../../README.md"
+keywords = ["cleanup", "cache", "safety", "rules"]
+categories = ["filesystem", "command-line-utilities"]
+
+[dependencies]

@@ -104,8 +104,8 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
 );
 
 const BUILTIN_SAFETY_CATALOG: (&str, &str) = (
-    "safety/cleanup.toml",
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/safety/cleanup.toml")),
+    rebecca_safety::CLEANUP_SAFETY_CATALOG_PATH,
+    rebecca_safety::CLEANUP_SAFETY_CATALOG,
 );
 
 const BUILTIN_RULE_CATEGORIES: &[&str] = &["application", "browser", "development", "system"];

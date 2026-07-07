@@ -334,8 +334,8 @@ pub fn default_safety_catalog() -> &'static SafetyCatalog {
     static DEFAULT: OnceLock<SafetyCatalog> = OnceLock::new();
     DEFAULT.get_or_init(|| {
         parse_safety_catalog(
-            "crates/rebecca-core/safety/cleanup.toml",
-            include_str!("../safety/cleanup.toml"),
+            rebecca_safety::CLEANUP_SAFETY_CATALOG_PATH,
+            rebecca_safety::CLEANUP_SAFETY_CATALOG,
         )
         .expect("embedded default safety catalog should be valid")
     })

@@ -19,6 +19,7 @@ globset.workspace = true
 ignore.workspace = true
 rayon.workspace = true
 rebecca-ntfs.workspace = true
+rebecca-safety.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

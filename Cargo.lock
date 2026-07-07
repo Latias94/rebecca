@@ -1626,6 +1626,7 @@ dependencies = [
  "rayon",
  "rebecca-ntfs",
  "rebecca-rules",
+ "rebecca-safety",
  "serde",
  "serde_json",
  "tempfile",
@@ -1650,9 +1651,14 @@ name = "rebecca-rules"
 version = "0.2.0"
 dependencies = [
  "rebecca-core",
+ "rebecca-safety",
  "serde",
  "toml",
 ]
+
+[[package]]
+name = "rebecca-safety"
+version = "0.2.0"
 
 [[package]]
 name = "rebecca-windows"

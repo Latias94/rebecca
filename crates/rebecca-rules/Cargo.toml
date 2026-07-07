@@ -15,5 +15,6 @@ categories = ["filesystem", "command-line-utilities"]
 
 [dependencies]
 rebecca-core.workspace = true
+rebecca-safety.workspace = true
 serde.workspace = true
 toml.workspace = true

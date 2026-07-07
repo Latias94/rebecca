@@ -26,7 +26,7 @@ Keep each family small, explicit, and easy to audit.
 - Warnings are declared as stable warning-kind strings in `warnings = [...]`.
   They are part of the planner-ready rule definition and should be reserved for
   user-visible gates such as active-process checks or broad-discovery notices.
-  Warning kinds must be declared in `crates/rebecca-rules/safety/cleanup.toml`.
+  Warning kinds must be declared in `crates/rebecca-safety/safety/cleanup.toml`.
   Cleanup plans block warning-bearing targets with
   `warning-gate-required` until the user selects the specific gate with
   `--allow-warning <WARNING>`.
