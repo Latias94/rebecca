@@ -1,5 +1,5 @@
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
@@ -13,13 +13,13 @@ use crate::text::format_count;
 use crate::tui::app::TuiApp;
 use crate::tui::basket;
 use crate::tui::input::{TuiMouseAction, TuiMouseEvent, TuiMouseEventKind};
+use crate::tui::layout;
 use crate::tui::model::TuiScreen;
 use crate::tui::navigation::RootChoice;
 use crate::tui::progress::TuiTaskStatus;
-use crate::tui::treemap::{self, TreemapItem, TreemapTile};
+use crate::tui::treemap::TreemapTile;
 
 const BAR_WIDTH: usize = 12;
-const TREEMAP_TILE_LIMIT: usize = 24;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ViewOptions {
@@ -29,29 +29,29 @@ pub(crate) struct ViewOptions {
 }
 
 pub(crate) fn render(frame: &mut Frame<'_>, app: &TuiApp, options: ViewOptions) {
-    let chunks = screen_chunks(frame.area());
+    let layout = layout::frame(frame.area());
 
-    render_header(frame, app, chunks[0], options.color);
+    render_header(frame, app, layout.header, options.color);
     match app.screen {
-        TuiScreen::RootPicker => render_root_picker(frame, app, chunks[1], options.color),
-        TuiScreen::Map => render_map(frame, app, chunks[1], options),
-        TuiScreen::Treemap => render_treemap(frame, app, chunks[1], options),
+        TuiScreen::RootPicker => render_root_picker(frame, app, layout.body, options.color),
+        TuiScreen::Map => render_map(frame, app, layout.body, options),
+        TuiScreen::Treemap => render_treemap(frame, app, layout.body, options),
         TuiScreen::Types | TuiScreen::Extensions => {
-            render_distribution(frame, app, chunks[1], options);
+            render_distribution(frame, app, layout.body, options);
         }
-        TuiScreen::Busy => render_busy(frame, app, chunks[1]),
+        TuiScreen::Busy => render_busy(frame, app, layout.body),
         TuiScreen::Preview => {
-            render_plan(frame, app.preview.as_ref(), "Cleanup preview", chunks[1])
+            render_plan(frame, app.preview.as_ref(), "Cleanup preview", layout.body)
         }
-        TuiScreen::Confirm => render_confirm(frame, app, chunks[1]),
+        TuiScreen::Confirm => render_confirm(frame, app, layout.body),
         TuiScreen::Executed => {
-            render_plan(frame, app.executed.as_ref(), "Cleanup result", chunks[1])
+            render_plan(frame, app.executed.as_ref(), "Cleanup result", layout.body)
         }
-        TuiScreen::History => render_history(frame, app, chunks[1]),
-        TuiScreen::Help => render_help(frame, chunks[1]),
-        TuiScreen::Error => render_error(frame, app, chunks[1]),
+        TuiScreen::History => render_history(frame, app, layout.body),
+        TuiScreen::Help => render_help(frame, layout.body),
+        TuiScreen::Error => render_error(frame, app, layout.body),
     }
-    render_status(frame, app, chunks[2]);
+    render_status(frame, app, layout.status);
 }
 
 pub(crate) fn snapshot(app: &TuiApp, options: ViewOptions) -> String {
@@ -105,13 +105,15 @@ pub(crate) fn hit_test(
     area: Rect,
     mouse: TuiMouseEvent,
 ) -> Option<TuiMouseAction> {
-    let chunks = screen_chunks(area);
+    let layout = layout::frame(area);
     let point = (mouse.column, mouse.row);
-    if matches!(mouse.kind, TuiMouseEventKind::LeftDown) && rect_contains(chunks[0], point) {
-        return hit_header_tab(chunks[0], point);
+    if matches!(mouse.kind, TuiMouseEventKind::LeftDown)
+        && layout::rect_contains(layout.header, point)
+    {
+        return hit_header_tab(layout.header, point);
     }
 
-    if !rect_contains(chunks[1], point) {
+    if !layout::rect_contains(layout.body, point) {
         return None;
     }
 
@@ -119,9 +121,11 @@ pub(crate) fn hit_test(
         TuiMouseEventKind::ScrollUp => Some(TuiMouseAction::ScrollUp),
         TuiMouseEventKind::ScrollDown => Some(TuiMouseAction::ScrollDown),
         TuiMouseEventKind::LeftDown => match app.screen {
-            TuiScreen::Map => hit_map_row(app, chunks[1], point),
-            TuiScreen::Treemap => hit_treemap_tile(app, chunks[1], point),
-            TuiScreen::Types | TuiScreen::Extensions => hit_distribution_row(app, chunks[1], point),
+            TuiScreen::Map => hit_map_row(app, layout.body, point),
+            TuiScreen::Treemap => hit_treemap_tile(app, layout.body, point),
+            TuiScreen::Types | TuiScreen::Extensions => {
+                hit_distribution_row(app, layout.body, point)
+            }
             _ => None,
         },
     }
@@ -129,7 +133,7 @@ pub(crate) fn hit_test(
 
 fn render_header(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, color: bool) {
     let mut spans = vec![Span::styled("Rebecca ", header_style(color))];
-    for (label, screen) in header_tab_specs() {
+    for (label, screen) in layout::header_tab_specs() {
         spans.push(Span::styled(
             format!("[{label}]"),
             selected_style(app.screen == screen, color),
@@ -170,7 +174,7 @@ fn render_root_picker(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, color: bo
 }
 
 fn render_map(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: ViewOptions) {
-    let chunks = map_details_chunks(area);
+    let chunks = layout::workbench_body(area);
 
     let rows = app.visible_rows();
     let table_rows = rows.iter().enumerate().map(|(index, row)| {
@@ -217,20 +221,20 @@ fn render_map(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: ViewOpti
             .title(map_title(app, "Map")),
     )
     .column_spacing(1);
-    frame.render_widget(table, chunks[0]);
-    render_details(frame, app, chunks[1]);
+    frame.render_widget(table, chunks.primary);
+    render_details(frame, app, chunks.details);
 }
 
 fn render_treemap(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: ViewOptions) {
-    let chunks = map_details_chunks(area);
+    let chunks = layout::workbench_body(area);
     let block = Block::default()
         .borders(Borders::ALL)
         .title(map_title(app, "Treemap"));
-    let tile_area = bordered_inner(chunks[0]);
-    frame.render_widget(block, chunks[0]);
+    let tile_area = layout::bordered_inner(chunks.primary);
+    frame.render_widget(block, chunks.primary);
 
     let rows = app.visible_rows();
-    let tiles = treemap_tiles(&rows, tile_area);
+    let tiles = layout::treemap_tiles(&rows, tile_area);
     if tiles.is_empty() {
         frame.render_widget(Paragraph::new("No non-empty entries."), tile_area);
     } else {
@@ -245,11 +249,11 @@ fn render_treemap(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: View
         }
     }
 
-    render_details(frame, app, chunks[1]);
+    render_details(frame, app, chunks.details);
 }
 
 fn render_distribution(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options: ViewOptions) {
-    let chunks = map_details_chunks(area);
+    let chunks = layout::workbench_body(area);
     let rows = app.distribution_rows();
     let max = max_distribution_logical(&rows);
     let selected = app.selected_distribution_index();
@@ -293,8 +297,8 @@ fn render_distribution(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, options:
             .title(distribution_title(app.screen)),
     )
     .column_spacing(1);
-    frame.render_widget(table, chunks[0]);
-    render_distribution_details(frame, rows.get(selected), chunks[1]);
+    frame.render_widget(table, chunks.primary);
+    render_distribution_details(frame, rows.get(selected), chunks.details);
 }
 
 fn render_treemap_tile(
@@ -832,24 +836,6 @@ fn screen_label(screen: TuiScreen) -> &'static str {
     }
 }
 
-fn screen_chunks(area: Rect) -> std::rc::Rc<[Rect]> {
-    Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(8),
-            Constraint::Length(2),
-        ])
-        .split(area)
-}
-
-fn map_details_chunks(area: Rect) -> std::rc::Rc<[Rect]> {
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(68), Constraint::Percentage(32)])
-        .split(area)
-}
-
 fn header_style(color: bool) -> Style {
     if color {
         Style::default()
@@ -888,113 +874,41 @@ fn treemap_tile_style(index: usize, selected: bool, color: bool) -> Style {
     }
 }
 
-fn header_tab_specs() -> [(&'static str, TuiScreen); 4] {
-    [
-        ("1 Map", TuiScreen::Map),
-        ("4 Treemap", TuiScreen::Treemap),
-        ("2 Types", TuiScreen::Types),
-        ("3 Ext", TuiScreen::Extensions),
-    ]
-}
-
-fn header_tab_rects(area: Rect) -> Vec<(Rect, TuiScreen)> {
-    let mut x = area.x.saturating_add("Rebecca ".len() as u16);
-    let mut rects = Vec::new();
-    for (label, screen) in header_tab_specs() {
-        let width = (label.len() + 2) as u16;
-        rects.push((
-            Rect {
-                x,
-                y: area.y,
-                width,
-                height: area.height.min(1),
-            },
-            screen,
-        ));
-        x = x.saturating_add(width).saturating_add(1);
-    }
-    rects
-}
-
 fn hit_header_tab(area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
-    header_tab_rects(area)
+    layout::header_tab_rects(area)
         .into_iter()
         .find_map(|(rect, screen)| {
-            rect_contains(rect, point).then_some(TuiMouseAction::SwitchScreen(screen))
+            layout::rect_contains(rect, point).then_some(TuiMouseAction::SwitchScreen(screen))
         })
 }
 
 fn hit_map_row(app: &TuiApp, area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
-    let chunks = map_details_chunks(area);
-    table_row_at(chunks[0], point, app.visible_rows().len()).map(TuiMouseAction::SelectMapRow)
+    let chunks = layout::workbench_body(area);
+    layout::table_row_at(chunks.primary, point, app.visible_rows().len())
+        .map(TuiMouseAction::SelectMapRow)
 }
 
 fn hit_distribution_row(app: &TuiApp, area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
-    let chunks = map_details_chunks(area);
-    table_row_at(chunks[0], point, app.distribution_rows().len())
+    let chunks = layout::workbench_body(area);
+    layout::table_row_at(chunks.primary, point, app.distribution_rows().len())
         .map(TuiMouseAction::SelectDistributionRow)
 }
 
 fn hit_treemap_tile(app: &TuiApp, area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
-    let chunks = map_details_chunks(area);
-    let tile_area = bordered_inner(chunks[0]);
-    if !rect_contains(tile_area, point) {
+    let chunks = layout::workbench_body(area);
+    let tile_area = layout::bordered_inner(chunks.primary);
+    if !layout::rect_contains(tile_area, point) {
         return None;
     }
     let rows = app.visible_rows();
-    treemap_tiles(&rows, tile_area)
+    layout::treemap_tiles(&rows, tile_area)
         .into_iter()
         .find_map(|tile| {
-            rect_contains(tile.rect, point)
+            layout::rect_contains(tile.rect, point)
                 .then_some(tile.row_index)
                 .flatten()
                 .map(TuiMouseAction::SelectMapRow)
         })
-}
-
-fn table_row_at(area: Rect, point: (u16, u16), len: usize) -> Option<usize> {
-    if len == 0 || !rect_contains(area, point) {
-        return None;
-    }
-    let body_y = area.y.saturating_add(1);
-    if point.1 < body_y {
-        return None;
-    }
-    let body_height = area.height.saturating_sub(2);
-    if body_height == 0 {
-        return None;
-    }
-    let index = usize::from(point.1.saturating_sub(body_y));
-    (index < len && index < usize::from(body_height)).then_some(index)
-}
-
-fn treemap_tiles(rows: &[DiskMapVisibleRow], area: Rect) -> Vec<TreemapTile> {
-    let items = rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| TreemapItem {
-            row_index: Some(index),
-            label: row.name.clone(),
-            logical_bytes: row.metrics.logical_bytes,
-        })
-        .collect::<Vec<_>>();
-    treemap::layout_treemap(&items, area, TREEMAP_TILE_LIMIT)
-}
-
-fn bordered_inner(area: Rect) -> Rect {
-    Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    }
-}
-
-fn rect_contains(rect: Rect, point: (u16, u16)) -> bool {
-    point.0 >= rect.x
-        && point.0 < rect.x.saturating_add(rect.width)
-        && point.1 >= rect.y
-        && point.1 < rect.y.saturating_add(rect.height)
 }
 
 fn advice_label(row: &DiskMapVisibleRow) -> String {
@@ -1202,16 +1116,6 @@ mod tests {
         );
 
         assert_eq!(action, Some(TuiMouseAction::ScrollDown));
-    }
-
-    #[test]
-    fn table_row_at_ignores_table_borders() {
-        let area = Rect::new(0, 1, 40, 5);
-
-        assert_eq!(table_row_at(area, (2, 1), 10), None);
-        assert_eq!(table_row_at(area, (2, 2), 10), Some(0));
-        assert_eq!(table_row_at(area, (2, 4), 10), Some(2));
-        assert_eq!(table_row_at(area, (2, 5), 10), None);
     }
 
     fn view_options() -> ViewOptions {

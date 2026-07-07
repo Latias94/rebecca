@@ -19,6 +19,7 @@ mod app;
 mod basket;
 mod effect;
 mod input;
+mod layout;
 mod model;
 mod navigation;
 mod progress;
