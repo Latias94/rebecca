@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
+use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy_and_cancellation;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::planner::{
@@ -14,7 +14,9 @@ use rebecca::core::planner::{
 use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
-use rebecca::core::{DeleteMode, PlanRequest, Platform, RuleDefinition, TargetStatus};
+use rebecca::core::{
+    DeleteMode, PlanRequest, Platform, RebeccaError, RuleDefinition, TargetStatus,
+};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::{OutputMode, ProgressDetail};
@@ -244,11 +246,18 @@ pub(crate) fn run_workflow_with_runtime_config(
     if !protected_paths.is_empty() {
         execution_policy = execution_policy.with_protected_paths(&protected_paths);
     }
-    let mut execution_report =
-        match execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy) {
-            Ok(report) => report,
-            Err(err) => return finish_stream_with_error(event_writer, err.into()),
-        };
+    let mut execution_report = match execute_cleanup_plan_parallel_with_policy_and_cancellation(
+        &mut plan,
+        &backend,
+        execution_policy,
+        cancellation,
+    ) {
+        Ok(report) => report,
+        Err(RebeccaError::OperationCancelled(_)) => {
+            return finish_stream_with_cancellation(event_writer, options.cancellation_message);
+        }
+        Err(err) => return finish_stream_with_error(event_writer, err.into()),
+    };
 
     let history_append =
         HistoryStore::new(runtime_config.app_paths.history_file).append_plan_report(&plan);

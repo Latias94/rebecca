@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use rebecca::core::config::AppRuntimeConfig;
 use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
+use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy_and_cancellation;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::planner::{
     PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
@@ -117,8 +117,12 @@ where
     }
 
     let backend = recoverable_trash_backend();
-    let mut execution_report =
-        execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy)?;
+    let mut execution_report = execute_cleanup_plan_parallel_with_policy_and_cancellation(
+        &mut plan,
+        &backend,
+        execution_policy,
+        runtime.cancellation(),
+    )?;
     let history_append =
         HistoryStore::new(runtime_config.app_paths.history_file.clone()).append_plan_report(&plan);
     if let Some(warning) = history_append.warning {

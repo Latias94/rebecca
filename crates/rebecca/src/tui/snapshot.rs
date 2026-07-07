@@ -284,7 +284,7 @@ fn task_status_plain_lines(status: Option<&TuiTaskStatus>) -> Vec<String> {
     let mut lines = Vec::new();
     lines.push(format!("Task: {} | {}", status.label, status.phase));
     if status.cancel_requested {
-        lines.push("Cancel requested; waiting for cooperative checkpoint.".to_string());
+        lines.push(status.cancel_wait_message().to_string());
     }
     if let Some(backend) = &status.backend {
         lines.push(format!("Backend: {backend}"));

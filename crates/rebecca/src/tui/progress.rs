@@ -361,6 +361,14 @@ impl TuiTaskStatus {
         self.cancel_requested = true;
         self.phase = "Cancel requested".to_string();
     }
+
+    pub(crate) fn cancel_wait_message(&self) -> &'static str {
+        if self.label.contains("recoverable trash") || self.targets_started > 0 {
+            "Cancel requested; cleanup will stop before the next target or after the current trash operation returns."
+        } else {
+            "Cancel requested; waiting for cooperative checkpoint."
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -457,6 +465,22 @@ mod tests {
         assert_eq!(status.last_event, "portable: MFT unavailable");
         assert!(status.cancel_requested);
         assert_eq!(status.phase, "Cancel requested");
+        assert_eq!(
+            status.cancel_wait_message(),
+            "Cancel requested; waiting for cooperative checkpoint."
+        );
+    }
+
+    #[test]
+    fn execution_cancel_request_reports_target_boundary() {
+        let mut status = TuiTaskStatus::started("Moving allowed targets to recoverable trash...");
+
+        status.mark_cancel_requested();
+
+        assert_eq!(
+            status.cancel_wait_message(),
+            "Cancel requested; cleanup will stop before the next target or after the current trash operation returns."
+        );
     }
 
     #[test]

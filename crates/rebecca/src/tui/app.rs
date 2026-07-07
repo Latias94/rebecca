@@ -492,10 +492,13 @@ impl TuiApp {
     }
 
     pub(crate) fn apply_cancel_requested(&mut self) {
-        if let Some(status) = &mut self.task_status {
+        let message = if let Some(status) = &mut self.task_status {
             status.mark_cancel_requested();
-        }
-        self.message = "Cancel requested; waiting for the worker to stop.".to_string();
+            status.cancel_wait_message().to_string()
+        } else {
+            "Cancel requested; waiting for the worker to stop.".to_string()
+        };
+        self.message = message;
     }
 
     pub(crate) fn apply_task_cancelled(&mut self) {

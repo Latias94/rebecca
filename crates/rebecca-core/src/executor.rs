@@ -18,6 +18,7 @@ use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{
     PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy, is_reparse_like,
 };
+use crate::scan::ScanCancellationToken;
 
 static CLEANUP_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
 
@@ -297,7 +298,12 @@ pub fn execute_cleanup_plan_with_policy<B: CleanupBackend>(
     backend: &B,
     policy: ProtectionPolicy<'_>,
 ) -> Result<ExecutionReport> {
-    execute_cleanup_plan_serially_with_policy(plan, backend, policy)
+    execute_cleanup_plan_serially_with_policy_and_cancellation(
+        plan,
+        backend,
+        policy,
+        &ScanCancellationToken::new(),
+    )
 }
 
 pub fn execute_cleanup_plan_parallel<B: CleanupBackend + Sync>(
@@ -312,12 +318,28 @@ pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
     backend: &B,
     policy: ProtectionPolicy<'_>,
 ) -> Result<ExecutionReport> {
+    execute_cleanup_plan_parallel_with_policy_and_cancellation(
+        plan,
+        backend,
+        policy,
+        &ScanCancellationToken::new(),
+    )
+}
+
+pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation<B: CleanupBackend + Sync>(
+    plan: &mut CleanupPlan,
+    backend: &B,
+    policy: ProtectionPolicy<'_>,
+    cancellation: &ScanCancellationToken,
+) -> Result<ExecutionReport> {
     if plan.request.mode.is_dry_run() {
         plan.recompute_summary();
         let report = ExecutionReport::dry_run();
         plan.execution_report = Some(report.clone());
         return Ok(report);
     }
+
+    abort_if_execution_cancelled(plan, cancellation)?;
 
     if !revalidate_executable_targets(plan, policy) {
         plan.recompute_summary();
@@ -337,6 +359,7 @@ pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
 
     let batch_delete_supported = backend.supports_batch_delete();
     for mut batch in batches {
+        abort_if_execution_cancelled(plan, cancellation)?;
         batch.retain(|&index| {
             execution_target_is_still_allowed(
                 plan.request.workflow,
@@ -371,6 +394,7 @@ pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
         }
     }
 
+    abort_if_execution_cancelled(plan, cancellation)?;
     plan.recompute_summary();
     let report = ExecutionReport::from_targets(&plan.targets);
     plan.execution_report = Some(report.clone());
@@ -393,10 +417,11 @@ fn revalidate_executable_targets(plan: &mut CleanupPlan, policy: ProtectionPolic
     any_executable
 }
 
-fn execute_cleanup_plan_serially_with_policy<B: CleanupBackend>(
+fn execute_cleanup_plan_serially_with_policy_and_cancellation<B: CleanupBackend>(
     plan: &mut CleanupPlan,
     backend: &B,
     policy: ProtectionPolicy<'_>,
+    cancellation: &ScanCancellationToken,
 ) -> Result<ExecutionReport> {
     if plan.request.mode.is_dry_run() {
         plan.recompute_summary();
@@ -405,11 +430,15 @@ fn execute_cleanup_plan_serially_with_policy<B: CleanupBackend>(
         return Ok(report);
     }
 
+    abort_if_execution_cancelled(plan, cancellation)?;
+
     if revalidate_executable_targets(plan, policy) {
         normalize_overlapping_executable_targets(plan);
     }
 
-    for target in &mut plan.targets {
+    for index in 0..plan.targets.len() {
+        abort_if_execution_cancelled(plan, cancellation)?;
+        let target = &mut plan.targets[index];
         if !target.status.is_executable() {
             continue;
         }
@@ -422,10 +451,24 @@ fn execute_cleanup_plan_serially_with_policy<B: CleanupBackend>(
         apply_delete_result(target, outcome);
     }
 
+    abort_if_execution_cancelled(plan, cancellation)?;
     plan.recompute_summary();
     let report = ExecutionReport::from_targets(&plan.targets);
     plan.execution_report = Some(report.clone());
     Ok(report)
+}
+
+fn abort_if_execution_cancelled(
+    plan: &mut CleanupPlan,
+    cancellation: &ScanCancellationToken,
+) -> Result<()> {
+    if cancellation.is_cancelled() {
+        plan.recompute_summary();
+        return Err(RebeccaError::OperationCancelled(
+            "cleanup execution was cancelled".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn normalize_overlapping_executable_targets(plan: &mut CleanupPlan) {
@@ -656,13 +699,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{batch_executable_targets, cleanup_parallelism_budget, run_scoped_cleanup};
+    use super::{
+        CleanupBackend, ExecutionOutcome, batch_executable_targets, cleanup_parallelism_budget,
+        run_scoped_cleanup,
+    };
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::plan::{CleanupTarget, CleanupTargetDeletionStyle};
+    use crate::plan::{CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle};
+    use crate::scan::ScanCancellationToken;
     use crate::scan::scan_parallelism_budget;
-    use crate::{DeleteMode, TargetStatus};
+    use crate::{DeleteMode, PlanRequest, Platform, RebeccaError, TargetStatus};
 
     #[test]
     fn cleanup_parallelism_budget_stays_bounded() {
@@ -686,6 +733,64 @@ mod tests {
     #[test]
     fn cleanup_and_scan_parallelism_budgets_match() {
         assert_eq!(cleanup_parallelism_budget(), scan_parallelism_budget());
+    }
+
+    #[test]
+    fn cancelled_token_before_execution_prevents_backend_mutation() {
+        let cancellation = ScanCancellationToken::new();
+        cancellation.cancel();
+        let backend = CountingBackend::default();
+        let mut plan = executable_plan(2);
+
+        let err = super::execute_cleanup_plan_serially_with_policy_and_cancellation(
+            &mut plan,
+            &backend,
+            crate::protection::ProtectionPolicy::new(),
+            &cancellation,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+        assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+        assert!(
+            plan.targets
+                .iter()
+                .all(|target| target.status == TargetStatus::Allowed)
+        );
+    }
+
+    #[test]
+    fn serial_execution_stops_before_next_target_after_cancellation() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = (0..3)
+            .map(|index| {
+                let path = temp.path().join(format!("target-{index}"));
+                std::fs::write(&path, b"data").expect("write target");
+                path
+            })
+            .collect::<Vec<_>>();
+        let cancellation = ScanCancellationToken::new();
+        let backend = CountingBackend {
+            calls: Arc::new(AtomicUsize::new(0)),
+            cancel_after_calls: Some((1, cancellation.clone())),
+        };
+        let mut plan = executable_plan_with_paths(paths);
+
+        let err = super::execute_cleanup_plan_serially_with_policy_and_cancellation(
+            &mut plan,
+            &backend,
+            crate::protection::ProtectionPolicy::new(),
+            &cancellation,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, RebeccaError::OperationCancelled(_)));
+        assert_eq!(backend.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(plan.targets[0].status, TargetStatus::Completed);
+        assert_eq!(plan.targets[1].status, TargetStatus::Allowed);
+        assert_eq!(plan.targets[2].status, TargetStatus::Allowed);
+        assert_eq!(plan.summary.completed_targets, 1);
+        assert_eq!(plan.summary.allowed_targets, 2);
     }
 
     #[test]
@@ -734,6 +839,57 @@ mod tests {
                 .iter()
                 .all(|target| target.status == TargetStatus::Allowed)
         );
+    }
+
+    #[derive(Clone, Default)]
+    struct CountingBackend {
+        calls: Arc<AtomicUsize>,
+        cancel_after_calls: Option<(usize, ScanCancellationToken)>,
+    }
+
+    impl CleanupBackend for CountingBackend {
+        fn delete(&self, _target: &CleanupTarget) -> crate::Result<ExecutionOutcome> {
+            let calls = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if let Some((limit, cancellation)) = &self.cancel_after_calls
+                && calls >= *limit
+            {
+                cancellation.cancel();
+            }
+            Ok(ExecutionOutcome {
+                freed_bytes: 1,
+                pending_reclaim_bytes: 0,
+                note: None,
+            })
+        }
+    }
+
+    fn executable_plan(target_count: usize) -> CleanupPlan {
+        executable_plan_with_paths(
+            (0..target_count).map(|index| std::path::PathBuf::from(format!("target-{index}"))),
+        )
+    }
+
+    fn executable_plan_with_paths(
+        paths: impl IntoIterator<Item = std::path::PathBuf>,
+    ) -> CleanupPlan {
+        let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+            Platform::current(),
+            DeleteMode::RecoverableDelete,
+        ));
+        plan.targets = paths
+            .into_iter()
+            .enumerate()
+            .map(|(index, path)| {
+                CleanupTarget::allowed(
+                    format!("test.rule.{index}"),
+                    path,
+                    1,
+                    DeleteMode::RecoverableDelete,
+                )
+            })
+            .collect();
+        plan.recompute_summary();
+        plan
     }
 
     #[test]
