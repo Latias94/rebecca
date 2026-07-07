@@ -144,7 +144,9 @@ pub(super) fn is_allowlisted_maintenance_path(
             || is_linux_steam_cache_path(&segments)
             || is_linux_package_manager_cache_path(&segments));
     let macos_maintenance = knowledge.platform() == crate::Platform::Macos
-        && (is_macos_user_cache_path(&segments) || is_macos_user_log_path(&segments));
+        && (is_macos_user_cache_path(&segments)
+            || is_macos_user_log_path(&segments)
+            || is_macos_steam_cache_path(&segments));
 
     knowledge.maintenance_allowlist().matches(&segments)
         || is_chromium_cache_path(&segments)
@@ -341,6 +343,13 @@ fn is_macos_user_log_path(segments: &[&str]) -> bool {
     })
 }
 
+fn is_macos_steam_cache_path(segments: &[&str]) -> bool {
+    macos_paths::application_support_home_tail_start(segments).is_some_and(|index| {
+        segments.get(index).is_some_and(|app| *app == "steam")
+            && steam_cache_tail_is_allowed(&segments[index..])
+    })
+}
+
 fn is_macos_chromium_cache_path(segments: &[&str]) -> bool {
     macos_paths::chromium_profile_tail_start(segments)
         .is_some_and(|index| chromium_user_data_cache_tail_is_allowed(segments, index))
@@ -373,19 +382,22 @@ fn is_linux_snap_cache_path(segments: &[&str]) -> bool {
 }
 
 fn is_linux_steam_cache_path(segments: &[&str]) -> bool {
-    find_segment(segments, "steam").is_some_and(|index| {
-        has_sequence(&segments[index..], &["appcache", "httpcache"])
-            || has_sequence(&segments[index..], &["appcache", "shadercache"])
-            || has_sequence(&segments[index..], &["appcache", "librarycache"])
-            || has_sequence(&segments[index..], &["appcache", "download"])
-            || has_sequence(&segments[index..], &["htmlcache", "default", "cache"])
-            || has_sequence(&segments[index..], &["htmlcache", "default", "code cache"])
-            || has_sequence(&segments[index..], &["htmlcache", "default", "gpucache"])
-            || has_sequence(&segments[index..], &["depotcache"])
-            || has_sequence(&segments[index..], &["steamapps", "shadercache"])
-            || has_sequence(&segments[index..], &["steamapps", "downloading"])
-            || has_sequence(&segments[index..], &["steamapps", "temp"])
-    })
+    find_segment(segments, "steam")
+        .is_some_and(|index| steam_cache_tail_is_allowed(&segments[index..]))
+}
+
+fn steam_cache_tail_is_allowed(segments: &[&str]) -> bool {
+    has_sequence(segments, &["appcache", "httpcache"])
+        || has_sequence(segments, &["appcache", "shadercache"])
+        || has_sequence(segments, &["appcache", "librarycache"])
+        || has_sequence(segments, &["appcache", "download"])
+        || has_sequence(segments, &["htmlcache", "default", "cache"])
+        || has_sequence(segments, &["htmlcache", "default", "code cache"])
+        || has_sequence(segments, &["htmlcache", "default", "gpucache"])
+        || has_sequence(segments, &["depotcache"])
+        || has_sequence(segments, &["steamapps", "shadercache"])
+        || has_sequence(segments, &["steamapps", "downloading"])
+        || has_sequence(segments, &["steamapps", "temp"])
 }
 
 fn is_linux_package_manager_cache_path(segments: &[&str]) -> bool {

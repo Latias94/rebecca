@@ -69,21 +69,32 @@ fn user_library_tail_start(segments: &[&str], library_child: &[&str]) -> Option<
         return None;
     }
 
-    let required_len = 3 + library_child.len();
-    if segments.len() < required_len {
+    let root_required_len = 3 + library_child.len();
+    if segments.len() < root_required_len {
         return None;
     }
 
+    if let Some(index) = segments.windows(root_required_len).position(|window| {
+        window[0] == "users"
+            && !window[1].is_empty()
+            && window[1] != "shared"
+            && window[2] == "library"
+            && &window[3..] == library_child
+    }) {
+        return Some(index + root_required_len);
+    }
+
+    let library_required_len = 1 + library_child.len();
     segments
-        .windows(required_len)
-        .position(|window| {
-            window[0] == "users"
-                && !window[1].is_empty()
-                && window[1] != "shared"
-                && window[2] == "library"
-                && &window[3..] == library_child
+        .windows(library_required_len)
+        .enumerate()
+        .find(|(index, window)| {
+            *index > 0
+                && segments.get(index - 1) != Some(&"system")
+                && window[0] == "library"
+                && &window[1..] == library_child
         })
-        .map(|index| index + required_len)
+        .map(|(index, _)| index + library_required_len)
 }
 
 fn has_sequence(segments: &[&str], sequence: &[&str]) -> bool {

@@ -163,7 +163,9 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
     for path in [
         "/Library/Caches/pip/http",
         "/Library/Application Support/Slack/Cache",
+        "/Library/Application Support/Steam/appcache/httpcache",
         "/Library/Logs/Zoom",
+        "/System/Library/Application Support/Google/Chrome/Default/Cache",
     ] {
         assert!(
             matches!(
@@ -196,8 +198,12 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         "/Users/alice/Library/Caches/Firefox/Profiles/abcd.default/cache2",
         "/Users/alice/Library/Application Support/Google/Chrome/Default/Cache",
         "/Users/alice/Library/Application Support/Slack/Code Cache",
+        "/Users/alice/Library/Application Support/Steam/appcache/httpcache",
         "/Users/alice/Library/Logs/Zoom",
         "/Users/alice/Library/Logs/zoom.us",
+        "/private/var/folders/zz/rebecca-home/Library/Application Support/Google/Chrome/Default/Cache",
+        "/private/var/folders/zz/rebecca-home/Library/Application Support/Slack/Cache",
+        "/private/var/folders/zz/rebecca-home/Library/Application Support/Steam/appcache/httpcache",
     ] {
         assert!(
             matches!(
@@ -226,6 +232,14 @@ fn platform_safety_knowledge_blocks_unix_roots_and_durable_state() {
         ),
         (
             "/Users/alice/Library/Application Support/Slack/Local Storage",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/Users/alice/Library/Application Support/Steam/userdata/123/config.vdf",
+            ProtectedCategory::ApplicationDurableData,
+        ),
+        (
+            "/private/var/folders/zz/rebecca-home/Library/Application Support/Steam/userdata/123/config.vdf",
             ProtectedCategory::ApplicationDurableData,
         ),
         (

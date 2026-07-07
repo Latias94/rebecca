@@ -2428,6 +2428,131 @@ fn steam_install_rule_expands_from_application_discovery() {
 }
 
 #[test]
+fn macos_rules_allow_cache_leaves_under_synthetic_home_library() {
+    let fixture = PlannerFixture::new();
+    let env = fixture
+        .env
+        .clone()
+        .with_var("HOME", fixture.root.clone().into_os_string());
+    fixture.write(
+        Path::new("Library")
+            .join("Application Support")
+            .join("Google")
+            .join("Chrome")
+            .join("Default")
+            .join("Cache")
+            .join("cache.bin"),
+        b"abcd",
+    );
+    fixture.write(
+        Path::new("Library")
+            .join("Application Support")
+            .join("Google")
+            .join("Chrome")
+            .join("Default")
+            .join("History"),
+        b"keep",
+    );
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Macos, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["macos.chrome-cache".to_string()];
+    request.add_allowed_warning("active-process");
+    let safety_knowledge = default_safety_knowledge_for_platform(Platform::Macos)
+        .expect("macOS safety knowledge should exist");
+    let cancellation = ScanCancellationToken::default();
+    let context = PlanBuildContext::new(&cancellation).with_safety_knowledge(safety_knowledge);
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &env,
+        &NoopApplicationDiscovery::new(),
+        context,
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 4);
+    assert!(plan.targets.iter().any(|target| {
+        target.status == TargetStatus::Allowed
+            && target.path.ends_with(
+                Path::new("Google")
+                    .join("Chrome")
+                    .join("Default")
+                    .join("Cache"),
+            )
+    }));
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| !target.path.ends_with(Path::new("History")))
+    );
+}
+
+#[test]
+fn macos_steam_install_rule_allows_cache_and_blocks_userdata_under_synthetic_home_library() {
+    let fixture = PlannerFixture::new();
+    let env = fixture
+        .env
+        .clone()
+        .with_var("HOME", fixture.root.clone().into_os_string());
+    let install_path = fixture
+        .root
+        .join("Library")
+        .join("Application Support")
+        .join("Steam");
+    fixture.write(
+        Path::new("Library")
+            .join("Application Support")
+            .join("Steam")
+            .join("appcache")
+            .join("httpcache")
+            .join("cache.bin"),
+        b"abcdef",
+    );
+    fixture.write(
+        Path::new("Library")
+            .join("Application Support")
+            .join("Steam")
+            .join("userdata")
+            .join("123")
+            .join("config.vdf"),
+        b"keep",
+    );
+    let applications = StaticApplicationDiscovery::new()
+        .with_steam_installation(SteamInstallation::new(install_path, Vec::new()));
+    let rules = rebecca_rules::builtin_rules().unwrap();
+
+    let mut request = PlanRequest::for_platform(Platform::Macos, DeleteMode::DryRun);
+    request.selected_rule_ids = vec!["macos.steam-install-cache".to_string()];
+    request.add_allowed_warning("source-boundary");
+    let safety_knowledge = default_safety_knowledge_for_platform(Platform::Macos)
+        .expect("macOS safety knowledge should exist");
+    let cancellation = ScanCancellationToken::default();
+    let context = PlanBuildContext::new(&cancellation).with_safety_knowledge(safety_knowledge);
+
+    let plan =
+        build_cleanup_plan_with_context(&request, &rules, &env, &applications, context, |_| {})
+            .unwrap();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert_eq!(plan.summary.estimated_bytes, 6);
+    assert!(plan.targets.iter().any(|target| {
+        target.status == TargetStatus::Allowed
+            && target
+                .path
+                .ends_with(Path::new("Steam").join("appcache").join("httpcache"))
+    }));
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| !target.path.to_string_lossy().contains("userdata"))
+    );
+}
+
+#[test]
 fn steam_rules_skip_without_application_discovery() {
     let fixture = PlannerFixture::new();
     fixture.write("temp/a.tmp", b"abc");
