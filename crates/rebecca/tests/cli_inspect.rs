@@ -29,7 +29,7 @@ fn npm_cache_rule_fixture(temp: &tempfile::TempDir) -> Option<(PathBuf, PathBuf,
         let target = root.join("_cacache");
         Some((root, target, "linux.npm-cache"))
     } else if cfg!(target_os = "macos") {
-        let root = temp.path().join("Library").join("Caches").join("npm");
+        let root = temp.path().join(".npm");
         let target = root.join("_cacache");
         Some((root, target, "macos.npm-cache"))
     } else {

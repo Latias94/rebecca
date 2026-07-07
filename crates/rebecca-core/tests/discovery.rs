@@ -89,6 +89,59 @@ fn glob_template_does_not_traverse_symlinked_directories() {
     assert_eq!(paths, vec![profiles.join("alice").join("cache2")]);
 }
 
+#[cfg(unix)]
+#[test]
+fn glob_template_allows_fixed_prefixes_below_platform_symlink_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let alias_root = std::fs::canonicalize("/var")
+        .ok()
+        .and_then(|canonical| {
+            root.strip_prefix(&canonical)
+                .ok()
+                .map(|relative| relative.to_path_buf())
+        })
+        .map(|relative| std::path::PathBuf::from("/var").join(relative));
+    let Some(alias_root) = alias_root.filter(|path| path != root) else {
+        return;
+    };
+
+    fs::create_dir_all(root.join("Profiles").join("alice").join("cache2")).unwrap();
+
+    let env = MapEnvironment::new().with_var("ROOT", alias_root.as_os_str().to_os_string());
+    let target = RuleTargetSpec::glob_template("%ROOT%\\Profiles\\*\\cache2");
+
+    let paths = match resolve_rule_target(&target, &env).unwrap() {
+        TargetResolution::Paths(paths) => paths,
+        TargetResolution::Skipped(reason) => panic!("target should resolve: {reason}"),
+    };
+
+    assert_eq!(
+        paths,
+        vec![alias_root.join("Profiles").join("alice").join("cache2")]
+    );
+}
+
+#[test]
+fn glob_template_does_not_follow_user_symlinks_in_fixed_prefixes() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let real_root = root.join("RealRoot");
+    let alias_root = root.join("AliasRoot");
+    fs::create_dir_all(real_root.join("Profiles").join("alice").join("cache2")).unwrap();
+    create_dir_symlink(&real_root, &alias_root).unwrap();
+
+    let env = MapEnvironment::new().with_var("ROOT", alias_root.as_os_str().to_os_string());
+    let target = RuleTargetSpec::glob_template("%ROOT%\\Profiles\\*\\cache2");
+
+    let resolution = resolve_rule_target(&target, &env).unwrap();
+
+    assert_eq!(
+        resolution,
+        TargetResolution::Skipped("glob pattern matched no existing paths".to_string())
+    );
+}
+
 #[test]
 fn glob_template_shared_index_reuses_compatible_directory_listing() {
     let temp = tempfile::tempdir().unwrap();

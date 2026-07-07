@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -103,6 +104,21 @@ fn delete_to_recoverable_trash(
     estimated_bytes: u64,
     deletion_style: CleanupTargetDeletionStyle,
 ) -> Result<ExecutionOutcome> {
+    if let Some(test_trash_dir) = test_recoverable_trash_dir() {
+        let delete_paths = match deletion_style {
+            CleanupTargetDeletionStyle::DeleteWholePath => vec![path.to_path_buf()],
+            CleanupTargetDeletionStyle::PreserveRootContents => {
+                if path.is_dir() {
+                    preserve_root_delete_paths(path)?
+                } else {
+                    vec![path.to_path_buf()]
+                }
+            }
+        };
+        move_paths_to_test_recoverable_trash(&delete_paths, &test_trash_dir)?;
+        return Ok(recoverable_trash_outcome(estimated_bytes));
+    }
+
     match deletion_style {
         CleanupTargetDeletionStyle::DeleteWholePath => {
             trash::delete(path).map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
@@ -128,6 +144,7 @@ fn delete_batch_to_recoverable_trash(targets: &[&CleanupTarget]) -> Vec<Result<E
     let mut outcomes = (0..targets.len()).map(|_| None).collect::<Vec<_>>();
     let mut batch_targets = Vec::new();
     let mut batch_paths = Vec::new();
+    let test_trash_dir = test_recoverable_trash_dir();
 
     for (target_index, target) in targets.iter().enumerate() {
         match recoverable_trash_paths_for_target(target) {
@@ -149,7 +166,14 @@ fn delete_batch_to_recoverable_trash(targets: &[&CleanupTarget]) -> Vec<Result<E
     }
 
     if !batch_paths.is_empty() {
-        match trash::delete_all(batch_paths.iter()) {
+        let batch_result = if let Some(test_trash_dir) = &test_trash_dir {
+            move_paths_to_test_recoverable_trash(&batch_paths, test_trash_dir)
+        } else {
+            trash::delete_all(batch_paths.iter())
+                .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))
+        };
+
+        match batch_result {
             Ok(()) => {
                 for batch_target in batch_targets {
                     let target = targets[batch_target.target_index];
@@ -211,6 +235,49 @@ fn preserve_root_delete_paths(path: &Path) -> Result<Vec<PathBuf>> {
         entries.push(child);
     }
     Ok(entries)
+}
+
+fn move_paths_to_test_recoverable_trash(paths: &[PathBuf], trash_dir: &Path) -> Result<()> {
+    fs::create_dir_all(trash_dir)?;
+    for path in paths {
+        if matches!(path.try_exists(), Ok(false)) {
+            continue;
+        }
+        let destination = unique_test_trash_destination(trash_dir, path);
+        fs::rename(path, destination)?;
+    }
+    Ok(())
+}
+
+fn unique_test_trash_destination(trash_dir: &Path, path: &Path) -> PathBuf {
+    let base_name = path
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_else(|| OsString::from("entry"));
+    let process_id = std::process::id();
+
+    for index in 0.. {
+        let mut name = base_name.clone();
+        name.push(format!(".{process_id}.{index}"));
+        let destination = trash_dir.join(name);
+        if !destination.exists() {
+            return destination;
+        }
+    }
+
+    unreachable!("unbounded unique test trash destination search should return")
+}
+
+#[cfg(debug_assertions)]
+fn test_recoverable_trash_dir() -> Option<PathBuf> {
+    std::env::var_os("REBECCA_TEST_RECOVERABLE_TRASH_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+#[cfg(not(debug_assertions))]
+fn test_recoverable_trash_dir() -> Option<PathBuf> {
+    None
 }
 
 fn reconstruct_or_fallback_after_batch_failure(

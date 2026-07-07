@@ -30,6 +30,10 @@ pub fn isolated_rebecca(temp: &tempfile::TempDir) -> Command {
         .env("REBECCA_CACHE_DIR", temp.path().join("rebecca-cache"))
         .env("REBECCA_TEST_DISABLE_LIVE_NTFS_MFT", "1")
         .env(
+            "REBECCA_TEST_RECOVERABLE_TRASH_DIR",
+            temp.path().join("rebecca-test-trash"),
+        )
+        .env(
             "REBECCA_HISTORY_FILE",
             temp.path().join("rebecca-state").join("history.jsonl"),
         );

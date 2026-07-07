@@ -209,7 +209,7 @@ fn expand_segments(
     if !has_wildcards(segment) {
         let mut next = current;
         next.push(segment);
-        if !tail.is_empty() && non_reparse_metadata(&next)?.is_none() {
+        if !tail.is_empty() && fixed_prefix_metadata(&next)?.is_none() {
             return Ok(());
         }
         return expand_segments(next, tail, discovery_index, results);
@@ -246,6 +246,35 @@ fn non_reparse_metadata(path: &Path) -> Result<Option<std::fs::Metadata>> {
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err.into()),
+    }
+}
+
+fn fixed_prefix_metadata(path: &Path) -> Result<Option<std::fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !is_reparse_like(&metadata) {
+                return Ok(Some(metadata));
+            }
+            if is_platform_path_alias(path) {
+                return fs::metadata(path).map(Some).map_err(Into::into);
+            }
+            Ok(None)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn is_platform_path_alias(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        matches!(path.to_str(), Some("/var" | "/tmp" | "/etc"))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
     }
 }
 
