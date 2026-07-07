@@ -15,6 +15,7 @@ use rebecca::core::disk_map::{
     DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics, DiskMapReport, DiskMapRequest,
     DiskMapSortField, inspect_map_with_progress as inspect_map_core,
 };
+use rebecca::core::environment::{PlatformEnvironment, SystemEnvironment};
 use rebecca::core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space_with_progress as inspect_space_core,
 };
@@ -692,7 +693,7 @@ fn annotate_map_report_with_cleanup_advice(
     let rules = rebecca::rules::builtin_rules()?;
     let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
     let applications = crate::info::application_discovery();
-    let env = rebecca::core::environment::SystemEnvironment;
+    let env = PlatformEnvironment::current(SystemEnvironment);
     let protected_storage = runtime_config.app_paths.storage_entries();
     let protected_paths = runtime_config.protected_paths.clone();
     let mut protection_policy = ProtectionPolicy::new()
@@ -701,7 +702,7 @@ fn annotate_map_report_with_cleanup_advice(
     if !protected_paths.is_empty() {
         protection_policy = protection_policy.with_protected_paths(&protected_paths);
     }
-    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let request = PlanRequest::for_platform(Platform::current(), DeleteMode::DryRun);
     let mut index = CleanupAdviceIndex::build(
         CleanupAdviceBuildRequest::new(request, protection_policy),
         &rules,

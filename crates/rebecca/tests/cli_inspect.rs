@@ -21,6 +21,20 @@ fn write_rust_project(dir: impl AsRef<Path>) {
     write_fixture_file(dir.as_ref().join("Cargo.toml"), b"[package]");
 }
 
+fn npm_cache_rule_fixture(temp: &tempfile::TempDir) -> Option<(PathBuf, PathBuf, &'static str)> {
+    if cfg!(windows) {
+        let root = temp.path().join("local").join("npm-cache");
+        let target = root.join("_cacache");
+        Some((root, target, "windows.npm-cache"))
+    } else if cfg!(target_os = "linux") {
+        let root = temp.path().join(".npm");
+        let target = root.join("_cacache");
+        Some((root, target, "linux.npm-cache"))
+    } else {
+        None
+    }
+}
+
 fn ndjson_events(stdout: &[u8]) -> Vec<serde_json::Value> {
     String::from_utf8_lossy(stdout)
         .lines()
@@ -506,9 +520,9 @@ fn inspect_map_table_uses_ranked_entry_filters() {
 #[test]
 fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
     let temp = tempfile::tempdir().unwrap();
-    let local = temp.path().join("local");
-    let root = local.join("npm-cache");
-    let target = root.join("_cacache");
+    let Some((root, target, rule_id)) = npm_cache_rule_fixture(&temp) else {
+        return;
+    };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
     let output = isolated::isolated_rebecca(&temp)
@@ -545,28 +559,28 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
     let entry = entries
         .iter()
         .find(|entry| Path::new(entry["path"].as_str().unwrap()) == target.as_path())
-        .expect("node_modules entry should be present");
+        .expect("npm cache entry should be present");
     let advice = &entry["cleanup_advice"];
     assert_eq!(advice["status"], "maybe-cleanable");
     assert_eq!(advice["source"], "cleanup-rule");
     assert_eq!(advice["relation"], "exact");
-    assert_eq!(advice["rule_id"], "windows.npm-cache");
+    assert_eq!(advice["rule_id"], rule_id);
     assert_eq!(advice["category"], "development");
     assert_eq!(advice["safety_level"], "moderate");
     assert_eq!(advice["required_flags"][0], "--allow-moderate");
     assert_eq!(advice["suggested_command"]["command"], "rebecca");
     assert_eq!(
         advice["suggested_command"]["args"],
-        serde_json::json!(["clean", "--dry-run", "--rule", "windows.npm-cache"])
+        serde_json::json!(["clean", "--dry-run", "--rule", rule_id])
     );
 }
 
 #[test]
 fn inspect_map_human_summarizes_cleanup_advice_and_next_command() {
     let temp = tempfile::tempdir().unwrap();
-    let local = temp.path().join("local");
-    let root = local.join("npm-cache");
-    let target = root.join("_cacache");
+    let Some((root, target, rule_id)) = npm_cache_rule_fixture(&temp) else {
+        return;
+    };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
     let output = isolated::isolated_rebecca(&temp)
@@ -600,7 +614,9 @@ fn inspect_map_human_summarizes_cleanup_advice_and_next_command() {
     assert!(stdout.contains("Cleanup advice summary:"));
     assert!(stdout.contains("- maybe-cleanable: 1 entry, 6 (6 B)"));
     assert!(stdout.contains("Suggested cleanup commands:"));
-    assert!(stdout.contains("rebecca clean --dry-run --rule windows.npm-cache --allow-moderate"));
+    assert!(stdout.contains(&format!(
+        "rebecca clean --dry-run --rule {rule_id} --allow-moderate"
+    )));
     assert!(
         stdout
             .contains("Cleanup advice is read-only; rerun a suggested command to preview cleanup.")
