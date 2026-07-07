@@ -66,6 +66,19 @@ for required in {
     assert required in ids, f"missing {required}"
 PY
 
+"$rebecca_bin" scan --format json > "$tmp/scan.json"
+python3 - "$tmp/scan.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+rules = payload["data"]
+ids = {rule["id"] for rule in rules}
+assert rules, "macOS scan should not be empty"
+assert all(rule_id.startswith("macos.") for rule_id in ids), ids
+assert "macos.user-temp" in ids, ids
+PY
+
 "$rebecca_bin" clean --dry-run --format json --no-scan-cache \
   --rule macos.pip-cache --allow-moderate > "$tmp/pip-clean.json"
 python3 - "$tmp/pip-clean.json" <<'PY'
