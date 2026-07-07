@@ -25,6 +25,7 @@ mod model;
 mod navigation;
 mod progress;
 mod projection;
+mod snapshot;
 mod task;
 mod terminal;
 mod treemap;
@@ -68,7 +69,7 @@ pub(crate) fn run_with_runtime(options: TuiOptions, runtime: &CliRuntime) -> Res
             run_interactive(app, None, view_options, &runtime_config, runtime)?;
             return Ok(());
         }
-        println!("{}", view::snapshot(&app, view_options));
+        println!("{}", snapshot::snapshot(&app, view_options));
         return Ok(());
     }
 
