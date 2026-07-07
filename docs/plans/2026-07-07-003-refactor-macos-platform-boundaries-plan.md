@@ -14,11 +14,11 @@ execution: code
 
 | Field | Value |
 |---|---|
-| Objective | Refactor Rebecca's macOS platform boundary before v0.2.0 so path semantics, permission diagnostics, recoverable trash execution, NTFS feature exposure, and safety catalog ownership are centralized, testable, and release-safe. |
-| Authority | The user's v0.2.0 fearless-refactor direction outranks unreleased API compatibility; deletion safety, license hygiene, and root-cause fixes outrank preserving duplicated code or incidental feature defaults. |
-| Execution profile | Breaking changes are allowed when they remove duplicated safety data, make platform semantics explicit, or shrink non-macOS dependency surface. |
-| Stop conditions | Stop if an implementation copies GPL code or rules from `repo-ref/Mole`, broadens macOS cleanup into durable user data, silently changes permanent-delete semantics, or makes Windows NTFS behavior disappear without an explicit fallback contract. |
-| Tail ownership | `ce-work` owns implementation, verification, and logical local commits; pushing remains a final landing decision after the verification contract is green unless the user redirects earlier. |
+| Objective | Finish the v0.2.0 macOS release refactor by consolidating macOS path semantics, permission preflight, recoverable-trash test seams, NTFS feature boundaries, and safety catalog ownership. |
+| Authority | The user's "fearless refactor, break if needed, delete unneeded code" direction outranks unreleased compatibility. Deletion safety, license safety, and testable platform semantics outrank preserving convenient duplication. |
+| Execution profile | Deep Rust refactor across `rebecca-core`, `rebecca-rules`, CLI API v1 docs/tests, workspace manifests, and release documentation. |
+| Stop conditions | Stop if a change weakens path protection, makes permanent deletion easier than recoverable-trash execution, copies GPL source/rule material, or removes core's fail-closed default safety policy. |
+| Tail ownership | The active goal executes this plan to its Definition of Done, with progress tracked in git commits and task state rather than by editing this plan. |
 
 ---
 
@@ -26,69 +26,67 @@ execution: code
 
 ### Summary
 
-Rebecca has macOS cleanup support, but the platform boundary is still too distributed for a v0.2.0 release.
-The next change should consolidate the logic that decides what a macOS path means, remove the duplicated built-in safety catalog, turn `doctor permissions` into a real macOS preflight, make recoverable-trash tests independent from the user's system Trash, and make the Windows NTFS parser an explicit feature surface instead of an unconditional core dependency.
+This plan turns the remaining macOS work from rule coverage into platform-boundary cleanup.
+Rebecca should leave v0.2.0 with one macOS path semantics module, structured permission diagnostics, an injectable recoverable-trash seam, an explicit NTFS feature surface, and one safety catalog source.
 
 ### Problem Frame
 
-The current codebase already fixed the immediate macOS failures, including `/var` alias handling, macOS npm fixture paths, test-only trash redirection, and user-Library safety tightening.
-Those fixes exposed the deeper issue: macOS behavior is encoded across `crates/rebecca-core/src/environment.rs`, `crates/rebecca-core/src/protection/patterns.rs`, two identical `safety/cleanup.toml` files, CLI doctor text, and debug-only execution hooks.
-That shape is fragile because a future rule can update one copy or one path recognizer without updating the others.
+The previous macOS platform plan made macOS usable and fixed the immediate nextest failures.
+The remaining risk is structural drift.
+macOS root semantics now live in environment expansion, protection pattern helpers, and safety TOML at the same time; `doctor permissions` still reports only a privilege label plus advice; recoverable-trash tests depend on a debug-only global environment variable; and `rebecca-core` still declares the NTFS parser dependency even when non-Windows users do not need the live backend.
 
-`repo-ref/Mole` remains useful only as a behavior reference for permission posture: do not drive tests through `sudo`, Finder prompts, TCC mutation, `osascript`, or `launchctl`; use preflight diagnostics and fail closed.
-Because Mole is GPL-licensed while Rebecca is MIT OR Apache-2.0, this plan does not copy Mole implementation, rule lists, or text.
+Rebecca is MIT OR Apache-2.0 while `repo-ref/Mole` is GPLv3.
+Mole can inform behavior such as permission preflight and conservative prompts, but Rebecca must not copy Mole code, rules, fixtures, or strings.
+The release shape should make this boundary obvious in package contents and docs.
 
 ### Requirements
 
 **macOS platform semantics**
 
-- R1. macOS user-Library roots, semantic placeholders, and durable-data detection must live behind one deep module boundary that both environment expansion and protection logic use.
-- R2. User-owned macOS cache and log leaves must remain allowable only when rooted at semantic placeholders or `/Users/<name>/Library/...`; system `/Library/...` and `/System/...` paths must stay blocked.
-- R3. Browser, Electron, developer-cache, log, container, and group-container macOS classifications must be expressed as named predicates instead of scattered ad hoc segment matching.
+- R1. macOS user-root recognition must be owned by one core module used by environment defaults and protection decisions.
+- R2. macOS cache/log/application-support classification must distinguish user-owned `~/Library/...` roots from `/Library`, `/System`, `/private`, and other system roots.
+- R3. Runtime protection must keep blocking Apple privacy data, browser private data, containers, group containers, app durable state, and broad Library roots after the refactor.
 
-**Safety catalog ownership**
+**Permissions and user guidance**
 
-- R4. The built-in safety catalog must have one canonical source so `rebecca-core` and `rebecca-rules` cannot drift.
-- R5. Cargo packaging must include the canonical safety data in the crates that need it and must not package `repo-ref/Mole` or other reference repositories.
+- R4. `doctor permissions` must expose a structured macOS privacy preflight that is read-only, best-effort, and machine-readable.
+- R5. macOS guidance must keep telling users not to use `sudo` as a TCC workaround and must explain Full Disk Access only for reviewed user-owned cache paths.
+- R6. CLI API v1 schema, examples, and tests must cover any new permissions-diagnostic fields because the schema forbids extra payload properties.
 
-**Permission and execution preflight**
+**Recoverable trash**
 
-- R6. `doctor permissions` must expose a structured macOS privacy preflight in JSON and human output without requesting Full Disk Access, invoking privileged helpers, or recommending `sudo` as a TCC workaround.
-- R7. Recoverable trash execution must use an injectable backend seam so tests can exercise move-to-trash behavior without touching the user's platform Trash; CLI integration may keep a debug-only environment adapter for child-process tests.
+- R7. Recoverable-trash execution must have a first-class backend seam so production uses the platform trash adapter and tests can use a deterministic filesystem adapter.
+- R8. Test isolation must not depend on touching Finder, system Trash, or real user Trash during normal `nextest`.
+- R9. Preserve-root cleanup must keep refusing reparse-like children and must keep per-target outcome semantics after batching.
 
-**Feature surface and release readiness**
+**Release dependency and package surface**
 
-- R8. Windows NTFS/MFT support must be an explicit feature or target-gated dependency surface so macOS-focused builds do not carry Windows-heavy implementation accidentally.
-- R9. Existing CLI API v1 schema, docs, and tests must describe the new permission payload and any changed feature defaults.
-- R10. The full workspace must pass format, focused nextest gates, full nextest, doc tests, and cargo package listing checks before the plan is considered done.
+- R10. NTFS/MFT live scanning must be an explicit Windows/NTFS capability, with `rebecca-ntfs` optional from `rebecca-core` where the current API allows it.
+- R11. Non-Windows default builds should not carry live NTFS implementation dependencies unless the user opts into the relevant feature or all-features testing.
+- R12. Existing experimental backend labels and fallback caveats must remain stable for callers that deliberately select `windows-ntfs-mft-experimental`.
+
+**Safety catalog ownership and license hygiene**
+
+- R13. The safety catalog TOML must have one canonical source instead of requiring edits in both `crates/rebecca-core` and `crates/rebecca-rules`.
+- R14. `ProtectionPolicy::new()` must continue to fail closed with built-in safety knowledge after the catalog source moves.
+- R15. Release packages must not include `repo-ref/Mole`, and docs must continue to state that GPL projects are behavior references only.
 
 ### Acceptance Examples
 
-- AE1. Given `/Users/alice/Library/Caches/pip`, protection policy can classify it as a macOS user cache candidate; given `/Library/Caches/pip`, the same policy blocks it as a system path before maintenance allowlists can apply.
-- AE2. Given a macOS rule target using `%MACOS_CACHE_HOME%`, environment expansion, safety catalog validation, and runtime protection all agree on the same semantic root.
-- AE3. Given `rebecca doctor permissions --format json` on macOS, the payload includes a structured privacy/preflight object with a non-invasive status such as `no-block-detected`, `likely-blocked`, or `unknown`.
-- AE4. Given cleanup execution in CLI tests, allowed targets move into the isolated test trash adapter and no test depends on Finder, the system Trash, or platform dialogs.
-- AE5. Given a default macOS-focused `cargo tree` or build without NTFS feature opt-in, `rebecca-core` no longer needs to compile `rebecca-ntfs`; all-feature builds still compile and test the NTFS path.
-- AE6. Given `cargo package -p rebecca* --allow-dirty --list`, release packages include the canonical safety catalog and exclude `repo-ref/Mole`.
+- AE1. Given `%MACOS_CACHE_HOME%/pip` and `/Users/alice/Library/Caches/pip`, when protection classifies the target on macOS, then both use the same macOS path semantics and are allowed only as bounded cache leaves.
+- AE2. Given `/Library/Caches/pip`, `/Library/Application Support/Slack/Cache`, or `/Users/alice/Library/Application Support/Slack/Local Storage`, when protection runs on macOS, then each is blocked as system or durable/private data.
+- AE3. Given `rebecca doctor permissions --format json` on macOS, when privacy probe paths are inaccessible with permission-denied errors, then the payload includes a macOS privacy status that a GUI can interpret without scraping human text.
+- AE4. Given a normal CLI integration test that executes recoverable cleanup, when `cargo nextest` runs on macOS, then the test moves files into an isolated test adapter directory and never prompts Finder or uses the real Trash.
+- AE5. Given a default non-Windows build, when workspace dependencies are resolved, then the live NTFS parser crate is not required by `rebecca-core` unless the NTFS feature set is enabled.
+- AE6. Given `cargo package -p rebecca --allow-dirty --list`, when release contents are inspected, then no path under `repo-ref/Mole` appears.
 
 ### Scope Boundaries
 
-- This plan does not add new macOS cleanup rule families; it hardens the platform boundary under the rules already added.
-- This plan does not implement native macOS Trash, APFS, FSEvents, LaunchServices, or TCC database integration.
-- This plan does not remove Windows NTFS/MFT behavior; it makes the dependency and feature surface explicit.
-- This plan does not delete `repo-ref/Mole` from the working repository unless it becomes necessary for package hygiene; package exclusion and license-safe usage are the release blockers.
-- This plan does not write execution progress back into this plan file.
-
-### Sources
-
-- `docs/plans/2026-07-07-001-feat-macos-cleanup-platform-plan.md` is the completed macOS adaptation baseline.
-- `crates/rebecca-core/src/environment.rs` owns semantic environment defaults today.
-- `crates/rebecca-core/src/protection/patterns.rs` owns current macOS cache, log, and durable-data recognition.
-- `crates/rebecca-core/src/safety_catalog.rs` embeds `crates/rebecca-core/safety/cleanup.toml`.
-- `crates/rebecca-rules/src/lib.rs` embeds `crates/rebecca-rules/safety/cleanup.toml`.
-- `crates/rebecca/src/info.rs` owns `doctor permissions` output.
-- `crates/rebecca-core/src/executor.rs` owns recoverable-trash execution and test redirection.
-- `crates/rebecca-core/src/scan.rs` and `crates/rebecca-core/src/scan/windows_ntfs_mft.rs` own the experimental NTFS backend surface.
+- This plan does not add new macOS cleanup rule families beyond those already covered by the macOS platform work.
+- This plan does not implement native TCC database reads, AppleScript automation, Finder automation, `launchctl`, or system-settings mutation.
+- This plan does not make NTFS/MFT scanning default on Windows.
+- This plan does not remove the `rebecca-ntfs` crate from the workspace or stop testing it under all-features and package-specific gates.
+- This plan does not delete `repo-ref/Mole`; it keeps it outside release packages and treats it as local reference material only unless the user separately asks to remove the reference directory.
 
 ---
 
@@ -96,119 +94,159 @@ Because Mole is GPL-licensed while Rebecca is MIT OR Apache-2.0, this plan does 
 
 ### Key Technical Decisions
 
-- KTD1. Create a macOS platform semantics module in `rebecca-core`.
-  The module should expose named predicates and root helpers, while rule manifests remain declarative data.
-- KTD2. Use one canonical safety data crate or equivalent package-owned source, not symlinks or generated duplicate TOML.
-  A small data-only crate keeps `rebecca-core` and `rebecca-rules` acyclic while letting both parse the same embedded string.
-- KTD3. Keep macOS permission preflight observational.
-  The CLI may probe readable user-owned paths, but it must not request permissions, mutate TCC state, shell out to AppleScript, or imply `sudo` fixes Full Disk Access.
-- KTD4. Make recoverable trash a backend adapter, not a global side effect.
-  Production keeps the `trash` crate path; tests and CLI child processes select an isolated adapter through an explicit constructor or debug-only environment bridge.
-- KTD5. Feature-gate NTFS live indexing while preserving fallback semantics.
-  The user-facing backend enum can stay stable, but unavailable builds must return the existing platform-unavailable fallback path instead of requiring the parser crate.
-- KTD6. Treat Mole as license-sensitive prior art only.
-  Behavior lessons can shape permission posture, but code, rule data, and prose cannot be copied into Rebecca.
+- KTD1. Create a core macOS path semantics module before changing rules or diagnostics.
+  Environment defaults and protection helpers need one source of truth for `~/Library` roots so future cache rules cannot reintroduce `/Library` allowlist drift.
+- KTD2. Add macOS permission preflight as structured diagnostic data, not as shell automation.
+  The safe behavior is to probe selected user-owned privacy-sensitive paths read-only, report `likely-blocked`, `no-block-detected`, `not-probed`, or `unknown`, and leave permission changes to the user.
+- KTD3. Keep core's default safety policy while removing duplicate TOML.
+  A tiny canonical safety data crate or equivalent single packaged source is safer than forcing every core caller to inject `SafetyKnowledge`.
+- KTD4. Turn recoverable trash into an adapter boundary while keeping the debug env as a CLI integration hook if still useful.
+  Core unit tests should depend on injected behavior; spawned CLI tests still need a process-level way to select the test adapter.
+- KTD5. Gate live NTFS implementation behind an explicit feature without deleting NTFS parser work.
+  The compile boundary should reduce macOS/default release surface while `--all-features` and Windows paths continue to prove the experimental backend.
+- KTD6. Do not use Mole as source material.
+  Only behavior-level lessons such as preview-first cleanup, fail-closed permission handling, and conservative root choices can shape Rebecca.
 
 ### High-Level Technical Design
 
 ```mermaid
 flowchart TB
-  SafetyData[canonical safety data] --> CoreCatalog[rebecca-core safety parser]
-  SafetyData --> RulesCatalog[rebecca-rules builtin catalog]
-  MacModule[core macOS path semantics] --> Env[PlatformEnvironment]
-  MacModule --> Protection[ProtectionPolicy patterns]
-  Doctor[doctor permissions] --> MacPreflight[macOS privacy preflight]
-  Executor[cleanup executor] --> TrashAdapter[recoverable trash adapter]
-  Scan[ScanEngine] --> NtfsFeature[optional NTFS feature]
+  Env[PlatformEnvironment] --> MacPaths[core macOS path semantics]
+  Patterns[Protection patterns] --> MacPaths
+  SafetyData[canonical safety catalog data] --> CoreSafety[rebecca-core safety parser]
+  SafetyData --> Rules[rebecca-rules builtin catalog]
+  CoreSafety --> Policy[ProtectionPolicy::new]
+  CLI[doctor permissions] --> Privacy[macOS privacy preflight]
+  Clean[cleanup execution] --> TrashBackend[RecoverableTrashBackend]
+  TrashBackend --> TrashAdapter[production trash adapter]
+  TrashBackend --> TestAdapter[test filesystem adapter]
+  Scan[scan backend selection] --> NtfsFeature[optional NTFS feature]
 ```
 
-The target design has three deep seams: canonical safety data, macOS path semantics, and recoverable-trash execution.
-Everything else should call those seams instead of reinterpreting paths or deletion behavior locally.
+```mermaid
+flowchart TB
+  Doctor[doctor permissions] --> Platform{macOS?}
+  Platform -->|no| Existing[existing privilege diagnostic]
+  Platform -->|yes| Probe[read-only user-path probes]
+  Probe -->|permission denied| Blocked[likely-blocked]
+  Probe -->|readable| Clear[no-block-detected]
+  Probe -->|no paths / inconclusive| Unknown[unknown or not-probed]
+  Blocked --> Json[permissions-diagnostic JSON]
+  Clear --> Json
+  Unknown --> Json
+```
 
-### Sequencing
+### Assumptions
 
-1. Replace duplicate safety catalog data with one canonical packaged source.
-2. Extract macOS path semantics and migrate environment/protection logic onto it.
-3. Extend `doctor permissions` with structured macOS privacy diagnostics.
-4. Adapterize recoverable trash execution and move tests onto the adapter seam.
-5. Feature-gate the NTFS parser dependency and verify default/all-feature builds.
-6. Update docs, schemas, package lists, and release verification.
+- A canonical safety data crate is acceptable for v0.2.0 because it removes duplicate package data without adding runtime behavior.
+- The macOS privacy probe can be best-effort and non-blocking; it informs users before cleanup but does not become a hard gate for every command.
+- CLI tests can keep a debug-only process environment override as long as core tests can exercise the trash seam without global state.
+- The NTFS feature gate may require breaking default feature composition for the unreleased CLI, but `cargo nextest --all-features` remains authoritative for full workspace behavior.
 
 ### System-Wide Impact
 
-- Safety catalog consumers move from duplicated `include_str!` paths to a shared data source.
-- macOS protection tests become semantic-root tests instead of raw string-shape tests.
-- CLI API v1 gains a new nested permission field and the schema must stay strict.
-- Build and package metadata changes may alter default dependency trees.
-- Windows NTFS tests must continue under `--all-features` even if default builds stop compiling the parser.
+- The workspace manifest changes because a canonical safety data package and optional NTFS dependency both affect package metadata.
+- CLI API v1 changes additively for `permissions-diagnostic`, so docs, schema, examples, and JSON contract tests must move together.
+- Protection and rule validation become easier to audit because macOS semantics and safety catalog data stop being edited in multiple places.
+- Default non-Windows builds become smaller and clearer, while all-features verification remains broader.
 
 ### Risks and Mitigations
 
 | Risk | Mitigation |
 |---|---|
-| New safety data crate creates publish/package friction. | Keep it data-only, workspace-versioned, and covered by `cargo package -p rebecca-safety --allow-dirty --list`. |
-| Moving macOS predicates changes safety behavior accidentally. | Add characterization tests for allowed user cache/log leaves and blocked system/durable roots before moving code. |
-| Privacy preflight probes become noisy on real machines. | Probe only selected user-owned paths, tolerate missing paths, and report `unknown` instead of failing the command. |
-| Trash adapter abstraction hides batch failure behavior. | Keep batch fallback tests and assert per-target outcomes after injected adapter failures. |
-| NTFS feature gating breaks docs or all-feature tests. | Preserve the backend label and run `cargo nextest run --workspace --all-features --no-fail-fast` before landing. |
+| Moving safety data breaks `ProtectionPolicy::new()` or direct `rebecca-core` users. | Introduce the canonical data source below core and keep `default_safety_catalog()` / `default_safety_knowledge()` APIs intact. |
+| Privacy preflight accidentally prompts or mutates macOS privacy state. | Use only read-only metadata/read-dir probes, no `osascript`, no `tccutil`, no Settings automation, and model inconclusive results as `unknown`. |
+| Trash adapter abstraction adds complexity without reducing flake. | Keep the trait private or narrowly scoped, prove it with cross-platform tests, and delete only the ad hoc test-path logic that the adapter replaces. |
+| NTFS feature gating causes non-Windows tests or benches to lose expected fallback strings. | Preserve `ScanBackendKind::WindowsNtfsMftExperimental` labels and make disabled-feature selection return the same safe fallback/caveat shape where callers can observe it. |
+| A canonical safety crate increases package count. | Keep it pure data with no parser dependency, document it as internal safety data, and verify `cargo package --list` for release crates. |
 
 ---
 
 ## Implementation Units
 
-### U1. Canonical safety catalog source
+### U1. Canonical macOS path semantics module
 
-- **Goal:** Delete duplicated built-in safety TOML and make both core and rules parse one packaged data source.
-- **Requirements:** R4, R5, AE2, AE6.
-- **Files:** `Cargo.toml`, `Cargo.lock`, `crates/rebecca-safety/Cargo.toml`, `crates/rebecca-safety/src/lib.rs`, `crates/rebecca-safety/safety/cleanup.toml`, `crates/rebecca-core/Cargo.toml`, `crates/rebecca-core/src/safety_catalog.rs`, `crates/rebecca-rules/Cargo.toml`, `crates/rebecca-rules/src/lib.rs`, `crates/rebecca-core/safety/cleanup.toml`, `crates/rebecca-rules/safety/cleanup.toml`, `crates/rebecca-core/tests/safety_catalog.rs`, `crates/rebecca-rules/src/lib.rs`, `docs/rule-authoring.md`, `docs/security-audit.md`.
-- **Approach:** Introduce a data-only workspace crate exposing the embedded cleanup safety catalog string and display path, update core/rules loaders to use it, remove the two duplicate TOML files, and replace drift tests with canonical-source tests.
-- **Test scenarios:** Core default safety catalog loads all platforms from the canonical source; rules built-in catalog uses the same data; warning/category counts stay stable; package listing includes the canonical TOML once per crate dependency path and excludes `repo-ref/Mole`.
-- **Verification:** `cargo nextest run -p rebecca-core --test safety_catalog --no-fail-fast`, `cargo nextest run -p rebecca-rules --no-fail-fast`, and `cargo package -p rebecca-safety --allow-dirty --list`.
-
-### U2. macOS path semantics deep module
-
-- **Goal:** Centralize macOS root derivation and path classification behind named helpers.
+- **Goal:** Move macOS root recognition and default root suffixes into one core module consumed by environment and protection code.
 - **Requirements:** R1, R2, R3, AE1, AE2.
-- **Files:** `crates/rebecca-core/src/lib.rs`, `crates/rebecca-core/src/environment.rs`, `crates/rebecca-core/src/protection/patterns.rs`, `crates/rebecca-core/src/macos_paths.rs`, `crates/rebecca-core/tests/path_templates.rs`, `crates/rebecca-core/tests/safety_policy.rs`, `crates/rebecca-core/tests/safety_catalog.rs`.
-- **Approach:** Add a crate-internal macOS path module for default suffixes, semantic placeholder recognition, `/Users/<name>/Library/...` root recognition, user cache/log/application-support classification, and durable Library categories; migrate environment and protection code to call it.
-- **Test scenarios:** `%MACOS_CACHE_HOME%`, `%MACOS_APPLICATION_SUPPORT_HOME%`, `%MACOS_LOG_HOME%`, `%MACOS_CONTAINER_HOME%`, and `%MACOS_GROUP_CONTAINER_HOME%` expand from `HOME`; literal `/Users/alice/Library/Caches/pip` can be allowed; `/Library/Caches/pip`, `/Library/Application Support/Slack/Cache`, `/Users/alice/Library/Application Support/Google/Chrome/Default/History`, and container roots remain blocked.
-- **Verification:** `cargo nextest run -p rebecca-core --test path_templates --no-fail-fast`, `cargo nextest run -p rebecca-core --test safety_policy --no-fail-fast`, and focused `cargo nextest run -p rebecca-core --test safety_catalog default_safety_catalog_loads_auditable_platform_knowledge --no-fail-fast`.
+- **Dependencies:** None.
+- **Files:** `crates/rebecca-core/src/macos_paths.rs`, `crates/rebecca-core/src/lib.rs`, `crates/rebecca-core/src/environment.rs`, `crates/rebecca-core/src/protection/patterns.rs`, `crates/rebecca-core/tests/path_templates.rs`, `crates/rebecca-core/tests/safety_policy.rs`.
+- **Approach:** Extract macOS default suffix mapping and user `Library` tail recognition into a crate-internal module. Keep application-specific cache leaf decisions in protection, but make all macOS root/tail decisions call the shared module. Preserve placeholder handling for `%macos_cache_home%`, `%macos_application_support_home%`, and `%macos_log_home%`.
+- **Execution note:** Start with characterization tests around the currently fixed macOS allow/block examples before moving helpers.
+- **Patterns to follow:** `crates/rebecca-core/src/environment.rs` for environment abstraction, `crates/rebecca-core/src/protection/patterns.rs` for normalized segment helpers, and `crates/rebecca-core/tests/safety_policy.rs` for platform-specific protection tests.
+- **Test scenarios:** macOS defaults still derive from `HOME`; explicit macOS env values still win; `/Users/<name>/Library/Caches/pip` and `%MACOS_CACHE_HOME%/pip` classify identically; `/Library/Caches/pip` remains blocked; `~/Library/Application Support/Slack/Local Storage` remains protected.
+- **Verification:** Focused path-template and safety-policy nextest runs pass, then all core safety tests pass.
 
-### U3. macOS permission diagnostics preflight
+### U2. Single safety catalog source
 
-- **Goal:** Make `doctor permissions` report macOS privacy readiness as structured, non-invasive diagnostics.
-- **Requirements:** R6, R9, AE3.
-- **Files:** `crates/rebecca/src/info.rs`, `crates/rebecca/tests/info.rs`, `crates/rebecca/tests/cli_output.rs`, `crates/rebecca/tests/cli_api.rs`, `docs/api/cli/v1/payloads.schema.json`, `docs/api/cli/v1/README.md`, `README.md`.
-- **Approach:** Add a nested macOS privacy diagnostic with status, probe summary, and guidance; use pure filesystem probes against selected user-owned privacy-sensitive directories when present; keep non-macOS payloads valid with `null` or omitted fields per schema decision.
-- **Test scenarios:** JSON schema accepts the new field; human output names macOS privacy preflight on macOS; unsupported or non-macOS hosts keep existing privilege labels; permission-denied probe cases report `likely-blocked` without failing the command; missing probe paths report `unknown` or `not-required` consistently.
-- **Verification:** `cargo nextest run -p rebecca --test cli_api doctor_permissions --no-fail-fast`, `cargo nextest run -p rebecca --test info doctor_permissions --no-fail-fast`, and `cargo nextest run -p rebecca --test cli_output doctor_permissions --no-fail-fast`.
+- **Goal:** Delete duplicate safety TOML data while preserving core and rules public loading behavior.
+- **Requirements:** R13, R14, R15.
+- **Dependencies:** U1 should land first so the macOS safety assertions are stable.
+- **Files:** `Cargo.toml`, `Cargo.lock`, `crates/rebecca-safety/Cargo.toml`, `crates/rebecca-safety/src/lib.rs`, `crates/rebecca-safety/safety/cleanup.toml`, `crates/rebecca-core/Cargo.toml`, `crates/rebecca-core/src/safety_catalog.rs`, `crates/rebecca-rules/Cargo.toml`, `crates/rebecca-rules/src/lib.rs`, `crates/rebecca-core/safety/cleanup.toml`, `crates/rebecca-rules/safety/cleanup.toml`, `crates/rebecca-core/tests/safety_catalog.rs`, `crates/rebecca-rules/src/lib.rs`, `docs/security-audit.md`, `docs/rule-authoring.md`.
+- **Approach:** Add a pure data crate that exposes the cleanup safety catalog string and logical catalog path. Make core and rules parse that one source. Remove the two duplicate TOML files after call sites and tests no longer reference them. Keep drift tests by asserting core default and rules builtin parse the same canonical data rather than comparing two files.
+- **Execution note:** Use tests that fail on path/source mismatch before deleting duplicate files.
+- **Patterns to follow:** Existing `default_safety_catalog()` in `crates/rebecca-core/src/safety_catalog.rs` and `builtin_safety_catalog()` in `crates/rebecca-rules/src/lib.rs`.
+- **Test scenarios:** `default_safety_catalog()` loads the canonical data; `builtin_safety_catalog()` loads the same canonical data; warning/category counts remain stable; macOS allow/block regressions from U1 still pass; docs no longer point authors to two safety TOML locations.
+- **Verification:** `cargo nextest run -p rebecca-core --test safety_catalog --no-fail-fast`, `cargo nextest run -p rebecca-rules --no-fail-fast`, and package list checks show only the canonical safety file.
 
-### U4. Recoverable trash backend adapter
+### U3. Structured macOS permission preflight
 
-- **Goal:** Separate production trash behavior from test trash behavior without changing cleanup semantics.
-- **Requirements:** R7, AE4.
-- **Files:** `crates/rebecca-core/src/executor.rs`, `crates/rebecca-core/tests/executor.rs`, `crates/rebecca/tests/common/isolated.rs`, `crates/rebecca/tests/cli_clean.rs`, `crates/rebecca/tests/cli_cache.rs`, `crates/rebecca/tests/cli_apps.rs`.
-- **Approach:** Introduce a private trash adapter trait or enum used by `RecoverableTrashBackend`, keep production adapter backed by `trash::delete` and `trash::delete_all`, and move debug test redirection into an explicit isolated adapter constructor plus a debug-only CLI environment bridge.
-- **Test scenarios:** Single-target and batch cleanup move files through the isolated adapter; preserve-root cleanup moves children but preserves the root; adapter batch failure still reconstructs per-target outcomes; cache purge uses the same adapter; CLI integration tests keep using isolated child-process trash.
-- **Verification:** `cargo nextest run -p rebecca-core --test executor --no-fail-fast`, `cargo nextest run -p rebecca --test cli_clean --no-fail-fast`, `cargo nextest run -p rebecca --test cli_cache --no-fail-fast`, and `cargo nextest run -p rebecca --test cli_apps --no-fail-fast`.
+- **Goal:** Extend `doctor permissions` with a macOS privacy diagnostic that is useful to users and stable for machine consumers.
+- **Requirements:** R4, R5, R6, AE3.
+- **Dependencies:** U1, because probe paths should use the same macOS root semantics.
+- **Files:** `crates/rebecca/src/info.rs`, `crates/rebecca/tests/info.rs`, `crates/rebecca/tests/cli_api.rs`, `crates/rebecca/tests/cli_output.rs`, `docs/api/cli/v1/payloads.schema.json`, `docs/api/cli/v1/examples/success-doctor-permissions.json`, `docs/api/cli/v1/README.md`, `README.md`.
+- **Approach:** Add a serialized optional `macos_privacy` object under the permissions diagnostic. On macOS, derive candidate user-owned privacy paths from `HOME`, probe read-only without following broad cleanup roots, and summarize status plus probed/blocked path labels. On other platforms, omit the field or emit `null` consistently with the schema decision made during implementation.
+- **Execution note:** Update the schema and contract test in the same commit as the Rust payload; the schema is strict.
+- **Patterns to follow:** Existing `PermissionDiagnostic` and `active_process_diagnostic_from_processes` testable helper style in `crates/rebecca/src/info.rs`.
+- **Test scenarios:** JSON payload validates against schema; human output keeps `Privilege level` and `Suggested action`; macOS helper reports `likely-blocked` for injected permission-denied probe results; missing or empty `HOME` reports `unknown` or `not-probed`; no output recommends sudo as a TCC workaround.
+- **Verification:** Focused CLI API/output/info tests pass, and docs examples validate against the schema.
 
-### U5. NTFS dependency and feature surface
+### U4. Recoverable trash adapter seam
 
-- **Goal:** Make Windows NTFS/MFT support opt-in at the dependency level while preserving all-feature behavior and fallback contracts.
-- **Requirements:** R8, R9, AE5.
-- **Files:** `Cargo.toml`, `Cargo.lock`, `crates/rebecca-core/Cargo.toml`, `crates/rebecca/Cargo.toml`, `crates/rebecca-core/src/scan.rs`, `crates/rebecca-core/src/scan/windows_ntfs_mft.rs`, `crates/rebecca-core/src/disk_map.rs`, `crates/rebecca-core/tests/scan_engine.rs`, `crates/rebecca-core/tests/disk_map.rs`, `crates/rebecca/tests/cli_clean.rs`, `crates/rebecca/tests/cli_inspect.rs`, `README.md`, `docs/api/cli/v1/README.md`, `docs/configuration.md`, `docs/release.md`.
-- **Approach:** Make `rebecca-ntfs` optional behind a `ntfs` feature, compile the live NTFS implementation only when both Windows and the feature are enabled, and provide stub fallback functions for builds without the feature that return the existing platform-unavailable diagnostic.
-- **Test scenarios:** Default non-Windows builds do not compile `rebecca-ntfs`; `--all-features` builds compile existing NTFS tests; selecting `windows-ntfs-mft-experimental` without the feature falls back with the same user-facing backend label and diagnostic shape; docs name the feature when live NTFS evidence is required.
-- **Verification:** `cargo check -p rebecca-core --no-default-features`, `cargo nextest run -p rebecca-core --all-features --test scan_engine --no-fail-fast`, `cargo nextest run -p rebecca-core --all-features --test disk_map --no-fail-fast`, and focused CLI inspect/clean tests that select `windows-ntfs-mft-experimental`.
+- **Goal:** Replace the current env-centered test path with a small recoverable-trash adapter boundary.
+- **Requirements:** R7, R8, R9, AE4.
+- **Dependencies:** None, but it should land after U2 if shared tests are already moving files.
+- **Files:** `crates/rebecca-core/src/executor.rs`, `crates/rebecca-core/tests/recoverable_trash.rs`, `crates/rebecca-core/tests/executor_contract.rs`, `crates/rebecca-core/tests/cache.rs`, `crates/rebecca/tests/common/isolated.rs`, `crates/rebecca/tests/cli_clean.rs`, `crates/rebecca/tests/cli_cache.rs`.
+- **Approach:** Introduce a narrow internal adapter for delete/delete-all operations. Production uses a `trash` crate adapter. Core tests use a filesystem-moving adapter directly. CLI integration tests may keep `REBECCA_TEST_RECOVERABLE_TRASH_DIR` as a debug-only adapter selector, but it should construct the same adapter instead of branching deletion logic around the env var.
+- **Execution note:** Preserve existing batch fallback and preserve-root semantics before changing adapter wiring.
+- **Patterns to follow:** `CachePurgeBackend` test doubles under `crates/rebecca-core/src/cache.rs` tests and existing `RecoverableTrashBackend` behavior.
+- **Test scenarios:** Single-file delete, preserve-root delete, batch delete, batch fallback, missing target, and reparse-like child refusal pass with the test adapter; CLI isolated cleanup moves files into the test trash directory; no normal nextest path uses real system Trash.
+- **Verification:** Recoverable-trash, executor-contract, cache purge, and CLI cleanup/cache focused nextest runs pass on macOS.
 
-### U6. Release verification and cleanup
+### U5. NTFS feature boundary
 
-- **Goal:** Finish the refactor with docs, package hygiene, full tests, and no dead scaffolding.
-- **Requirements:** R5, R9, R10, AE6.
-- **Files:** `README.md`, `docs/api/cli/v1/README.md`, `docs/security-audit.md`, `docs/release.md`, `docs/knowledge/engineering/current-state.md`, `docs/knowledge/engineering/log.md`, `Cargo.toml`, `Cargo.lock`.
-- **Approach:** Update documentation for canonical safety data, macOS permission diagnostics, test trash behavior, and NTFS features; remove stale comments/tests that mention duplicated catalogs; run package listing checks for release crates and verify reference repos are not included.
-- **Test scenarios:** Documentation no longer points rule authors at removed safety TOML paths; package lists include the new data crate and no GPL reference tree; full nextest and doc tests pass; `cargo fmt` is clean.
-- **Verification:** `cargo fmt --all -- --check`, `cargo nextest run --workspace --all-features --no-fail-fast`, `cargo test --workspace --all-features --doc`, `cargo package -p rebecca --allow-dirty --list`, `cargo package -p rebecca-core --allow-dirty --list`, `cargo package -p rebecca-rules --allow-dirty --list`, and `cargo package -p rebecca-safety --allow-dirty --list`.
+- **Goal:** Make live NTFS/MFT scanning an explicit feature/dependency surface without deleting the parser crate.
+- **Requirements:** R10, R11, R12, AE5.
+- **Dependencies:** U2 should land first because workspace manifest churn is easier to review one layer at a time.
+- **Files:** `Cargo.toml`, `Cargo.lock`, `crates/rebecca-core/Cargo.toml`, `crates/rebecca-core/src/scan.rs`, `crates/rebecca-core/src/disk_map.rs`, `crates/rebecca-core/src/scan/windows_ntfs_mft.rs`, `crates/rebecca/Cargo.toml`, `crates/rebecca/src/cli.rs`, `crates/rebecca/src/inspect.rs`, `crates/rebecca-core/tests/scan_engine.rs`, `crates/rebecca-core/tests/disk_map.rs`, `crates/rebecca/tests/cli_clean.rs`, `crates/rebecca/tests/cli_inspect.rs`, `crates/rebecca-ntfs/tests/mft_parser.rs`, `README.md`, `docs/api/cli/v1/README.md`.
+- **Approach:** Make `rebecca-ntfs` an optional `rebecca-core` dependency behind an `ntfs` feature. Keep `windows_ntfs_mft` compiled only when both Windows and the feature are enabled, and provide a disabled-feature fallback that keeps backend selection safe and observable. Decide during implementation whether CLI `default` keeps or drops the NTFS feature; if dropping it, document the breaking feature opt-in.
+- **Execution note:** Characterize current fallback output for `windows-ntfs-mft-experimental` before gating the dependency.
+- **Patterns to follow:** Existing `#[cfg(windows)]` split in `crates/rebecca-core/src/scan.rs` and fallback caveat strings in scan/disk-map tests.
+- **Test scenarios:** Default non-Windows core build resolves without `rebecca-ntfs`; `--all-features` compiles and tests the NTFS path; selecting the experimental backend without live support still falls back with a stable caveat; `rebecca-ntfs` package tests still run directly.
+- **Verification:** Default workspace tests, all-features workspace tests, and package-specific `rebecca-ntfs` tests pass.
+
+### U6. Release and documentation cleanup
+
+- **Goal:** Align docs, package contents, and obsolete references with the new boundaries.
+- **Requirements:** R5, R15, AE6.
+- **Dependencies:** U2, U3, U5.
+- **Files:** `README.md`, `docs/api/cli/v1/README.md`, `docs/security-audit.md`, `docs/rule-authoring.md`, `CHANGELOG.md`, `Cargo.toml`, `crates/rebecca/Cargo.toml`, `crates/rebecca-core/Cargo.toml`, `crates/rebecca-rules/Cargo.toml`, `crates/rebecca-safety/Cargo.toml`.
+- **Approach:** Update user-facing macOS guidance, safety catalog authoring paths, NTFS feature docs, and package descriptions. Verify release package lists for `rebecca`, `rebecca-core`, `rebecca-rules`, and the new safety data crate. Keep `repo-ref/Mole` out of package contents and repeat the GPL behavior-reference boundary where source provenance is discussed.
+- **Execution note:** Treat stale docs as dead code; delete or rewrite obsolete Windows/Linux-only statements instead of layering caveats.
+- **Patterns to follow:** Current package-list checks used after the previous macOS safety fix and existing GPL provenance language in `docs/rule-authoring.md`.
+- **Test scenarios:** Documentation search finds no old duplicate safety paths except historical plans; package lists include the canonical safety catalog once; package lists exclude `repo-ref/Mole`; README permission guidance matches `doctor permissions`.
+- **Verification:** Package list commands and targeted docs search pass.
+
+### U7. Integration verification and simplification pass
+
+- **Goal:** Prove the refactor as one coherent release surface and remove abandoned code paths.
+- **Requirements:** R1-R15.
+- **Dependencies:** U1-U6.
+- **Files:** All files changed by U1-U6.
+- **Approach:** Run the full verification contract, inspect the diff for duplicate helpers or dead branches introduced during intermediate commits, and delete any compatibility scaffolding that the final design made unnecessary.
+- **Execution note:** Run a simplification pass after U4 and again after U6 because those are the highest-churn boundaries.
+- **Patterns to follow:** Existing `cargo fmt`, `cargo nextest`, doc-test, package-list, and schema-validation practices from the prior macOS fixes.
+- **Test scenarios:** No duplicate safety TOML remains; no macOS root helper is reimplemented outside the core module; no CLI test path depends on real Trash; no feature-gated NTFS call path panics on default builds; full workspace verification is green.
+- **Verification:** Full Verification Contract passes locally, or any host-specific exception is recorded with the exact command and reason.
 
 ---
 
@@ -217,27 +255,25 @@ Everything else should call those seams instead of reinterpreting paths or delet
 | Gate | Command | Proves |
 |---|---|---|
 | Formatting | `cargo fmt --all -- --check` | Rust formatting is stable. |
-| Safety catalog | `cargo nextest run -p rebecca-core --test safety_catalog --no-fail-fast` and `cargo nextest run -p rebecca-rules --no-fail-fast` | Canonical safety data loads and rule validation still holds. |
-| macOS protection | `cargo nextest run -p rebecca-core --test safety_policy --no-fail-fast` | User Library cache/log paths and durable/system paths stay correctly classified. |
-| Permission diagnostics | `cargo nextest run -p rebecca --test cli_api doctor_permissions --no-fail-fast` | CLI API schema and doctor payload match the new permission contract. |
-| Trash execution | `cargo nextest run -p rebecca-core --test executor --no-fail-fast` plus focused CLI cleanup/cache tests | Recoverable-trash semantics work through the adapter and CLI bridge. |
-| NTFS feature surface | `cargo check -p rebecca-core --no-default-features` and focused all-feature NTFS tests | Default build can omit NTFS while all-feature behavior remains covered. |
-| Full workspace | `cargo nextest run --workspace --all-features --no-fail-fast` | Cross-crate Rust behavior is green. |
-| Docs | `cargo test --workspace --all-features --doc` | Public docs compile. |
-| Package hygiene | `cargo package -p rebecca --allow-dirty --list`, `cargo package -p rebecca-core --allow-dirty --list`, `cargo package -p rebecca-rules --allow-dirty --list`, `cargo package -p rebecca-safety --allow-dirty --list` | Release crates package the intended files and exclude GPL reference repositories. |
+| Core safety/path tests | `cargo nextest run -p rebecca-core --test safety_catalog --test safety_policy --test path_templates --no-fail-fast` | macOS path semantics and safety catalog behavior survived the refactor. |
+| Rules tests | `cargo nextest run -p rebecca-rules --no-fail-fast` | Built-in rule parsing, safety catalog loading, and validation still pass. |
+| CLI permissions/API tests | `cargo nextest run -p rebecca --test info --test cli_api --test cli_output --no-fail-fast` | `doctor permissions` human and machine contracts match schema/docs. |
+| Recoverable trash tests | `cargo nextest run -p rebecca-core --test recoverable_trash --test executor_contract --no-fail-fast` | Adapter seam preserves execution semantics without real Trash. |
+| NTFS feature tests | `cargo nextest run -p rebecca-core --test scan_engine --test disk_map --all-features --no-fail-fast` | Experimental NTFS backend remains available and safely gated under all-features. |
+| Workspace tests | `cargo nextest run --workspace --all-features --no-fail-fast` | Cross-crate behavior is green with every feature enabled. |
+| Doc tests | `cargo test --workspace --all-features --doc` | Public docs examples compile. |
+| Package audit | `cargo package -p rebecca --allow-dirty --list`, `cargo package -p rebecca-core --allow-dirty --list`, `cargo package -p rebecca-rules --allow-dirty --list`, and the canonical safety data package list | Release packages contain expected files and exclude `repo-ref/Mole`. |
 
 ---
 
 ## Definition of Done
 
-| Unit | Done signal |
-|---|---|
-| U1 | Only one canonical safety catalog TOML remains in active crates, and both core and rules parse it. |
-| U2 | macOS semantic roots are centralized and protection tests prove user cache/log allow paths versus system/durable block paths. |
-| U3 | `doctor permissions` exposes structured macOS privacy diagnostics in JSON and clear non-sudo human guidance. |
-| U4 | Recoverable-trash tests use an injected isolated adapter and production behavior still calls the platform trash backend. |
-| U5 | NTFS/MFT is optional at the dependency level, while all-feature builds preserve the experimental backend and fallback contract. |
-| U6 | Docs, schema, package lists, full nextest, and doc tests are green or have a documented platform-only exception. |
-
-No implementation unit is complete until its focused tests have passed.
-The plan is complete only after the full Verification Contract is satisfied and any logical commits contain only files changed for this refactor.
+- D1. macOS environment defaults and macOS protection helpers share a single core path semantics module.
+- D2. macOS safety regressions from the previous fixes remain covered by focused tests.
+- D3. `doctor permissions` exposes structured macOS privacy status in JSON and clear non-sudo guidance in human output.
+- D4. Recoverable-trash production behavior uses the platform adapter and tests use deterministic adapters without real system Trash.
+- D5. The safety catalog TOML has one canonical packaged source, while core and rules loading APIs remain usable.
+- D6. NTFS/MFT live scanning is feature-gated cleanly, and all-features testing still covers the experimental backend.
+- D7. README, API docs, security docs, and rule-authoring docs match the new safety, permission, and feature boundaries.
+- D8. Package audits show no GPL reference material in release contents.
+- D9. Full verification is green, and every logical unit is committed with a conventional commit message.
