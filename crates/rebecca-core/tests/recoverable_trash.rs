@@ -1,6 +1,8 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rebecca_core::executor::{CleanupBackend, RecoverableTrashAdapter, RecoverableTrashBackend};
 use rebecca_core::plan::{CleanupTarget, CleanupTargetDeletionStyle};
@@ -21,6 +23,18 @@ impl RecoverableTrashAdapter for DirectoryMoveTrashAdapter {
             let destination = unique_trash_destination(&self.trash_dir, path);
             fs::rename(path, destination)?;
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CountingTrashAdapter {
+    calls: Arc<AtomicUsize>,
+}
+
+impl RecoverableTrashAdapter for CountingTrashAdapter {
+    fn delete_paths(&self, _paths: &[PathBuf]) -> Result<()> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -157,6 +171,48 @@ fn recoverable_trash_backend_refuses_preserve_root_reparse_children() -> Result<
     assert!(cache.exists());
     assert!(normal_child.exists());
     assert!(linked_child.exists());
+    Ok(())
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn recoverable_trash_backend_refuses_reparse_root_before_adapter() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let real_cache = temp.path().join("real-cache");
+    let linked_cache = temp.path().join("linked-cache");
+    fs::create_dir_all(&real_cache)?;
+    fs::write(real_cache.join("entry.tmp"), b"trash")?;
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&real_cache, &linked_cache)?;
+
+    #[cfg(windows)]
+    {
+        if let Err(err) = std::os::windows::fs::symlink_dir(&real_cache, &linked_cache) {
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+                return Ok(());
+            }
+            return Err(err.into());
+        }
+    }
+
+    let target = CleanupTarget::allowed(
+        "test.user-temp",
+        linked_cache.clone(),
+        5,
+        DeleteMode::RecoverableDelete,
+    )
+    .with_deletion_style(CleanupTargetDeletionStyle::DeleteWholePath);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let backend = RecoverableTrashBackend::with_adapter(CountingTrashAdapter {
+        calls: Arc::clone(&calls),
+    });
+    let err = backend.delete(&target).unwrap_err();
+
+    assert!(err.to_string().contains("refused reparse target"));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(linked_cache.exists());
+    assert!(real_cache.exists());
     Ok(())
 }
 

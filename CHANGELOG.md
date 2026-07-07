@@ -10,6 +10,16 @@ All notable changes to Rebecca will be documented in this file.
 - `scan` now lists current-host cleanup rules by default, `catalog` exposes cleanup-rule platform metadata with `--platform` filtering, and doctor diagnostics report Linux support instead of returning Windows-only placeholders.
 
 ### Added
+- GUI-oriented macOS readiness contracts: `capabilities` advertises startup
+  preflights and schema documents, config/rules validation return structured
+  diagnostics, external rules can be imported/listed/enabled/disabled/removed
+  while remaining disabled by default on import, and `doctor permissions`
+  exposes macOS Full Disk Access guidance without recommending `sudo`.
+- macOS cleanup coverage now includes owned Homebrew, CocoaPods, and Xcode cache
+  rules, with tests that keep Homebrew taps, Xcode Archives, device support,
+  provisioning profiles, and preferences out of scope.
+- Release gates and release preflight now run a dedicated macOS cleanup smoke
+  job in addition to the Windows release archive checks.
 - Machine-mode clap parse failures are now rendered as structured `invalid-arguments` JSON/NDJSON errors when `--format json` or `--format ndjson` was already discoverable; invalid `--format` values still use clap's native error so callers can see the accepted format values.
 - Scan-cache records now persist `metric_semantics`, and cleanup/inspect cache lookups require compatible backend plus logical-byte semantics before reusing a record, preventing stale cross-backend estimates from being treated as authoritative hits.
 - TUI workbench internals now use core-owned path-scoped subtree patching, projection caching, shared layout/hit-test/snapshot contracts, a bounded single-task manager, semantic replay input, actionable type/extension filters, and a squarified Treemap layout so future WizTree-like interactions can build on cleaner seams.
@@ -120,6 +130,10 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune` now expose Rebecca cache inventory, stale/corrupt record recommendations, namespace filtering, dry-run previews, and execution reports for targeted cache metadata pruning.
 
 ### Changed
+- Recoverable-trash cleanup execution now performs a final lstat-style
+  reparse-point check before adapter deletion and reports last-moment safety
+  refusals as `safety-policy-blocked` targets instead of generic execution
+  failures.
 - Runtime cleanup planning, workbench preview/execution, and inspect-map cleanup advice now select built-in safety knowledge from the request platform instead of the safety catalog default platform.
 - `clean`, `apps clean`, `purge`, `cache prune`, and `cache purge` now reject `--dry-run --yes` before reading configuration or touching cache state.
 - Built-in cleanup rule catalog validation is now platform-aware: rule file paths, manifest `platform` values, and rule id prefixes must agree under `rules/<platform>/`.

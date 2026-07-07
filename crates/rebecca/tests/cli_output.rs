@@ -223,6 +223,7 @@ fn doctor_permissions_prints_permission_label() {
     assert!(stdout.contains("Suggested action:"));
     if cfg!(target_os = "macos") {
         assert!(stdout.contains("macOS privacy:"));
+        assert!(stdout.contains("macOS privacy action kind:"));
         assert!(stdout.contains("macOS privacy action:"));
     }
 }

@@ -132,6 +132,67 @@ fn cleanup_plan_serialization_preserves_protected_issue_contract() {
 }
 
 #[test]
+fn cleanup_plan_serialization_preserves_permission_issue_contract() {
+    let request = PlanRequest::for_platform(Platform::Macos, DeleteMode::RecoverableDelete);
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(CleanupTarget::failed_with_reason_code(
+        "macos.mail-cache",
+        PathBuf::from("/Users/alice/Library/Mail"),
+        DeleteMode::RecoverableDelete,
+        0,
+        CleanupTargetIssueReason::ScanPermissionDenied,
+        "permission-denied during root-metadata",
+    ));
+    plan.targets.push(CleanupTarget::failed_with_reason_code(
+        "macos.safari-cache",
+        PathBuf::from("/Users/alice/Library/Safari"),
+        DeleteMode::RecoverableDelete,
+        0,
+        CleanupTargetIssueReason::ExecutionPermissionDenied,
+        "permission denied",
+    ));
+    plan.recompute_summary();
+
+    let json = serde_json::to_value(&plan).expect("plan should serialize");
+    assert!(
+        json["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|target| { target["reason_code"] == "scan-permission-denied" })
+    );
+    assert!(
+        json["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|target| { target["reason_code"] == "execution-permission-denied" })
+    );
+    assert!(
+        json["summary"]["issue_matrix"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| { issue["reason_code"] == "scan-permission-denied" })
+    );
+    assert!(
+        json["summary"]["issue_matrix"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue| { issue["reason_code"] == "execution-permission-denied" })
+    );
+
+    let decoded: CleanupPlan = serde_json::from_value(json).expect("plan should deserialize");
+    assert!(decoded.targets.iter().any(|target| {
+        target.reason_code == Some(CleanupTargetIssueReason::ScanPermissionDenied)
+    }));
+    assert!(decoded.targets.iter().any(|target| {
+        target.reason_code == Some(CleanupTargetIssueReason::ExecutionPermissionDenied)
+    }));
+}
+
+#[test]
 fn cleanup_plan_deserializes_legacy_issue_fields() {
     let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
     let mut plan = CleanupPlan::empty(request);

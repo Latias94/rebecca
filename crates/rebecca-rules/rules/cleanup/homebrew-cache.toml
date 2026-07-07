@@ -1,0 +1,31 @@
+manifest_version = 1
+id = "homebrew-cache"
+category = "development"
+name = "Homebrew cache"
+safety_level = "moderate"
+restore_hint = "Homebrew may need to redownload bottles, formula metadata, and source archives."
+
+[[platforms]]
+platform = "macos"
+warnings = ["permission-sensitive"]
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/Library/Caches/Homebrew/downloads"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/Library/Caches/Homebrew/api"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/Library/Caches/Homebrew/Cask"
+
+[[platforms.targets]]
+kind = "template"
+value = "%HOME%/Library/Caches/Homebrew/Caskroom"
+
+[provenance]
+source = "owned"
+license = "project-owned"
+notes = "Project-owned macOS rule targeting Homebrew's user cache leaves only. Formulae, Cellar, Caskroom installs, taps, services, and configuration are intentionally excluded."

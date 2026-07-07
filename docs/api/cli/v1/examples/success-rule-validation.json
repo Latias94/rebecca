@@ -15,6 +15,11 @@
       "file_limit": 512,
       "symlink_traversal": false
     },
+    "summary": {
+      "checks_passed": 3,
+      "diagnostics": 0
+    },
+    "diagnostics": [],
     "rule_count": 1,
     "target_count": 1,
     "platforms": [
@@ -25,6 +30,18 @@
     ],
     "rules": [
       "macos.example-cache"
+    ],
+    "rule_previews": [
+      {
+        "rule_id": "macos.example-cache",
+        "platform": "macos",
+        "category": "development",
+        "safety_level": "safe",
+        "target_count": 1,
+        "warning_gates": [],
+        "source": "reference-only",
+        "enabled_by_validation": false
+      }
     ],
     "checks": [
       "Cleaner Manifest v1 TOML parses",

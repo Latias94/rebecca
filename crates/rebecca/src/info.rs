@@ -35,6 +35,9 @@ struct PermissionDiagnostic<'a> {
 struct MacosPrivacyDiagnostic {
     status: MacosPrivacyStatus,
     probes: Vec<MacosPrivacyProbe>,
+    action_kind: MacosPrivacyActionKind,
+    full_disk_access_relevant: bool,
+    affected_cleanup_families: Vec<&'static str>,
     suggested_action: &'static str,
 }
 
@@ -54,6 +57,28 @@ enum MacosPrivacyStatus {
     NoBlockDetected,
     NotProbed,
     Unknown,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum MacosPrivacyActionKind {
+    GrantFullDiskAccessIfNeeded,
+    ContinuePreviewFirst,
+    ReviewDryRun,
+    NoAction,
+}
+
+#[cfg(target_os = "macos")]
+impl MacosPrivacyActionKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::GrantFullDiskAccessIfNeeded => "grant-full-disk-access-if-needed",
+            Self::ContinuePreviewFirst => "continue-preview-first",
+            Self::ReviewDryRun => "review-dry-run",
+            Self::NoAction => "no-action",
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -288,6 +313,10 @@ pub fn print_privilege_level(output_mode: OutputMode) -> Result<()> {
             {
                 let macos_privacy = &diagnostic.macos_privacy;
                 println!("macOS privacy: {}", macos_privacy.status.as_str());
+                println!(
+                    "macOS privacy action kind: {}",
+                    macos_privacy.action_kind.as_str()
+                );
                 println!("macOS privacy action: {}", macos_privacy.suggested_action);
             }
             Ok(())
@@ -464,6 +493,9 @@ fn macos_privacy_diagnostic_from_home(home: Option<&Path>) -> MacosPrivacyDiagno
         return MacosPrivacyDiagnostic {
             status: MacosPrivacyStatus::NotProbed,
             probes: Vec::new(),
+            action_kind: macos_privacy_action_kind(MacosPrivacyStatus::NotProbed),
+            full_disk_access_relevant: false,
+            affected_cleanup_families: Vec::new(),
             suggested_action: macos_privacy_suggested_action(MacosPrivacyStatus::NotProbed),
         };
     };
@@ -480,11 +512,20 @@ fn macos_privacy_diagnostic_from_home(home: Option<&Path>) -> MacosPrivacyDiagno
         status: macos_privacy_probe_status(&path),
     })
     .collect::<Vec<_>>();
+    macos_privacy_diagnostic_from_probes(probes)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_diagnostic_from_probes(probes: Vec<MacosPrivacyProbe>) -> MacosPrivacyDiagnostic {
     let status = macos_privacy_status_from_probes(&probes);
+    let full_disk_access_relevant = status == MacosPrivacyStatus::LikelyBlocked;
 
     MacosPrivacyDiagnostic {
         status,
         probes,
+        action_kind: macos_privacy_action_kind(status),
+        full_disk_access_relevant,
+        affected_cleanup_families: macos_privacy_affected_cleanup_families(status),
         suggested_action: macos_privacy_suggested_action(status),
     }
 }
@@ -543,6 +584,26 @@ fn macos_privacy_suggested_action(status: MacosPrivacyStatus) -> &'static str {
         MacosPrivacyStatus::Unknown => {
             "macOS privacy probe results were inconclusive; use dry-run preview and grant Full Disk Access only for reviewed user-owned cache paths"
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_action_kind(status: MacosPrivacyStatus) -> MacosPrivacyActionKind {
+    match status {
+        MacosPrivacyStatus::LikelyBlocked => MacosPrivacyActionKind::GrantFullDiskAccessIfNeeded,
+        MacosPrivacyStatus::NoBlockDetected => MacosPrivacyActionKind::ContinuePreviewFirst,
+        MacosPrivacyStatus::NotProbed => MacosPrivacyActionKind::NoAction,
+        MacosPrivacyStatus::Unknown => MacosPrivacyActionKind::ReviewDryRun,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_privacy_affected_cleanup_families(status: MacosPrivacyStatus) -> Vec<&'static str> {
+    match status {
+        MacosPrivacyStatus::LikelyBlocked | MacosPrivacyStatus::Unknown => {
+            vec!["mail", "messages", "safari", "user-library-cache"]
+        }
+        MacosPrivacyStatus::NoBlockDetected | MacosPrivacyStatus::NotProbed => Vec::new(),
     }
 }
 
@@ -1005,6 +1066,42 @@ mod tests {
             macos_permission_suggested_action()
         );
         assert!(!permission_suggested_action("elevated").contains("elevated macOS"));
+    }
+
+    #[test]
+    fn macos_privacy_diagnostic_maps_blocked_probe_to_gui_action() {
+        let diagnostic = macos_privacy_diagnostic_from_probes(vec![MacosPrivacyProbe {
+            label: "mail",
+            path: "/Users/alice/Library/Mail".to_string(),
+            status: MacosPrivacyProbeStatus::PermissionDenied,
+        }]);
+
+        assert_eq!(diagnostic.status, MacosPrivacyStatus::LikelyBlocked);
+        assert_eq!(
+            diagnostic.action_kind,
+            MacosPrivacyActionKind::GrantFullDiskAccessIfNeeded
+        );
+        assert!(diagnostic.full_disk_access_relevant);
+        assert!(diagnostic.affected_cleanup_families.contains(&"mail"));
+        assert!(
+            diagnostic
+                .affected_cleanup_families
+                .contains(&"user-library-cache")
+        );
+    }
+
+    #[test]
+    fn macos_privacy_diagnostic_maps_missing_probes_to_no_action() {
+        let diagnostic = macos_privacy_diagnostic_from_probes(vec![MacosPrivacyProbe {
+            label: "safari",
+            path: "/Users/alice/Library/Safari".to_string(),
+            status: MacosPrivacyProbeStatus::Missing,
+        }]);
+
+        assert_eq!(diagnostic.status, MacosPrivacyStatus::NotProbed);
+        assert_eq!(diagnostic.action_kind, MacosPrivacyActionKind::NoAction);
+        assert!(!diagnostic.full_disk_access_relevant);
+        assert!(diagnostic.affected_cleanup_families.is_empty());
     }
 
     #[test]

@@ -94,6 +94,11 @@ fn run() -> Result<()> {
                     max_files: args.max_files,
                 },
             ),
+            RulesCommand::Import(args) => rules_cmd::import(cli.format, args.file),
+            RulesCommand::List => rules_cmd::list(cli.format),
+            RulesCommand::Enable(args) => rules_cmd::enable(cli.format, args.import_id),
+            RulesCommand::Disable(args) => rules_cmd::disable(cli.format, args.import_id),
+            RulesCommand::Remove(args) => rules_cmd::remove(cli.format, args.import_id),
         },
         Command::Scan(args) => run_scan(args, cli.format),
         Command::Clean(args) => run_clean(args, cli.format, &runtime),
@@ -248,6 +253,15 @@ fn infer_command_api_contract_from_args() -> output::CliApiContract {
                 output::CliApiContract::v1("catalog", "catalog")
             }
         }
+        Some("rules") => match tokens.get(1).map(String::as_str) {
+            Some("validate") => output::CliApiContract::v1("rules validate", "rule-validation"),
+            Some("import") => output::CliApiContract::v1("rules import", "rule-import"),
+            Some("list") => output::CliApiContract::v1("rules list", "rule-import-list"),
+            Some("enable") => output::CliApiContract::v1("rules enable", "rule-import-mutation"),
+            Some("disable") => output::CliApiContract::v1("rules disable", "rule-import-mutation"),
+            Some("remove") => output::CliApiContract::v1("rules remove", "rule-import-mutation"),
+            _ => output::CliApiContract::v1("rules", "command-error"),
+        },
         Some("scan") => output::CliApiContract::v1("scan", "rule-catalog"),
         Some("clean") => output::CliApiContract::v1("clean", "cleanup-plan"),
         Some("tui") | Some("i") => output::CliApiContract::v1("tui", "terminal-workbench"),
@@ -287,6 +301,7 @@ fn infer_command_api_contract_from_args() -> output::CliApiContract {
             }
             _ => output::CliApiContract::v1("doctor", "command-error"),
         },
+        Some("schema") => output::CliApiContract::v1("schema export", "cli-schema"),
         Some("completion") => output::CliApiContract::v1("completion", "completion-script"),
         _ => output::CliApiContract::v1("rebecca", "command-error"),
     }
@@ -592,6 +607,17 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
         Command::Rules { command } => match command {
             RulesCommand::Validate(_) => {
                 output::CliApiContract::v1("rules validate", "rule-validation")
+            }
+            RulesCommand::Import(_) => output::CliApiContract::v1("rules import", "rule-import"),
+            RulesCommand::List => output::CliApiContract::v1("rules list", "rule-import-list"),
+            RulesCommand::Enable(_) => {
+                output::CliApiContract::v1("rules enable", "rule-import-mutation")
+            }
+            RulesCommand::Disable(_) => {
+                output::CliApiContract::v1("rules disable", "rule-import-mutation")
+            }
+            RulesCommand::Remove(_) => {
+                output::CliApiContract::v1("rules remove", "rule-import-mutation")
             }
         },
         Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),

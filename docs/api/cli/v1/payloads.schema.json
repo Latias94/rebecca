@@ -31,6 +31,9 @@
         "inspect-space",
         "permissions-diagnostic",
         "project-artifact-cleanup-plan",
+        "rule-import",
+        "rule-import-list",
+        "rule-import-mutation",
         "rule-validation",
         "rule-catalog"
       ]
@@ -49,6 +52,12 @@
         "$ref": "#/$defs/nonEmptyString"
       }
     },
+    "stringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
     "capabilities": {
       "type": "object",
       "additionalProperties": false,
@@ -59,6 +68,7 @@
         "features",
         "output_formats",
         "schema_documents",
+        "recommended_startup_commands",
         "commands",
         "long_running_commands",
         "safety_model"
@@ -80,6 +90,9 @@
           "$ref": "#/$defs/nonEmptyStringArray"
         },
         "schema_documents": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "recommended_startup_commands": {
           "$ref": "#/$defs/nonEmptyStringArray"
         },
         "commands": {
@@ -140,7 +153,14 @@
         "payload_kind",
         "machine_readable",
         "ndjson",
-        "mutates_files"
+        "mutates_files",
+        "availability",
+        "platforms",
+        "schema_documents",
+        "preflight_commands",
+        "required_execution_flag",
+        "required_confirmation_flags",
+        "macos_privacy_relevant"
       ],
       "properties": {
         "name": {
@@ -156,6 +176,41 @@
           "type": "boolean"
         },
         "mutates_files": {
+          "type": "boolean"
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "available",
+            "preview-only",
+            "unsupported-platform"
+          ]
+        },
+        "platforms": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "schema_documents": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "preflight_commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "required_execution_flag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required_confirmation_flags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "macos_privacy_relevant": {
           "type": "boolean"
         }
       }
@@ -207,7 +262,9 @@
             "envelope",
             "event",
             "error",
-            "payloads"
+            "payloads",
+            "config",
+            "cleaner-manifest-v1"
           ]
         },
         "media_type": {
@@ -226,6 +283,8 @@
         "schema_version",
         "config_file",
         "loaded_from_file",
+        "summary",
+        "diagnostics",
         "checks"
       ],
       "properties": {
@@ -240,6 +299,15 @@
         },
         "loaded_from_file": {
           "type": "boolean"
+        },
+        "summary": {
+          "$ref": "#/$defs/validationSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationDiagnostic"
+          }
         },
         "checks": {
           "$ref": "#/$defs/nonEmptyStringArray"
@@ -274,6 +342,54 @@
         }
       }
     },
+    "validationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks_passed",
+        "diagnostics"
+      ],
+      "properties": {
+        "checks_passed": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "validationDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "path",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
     "ruleValidation": {
       "type": "object",
       "additionalProperties": false,
@@ -282,11 +398,14 @@
         "enabled",
         "files",
         "discovery",
+        "summary",
+        "diagnostics",
         "rule_count",
         "target_count",
         "platforms",
         "categories",
         "rules",
+        "rule_previews",
         "checks"
       ],
       "properties": {
@@ -297,10 +416,19 @@
           "type": "boolean"
         },
         "files": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
         },
         "discovery": {
           "$ref": "#/$defs/ruleDiscovery"
+        },
+        "summary": {
+          "$ref": "#/$defs/validationSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationDiagnostic"
+          }
         },
         "rule_count": {
           "$ref": "#/$defs/nonNegativeInteger"
@@ -309,13 +437,19 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "platforms": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
         },
         "categories": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
         },
         "rules": {
-          "$ref": "#/$defs/nonEmptyStringArray"
+          "$ref": "#/$defs/stringArray"
+        },
+        "rule_previews": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ruleValidationPreview"
+          }
         },
         "checks": {
           "$ref": "#/$defs/nonEmptyStringArray"
@@ -338,6 +472,165 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "symlink_traversal": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ruleValidationPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "platform",
+        "category",
+        "safety_level",
+        "target_count",
+        "warning_gates",
+        "source",
+        "enabled_by_validation"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "platform": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "category": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "safety_level": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "target_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "warning_gates": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "source": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled_by_validation": {
+          "type": "boolean"
+        }
+      }
+    },
+    "externalRuleEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_id",
+        "source_display_path",
+        "stored_manifest_path",
+        "content_hash",
+        "imported_at_unix_seconds",
+        "enabled",
+        "rule_ids",
+        "platforms"
+      ],
+      "properties": {
+        "import_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source_display_path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "stored_manifest_path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "imported_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rule_ids": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "platforms": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "externalRuleDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "import_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason_code": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "ruleImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "imported"
+      ],
+      "properties": {
+        "imported": {
+          "$ref": "#/$defs/externalRuleEntry"
+        }
+      }
+    },
+    "ruleImportList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store_dir",
+        "entries"
+      ],
+      "properties": {
+        "store_dir": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/externalRuleEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/externalRuleDiagnostic"
+          }
+        }
+      }
+    },
+    "ruleImportMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_id",
+        "enabled",
+        "removed"
+      ],
+      "properties": {
+        "import_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "removed": {
           "type": "boolean"
         }
       }
@@ -478,7 +771,9 @@
         "project-artifact-recently-modified",
         "reclaim-limit-satisfied",
         "scan-failed",
+        "scan-permission-denied",
         "execution-failed",
+        "execution-permission-denied",
         "unclassified"
       ]
     },
@@ -688,6 +983,9 @@
       "required": [
         "status",
         "probes",
+        "action_kind",
+        "full_disk_access_relevant",
+        "affected_cleanup_families",
         "suggested_action"
       ],
       "properties": {
@@ -705,6 +1003,31 @@
           "items": {
             "$ref": "#/$defs/macosPrivacyProbe"
           }
+        },
+        "action_kind": {
+          "type": "string",
+          "enum": [
+            "grant-full-disk-access-if-needed",
+            "continue-preview-first",
+            "review-dry-run",
+            "no-action"
+          ]
+        },
+        "full_disk_access_relevant": {
+          "type": "boolean"
+        },
+        "affected_cleanup_families": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "mail",
+              "messages",
+              "safari",
+              "user-library-cache"
+            ]
+          },
+          "uniqueItems": true
         },
         "suggested_action": {
           "type": "string",

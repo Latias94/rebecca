@@ -18,6 +18,7 @@ use crate::protection::{AppLeftoverPathDisposition, ProtectionPolicy};
 use crate::safety::{
     PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy, is_reparse_like,
 };
+use crate::safety_catalog::default_safety_knowledge_for_platform;
 use crate::scan::ScanCancellationToken;
 
 static CLEANUP_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
@@ -228,7 +229,7 @@ fn recoverable_trash_paths(
     path: &Path,
     deletion_style: CleanupTargetDeletionStyle,
 ) -> Result<Vec<PathBuf>> {
-    let metadata = fs::symlink_metadata(path)?;
+    let metadata = recoverable_delete_candidate_metadata(path, "target")?;
     match deletion_style {
         CleanupTargetDeletionStyle::DeleteWholePath => Ok(vec![path.to_path_buf()]),
         CleanupTargetDeletionStyle::PreserveRootContents => {
@@ -246,16 +247,22 @@ fn preserve_root_delete_paths(path: &Path) -> Result<Vec<PathBuf>> {
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let child = entry.path();
-        let metadata = fs::symlink_metadata(&child)?;
-        if is_reparse_like(&metadata) {
-            return Err(RebeccaError::ExecutionFailed(format!(
-                "preserve-root cleanup refused reparse child {}",
-                child.display()
-            )));
-        }
+        recoverable_delete_candidate_metadata(&child, "child")?;
         entries.push(child);
     }
     Ok(entries)
+}
+
+fn recoverable_delete_candidate_metadata(path: &Path, role: &str) -> Result<fs::Metadata> {
+    let metadata = fs::symlink_metadata(path)?;
+    if is_reparse_like(&metadata) {
+        return Err(RebeccaError::SafetyBlocked(format!(
+            "recoverable trash refused reparse {role} {}",
+            path.display()
+        )));
+    }
+
+    Ok(metadata)
 }
 
 fn reconstruct_or_fallback_after_batch_failure(
@@ -290,7 +297,8 @@ pub fn execute_cleanup_plan<B: CleanupBackend>(
     plan: &mut CleanupPlan,
     backend: &B,
 ) -> Result<ExecutionReport> {
-    execute_cleanup_plan_with_policy(plan, backend, ProtectionPolicy::new())
+    let policy = default_execution_policy(plan);
+    execute_cleanup_plan_with_policy(plan, backend, policy)
 }
 
 pub fn execute_cleanup_plan_with_policy<B: CleanupBackend>(
@@ -310,7 +318,15 @@ pub fn execute_cleanup_plan_parallel<B: CleanupBackend + Sync>(
     plan: &mut CleanupPlan,
     backend: &B,
 ) -> Result<ExecutionReport> {
-    execute_cleanup_plan_parallel_with_policy(plan, backend, ProtectionPolicy::new())
+    let policy = default_execution_policy(plan);
+    execute_cleanup_plan_parallel_with_policy(plan, backend, policy)
+}
+
+fn default_execution_policy(plan: &CleanupPlan) -> ProtectionPolicy<'static> {
+    match default_safety_knowledge_for_platform(plan.request.platform) {
+        Some(safety_knowledge) => ProtectionPolicy::new().with_safety_knowledge(safety_knowledge),
+        None => ProtectionPolicy::new(),
+    }
 }
 
 pub fn execute_cleanup_plan_parallel_with_policy<B: CleanupBackend + Sync>(
@@ -608,13 +624,45 @@ fn apply_delete_result(target: &mut CleanupTarget, outcome: Result<ExecutionOutc
             target.reason = outcome.note;
             target.reason_code = None;
         }
-        Err(err) => {
-            target.status = crate::TargetStatus::Failed;
-            target.reason = Some(err.to_string());
-            target.reason_code = Some(CleanupTargetIssueReason::ExecutionFailed);
-            target.freed_bytes = 0;
-            target.pending_reclaim_bytes = 0;
+        Err(err) => match &err {
+            RebeccaError::SafetyBlocked(_) => {
+                target.status = crate::TargetStatus::Blocked;
+                target.reason = Some(err.to_string());
+                target.reason_code = Some(CleanupTargetIssueReason::SafetyPolicyBlocked);
+                target.freed_bytes = 0;
+                target.pending_reclaim_bytes = 0;
+            }
+            _ => {
+                target.status = crate::TargetStatus::Failed;
+                target.reason = Some(err.to_string());
+                target.reason_code = Some(execution_issue_reason(&err));
+                target.freed_bytes = 0;
+                target.pending_reclaim_bytes = 0;
+            }
+        },
+    }
+}
+
+fn execution_issue_reason(err: &RebeccaError) -> CleanupTargetIssueReason {
+    if matches!(err, RebeccaError::SafetyBlocked(_)) {
+        CleanupTargetIssueReason::SafetyPolicyBlocked
+    } else if is_permission_denied_execution_error(err) {
+        CleanupTargetIssueReason::ExecutionPermissionDenied
+    } else {
+        CleanupTargetIssueReason::ExecutionFailed
+    }
+}
+
+fn is_permission_denied_execution_error(err: &RebeccaError) -> bool {
+    match err {
+        RebeccaError::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => true,
+        RebeccaError::ExecutionFailed(message) => {
+            let normalized = message.to_ascii_lowercase();
+            normalized.contains("permission denied")
+                || normalized.contains("access is denied")
+                || normalized.contains("operation not permitted")
         }
+        _ => false,
     }
 }
 

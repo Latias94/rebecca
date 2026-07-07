@@ -293,6 +293,9 @@ fn issue_resolution_hint(reason_label: &str) -> Option<&'static str> {
         "target-discovery-failed" | "scan-failed" => {
             Some("fix the scan error or narrow the selected rules before executing.")
         }
+        "scan-permission-denied" => Some(
+            "grant the required OS privacy access or run rebecca doctor permissions before retrying.",
+        ),
         "execution-target-missing" => {
             Some("the path disappeared; rerun the preview before executing.")
         }
@@ -306,6 +309,9 @@ fn issue_resolution_hint(reason_label: &str) -> Option<&'static str> {
             Some("raise --reclaim-limit-bytes if more artifacts should be considered.")
         }
         "execution-failed" => Some("review the failure, fix the path or permissions, and rerun."),
+        "execution-permission-denied" => {
+            Some("run rebecca doctor permissions and grant OS privacy access before retrying.")
+        }
         "unclassified" => Some("review target details before executing."),
         _ => None,
     }

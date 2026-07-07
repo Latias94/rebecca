@@ -461,7 +461,7 @@ fn print_machine_success_payload<T: Serialize + ?Sized>(
     }
 }
 
-fn print_machine_success_payload_with_contract<T: Serialize + ?Sized>(
+pub(crate) fn print_machine_success_payload_with_contract<T: Serialize + ?Sized>(
     contract: CliApiContract,
     mode: OutputMode,
     payload: &T,

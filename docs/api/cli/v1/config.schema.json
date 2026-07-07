@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebecca.dev/schemas/cli/v1/config.schema.json",
+  "title": "Rebecca Config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "app_paths": {
+      "$ref": "#/$defs/appPaths"
+    },
+    "scan_cache": {
+      "$ref": "#/$defs/scanCache"
+    },
+    "protection": {
+      "$ref": "#/$defs/protection"
+    },
+    "purge": {
+      "$ref": "#/$defs/purge"
+    }
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pathArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/path"
+      },
+      "uniqueItems": true
+    },
+    "appPaths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state_dir": {
+          "$ref": "#/$defs/path"
+        },
+        "cache_dir": {
+          "$ref": "#/$defs/path"
+        },
+        "history_file": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "scanCache": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory_record_max_age_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protected_paths": {
+          "$ref": "#/$defs/pathArray"
+        }
+      }
+    },
+    "purge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roots": {
+          "$ref": "#/$defs/pathArray"
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_age_days": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

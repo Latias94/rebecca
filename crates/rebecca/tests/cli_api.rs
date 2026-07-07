@@ -38,6 +38,59 @@ fn assert_success_schema(value: &serde_json::Value) {
     assert!(value.get("data").is_some());
 }
 
+fn external_rule_manifest(family_id: &str) -> String {
+    let (platform, target) = if cfg!(target_os = "linux") {
+        ("linux", "%XDG_CACHE_HOME%/pip/RebeccaExternalFixture")
+    } else if cfg!(target_os = "macos") {
+        ("macos", "%MACOS_CACHE_HOME%/pip/RebeccaExternalFixture")
+    } else {
+        ("windows", "%TEMP%\\RebeccaExternalFixture")
+    };
+
+    format!(
+        r#"
+manifest_version = 1
+id = "{family_id}"
+category = "development"
+name = "External cache"
+safety_level = "safe"
+restore_hint = "The external fixture cache can be recreated."
+
+[provenance]
+source = "reference-only"
+license = "example-user-rule"
+notes = "Local user-authored validation fixture; no external rule data copied."
+
+[[platforms]]
+platform = "{platform}"
+
+[[platforms.targets]]
+kind = "template"
+value = "{target}"
+search_kind = "file"
+"#
+    )
+}
+
+fn create_external_rule_target(temp: &tempfile::TempDir) {
+    let target = if cfg!(target_os = "linux") {
+        temp.path()
+            .join("cache")
+            .join("pip")
+            .join("RebeccaExternalFixture")
+    } else if cfg!(target_os = "macos") {
+        temp.path()
+            .join("Library")
+            .join("Caches")
+            .join("pip")
+            .join("RebeccaExternalFixture")
+    } else {
+        temp.path().join("temp").join("RebeccaExternalFixture")
+    };
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("cache.bin"), b"external-cache").unwrap();
+}
+
 fn assert_error_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
     assert_error_shape(value);
@@ -248,10 +301,36 @@ fn capabilities_format_json_reports_gui_backend_contract() {
             .unwrap()
             .contains(&"clean".into())
     );
-    assert!(data["commands"].as_array().unwrap().iter().any(|command| {
+    assert!(
+        data["schema_documents"]
+            .as_array()
+            .unwrap()
+            .contains(&"config".into())
+    );
+    assert!(
+        data["recommended_startup_commands"]
+            .as_array()
+            .unwrap()
+            .contains(&"doctor permissions".into())
+    );
+    let commands = data["commands"].as_array().unwrap();
+    assert!(commands.iter().any(|command| {
         command["name"] == "rules validate"
             && command["payload_kind"] == "rule-validation"
             && command["machine_readable"] == true
+            && command["schema_documents"]
+                .as_array()
+                .unwrap()
+                .contains(&"cleaner-manifest-v1".into())
+    }));
+    assert!(commands.iter().any(|command| {
+        command["name"] == "clean"
+            && command["required_execution_flag"] == "--yes"
+            && command["preflight_commands"]
+                .as_array()
+                .unwrap()
+                .contains(&"doctor permissions".into())
+            && command["macos_privacy_relevant"] == true
     }));
 
     let validator = validator_for_payload_def("capabilities");
@@ -287,6 +366,38 @@ fn schema_export_format_json_returns_requested_schema_document() {
     assert_eq!(
         envelope["data"]["schema"]["$id"],
         "https://rebecca.local/schemas/cli/v1/payloads.schema.json"
+    );
+
+    let validator = validator_for_payload_def("cliSchema");
+    validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn schema_export_format_json_returns_config_schema_document() {
+    let output = common::command::rebecca()
+        .args([
+            "schema",
+            "export",
+            "--document",
+            "config",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
+    assert_eq!(envelope["data"]["document"], "config");
+    assert_eq!(
+        envelope["data"]["schema"]["$id"],
+        "https://rebecca.dev/schemas/cli/v1/config.schema.json"
     );
 
     let validator = validator_for_payload_def("cliSchema");
@@ -350,6 +461,15 @@ search_kind = "file"
     assert_eq!(envelope["data"]["target_count"], 1);
     assert_eq!(envelope["data"]["rules"][0], "macos.example-cache");
     assert_eq!(envelope["data"]["enabled"], false);
+    assert_eq!(envelope["data"]["summary"]["diagnostics"], 0);
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["rule_id"],
+        "macos.example-cache"
+    );
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["enabled_by_validation"],
+        false
+    );
 
     let validator = validator_for_payload_def("ruleValidation");
     validator.validate(&envelope["data"]).unwrap();
@@ -363,16 +483,24 @@ fn rules_validate_format_json_missing_inputs_returns_rule_catalog_error() {
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let envelope = parse_json(&output.stderr);
-    assert_error_schema(&envelope);
+    assert!(output.stderr.is_empty());
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
     assert_eq!(envelope["command"], "rules validate");
-    assert_eq!(envelope["error"]["code"], "rule-catalog-invalid");
+    assert_eq!(envelope["payload_kind"], "rule-validation");
+    assert_eq!(envelope["data"]["valid"], false);
+    assert_eq!(
+        envelope["data"]["diagnostics"][0]["code"],
+        "rule-catalog-invalid"
+    );
     assert!(
-        envelope["error"]["detail"]
+        envelope["data"]["diagnostics"][0]["message"]
             .as_str()
             .is_some_and(|detail| detail.contains("at least one --file or --dir"))
     );
+
+    let validator = validator_for_payload_def("ruleValidation");
+    validator.validate(&envelope["data"]).unwrap();
 }
 
 #[cfg(unix)]
@@ -456,6 +584,15 @@ value = "MACOS_HOME/.ssh"
     assert_success_schema(&envelope);
     assert_eq!(envelope["data"]["rule_count"], 1);
     assert_eq!(envelope["data"]["rules"][0], "macos.example-cache");
+    assert_eq!(envelope["data"]["summary"]["diagnostics"], 0);
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["rule_id"],
+        "macos.example-cache"
+    );
+    assert_eq!(
+        envelope["data"]["rule_previews"][0]["enabled_by_validation"],
+        false
+    );
 }
 
 #[test]
@@ -500,16 +637,147 @@ value = "MACOS_HOME/.ssh"
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let envelope = parse_json(&output.stderr);
-    assert_error_schema(&envelope);
+    assert!(output.stderr.is_empty());
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
     assert_eq!(envelope["command"], "rules validate");
-    assert_eq!(envelope["error"]["code"], "rule-catalog-invalid");
+    assert_eq!(envelope["payload_kind"], "rule-validation");
+    assert_eq!(envelope["data"]["valid"], false);
+    assert_eq!(
+        envelope["data"]["diagnostics"][0]["code"],
+        "rule-catalog-invalid"
+    );
     assert!(
-        envelope["error"]["detail"]
+        envelope["data"]["diagnostics"][0]["message"]
             .as_str()
             .is_some_and(|detail| detail.contains("blocked by credentials"))
     );
+
+    let validator = validator_for_payload_def("ruleValidation");
+    validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn rules_import_lifecycle_is_disabled_by_default_and_feeds_clean_when_enabled() {
+    let temp = tempfile::tempdir().unwrap();
+    let rule_file = temp.path().join("external-cache.toml");
+    std::fs::write(&rule_file, external_rule_manifest("external-cache")).unwrap();
+    create_external_rule_target(&temp);
+
+    let import = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "rules",
+            "import",
+            "--format",
+            "json",
+            "--file",
+            rule_file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        import.status.success(),
+        "stderr: {}",
+        common::support::stderr(&import)
+    );
+    let import_envelope = common::support::api_envelope(&import.stdout);
+    assert_eq!(import_envelope["payload_kind"], "rule-import");
+    assert_eq!(import_envelope["data"]["imported"]["enabled"], false);
+    let import_id = import_envelope["data"]["imported"]["import_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rule_id = common::support::current_platform_rule_id("external-cache");
+    assert_eq!(import_envelope["data"]["imported"]["rule_ids"][0], rule_id);
+
+    let disabled_clean = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--no-scan-cache",
+            "--rule",
+            &rule_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(!disabled_clean.status.success());
+
+    let enable = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "enable", "--format", "json", &import_id])
+        .output()
+        .unwrap();
+    assert!(
+        enable.status.success(),
+        "stderr: {}",
+        common::support::stderr(&enable)
+    );
+    let enable_envelope = common::support::api_envelope(&enable.stdout);
+    assert_eq!(enable_envelope["payload_kind"], "rule-import-mutation");
+    assert_eq!(enable_envelope["data"]["enabled"], true);
+
+    let list = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "list", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        list.status.success(),
+        "stderr: {}",
+        common::support::stderr(&list)
+    );
+    let list_envelope = common::support::api_envelope(&list.stdout);
+    assert_eq!(list_envelope["payload_kind"], "rule-import-list");
+    assert_eq!(list_envelope["data"]["entries"][0]["enabled"], true);
+
+    let enabled_clean = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--no-scan-cache",
+            "--rule",
+            &rule_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        enabled_clean.status.success(),
+        "stderr: {}",
+        common::support::stderr(&enabled_clean)
+    );
+    let clean_envelope = common::support::api_envelope(&enabled_clean.stdout);
+    assert!(
+        clean_envelope["data"]["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|target| target["rule_id"] == rule_id && target["status"] == "allowed")
+    );
+
+    let disable = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "disable", "--format", "json", &import_id])
+        .output()
+        .unwrap();
+    assert!(disable.status.success());
+    let disable_envelope = common::support::api_envelope(&disable.stdout);
+    assert_eq!(disable_envelope["data"]["enabled"], false);
+
+    let remove = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "remove", "--format", "json", &import_id])
+        .output()
+        .unwrap();
+    assert!(remove.status.success());
+    let remove_envelope = common::support::api_envelope(&remove.stdout);
+    assert_eq!(remove_envelope["data"]["removed"], true);
+
+    let validator = validator_for_payload_def("ruleImport");
+    validator.validate(&import_envelope["data"]).unwrap();
+    let validator = validator_for_payload_def("ruleImportList");
+    validator.validate(&list_envelope["data"]).unwrap();
+    let validator = validator_for_payload_def("ruleImportMutation");
+    validator.validate(&remove_envelope["data"]).unwrap();
 }
 
 #[test]
@@ -532,6 +800,13 @@ fn config_validate_format_json_reports_effective_config_contract() {
     assert_eq!(envelope["payload_kind"], "config-validation");
     assert_eq!(envelope["data"]["valid"], true);
     assert_eq!(envelope["data"]["schema_version"], 1);
+    assert_eq!(envelope["data"]["summary"]["diagnostics"], 0);
+    assert!(
+        envelope["data"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 
     let validator = validator_for_payload_def("configValidation");
     validator.validate(&envelope["data"]).unwrap();
@@ -554,11 +829,19 @@ fn config_validate_format_json_missing_explicit_file_returns_read_error() {
         .unwrap();
 
     assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let envelope = parse_json(&output.stderr);
-    assert_error_schema(&envelope);
+    assert!(output.stderr.is_empty());
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_success_schema(&envelope);
     assert_eq!(envelope["command"], "config validate");
-    assert_eq!(envelope["error"]["code"], "config-read-failed");
+    assert_eq!(envelope["payload_kind"], "config-validation");
+    assert_eq!(envelope["data"]["valid"], false);
+    assert_eq!(
+        envelope["data"]["diagnostics"][0]["code"],
+        "config-read-failed"
+    );
+
+    let validator = validator_for_payload_def("configValidation");
+    validator.validate(&envelope["data"]).unwrap();
 }
 
 #[test]
@@ -986,6 +1269,17 @@ fn doctor_permissions_format_json_returns_diagnostic_payload() {
         let macos_privacy = envelope["data"]["macos_privacy"].as_object().unwrap();
         assert!(macos_privacy["status"].as_str().is_some());
         assert!(macos_privacy["probes"].as_array().is_some());
+        assert!(macos_privacy["action_kind"].as_str().is_some());
+        assert!(
+            macos_privacy["full_disk_access_relevant"]
+                .as_bool()
+                .is_some()
+        );
+        assert!(
+            macos_privacy["affected_cleanup_families"]
+                .as_array()
+                .is_some()
+        );
         assert!(macos_privacy["suggested_action"].as_str().is_some());
     } else {
         assert!(envelope["data"].get("macos_privacy").is_none());
@@ -1039,6 +1333,8 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         "error.schema.json",
         "event.schema.json",
         "payloads.schema.json",
+        "config.schema.json",
+        "cleaner-manifest-v1.schema.json",
     ] {
         let schema = read_doc_json(relative);
         assert_eq!(
@@ -1073,6 +1369,9 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"cli-schema"));
     assert!(payload_kinds.contains(&"config-validation"));
     assert!(payload_kinds.contains(&"config-view"));
+    assert!(payload_kinds.contains(&"rule-import"));
+    assert!(payload_kinds.contains(&"rule-import-list"));
+    assert!(payload_kinds.contains(&"rule-import-mutation"));
     assert!(payload_kinds.contains(&"rule-validation"));
     assert!(payload_kinds.contains(&"catalog"));
     assert!(payload_kinds.contains(&"catalog-validation"));
@@ -1091,6 +1390,9 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert_eq!(payloads["$defs"]["cliSchema"]["type"], "object");
     assert_eq!(payloads["$defs"]["configValidation"]["type"], "object");
     assert_eq!(payloads["$defs"]["configView"]["type"], "object");
+    assert_eq!(payloads["$defs"]["ruleImport"]["type"], "object");
+    assert_eq!(payloads["$defs"]["ruleImportList"]["type"], "object");
+    assert_eq!(payloads["$defs"]["ruleImportMutation"]["type"], "object");
     assert_eq!(payloads["$defs"]["ruleValidation"]["type"], "object");
     let catalog_item = &payloads["$defs"]["catalogItem"];
     assert_eq!(catalog_item["oneOf"].as_array().unwrap().len(), 5);

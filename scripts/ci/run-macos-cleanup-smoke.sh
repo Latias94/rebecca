@@ -30,7 +30,13 @@ macos_application_support_home="$HOME/Library/Application Support"
 
 mkdir -p \
   "$macos_cache_home/pip" \
+  "$macos_cache_home/Homebrew/downloads" \
+  "$macos_cache_home/Homebrew/api" \
+  "$macos_cache_home/CocoaPods" \
+  "$macos_cache_home/com.apple.dt.Xcode" \
   "$macos_cache_home/Firefox/Profiles/profile.default/cache2" \
+  "$HOME/Library/Developer/Xcode/DerivedData/Rebecca-smoke/Build" \
+  "$HOME/Library/Developer/Xcode/Archives/2026-07-07/Rebecca.xcarchive" \
   "$macos_application_support_home/Google/Chrome/Default/Cache" \
   "$macos_application_support_home/Slack/Cache" \
   "$TMPDIR" \
@@ -39,6 +45,12 @@ mkdir -p \
   "$REBECCA_CACHE_DIR"
 
 printf 'pip-cache\n' > "$macos_cache_home/pip/http-cache.bin"
+printf 'brew-cache\n' > "$macos_cache_home/Homebrew/downloads/bottle.tar.gz"
+printf 'brew-api\n' > "$macos_cache_home/Homebrew/api/formula.json"
+printf 'pods-cache\n' > "$macos_cache_home/CocoaPods/pod.zip"
+printf 'xcode-cache\n' > "$macos_cache_home/com.apple.dt.Xcode/cache.db"
+printf 'derived-data\n' > "$HOME/Library/Developer/Xcode/DerivedData/Rebecca-smoke/Build/cache.bin"
+printf 'archive-keep\n' > "$HOME/Library/Developer/Xcode/Archives/2026-07-07/Rebecca.xcarchive/Info.plist"
 printf 'chrome-cache\n' > "$macos_application_support_home/Google/Chrome/Default/Cache/data.bin"
 printf 'firefox-cache\n' > "$macos_cache_home/Firefox/Profiles/profile.default/cache2/data.bin"
 printf 'slack-cache\n' > "$macos_application_support_home/Slack/Cache/data.bin"
@@ -59,6 +71,9 @@ assert all(rule["platform"] == "macos" for rule in rules), ids
 for required in {
     "macos.user-temp",
     "macos.pip-cache",
+    "macos.homebrew-cache",
+    "macos.cocoapods-cache",
+    "macos.xcode-cache",
     "macos.chrome-cache",
     "macos.firefox-profile-cache",
     "macos.slack-cache",
@@ -90,6 +105,43 @@ data = payload["data"]
 assert data["request"]["platform"] == "macos"
 assert data["summary"]["allowed_targets"] >= 1, data["summary"]
 assert any(target["rule_id"] == "macos.pip-cache" for target in data["targets"])
+PY
+
+"$rebecca_bin" clean --dry-run --format json --no-scan-cache \
+  --rule macos.homebrew-cache \
+  --rule macos.cocoapods-cache \
+  --rule macos.xcode-cache \
+  --allow-moderate \
+  --allow-warning active-process \
+  --allow-warning permission-sensitive > "$tmp/developer-clean.json"
+python3 - "$tmp/developer-clean.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+data = payload["data"]
+targets = data["targets"]
+paths = [target["path"] for target in targets]
+assert data["request"]["platform"] == "macos"
+assert data["summary"]["allowed_targets"] >= 5, data["summary"]
+for required in {
+    "macos.homebrew-cache",
+    "macos.cocoapods-cache",
+    "macos.xcode-cache",
+}:
+    assert any(target["rule_id"] == required for target in targets), f"missing {required}: {targets}"
+for required_suffix in {
+    "/Library/Caches/Homebrew/downloads",
+    "/Library/Caches/Homebrew/api",
+    "/Library/Caches/CocoaPods",
+    "/Library/Caches/com.apple.dt.Xcode",
+    "/Library/Developer/Xcode/DerivedData",
+}:
+    assert any(path.endswith(required_suffix) or required_suffix in path for path in paths), (
+        required_suffix,
+        paths,
+    )
+assert not any("/Library/Developer/Xcode/Archives" in path for path in paths), paths
 PY
 
 "$rebecca_bin" clean --dry-run --format ndjson --no-scan-cache \
@@ -130,6 +182,18 @@ assert data["platform"] == "macos"
 assert data["platform_supported"] is True
 assert data["cleanup_execution_supported"] is True
 assert data["privilege_level"] in {"standard-user", "elevated", "unknown"}
+privacy = data["macos_privacy"]
+assert privacy["status"] in {"likely-blocked", "no-block-detected", "not-probed", "unknown"}
+assert privacy["action_kind"] in {
+    "grant-full-disk-access-if-needed",
+    "continue-preview-first",
+    "review-dry-run",
+    "no-action",
+}
+assert isinstance(privacy["full_disk_access_relevant"], bool)
+assert isinstance(privacy["affected_cleanup_families"], list)
+assert isinstance(privacy["probes"], list)
+assert privacy["suggested_action"]
 PY
 
 REBECCA_ACTIVE_PROCESSES="firefox:4242;Google Chrome:4243;Slack:4244;zoom.us:4245" \

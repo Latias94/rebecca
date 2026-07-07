@@ -76,6 +76,9 @@ const BUILTIN_RULE_FILES: &[(&str, &str)] = builtin_rule_files!(
     "rules/cleanup/corepack-cache.toml",
     "rules/cleanup/gradle-cache.toml",
     "rules/cleanup/android-cache.toml",
+    "rules/cleanup/homebrew-cache.toml",
+    "rules/cleanup/cocoapods-cache.toml",
+    "rules/cleanup/xcode-cache.toml",
     "rules/cleanup/nuget-cache.toml",
     "rules/cleanup/maven-cache.toml",
     "rules/cleanup/pip-cache.toml",
@@ -980,6 +983,7 @@ fn has_positive_cleanup_basis(raw: &str) -> bool {
         "artistalbum",
         "xet",
         "prefetch",
+        "deriveddata",
     ]
     .contains(&leaf)
     {
@@ -1624,6 +1628,11 @@ mod tests {
     fn builtin_catalog_accepts_macos_cache_leaves_and_rejects_private_data() {
         for target in [
             RuleTargetSpec::template("%MACOS_CACHE_HOME%/pip"),
+            RuleTargetSpec::template("%HOME%/Library/Caches/Homebrew/downloads"),
+            RuleTargetSpec::template("%MACOS_CACHE_HOME%/CocoaPods"),
+            RuleTargetSpec::template("%HOME%/Library/Developer/Xcode/DerivedData"),
+            RuleTargetSpec::template("%MACOS_CACHE_HOME%/com.apple.dt.Xcode"),
+            RuleTargetSpec::template("%MACOS_CACHE_HOME%/org.swift.swiftpm"),
             RuleTargetSpec::template("%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Cache"),
             RuleTargetSpec::template(
                 "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/Cache",
@@ -1640,6 +1649,9 @@ mod tests {
                 "%MACOS_APPLICATION_SUPPORT_HOME%/Google/Chrome/Default/History",
             ),
             RuleTargetSpec::template("%MACOS_APPLICATION_SUPPORT_HOME%/Slack/Local Storage"),
+            RuleTargetSpec::template("%HOME%/Library/Developer/Xcode/Archives"),
+            RuleTargetSpec::template("%HOME%/Library/Developer/Xcode/iOS DeviceSupport"),
+            RuleTargetSpec::template("%HOME%/Library/MobileDevice/Provisioning Profiles"),
             RuleTargetSpec::template("%HOME%/Library/Safari/History.db"),
             RuleTargetSpec::template("%HOME%/Library/Keychains/login.keychain-db"),
         ] {
@@ -1738,6 +1750,7 @@ mod tests {
             "macos.ccache-cache",
             "macos.chrome-cache",
             "macos.chromium-cache",
+            "macos.cocoapods-cache",
             "macos.conda-cache",
             "macos.corepack-cache",
             "macos.discord-cache",
@@ -1747,6 +1760,7 @@ mod tests {
             "macos.go-build-cache",
             "macos.go-module-cache",
             "macos.gradle-cache",
+            "macos.homebrew-cache",
             "macos.huggingface-cache",
             "macos.jetbrains-cache",
             "macos.maven-cache",
@@ -1768,6 +1782,7 @@ mod tests {
             "macos.vlc-cache",
             "macos.vscode-cache",
             "macos.waterfox-cache",
+            "macos.xcode-cache",
             "macos.yarn-cache",
             "macos.zen-browser-cache",
             "macos.zoom-logs",

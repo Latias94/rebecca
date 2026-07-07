@@ -9,6 +9,11 @@
     "schema_version": 1,
     "config_file": "/Users/example/Library/Application Support/Rebecca/config.toml",
     "loaded_from_file": false,
+    "summary": {
+      "checks_passed": 3,
+      "diagnostics": 0
+    },
+    "diagnostics": [],
     "checks": [
       "config file is readable when present",
       "TOML shape matches Rebecca config schema",

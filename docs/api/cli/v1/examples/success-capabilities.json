@@ -25,7 +25,20 @@
       "envelope",
       "event",
       "error",
-      "payloads"
+      "payloads",
+      "config",
+      "cleaner-manifest-v1"
+    ],
+    "recommended_startup_commands": [
+      "capabilities",
+      "schema export --document payloads",
+      "schema export --document config",
+      "schema export --document cleaner-manifest-v1",
+      "doctor permissions",
+      "doctor active-processes",
+      "catalog --kind cleanup-rule --platform current",
+      "config show",
+      "config paths"
     ],
     "commands": [
       {
@@ -33,21 +46,72 @@
         "payload_kind": "capabilities",
         "machine_readable": true,
         "ndjson": false,
-        "mutates_files": false
+        "mutates_files": false,
+        "availability": "available",
+        "platforms": [
+          "windows",
+          "linux",
+          "macos"
+        ],
+        "schema_documents": [
+          "payloads"
+        ],
+        "preflight_commands": [],
+        "required_execution_flag": null,
+        "required_confirmation_flags": [],
+        "macos_privacy_relevant": false
       },
       {
         "name": "rules validate",
         "payload_kind": "rule-validation",
         "machine_readable": true,
         "ndjson": false,
-        "mutates_files": false
+        "mutates_files": false,
+        "availability": "available",
+        "platforms": [
+          "windows",
+          "linux",
+          "macos"
+        ],
+        "schema_documents": [
+          "payloads",
+          "cleaner-manifest-v1"
+        ],
+        "preflight_commands": [],
+        "required_execution_flag": null,
+        "required_confirmation_flags": [],
+        "macos_privacy_relevant": false
       },
       {
         "name": "clean",
         "payload_kind": "cleanup-plan",
         "machine_readable": true,
         "ndjson": true,
-        "mutates_files": true
+        "mutates_files": true,
+        "availability": "available",
+        "platforms": [
+          "windows",
+          "linux",
+          "macos"
+        ],
+        "schema_documents": [
+          "payloads",
+          "config",
+          "cleaner-manifest-v1"
+        ],
+        "preflight_commands": [
+          "doctor permissions",
+          "doctor active-processes",
+          "catalog --kind cleanup-rule --platform macos",
+          "config show"
+        ],
+        "required_execution_flag": "--yes",
+        "required_confirmation_flags": [
+          "--allow-moderate",
+          "--allow-risky",
+          "--allow-warning"
+        ],
+        "macos_privacy_relevant": true
       }
     ],
     "long_running_commands": [
