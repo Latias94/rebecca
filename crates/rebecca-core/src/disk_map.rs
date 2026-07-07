@@ -531,7 +531,7 @@ impl DiskMapInspectionState {
         self.report
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     fn backend_options(&self, request: &DiskMapRequest) -> DiskMapBackendOptions {
         DiskMapBackendOptions {
             top_limit: request.top_limit,
@@ -574,7 +574,7 @@ impl DiskMapDiagnostics {
         self.push_with_priority(diagnostic, true);
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     fn extend(&mut self, diagnostics: Vec<DiskMapDiagnostic>) {
         for diagnostic in diagnostics {
             self.push(diagnostic);
@@ -855,15 +855,6 @@ pub(crate) struct DiskMapFileIdentity {
     file_index: u64,
 }
 
-impl DiskMapFileIdentity {
-    pub(crate) const fn new(volume_serial_number: u64, file_index: u64) -> Self {
-        Self {
-            volume_serial_number,
-            file_index,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct DiskMapMetadataSemantics {
     compressed: bool,
@@ -874,13 +865,6 @@ pub(crate) struct DiskMapMetadataSemantics {
 }
 
 impl DiskMapMetadataSemantics {
-    pub(crate) fn with_file_identity(file_identity: DiskMapFileIdentity) -> Self {
-        Self {
-            file_identity: Some(file_identity),
-            ..Self::default()
-        }
-    }
-
     fn with_reparse_like(mut self) -> Self {
         self.reparse_like = true;
         self
@@ -917,7 +901,7 @@ impl Default for DiskMapUniqueFiles {
 }
 
 impl DiskMapUniqueFiles {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     fn unavailable_for_files(files: u64) -> Self {
         Self {
             unidentified_files: files,
@@ -1042,7 +1026,7 @@ impl DiskMapGroupAccumulator {
         self.unique_files.apply_to_metrics(&mut self.metrics);
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     fn merge(&mut self, other: Self) {
         self.metrics.add(other.metrics);
         self.unique_files.merge(other.unique_files);
@@ -1086,7 +1070,7 @@ impl DiskMapGroupCollector {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     pub(crate) fn now(&self) -> SystemTime {
         self.now
     }
@@ -1140,7 +1124,7 @@ impl DiskMapGroupCollector {
         accumulator.metrics.directories = accumulator.metrics.directories.saturating_add(1);
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     pub(crate) fn merge(&mut self, other: Self) {
         for (map_key, accumulator) in other.groups {
             match self.groups.entry(map_key) {
@@ -1413,10 +1397,13 @@ fn portable_metadata_semantics(metadata: &std::fs::Metadata) -> DiskMapMetadataS
     }
 
     let allocated_len = portable_allocated_len(metadata);
-    let mut semantics = DiskMapMetadataSemantics::with_file_identity(DiskMapFileIdentity::new(
-        metadata.dev(),
-        metadata.ino(),
-    ));
+    let mut semantics = DiskMapMetadataSemantics {
+        file_identity: Some(DiskMapFileIdentity {
+            volume_serial_number: metadata.dev(),
+            file_index: metadata.ino(),
+        }),
+        ..DiskMapMetadataSemantics::default()
+    };
     semantics.sparse = allocated_len.is_some_and(|allocated| allocated < metadata.len());
     semantics.hardlink_count = Some(metadata.nlink().min(u64::from(u32::MAX)) as u32);
     semantics
@@ -1947,7 +1934,7 @@ fn inspect_root<F>(
 where
     F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
 {
-    #[cfg(not(windows))]
+    #[cfg(not(all(windows, feature = "ntfs")))]
     let _ = scan_engine;
 
     let walker = FsPortableDiskMapWalker;
@@ -2131,7 +2118,7 @@ where
     )))
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 fn push_backend_root(
     root: &Path,
     root_map: DiskMapBackendRoot,
@@ -2333,7 +2320,7 @@ fn push_root_skip(
     diagnostics.push_priority(DiskMapDiagnostic::new(kind, root.to_path_buf(), detail));
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 pub(crate) struct DiskMapBackendRoot {
     pub(crate) metrics: DiskMapMetrics,
     pub(crate) top_entries: Vec<DiskMapEntry>,
@@ -2342,7 +2329,7 @@ pub(crate) struct DiskMapBackendRoot {
     pub(crate) estimate_provenance: EstimateProvenance,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 #[derive(Debug, Clone)]
 pub(crate) struct DiskMapBackendOptions {
     pub(crate) top_limit: usize,
@@ -2355,7 +2342,7 @@ pub(crate) struct DiskMapBackendOptions {
     pub(crate) group_sort: DiskMapSortField,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 impl DiskMapBackendOptions {
     pub(crate) fn group_collector(&self) -> DiskMapGroupCollector {
         DiskMapGroupCollector::new(
