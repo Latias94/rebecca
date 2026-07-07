@@ -72,9 +72,19 @@ pub fn expand_template(template: &PathTemplate, env: &impl Environment) -> Resul
         expanded.push_str(&os_str_to_lossy(&value));
     }
 
-    Ok(Some(PathBuf::from(expanded)))
+    Ok(Some(PathBuf::from(normalize_template_separators(
+        &expanded,
+    ))))
 }
 
 fn os_str_to_lossy(value: &OsStr) -> String {
     value.to_string_lossy().into_owned()
+}
+
+fn normalize_template_separators(value: &str) -> String {
+    if std::path::MAIN_SEPARATOR == '\\' {
+        value.replace('/', "\\")
+    } else {
+        value.replace('\\', "/")
+    }
 }

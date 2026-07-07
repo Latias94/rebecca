@@ -16,7 +16,12 @@ fn scan_human_output_uses_lowercase_safety_labels() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("  - windows.npm-cache [moderate] npm cache"));
+    let expected_rule_id = if cfg!(target_os = "linux") {
+        "linux.npm-cache"
+    } else {
+        "windows.npm-cache"
+    };
+    assert!(stdout.contains(&format!("  - {expected_rule_id} [moderate] npm cache")));
 }
 
 #[test]

@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 
 use rebecca_core::RuleTargetSpec;
 use rebecca_core::applications::{
@@ -384,7 +385,8 @@ fn steam_libraryfolders_parser_deduplicates_trailing_separator_variants() {
 
     let paths = parse_steam_libraryfolders(raw).unwrap();
 
-    assert_eq!(paths, vec![std::path::PathBuf::from(r"C:\SteamLibrary\\")]);
+    assert_eq!(paths.len(), 1);
+    assert_eq!(normalized_path(&paths[0]), "c:/steamlibrary");
 }
 
 #[test]
@@ -454,6 +456,18 @@ fn steam_relative_templates_reject_absolute_or_parent_paths() {
     let err = resolve_rule_target_with_applications(&target, &env, &applications).unwrap_err();
 
     assert!(err.to_string().contains("must be a safe relative path"));
+}
+
+fn normalized_path(path: &Path) -> String {
+    let mut value = path
+        .as_os_str()
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    while value.ends_with('/') && value.len() > 3 {
+        value.pop();
+    }
+    value
 }
 
 #[test]

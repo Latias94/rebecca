@@ -584,7 +584,12 @@ fn batch_executable_targets(targets: &[CleanupTarget]) -> Vec<Vec<usize>> {
 }
 
 fn path_depth(path: &std::path::Path) -> usize {
-    path.components().count()
+    path.as_os_str()
+        .to_string_lossy()
+        .replace('\\', "/")
+        .split('/')
+        .filter(|component| !component.is_empty() && *component != ".")
+        .count()
 }
 
 pub fn cleanup_parallelism_budget() -> usize {

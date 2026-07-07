@@ -1,4 +1,4 @@
-use std::path::{Component, Path};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PathRelation {
@@ -43,27 +43,44 @@ pub(crate) fn path_relation(left: &Path, right: &Path) -> PathRelation {
 }
 
 fn comparable_components(path: &Path) -> Vec<String> {
-    path.components()
-        .filter_map(|component| match component {
-            Component::Prefix(prefix) => Some(prefix.as_os_str().to_string_lossy().into_owned()),
-            Component::RootDir => Some(std::path::MAIN_SEPARATOR.to_string()),
-            Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
-            Component::ParentDir => Some("..".to_string()),
-            Component::CurDir => None,
-        })
-        .map(|component| {
-            if cfg!(windows) {
-                component.to_ascii_lowercase()
-            } else {
-                component
-            }
-        })
-        .collect()
+    let raw = path.as_os_str().to_string_lossy();
+    let windows_like = cfg!(windows) || raw.contains('\\') || has_drive_prefix(&raw);
+    let normalized = raw.replace('\\', "/");
+    let mut cursor = normalized.as_str();
+    let mut components = Vec::new();
+
+    if has_drive_prefix(cursor) {
+        components.push(cursor[..2].to_string());
+        cursor = &cursor[2..];
+    }
+
+    if cursor.starts_with('/') {
+        components.push("/".to_string());
+        cursor = cursor.trim_start_matches('/');
+    }
+
+    components.extend(cursor.split('/').filter_map(|component| match component {
+        "" | "." => None,
+        value => Some(value.to_string()),
+    }));
+
+    if windows_like {
+        components
+            .into_iter()
+            .map(|component| component.to_ascii_lowercase())
+            .collect()
+    } else {
+        components
+    }
+}
+
+fn has_drive_prefix(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
     use std::path::Path;
 
     use super::{PathRelation, path_relation, paths_overlap};
@@ -95,9 +112,8 @@ mod tests {
         );
     }
 
-    #[cfg(windows)]
     #[test]
-    fn compares_windows_paths_case_insensitively() {
+    fn compares_windows_like_paths_case_insensitively() {
         assert!(paths_overlap(
             Path::new(r"C:\Users\Alice\AppData\Local\Rebecca"),
             Path::new(r"c:\users\alice\appdata\local\rebecca\cache"),

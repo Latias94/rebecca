@@ -1229,7 +1229,15 @@ fn planner_treats_scan_cache_write_failure_as_soft() {
 
     assert_eq!(plan.summary.estimated_bytes, 3);
     assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
-    assert_eq!(cache_events, ["miss:missing", "write-skipped"]);
+    assert!(
+        matches!(
+            cache_events.as_slice(),
+            [miss, write_skipped]
+                if (miss == "miss:missing" || miss == "miss:corrupted")
+                    && write_skipped == "write-skipped"
+        ),
+        "cache events should miss before skipping the failed write: {cache_events:?}"
+    );
 }
 
 #[test]

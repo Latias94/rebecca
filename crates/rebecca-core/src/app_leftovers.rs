@@ -298,29 +298,35 @@ mod tests {
         let candidates = derive_app_leftover_candidates(&[app], &env);
         let paths = candidates
             .iter()
-            .map(|candidate| candidate.path.as_os_str().to_string_lossy().into_owned())
+            .map(|candidate| {
+                candidate
+                    .path
+                    .as_os_str()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(paths.len(), 4);
         assert!(
             paths
                 .iter()
-                .any(|path| path.ends_with(r"AppData\Local\Example App\Cache"))
+                .any(|path| path.ends_with("AppData/Local/Example App/Cache"))
         );
         assert!(
             paths
                 .iter()
-                .any(|path| path.ends_with(r"AppData\Local\Example App\Code Cache"))
+                .any(|path| path.ends_with("AppData/Local/Example App/Code Cache"))
         );
         assert!(
             paths
                 .iter()
-                .any(|path| path.ends_with(r"AppData\Roaming\Example App\Cache"))
+                .any(|path| path.ends_with("AppData/Roaming/Example App/Cache"))
         );
         assert!(
             paths
                 .iter()
-                .any(|path| path.ends_with(r"AppData\LocalLow\Example App\Cache"))
+                .any(|path| path.ends_with("AppData/LocalLow/Example App/Cache"))
         );
     }
 

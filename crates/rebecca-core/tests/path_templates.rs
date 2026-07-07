@@ -18,6 +18,21 @@ fn expands_percent_variables_from_injected_environment() {
 }
 
 #[test]
+fn expands_backslash_separators_as_native_path_segments() {
+    let env = MapEnvironment::new().with_var("LOCALAPPDATA", "C:/Users/Alice/AppData/Local");
+    let template = PathTemplate::new("%LOCALAPPDATA%\\npm-cache\\_cacache");
+
+    let path = expand_template(&template, &env)
+        .expect("template should expand")
+        .expect("variable should be present");
+
+    assert_eq!(
+        normalized(path),
+        "C:/Users/Alice/AppData/Local/npm-cache/_cacache"
+    );
+}
+
+#[test]
 fn missing_variable_returns_no_candidate() {
     let env = MapEnvironment::new();
     let template = PathTemplate::new("%LOCALAPPDATA%/Temp");
