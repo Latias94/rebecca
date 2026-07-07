@@ -1,10 +1,54 @@
-#![cfg(windows)]
-
+use std::ffi::OsString;
 use std::fs;
+use std::path::{Path, PathBuf};
 
-use rebecca_core::executor::{CleanupBackend, RecoverableTrashBackend};
+use rebecca_core::executor::{CleanupBackend, RecoverableTrashAdapter, RecoverableTrashBackend};
 use rebecca_core::plan::{CleanupTarget, CleanupTargetDeletionStyle};
 use rebecca_core::{DeleteMode, Result};
+
+#[derive(Debug, Clone)]
+struct DirectoryMoveTrashAdapter {
+    trash_dir: PathBuf,
+}
+
+impl RecoverableTrashAdapter for DirectoryMoveTrashAdapter {
+    fn delete_paths(&self, paths: &[PathBuf]) -> Result<()> {
+        fs::create_dir_all(&self.trash_dir)?;
+        for path in paths {
+            if matches!(path.try_exists(), Ok(false)) {
+                continue;
+            }
+            let destination = unique_trash_destination(&self.trash_dir, path);
+            fs::rename(path, destination)?;
+        }
+        Ok(())
+    }
+}
+
+fn recoverable_backend(temp: &tempfile::TempDir) -> RecoverableTrashBackend {
+    RecoverableTrashBackend::with_adapter(DirectoryMoveTrashAdapter {
+        trash_dir: temp.path().join("recoverable-trash"),
+    })
+}
+
+fn unique_trash_destination(trash_dir: &Path, path: &Path) -> PathBuf {
+    let base_name = path
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_else(|| OsString::from("entry"));
+    let process_id = std::process::id();
+
+    for index in 0.. {
+        let mut name = base_name.clone();
+        name.push(format!(".{process_id}.{index}"));
+        let destination = trash_dir.join(name);
+        if !destination.exists() {
+            return destination;
+        }
+    }
+
+    unreachable!("unbounded unique trash destination search should return")
+}
 
 #[test]
 fn recoverable_trash_backend_moves_file_when_supported() -> Result<()> {
@@ -13,12 +57,12 @@ fn recoverable_trash_backend_moves_file_when_supported() -> Result<()> {
     fs::write(&file, b"trash")?;
 
     let target = CleanupTarget::allowed(
-        "windows.user-temp",
+        "test.user-temp",
         file.clone(),
         5,
         DeleteMode::RecoverableDelete,
     );
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_backend(&temp);
     let outcome = backend.delete(&target)?;
 
     assert_eq!(outcome.pending_reclaim_bytes, 5);
@@ -36,12 +80,12 @@ fn recoverable_trash_backend_preserves_target_directory() -> Result<()> {
     fs::write(&child, b"trash")?;
 
     let target = CleanupTarget::allowed(
-        "windows.user-temp",
+        "test.user-temp",
         cache.clone(),
         5,
         DeleteMode::RecoverableDelete,
     );
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_backend(&temp);
     let outcome = backend.delete(&target)?;
 
     assert_eq!(outcome.pending_reclaim_bytes, 5);
@@ -61,12 +105,12 @@ fn recoverable_trash_backend_preserves_target_directory_after_batching_multiple_
     fs::write(cache.join("nested").join("entry-c.tmp"), b"trash")?;
 
     let target = CleanupTarget::allowed(
-        "windows.user-temp",
+        "test.user-temp",
         cache.clone(),
         15,
         DeleteMode::RecoverableDelete,
     );
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_backend(&temp);
     let outcome = backend.delete(&target)?;
 
     assert_eq!(outcome.pending_reclaim_bytes, 15);
@@ -75,6 +119,7 @@ fn recoverable_trash_backend_preserves_target_directory_after_batching_multiple_
     Ok(())
 }
 
+#[cfg(any(unix, windows))]
 #[test]
 fn recoverable_trash_backend_refuses_preserve_root_reparse_children() -> Result<()> {
     let temp = tempfile::tempdir()?;
@@ -85,15 +130,27 @@ fn recoverable_trash_backend_refuses_preserve_root_reparse_children() -> Result<
     fs::create_dir_all(&cache)?;
     fs::create_dir_all(&outside)?;
     fs::write(&normal_child, b"trash")?;
-    std::os::windows::fs::symlink_dir(&outside, &linked_child)?;
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&outside, &linked_child)?;
+
+    #[cfg(windows)]
+    {
+        if let Err(err) = std::os::windows::fs::symlink_dir(&outside, &linked_child) {
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+                return Ok(());
+            }
+            return Err(err.into());
+        }
+    }
 
     let target = CleanupTarget::allowed(
-        "windows.user-temp",
+        "test.user-temp",
         cache.clone(),
         5,
         DeleteMode::RecoverableDelete,
     );
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_backend(&temp);
     let err = backend.delete(&target).unwrap_err();
 
     assert!(err.to_string().contains("refused reparse child"));
@@ -112,18 +169,18 @@ fn recoverable_trash_backend_batch_deletes_multiple_targets() -> Result<()> {
     fs::write(&second, b"trash")?;
 
     let first_target = CleanupTarget::allowed(
-        "windows.first",
+        "test.first",
         first.clone(),
         5,
         DeleteMode::RecoverableDelete,
     );
     let second_target = CleanupTarget::allowed(
-        "windows.second",
+        "test.second",
         second.clone(),
         7,
         DeleteMode::RecoverableDelete,
     );
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_backend(&temp);
     let outcomes = backend.delete_batch(&[&first_target, &second_target]);
 
     assert_eq!(outcomes.len(), 2);
@@ -143,12 +200,12 @@ fn recoverable_trash_backend_batch_preserves_directory_roots() -> Result<()> {
     fs::write(&child, b"trash")?;
 
     let target = CleanupTarget::allowed(
-        "windows.user-temp",
+        "test.user-temp",
         cache.clone(),
         5,
         DeleteMode::RecoverableDelete,
     );
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_backend(&temp);
     let outcomes = backend.delete_batch(&[&target]);
 
     assert_eq!(outcomes.len(), 1);
@@ -167,13 +224,13 @@ fn recoverable_trash_backend_deletes_whole_path_when_requested() -> Result<()> {
     fs::write(&child, b"trash")?;
 
     let target = CleanupTarget::allowed(
-        "windows.user-temp",
+        "test.user-temp",
         cache.clone(),
         5,
         DeleteMode::RecoverableDelete,
     )
     .with_deletion_style(CleanupTargetDeletionStyle::DeleteWholePath);
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_backend(&temp);
     let outcome = backend.delete(&target)?;
 
     assert_eq!(outcome.pending_reclaim_bytes, 5);

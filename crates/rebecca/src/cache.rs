@@ -7,11 +7,11 @@ use rebecca::core::cache::{
     prune_app_cache_inventory, purge_app_cache, purge_app_cache_with_backend,
 };
 use rebecca::core::config::{load_app_paths, load_runtime_config};
-use rebecca::core::executor::RecoverableTrashBackend;
 
 use crate::cache_view::CachePurgeProjection;
 use crate::cli::OutputMode;
 use crate::output::{format_bytes, format_shell_command};
+use crate::trash_backend::recoverable_trash_backend;
 
 #[derive(Debug)]
 pub struct CachePurgeOptions {
@@ -140,7 +140,7 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
 fn purge_app_cache_recoverably(
     paths: &rebecca::core::config::AppPaths,
 ) -> Result<CachePurgeReport> {
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_trash_backend();
     Ok(purge_app_cache_with_backend(
         paths,
         CachePurgeMode::RecoverableDelete,

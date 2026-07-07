@@ -1,7 +1,6 @@
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rayon::ThreadPool;
 use rayon::prelude::*;
@@ -41,18 +40,65 @@ pub trait CleanupBackend {
     }
 }
 
+pub trait RecoverableTrashAdapter: Send + Sync {
+    fn delete_paths(&self, paths: &[PathBuf]) -> Result<()>;
+}
+
 #[derive(Debug, Default, Clone, Copy)]
-pub struct RecoverableTrashBackend;
+pub struct SystemRecoverableTrashAdapter;
+
+impl RecoverableTrashAdapter for SystemRecoverableTrashAdapter {
+    fn delete_paths(&self, paths: &[PathBuf]) -> Result<()> {
+        match paths {
+            [] => Ok(()),
+            [path] => {
+                trash::delete(path).map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))
+            }
+            _ => trash::delete_all(paths.iter())
+                .map_err(|err| RebeccaError::ExecutionFailed(err.to_string())),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct RecoverableTrashBackend {
+    adapter: Arc<dyn RecoverableTrashAdapter>,
+}
+
+impl std::fmt::Debug for RecoverableTrashBackend {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RecoverableTrashBackend")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for RecoverableTrashBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RecoverableTrashBackend {
     pub fn new() -> Self {
-        Self
+        Self::with_adapter(SystemRecoverableTrashAdapter)
+    }
+
+    pub fn with_adapter(adapter: impl RecoverableTrashAdapter + 'static) -> Self {
+        Self {
+            adapter: Arc::new(adapter),
+        }
     }
 }
 
 impl CleanupBackend for RecoverableTrashBackend {
     fn delete(&self, target: &CleanupTarget) -> Result<ExecutionOutcome> {
-        delete_to_recoverable_trash(&target.path, target.estimated_bytes, target.deletion_style)
+        delete_to_recoverable_trash(
+            self.adapter.as_ref(),
+            &target.path,
+            target.estimated_bytes,
+            target.deletion_style,
+        )
     }
 
     fn supports_batch_delete(&self) -> bool {
@@ -60,7 +106,7 @@ impl CleanupBackend for RecoverableTrashBackend {
     }
 
     fn delete_batch(&self, targets: &[&CleanupTarget]) -> Vec<Result<ExecutionOutcome>> {
-        delete_batch_to_recoverable_trash(targets)
+        delete_batch_to_recoverable_trash(self.adapter.as_ref(), targets)
     }
 }
 
@@ -74,6 +120,7 @@ impl CachePurgeBackend for RecoverableTrashBackend {
         match kind {
             CachePurgeEntryKind::File | CachePurgeEntryKind::Directory => {
                 delete_to_recoverable_trash(
+                    self.adapter.as_ref(),
                     path,
                     estimated_bytes,
                     CleanupTargetDeletionStyle::DeleteWholePath,
@@ -100,51 +147,23 @@ struct BatchTrashTarget {
 }
 
 fn delete_to_recoverable_trash(
+    adapter: &dyn RecoverableTrashAdapter,
     path: &Path,
     estimated_bytes: u64,
     deletion_style: CleanupTargetDeletionStyle,
 ) -> Result<ExecutionOutcome> {
-    if let Some(test_trash_dir) = test_recoverable_trash_dir() {
-        let delete_paths = match deletion_style {
-            CleanupTargetDeletionStyle::DeleteWholePath => vec![path.to_path_buf()],
-            CleanupTargetDeletionStyle::PreserveRootContents => {
-                if path.is_dir() {
-                    preserve_root_delete_paths(path)?
-                } else {
-                    vec![path.to_path_buf()]
-                }
-            }
-        };
-        move_paths_to_test_recoverable_trash(&delete_paths, &test_trash_dir)?;
-        return Ok(recoverable_trash_outcome(estimated_bytes));
-    }
-
-    match deletion_style {
-        CleanupTargetDeletionStyle::DeleteWholePath => {
-            trash::delete(path).map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
-        }
-        CleanupTargetDeletionStyle::PreserveRootContents => {
-            if path.is_dir() {
-                let entries = preserve_root_delete_paths(path)?;
-                if !entries.is_empty() {
-                    trash::delete_all(entries)
-                        .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
-                }
-            } else {
-                trash::delete(path)
-                    .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))?;
-            }
-        }
-    }
-
+    let delete_paths = recoverable_trash_paths(path, deletion_style)?;
+    adapter.delete_paths(&delete_paths)?;
     Ok(recoverable_trash_outcome(estimated_bytes))
 }
 
-fn delete_batch_to_recoverable_trash(targets: &[&CleanupTarget]) -> Vec<Result<ExecutionOutcome>> {
+fn delete_batch_to_recoverable_trash(
+    adapter: &dyn RecoverableTrashAdapter,
+    targets: &[&CleanupTarget],
+) -> Vec<Result<ExecutionOutcome>> {
     let mut outcomes = (0..targets.len()).map(|_| None).collect::<Vec<_>>();
     let mut batch_targets = Vec::new();
     let mut batch_paths = Vec::new();
-    let test_trash_dir = test_recoverable_trash_dir();
 
     for (target_index, target) in targets.iter().enumerate() {
         match recoverable_trash_paths_for_target(target) {
@@ -166,14 +185,7 @@ fn delete_batch_to_recoverable_trash(targets: &[&CleanupTarget]) -> Vec<Result<E
     }
 
     if !batch_paths.is_empty() {
-        let batch_result = if let Some(test_trash_dir) = &test_trash_dir {
-            move_paths_to_test_recoverable_trash(&batch_paths, test_trash_dir)
-        } else {
-            trash::delete_all(batch_paths.iter())
-                .map_err(|err| RebeccaError::ExecutionFailed(err.to_string()))
-        };
-
-        match batch_result {
+        match adapter.delete_paths(&batch_paths) {
             Ok(()) => {
                 for batch_target in batch_targets {
                     let target = targets[batch_target.target_index];
@@ -186,6 +198,7 @@ fn delete_batch_to_recoverable_trash(targets: &[&CleanupTarget]) -> Vec<Result<E
                     let target = targets[batch_target.target_index];
                     outcomes[batch_target.target_index] =
                         Some(reconstruct_or_fallback_after_batch_failure(
+                            adapter,
                             target,
                             &batch_target.delete_paths,
                         ));
@@ -207,14 +220,21 @@ fn delete_batch_to_recoverable_trash(targets: &[&CleanupTarget]) -> Vec<Result<E
 }
 
 fn recoverable_trash_paths_for_target(target: &CleanupTarget) -> Result<Vec<PathBuf>> {
-    let metadata = fs::symlink_metadata(&target.path)?;
-    match target.deletion_style {
-        CleanupTargetDeletionStyle::DeleteWholePath => Ok(vec![target.path.clone()]),
+    recoverable_trash_paths(&target.path, target.deletion_style)
+}
+
+fn recoverable_trash_paths(
+    path: &Path,
+    deletion_style: CleanupTargetDeletionStyle,
+) -> Result<Vec<PathBuf>> {
+    let metadata = fs::symlink_metadata(path)?;
+    match deletion_style {
+        CleanupTargetDeletionStyle::DeleteWholePath => Ok(vec![path.to_path_buf()]),
         CleanupTargetDeletionStyle::PreserveRootContents => {
             if metadata.is_dir() {
-                preserve_root_delete_paths(&target.path)
+                preserve_root_delete_paths(path)
             } else {
-                Ok(vec![target.path.clone()])
+                Ok(vec![path.to_path_buf()])
             }
         }
     }
@@ -237,50 +257,8 @@ fn preserve_root_delete_paths(path: &Path) -> Result<Vec<PathBuf>> {
     Ok(entries)
 }
 
-fn move_paths_to_test_recoverable_trash(paths: &[PathBuf], trash_dir: &Path) -> Result<()> {
-    fs::create_dir_all(trash_dir)?;
-    for path in paths {
-        if matches!(path.try_exists(), Ok(false)) {
-            continue;
-        }
-        let destination = unique_test_trash_destination(trash_dir, path);
-        fs::rename(path, destination)?;
-    }
-    Ok(())
-}
-
-fn unique_test_trash_destination(trash_dir: &Path, path: &Path) -> PathBuf {
-    let base_name = path
-        .file_name()
-        .map(|name| name.to_os_string())
-        .unwrap_or_else(|| OsString::from("entry"));
-    let process_id = std::process::id();
-
-    for index in 0.. {
-        let mut name = base_name.clone();
-        name.push(format!(".{process_id}.{index}"));
-        let destination = trash_dir.join(name);
-        if !destination.exists() {
-            return destination;
-        }
-    }
-
-    unreachable!("unbounded unique test trash destination search should return")
-}
-
-#[cfg(debug_assertions)]
-fn test_recoverable_trash_dir() -> Option<PathBuf> {
-    std::env::var_os("REBECCA_TEST_RECOVERABLE_TRASH_DIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-}
-
-#[cfg(not(debug_assertions))]
-fn test_recoverable_trash_dir() -> Option<PathBuf> {
-    None
-}
-
 fn reconstruct_or_fallback_after_batch_failure(
+    adapter: &dyn RecoverableTrashAdapter,
     target: &CleanupTarget,
     delete_paths: &[PathBuf],
 ) -> Result<ExecutionOutcome> {
@@ -291,7 +269,12 @@ fn reconstruct_or_fallback_after_batch_failure(
         return Ok(recoverable_trash_outcome(target.estimated_bytes));
     }
 
-    delete_to_recoverable_trash(&target.path, target.estimated_bytes, target.deletion_style)
+    delete_to_recoverable_trash(
+        adapter,
+        &target.path,
+        target.estimated_bytes,
+        target.deletion_style,
+    )
 }
 
 fn recoverable_trash_outcome(estimated_bytes: u64) -> ExecutionOutcome {

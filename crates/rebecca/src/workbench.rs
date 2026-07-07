@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use rebecca::core::config::AppRuntimeConfig;
 use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::executor::{RecoverableTrashBackend, execute_cleanup_plan_parallel_with_policy};
+use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::planner::{
     PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
@@ -14,6 +14,7 @@ use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{CleanupPlan, DeleteMode, PlanRequest, Platform};
 
 use crate::runtime::CliRuntime;
+use crate::trash_backend::recoverable_trash_backend;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CleanupWorkbenchRequest {
@@ -114,7 +115,7 @@ where
         execution_policy = execution_policy.with_protected_paths(&protected_paths);
     }
 
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_trash_backend();
     let mut execution_report =
         execute_cleanup_plan_parallel_with_policy(&mut plan, &backend, execution_policy)?;
     let history_append =

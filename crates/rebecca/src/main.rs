@@ -21,6 +21,7 @@ mod render;
 mod runtime;
 mod scan;
 mod text;
+mod trash_backend;
 mod tui;
 mod workbench;
 

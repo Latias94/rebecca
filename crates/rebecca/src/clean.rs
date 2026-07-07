@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::executor::{RecoverableTrashBackend, execute_cleanup_plan_parallel_with_policy};
+use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::planner::{
@@ -28,6 +28,7 @@ use crate::progress::{
 };
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
+use crate::trash_backend::recoverable_trash_backend;
 use crate::{info, output, render};
 
 #[derive(Debug)]
@@ -231,7 +232,7 @@ pub(crate) fn run_workflow_with_runtime_config(
         return finish_stream_with_cancellation(event_writer, options.cancellation_message);
     }
 
-    let backend = RecoverableTrashBackend::new();
+    let backend = recoverable_trash_backend();
     let mut execution_policy = ProtectionPolicy::new()
         .with_safety_knowledge(&safety_knowledge)
         .with_protected_storage(&protected_storage);
