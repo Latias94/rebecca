@@ -254,7 +254,7 @@ impl DiskMapSortField {
         )
     }
 
-    fn metrics_value(self, metrics: &DiskMapMetrics) -> u64 {
+    pub(crate) fn metrics_value(self, metrics: &DiskMapMetrics) -> u64 {
         self.value(
             metrics.logical_bytes,
             metrics.allocated_bytes,

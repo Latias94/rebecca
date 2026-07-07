@@ -35,6 +35,7 @@ fn completion_generation_includes_current_subcommands() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("scan"));
     assert!(stdout.contains("clean"));
+    assert!(stdout.contains("tui"));
     assert!(stdout.contains("purge"));
     assert!(stdout.contains("completion"));
 }

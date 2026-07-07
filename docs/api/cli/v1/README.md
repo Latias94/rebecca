@@ -20,6 +20,10 @@ canonical command for the `inspect-artifacts` payload.
 - Human progress text is never mixed into machine stdout.
 - `--no-progress` disables human stderr progress only. It does not suppress
   NDJSON machine progress events.
+- `rebecca tui` is intentionally outside the JSON/NDJSON API. It owns the
+  terminal screen in human mode and should not be used by wrappers; use
+  `inspect map`, `clean --dry-run`, and workflow JSON/NDJSON payloads for
+  automation.
 
 ## Path Encoding
 

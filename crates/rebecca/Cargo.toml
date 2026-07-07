@@ -29,12 +29,14 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
+crossterm.workspace = true
 dialoguer.workspace = true
 indicatif.workspace = true
 ctrlc.workspace = true
 rebecca-core.workspace = true
 rebecca-rules = { workspace = true, optional = true }
 rebecca-windows = { workspace = true, optional = true }
+ratatui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

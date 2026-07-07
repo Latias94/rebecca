@@ -21,11 +21,13 @@ mod render;
 mod runtime;
 mod scan;
 mod text;
+mod tui;
+mod workbench;
 
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
     CompletionArgs, ConfigCommand, DoctorCommand, HistoryArgs, InspectCommand, OutputMode,
-    PurgeArgs, ScanArgs,
+    PurgeArgs, ScanArgs, TuiArgs,
 };
 use runtime::CliRuntime;
 
@@ -71,6 +73,7 @@ fn run() -> Result<()> {
         Command::Catalog(args) => run_catalog(args, cli.format),
         Command::Scan(args) => run_scan(args, cli.format),
         Command::Clean(args) => run_clean(args, cli.format, &runtime),
+        Command::Tui(args) => run_tui(args, cli.format, &runtime),
         Command::Inspect { command } => run_inspect(command, cli.format, &runtime),
         Command::Purge(args) => run_purge(args, cli.format, &runtime),
         Command::History(args) => run_history(args, cli.format),
@@ -158,6 +161,23 @@ fn run() -> Result<()> {
         },
         Command::Completion(args) => run_completion(args),
     }
+}
+
+fn run_tui(args: TuiArgs, global_mode: OutputMode, runtime: &CliRuntime) -> Result<()> {
+    tui::run_with_runtime(
+        tui::TuiOptions {
+            output_mode: global_mode,
+            roots: args.roots,
+            scan_backend: args.scan_backend.into(),
+            entry_limit: args.entry_limit,
+            screen_reader: args.screen_reader,
+            no_color: args.no_color,
+            once: args.once,
+            replay_keys: args.replay_keys,
+            terminal_width: args.terminal_width,
+        },
+        runtime,
+    )
 }
 
 fn run_inspect(
@@ -406,6 +426,7 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
         }
         Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),
         Command::Clean(_) => output::CliApiContract::v1("clean", "cleanup-plan"),
+        Command::Tui(_) => output::CliApiContract::v1("tui", "terminal-workbench"),
         Command::Inspect { command } => match command {
             InspectCommand::Space(_) => {
                 output::CliApiContract::v1("inspect space", "inspect-space")

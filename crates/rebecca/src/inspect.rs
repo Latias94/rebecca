@@ -684,7 +684,7 @@ fn ntfs_mft_volume_index_cache_env_enabled(value: Option<&str>) -> bool {
     })
 }
 
-fn annotate_map_report_with_cleanup_advice(
+pub(crate) fn annotate_map_report_with_cleanup_advice(
     report: &mut DiskMapReport,
     runtime_config: &AppRuntimeConfig,
     advice_status: Option<CleanupAdviceStatus>,

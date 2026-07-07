@@ -23,6 +23,7 @@ fn root_help_shows_completion_and_rejects_hidden_default_scan() {
     assert!(stdout.contains("inspect"));
     assert!(stdout.contains("scan"));
     assert!(stdout.contains("clean"));
+    assert!(stdout.contains("tui"));
     assert!(stdout.contains("purge"));
 }
 
@@ -48,6 +49,48 @@ fn clean_help_preserves_preview_execution_and_warning_controls() {
     assert!(stdout.contains("--allow-warning <WARNING>"));
     assert!(stdout.contains("--scan-cache"));
     assert!(stdout.contains("--no-scan-cache"));
+}
+
+#[test]
+fn tui_help_shows_interactive_workbench_controls() {
+    let stdout = help_stdout(&["tui", "--help"]);
+
+    assert!(stdout.contains("interactive terminal workbench"));
+    assert!(stdout.contains("--root <PATH>"));
+    assert!(stdout.contains("--scan-backend <SCAN_BACKEND>"));
+    assert!(stdout.contains("--entry-limit <N>"));
+    assert!(stdout.contains("--screen-reader"));
+    assert!(stdout.contains("--no-color"));
+    assert!(!stdout.contains("--once"));
+    assert!(!stdout.contains("--replay-keys"));
+    assert!(!stdout.contains("--terminal-width"));
+}
+
+#[test]
+fn tui_alias_renders_once_frame_for_ci() {
+    let output = common::command::rebecca()
+        .args(["i", "--once"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | root-picker"));
+    assert!(stdout.contains("Roots"));
+}
+
+#[test]
+fn tui_without_tty_is_rejected() {
+    let output = common::command::rebecca().args(["tui"]).output().unwrap();
+
+    assert!(!output.status.success());
+    let stderr = common::support::stderr(&output);
+    assert!(stderr.contains("requires an interactive terminal"));
 }
 
 #[test]

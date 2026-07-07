@@ -6,6 +6,7 @@ pub mod cleanup_advice;
 pub mod config;
 pub mod discovery;
 pub mod disk_map;
+pub mod disk_session;
 pub mod environment;
 pub mod error;
 pub mod execution;

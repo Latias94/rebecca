@@ -37,14 +37,26 @@ Rebecca command.
      not to install.
 
 3. Inspect before planning deletion.
+   - If the user wants an interactive terminal workflow and is at a real TTY,
+     prefer the workbench:
+
+     ```powershell
+     rebecca tui --root <PATH>
+     ```
+
+     Use `rebecca i` as the short alias. The TUI can navigate the disk map,
+     stage cleanup advice, preview the plan, and execute only after typed
+     confirmation through recoverable trash. Use `--screen-reader` or
+     `--no-color` when the terminal needs plain text cues.
    - For a size map:
 
      ```powershell
      rebecca inspect map --root <PATH> --top 20 --cleanup-advice
      ```
 
-   - For flat exports or scripts, use `--format json`, `--format ndjson`, or
-     `--table csv|tsv`.
+   - For flat exports, scripts, wrappers, or non-terminal sessions, use
+     `--format json`, `--format ndjson`, or `--table csv|tsv`; do not drive the
+     TUI as a machine API.
    - On large local Windows NTFS roots, consider `--scan-backend windows-native`;
      use `windows-ntfs-mft-experimental` only for read-only inspection when the
      user wants maximum NTFS provenance and accepts that it is experimental.
@@ -171,3 +183,5 @@ Rebecca command.
   explicitly asked for that scope.
 - Keep stdout clean for JSON, NDJSON, CSV, and TSV consumers; progress belongs
   on stderr or in NDJSON progress events.
+- Treat `rebecca tui` as a human-only terminal surface. For automation, use the
+  typed CLI API instead of replaying TUI output.

@@ -81,6 +81,9 @@ jobs:
       - name: Validate built-in catalogs
         run: cargo run -p rebecca --locked -- catalog validate --format json
 
+      - name: Run TUI smoke
+        run: cargo run -p rebecca --locked -- tui --once --screen-reader --terminal-width 80
+
       - name: Run Linux cleanup smoke
         if: runner.os == 'Linux'
         shell: bash

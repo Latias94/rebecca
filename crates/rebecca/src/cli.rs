@@ -245,6 +245,9 @@ pub enum Command {
     Scan(ScanArgs),
     /// Build or execute a cleanup plan.
     Clean(CleanArgs),
+    /// Open an interactive terminal workbench for disk usage and safe cleanup.
+    #[command(visible_alias = "i")]
+    Tui(TuiArgs),
     /// Run read-only cleanup intelligence inspections.
     Inspect {
         #[command(subcommand)]
@@ -531,6 +534,39 @@ pub struct CleanArgs {
     pub execution: CleanupExecutionArgs,
     #[command(flatten)]
     pub risk: RiskArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct TuiArgs {
+    /// Directory or file to inspect. Can be repeated. Without roots, the TUI opens a root picker.
+    #[arg(long = "root", value_name = "PATH")]
+    pub roots: Vec<PathBuf>,
+    /// Select the scan backend used for disk-map inventory.
+    #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
+    pub scan_backend: ScanBackendArg,
+    /// Maximum ranked entries loaded into the initial interactive session.
+    #[arg(long = "entry-limit", value_name = "N", default_value_t = 2_000)]
+    pub entry_limit: usize,
+    /// Prefer plain text cues and omit visual bars for screen readers.
+    #[arg(long = "screen-reader")]
+    pub screen_reader: bool,
+    /// Disable color styling in the interactive terminal UI.
+    #[arg(long = "no-color")]
+    pub no_color: bool,
+    /// Render one deterministic frame and exit. Intended for CI and automated smoke tests.
+    #[arg(long, hide = true)]
+    pub once: bool,
+    /// Apply a whitespace-separated key script before rendering --once or entering the TUI.
+    #[arg(long = "replay-keys", value_name = "KEYS", hide = true)]
+    pub replay_keys: Option<String>,
+    /// Width used by the hidden deterministic one-frame renderer.
+    #[arg(
+        long = "terminal-width",
+        value_name = "COLUMNS",
+        default_value_t = 120,
+        hide = true
+    )]
+    pub terminal_width: usize,
 }
 
 #[derive(Debug, Args)]
