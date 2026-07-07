@@ -535,9 +535,31 @@ fn tui_replay_can_refresh_selected_directory_and_restore_previous_scan() {
         common::support::stderr(&refreshed)
     );
     let refreshed_stdout = String::from_utf8_lossy(&refreshed.stdout);
-    assert!(refreshed_stdout.contains("Map: big"));
-    assert!(refreshed_stdout.contains("data.bin"));
-    assert!(refreshed_stdout.contains("Status: Refresh complete."));
+    assert!(refreshed_stdout.contains("Map: workspace"));
+    assert!(refreshed_stdout.contains("big"));
+    assert!(refreshed_stdout.contains("small.txt"));
+    assert!(refreshed_stdout.contains("Status: Refresh complete for "));
+
+    let opened = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "r enter",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        opened.status.success(),
+        "stderr: {}",
+        common::support::stderr(&opened)
+    );
+    let opened_stdout = String::from_utf8_lossy(&opened.stdout);
+    assert!(opened_stdout.contains("Map: big"));
+    assert!(opened_stdout.contains("data.bin"));
 
     let restored = common::isolated::isolated_rebecca(&temp)
         .args([

@@ -6,7 +6,7 @@ use crate::workbench::CleanupWorkbenchRequest;
 pub(crate) enum TuiEffect {
     None,
     Scan(Vec<PathBuf>),
-    Refresh(Vec<PathBuf>),
+    Refresh { anchor: PathBuf },
     Preview(CleanupWorkbenchRequest),
     Execute(CleanupWorkbenchRequest),
     CancelTask,

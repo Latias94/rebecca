@@ -179,17 +179,19 @@ pub(super) fn handle_effect(
             Ok(session) => app.apply_scan_result(session),
             Err(err) => app.apply_error(err.to_string()),
         },
-        TuiEffect::Refresh(roots) => {
-            let retry = TuiEffect::Refresh(roots.clone());
+        TuiEffect::Refresh { anchor } => {
+            let retry = TuiEffect::Refresh {
+                anchor: anchor.clone(),
+            };
             app.prepare_refresh();
             match task::scan_session(
-                roots,
+                vec![anchor.clone()],
                 app.entry_limit,
                 app.scan_backend,
                 runtime_config,
                 runtime,
             ) {
-                Ok(session) => app.apply_refresh_result(session),
+                Ok(session) => app.apply_refresh_result(anchor, session),
                 Err(err) => app.apply_task_error(err.to_string(), retry),
             }
         }

@@ -44,7 +44,7 @@ impl TuiTaskManager {
                 Ok(())
             }
             TuiEffect::Scan(_)
-            | TuiEffect::Refresh(_)
+            | TuiEffect::Refresh { .. }
             | TuiEffect::Preview(_)
             | TuiEffect::Execute(_) => self.start(app, effect, runtime_config, runtime),
         }
@@ -187,9 +187,14 @@ impl TaskMessage {
 
 enum TaskOutcome {
     Scan(Result<DiskMapSession, TaskFailure>),
-    Refresh(Result<DiskMapSession, TaskFailure>),
+    Refresh(Result<TuiRefreshResult, TaskFailure>),
     Preview(Result<CleanupPlan, TaskFailure>),
     Execute(Result<CleanupPlan, TaskFailure>),
+}
+
+struct TuiRefreshResult {
+    anchor: PathBuf,
+    session: DiskMapSession,
 }
 
 struct TaskFailure {
@@ -237,14 +242,15 @@ fn spawn_task(
                 }),
             )
         }
-        TuiEffect::Refresh(roots) => {
+        TuiEffect::Refresh { anchor } => {
             let entry_limit = app.entry_limit;
             let scan_backend = app.scan_backend;
             app.prepare_refresh();
-            app.apply_task_started(format!("Refreshing {} root(s)...", roots.len()));
+            app.apply_task_started(format!("Refreshing {}...", anchor.display()));
             (
                 "refresh",
                 thread::spawn(move || {
+                    let roots = vec![anchor.clone()];
                     let result = scan_session_with_progress(
                         roots,
                         entry_limit,
@@ -253,6 +259,7 @@ fn spawn_task(
                         &task_runtime,
                         progress_sender(task_id, sender.clone()),
                     )
+                    .map(|session| TuiRefreshResult { anchor, session })
                     .map_err(task_failure);
                     let _ = sender.send(TaskMessage::Finished {
                         task_id,
@@ -339,7 +346,7 @@ fn apply_outcome(
             Err(err) => apply_failure(app, err, retry_effect),
         },
         TaskOutcome::Refresh(result) => match result {
-            Ok(session) => app.apply_refresh_result(session),
+            Ok(result) => app.apply_refresh_result(result.anchor, result.session),
             Err(err) => apply_failure(app, err, retry_effect),
         },
         TaskOutcome::Preview(result) => match result {
