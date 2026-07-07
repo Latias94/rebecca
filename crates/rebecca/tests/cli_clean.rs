@@ -1842,12 +1842,9 @@ fn clean_dry_run_json_gates_linux_browser_cache_warnings() {
     let skipped_cache_target = skipped_targets
         .iter()
         .find(|target| {
-            target["path"]
-                .as_str()
-                .unwrap()
-                .ends_with("/cache/google-chrome/Default/Cache")
+            target["path"].as_str().unwrap() == "%XDG_CACHE_HOME%/google-chrome/Default/Cache"
         })
-        .expect("existing Chrome cache target should be present");
+        .expect("Chrome cache template target should be present before warning opt-in");
     assert_eq!(skipped_cache_target["status"], "skipped");
     assert_eq!(skipped_cache_target["reason_code"], "warning-gate-required");
 
@@ -1983,15 +1980,17 @@ fn clean_dry_run_json_gates_linux_desktop_app_cache_warnings() {
             .iter()
             .all(|target| target["status"] == "skipped")
     );
-    for suffix in [
-        "/config/Slack/Cache",
-        "/.var/app/com.slack.Slack/cache",
-        "/snap/slack/common/.cache",
+    for expected_path in [
+        "%XDG_CONFIG_HOME%/Slack/Cache",
+        "%HOME%/.var/app/com.slack.Slack/cache",
+        "%HOME%/snap/slack/common/.cache",
     ] {
         let target = skipped_targets
             .iter()
-            .find(|target| target["path"].as_str().unwrap().ends_with(suffix))
-            .unwrap_or_else(|| panic!("existing Slack cache target missing: {suffix}"));
+            .find(|target| target["path"].as_str().unwrap() == expected_path)
+            .unwrap_or_else(|| {
+                panic!("Slack cache template target missing before warning opt-in: {expected_path}")
+            });
         assert_eq!(target["reason_code"], "warning-gate-required");
     }
 
