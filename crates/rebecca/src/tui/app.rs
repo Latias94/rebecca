@@ -18,6 +18,7 @@ use crate::workbench::CleanupWorkbenchRequest;
 pub(crate) enum TuiScreen {
     RootPicker,
     Map,
+    Treemap,
     Types,
     Extensions,
     Busy,
@@ -56,6 +57,35 @@ pub(crate) enum TuiKey {
     Tab,
     Space,
     Char(char),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TuiInput {
+    Key(TuiKey),
+    Mouse(TuiMouseEvent),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TuiMouseEvent {
+    pub(crate) column: u16,
+    pub(crate) row: u16,
+    pub(crate) kind: TuiMouseEventKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TuiMouseEventKind {
+    LeftDown,
+    ScrollUp,
+    ScrollDown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TuiMouseAction {
+    SwitchScreen(TuiScreen),
+    SelectMapRow(usize),
+    SelectDistributionRow(usize),
+    ScrollUp,
+    ScrollDown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -453,7 +483,7 @@ impl TuiApp {
 
         match self.screen {
             TuiScreen::RootPicker => self.handle_root_picker_key(key),
-            TuiScreen::Map => self.handle_map_key(key),
+            TuiScreen::Map | TuiScreen::Treemap => self.handle_map_key(key),
             TuiScreen::Types | TuiScreen::Extensions => self.handle_distribution_key(key),
             TuiScreen::Busy => self.handle_busy_key(key),
             TuiScreen::Preview => self.handle_preview_key(key),
@@ -462,6 +492,28 @@ impl TuiApp {
             TuiScreen::Executed => self.handle_terminal_screen_key(key),
             TuiScreen::Error => self.handle_error_key(key),
             TuiScreen::Help => self.handle_help_key(key),
+        }
+    }
+
+    pub(crate) fn handle_mouse_action(&mut self, action: TuiMouseAction) -> TuiEffect {
+        match action {
+            TuiMouseAction::SwitchScreen(screen) => self.open_screen(screen),
+            TuiMouseAction::SelectMapRow(index) => {
+                self.select_map_row(index);
+                TuiEffect::None
+            }
+            TuiMouseAction::SelectDistributionRow(index) => {
+                self.select_distribution_row(index);
+                TuiEffect::None
+            }
+            TuiMouseAction::ScrollUp => {
+                self.move_active_selection(-1);
+                TuiEffect::None
+            }
+            TuiMouseAction::ScrollDown => {
+                self.move_active_selection(1);
+                TuiEffect::None
+            }
         }
     }
 
@@ -499,7 +551,9 @@ impl TuiApp {
             .as_ref()
             .and_then(|session| session.root_ids().first().copied());
         self.screen = match self.task_return_screen {
-            TuiScreen::Map | TuiScreen::Types | TuiScreen::Extensions => self.task_return_screen,
+            TuiScreen::Map | TuiScreen::Treemap | TuiScreen::Types | TuiScreen::Extensions => {
+                self.task_return_screen
+            }
             _ => TuiScreen::Map,
         };
         self.selected = 0;
@@ -857,6 +911,7 @@ impl TuiApp {
                 TuiEffect::None
             }
             TuiKey::Char('1') => self.open_map_view(),
+            TuiKey::Char('4') | TuiKey::Char('w') => self.open_treemap_view(),
             TuiKey::Char('2') | TuiKey::Char('t') => self.open_types_view(),
             TuiKey::Char('3') | TuiKey::Char('x') => self.open_extensions_view(),
             TuiKey::Tab => self.cycle_view_mode(),
@@ -908,6 +963,7 @@ impl TuiApp {
                 TuiEffect::None
             }
             TuiKey::Char('1') | TuiKey::Esc | TuiKey::Char('h') => self.open_map_view(),
+            TuiKey::Char('4') | TuiKey::Char('w') => self.open_treemap_view(),
             TuiKey::Char('2') | TuiKey::Char('t') => self.open_types_view(),
             TuiKey::Char('3') | TuiKey::Char('x') => self.open_extensions_view(),
             TuiKey::Tab => self.cycle_view_mode(),
@@ -1203,7 +1259,9 @@ impl TuiApp {
         self.type_search_query = snapshot.type_search_query;
         self.extension_search_query = snapshot.extension_search_query;
         self.screen = match snapshot.screen {
-            TuiScreen::Map | TuiScreen::Types | TuiScreen::Extensions => snapshot.screen,
+            TuiScreen::Map | TuiScreen::Treemap | TuiScreen::Types | TuiScreen::Extensions => {
+                snapshot.screen
+            }
             _ => TuiScreen::Map,
         };
         self.message = format!("Restored previous scan. {}", snapshot.message);
@@ -1282,6 +1340,55 @@ impl TuiApp {
             .min(len.saturating_sub(1));
     }
 
+    fn move_active_selection(&mut self, delta: isize) {
+        match self.screen {
+            TuiScreen::Map | TuiScreen::Treemap => {
+                let len = self.visible_rows().len();
+                self.move_selection(len, delta);
+            }
+            TuiScreen::Types | TuiScreen::Extensions => self.move_distribution_selection(delta),
+            TuiScreen::RootPicker => {
+                let len = self.root_choices.len();
+                self.move_selection(len, delta);
+            }
+            _ => {}
+        }
+    }
+
+    fn select_map_row(&mut self, index: usize) {
+        let len = self.visible_rows().len();
+        if len == 0 {
+            self.selected = 0;
+            return;
+        }
+        self.selected = index.min(len - 1);
+        if let Some(row) = self.selected_row() {
+            self.message = format!("Selected {}.", row.name);
+        }
+    }
+
+    fn select_distribution_row(&mut self, index: usize) {
+        let rows = self.distribution_rows();
+        let len = rows.len();
+        if len == 0 {
+            match self.screen {
+                TuiScreen::Types => self.selected_type = 0,
+                TuiScreen::Extensions => self.selected_extension = 0,
+                _ => {}
+            }
+            return;
+        }
+        let selected = index.min(len - 1);
+        match self.screen {
+            TuiScreen::Types => self.selected_type = selected,
+            TuiScreen::Extensions => self.selected_extension = selected,
+            _ => return,
+        }
+        if let Some(row) = rows.get(selected) {
+            self.message = format!("Selected {}.", row.label);
+        }
+    }
+
     fn clamp_distribution_selection(&self, screen: TuiScreen) -> usize {
         let kind = match screen {
             TuiScreen::Types => DiskMapGroupKind::Type,
@@ -1306,6 +1413,15 @@ impl TuiApp {
         TuiEffect::None
     }
 
+    fn open_treemap_view(&mut self) -> TuiEffect {
+        self.screen = TuiScreen::Treemap;
+        self.selected = self
+            .selected
+            .min(self.visible_rows().len().saturating_sub(1));
+        self.message = "Treemap view shows proportional disk usage for this scope.".to_string();
+        TuiEffect::None
+    }
+
     fn open_types_view(&mut self) -> TuiEffect {
         self.screen = TuiScreen::Types;
         self.selected_type = self.clamp_distribution_selection(TuiScreen::Types);
@@ -1323,7 +1439,8 @@ impl TuiApp {
 
     fn cycle_view_mode(&mut self) -> TuiEffect {
         match self.screen {
-            TuiScreen::Map => self.open_types_view(),
+            TuiScreen::Map => self.open_treemap_view(),
+            TuiScreen::Treemap => self.open_types_view(),
             TuiScreen::Types => self.open_extensions_view(),
             TuiScreen::Extensions => self.open_map_view(),
             _ => TuiEffect::None,
@@ -1335,6 +1452,16 @@ impl TuiApp {
             TuiScreen::Types => self.selected_type = 0,
             TuiScreen::Extensions => self.selected_extension = 0,
             _ => self.selected = 0,
+        }
+    }
+
+    fn open_screen(&mut self, screen: TuiScreen) -> TuiEffect {
+        match screen {
+            TuiScreen::Map => self.open_map_view(),
+            TuiScreen::Treemap => self.open_treemap_view(),
+            TuiScreen::Types => self.open_types_view(),
+            TuiScreen::Extensions => self.open_extensions_view(),
+            _ => TuiEffect::None,
         }
     }
 
@@ -1565,6 +1692,70 @@ mod tests {
         assert_eq!(app.screen, TuiScreen::Map);
         assert_eq!(app.selected, 0);
         assert_eq!(app.search_query, "cache");
+    }
+
+    #[test]
+    fn tab_cycle_includes_treemap_before_distributions() {
+        let mut app = test_app();
+
+        assert_eq!(app.handle_key(TuiKey::Tab), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Treemap);
+
+        assert_eq!(app.handle_key(TuiKey::Tab), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Types);
+
+        assert_eq!(app.handle_key(TuiKey::Tab), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Extensions);
+
+        assert_eq!(app.handle_key(TuiKey::Tab), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Map);
+    }
+
+    #[test]
+    fn treemap_view_keeps_map_cleanup_keyboard_parity() {
+        let mut app = test_app();
+
+        assert_eq!(app.handle_key(TuiKey::Char('w')), TuiEffect::None);
+        assert_eq!(app.screen, TuiScreen::Treemap);
+
+        assert_eq!(app.handle_key(TuiKey::Space), TuiEffect::None);
+        assert!(app.basket.contains_key("linux.user-temp"));
+        assert!(matches!(
+            app.handle_key(TuiKey::Char('c')),
+            TuiEffect::Preview(_)
+        ));
+    }
+
+    #[test]
+    fn mouse_actions_select_rows_and_do_not_execute_cleanup() {
+        let mut app = test_app();
+
+        assert_eq!(
+            app.handle_mouse_action(TuiMouseAction::SwitchScreen(TuiScreen::Treemap)),
+            TuiEffect::None
+        );
+        assert_eq!(app.screen, TuiScreen::Treemap);
+
+        assert_eq!(
+            app.handle_mouse_action(TuiMouseAction::SelectMapRow(0)),
+            TuiEffect::None
+        );
+        assert_eq!(app.selected, 0);
+
+        let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+            Platform::current(),
+            DeleteMode::DryRun,
+        ));
+        plan.summary.allowed_targets = 1;
+        app.apply_preview(plan);
+        app.handle_key(TuiKey::Char('e'));
+        assert_eq!(app.screen, TuiScreen::Confirm);
+
+        assert_eq!(
+            app.handle_mouse_action(TuiMouseAction::ScrollDown),
+            TuiEffect::None
+        );
+        assert_eq!(app.screen, TuiScreen::Confirm);
     }
 
     #[test]

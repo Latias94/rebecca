@@ -160,7 +160,39 @@ fn tui_replay_can_show_extension_distribution_without_a_terminal() {
 }
 
 #[test]
-fn tui_replay_tab_reaches_type_distribution_without_a_terminal() {
+fn tui_replay_can_show_treemap_without_a_terminal() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "4",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | treemap"));
+    assert!(stdout.contains("Treemap: workspace"));
+    assert!(stdout.contains("big"));
+    assert!(stdout.contains("small.txt"));
+}
+
+#[test]
+fn tui_replay_tab_reaches_treemap_without_a_terminal() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
     write_fixture_file(root.join("alpha.bin"), b"abcdef");
@@ -173,6 +205,35 @@ fn tui_replay_tab_reaches_type_distribution_without_a_terminal() {
             root.to_str().unwrap(),
             "--replay-keys",
             "tab",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | treemap"));
+    assert!(stdout.contains("Treemap: workspace"));
+}
+
+#[test]
+fn tui_replay_double_tab_reaches_type_distribution_without_a_terminal() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha.bin"), b"abcdef");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "tab tab",
         ])
         .output()
         .unwrap();
@@ -305,6 +366,44 @@ fn tui_replay_can_open_history_without_a_terminal() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Rebecca TUI | history"));
     assert!(stdout.contains("No cleanup history entries yet."));
+}
+
+#[test]
+fn tui_screen_reader_treemap_omits_visual_bars() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha.bin"), b"abcdef");
+    write_fixture_file(root.join("beta.log"), b"abc");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--screen-reader",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "4",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | treemap"));
+    assert!(stdout.contains("Treemap: workspace"));
+    assert!(stdout.contains("alpha.bin"));
+    assert!(stdout.contains("beta.log"));
+    assert!(stdout.contains("%"));
+    assert!(
+        !stdout.contains("###"),
+        "screen-reader treemap snapshot should not depend on visual bars: {stdout}"
+    );
 }
 
 #[test]

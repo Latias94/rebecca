@@ -10,6 +10,7 @@ All notable changes to Rebecca will be documented in this file.
 - `scan` now lists current-host cleanup rules by default, `catalog` exposes cleanup-rule platform metadata with `--platform` filtering, and doctor diagnostics report Linux support instead of returning Windows-only placeholders.
 
 ### Added
+- TUI disk analytics now includes a keyboard-reachable Treemap view (`4`/`w`), mouse tab/row/tile selection, mouse-wheel selection movement, and deterministic Treemap snapshot and hit-test coverage while keeping cleanup execution behind preview and typed confirmation.
 - TUI disk analytics now includes keyboard-reachable type and extension distribution views, scoped directory/root refresh with previous-scan restore, retryable task errors, and headless replay coverage for the new journeys.
 - `rebecca inspect map --group-by type` now emits file-vs-directory distribution groups alongside existing extension, depth, and age groups.
 - TUI background work now runs through a shared task runtime with child cancellation tokens, live scan/planning progress snapshots, cooperative Esc cancellation, and structured worker result handling so future interactive views can share the same async/concurrency foundation.

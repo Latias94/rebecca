@@ -10,11 +10,12 @@ use rebecca::core::scan::ScanBackendKind;
 
 use crate::cli::OutputMode;
 use crate::runtime::CliRuntime;
-use crate::tui::app::{RootChoice, TuiApp, TuiEffect};
+use crate::tui::app::{RootChoice, TuiApp, TuiEffect, TuiInput};
 
 mod app;
 mod task;
 mod terminal;
+mod treemap;
 mod view;
 
 #[derive(Debug)]
@@ -78,11 +79,18 @@ fn run_interactive(
     };
     while !app.should_quit() {
         task::poll(&mut app, &mut active_task, runtime_config)?;
-        terminal
-            .terminal_mut()
-            .draw(|frame| view::render(frame, &app, view_options))?;
-        if let Some(key) = terminal::poll_key(Duration::from_millis(120))? {
-            let effect = app.handle_key(key);
+        let mut draw_area = ratatui::layout::Rect::new(0, 0, 0, 0);
+        terminal.terminal_mut().draw(|frame| {
+            draw_area = frame.area();
+            view::render(frame, &app, view_options);
+        })?;
+        if let Some(input) = terminal::poll_input(Duration::from_millis(120))? {
+            let effect = match input {
+                TuiInput::Key(key) => app.handle_key(key),
+                TuiInput::Mouse(mouse) => view::hit_test(&app, view_options, draw_area, mouse)
+                    .map(|action| app.handle_mouse_action(action))
+                    .unwrap_or(TuiEffect::None),
+            };
             if matches!(effect, TuiEffect::CancelTask) {
                 if let Some(task) = active_task.as_ref() {
                     task.cancel();

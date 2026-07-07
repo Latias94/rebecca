@@ -2,7 +2,10 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -10,12 +13,13 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-use crate::tui::app::TuiKey;
+use crate::tui::app::{TuiInput, TuiKey, TuiMouseEvent, TuiMouseEventKind};
 
 pub(crate) type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
 pub(crate) struct TerminalGuard {
     terminal: TuiTerminal,
+    _mouse_capture: MouseCaptureGuard,
     _alternate_screen: AlternateScreenGuard,
     _raw_mode: RawModeGuard,
 }
@@ -25,9 +29,11 @@ impl TerminalGuard {
         let raw_mode = RawModeGuard::enter()?;
         let mut stdout = io::stdout();
         let alternate_screen = AlternateScreenGuard::enter(&mut stdout)?;
+        let mouse_capture = MouseCaptureGuard::enter(&mut stdout)?;
         let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
         Ok(Self {
             terminal,
+            _mouse_capture: mouse_capture,
             _alternate_screen: alternate_screen,
             _raw_mode: raw_mode,
         })
@@ -74,18 +80,33 @@ impl Drop for AlternateScreenGuard {
     }
 }
 
-pub(crate) fn poll_key(timeout: Duration) -> Result<Option<TuiKey>> {
+struct MouseCaptureGuard;
+
+impl MouseCaptureGuard {
+    fn enter(stdout: &mut Stdout) -> Result<Self> {
+        execute!(stdout, EnableMouseCapture)?;
+        Ok(Self)
+    }
+}
+
+impl Drop for MouseCaptureGuard {
+    fn drop(&mut self) {
+        let _ = execute!(io::stdout(), DisableMouseCapture);
+    }
+}
+
+pub(crate) fn poll_input(timeout: Duration) -> Result<Option<TuiInput>> {
     if !event::poll(timeout)? {
         return Ok(None);
     }
 
-    let Event::Key(key) = event::read()? else {
-        return Ok(None);
-    };
-    if key.kind != KeyEventKind::Press {
-        return Ok(None);
+    match event::read()? {
+        Event::Key(key) if key.kind == KeyEventKind::Press => {
+            Ok(key_event_to_tui_key(key).map(TuiInput::Key))
+        }
+        Event::Mouse(mouse) => Ok(mouse_event_to_tui_mouse_event(mouse).map(TuiInput::Mouse)),
+        _ => Ok(None),
     }
-    Ok(key_event_to_tui_key(key))
 }
 
 fn key_event_to_tui_key(key: KeyEvent) -> Option<TuiKey> {
@@ -106,6 +127,20 @@ fn key_event_to_tui_key(key: KeyEvent) -> Option<TuiKey> {
         KeyCode::Char(ch) => Some(TuiKey::Char(ch)),
         _ => None,
     }
+}
+
+fn mouse_event_to_tui_mouse_event(mouse: MouseEvent) -> Option<TuiMouseEvent> {
+    let kind = match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => TuiMouseEventKind::LeftDown,
+        MouseEventKind::ScrollUp => TuiMouseEventKind::ScrollUp,
+        MouseEventKind::ScrollDown => TuiMouseEventKind::ScrollDown,
+        _ => return None,
+    };
+    Some(TuiMouseEvent {
+        column: mouse.column,
+        row: mouse.row,
+        kind,
+    })
 }
 
 pub(crate) fn replay_token_to_key(token: &str) -> Option<TuiKey> {
