@@ -56,6 +56,12 @@ impl AppPaths {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedRebeccaConfig {
+    pub config: RebeccaConfig,
+    pub loaded_from_file: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppRuntimeConfig {
     pub app_paths: AppPaths,
     pub scan_cache_policy: ScanCachePolicy,
@@ -275,25 +281,35 @@ pub fn load_runtime_config() -> Result<AppRuntimeConfig> {
 }
 
 pub fn load_runtime_config_from(config_file: &Path) -> Result<AppRuntimeConfig> {
-    let config_dir = config_file
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
-    let config = load_config(config_file)?;
-    resolve_runtime_config_with_config_dir(config_dir, config_file.to_path_buf(), &config)
+    let loaded = load_config_with_source(config_file)?;
+    resolve_runtime_config_from_loaded(config_file, &loaded.config)
 }
 
 pub fn load_config(config_file: &Path) -> Result<RebeccaConfig> {
-    if !config_file.exists() {
-        return Ok(RebeccaConfig::default());
-    }
+    load_config_with_source(config_file).map(|loaded| loaded.config)
+}
 
-    let raw = std::fs::read_to_string(config_file).map_err(|err| RebeccaError::ConfigRead {
-        path: config_file.to_path_buf(),
-        message: err.to_string(),
-    })?;
+pub fn load_config_with_source(config_file: &Path) -> Result<LoadedRebeccaConfig> {
+    let raw = match std::fs::read_to_string(config_file) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(LoadedRebeccaConfig {
+                config: RebeccaConfig::default(),
+                loaded_from_file: false,
+            });
+        }
+        Err(err) => {
+            return Err(RebeccaError::ConfigRead {
+                path: config_file.to_path_buf(),
+                message: err.to_string(),
+            });
+        }
+    };
     if raw.trim().is_empty() {
-        return Ok(RebeccaConfig::default());
+        return Ok(LoadedRebeccaConfig {
+            config: RebeccaConfig::default(),
+            loaded_from_file: true,
+        });
     }
 
     let config = toml::from_str(&raw).map_err(|err| RebeccaError::ConfigParse {
@@ -302,7 +318,10 @@ pub fn load_config(config_file: &Path) -> Result<RebeccaConfig> {
     })?;
     validate_config(config_file, &config)?;
 
-    Ok(config)
+    Ok(LoadedRebeccaConfig {
+        config,
+        loaded_from_file: true,
+    })
 }
 
 pub fn resolve_app_paths(config: &RebeccaConfig) -> Result<AppPaths> {
@@ -313,6 +332,17 @@ pub fn resolve_runtime_config(config: &RebeccaConfig) -> Result<AppRuntimeConfig
     let config_dir = default_config_dir()?;
     let config_file = config_dir.join("config.toml");
     resolve_runtime_config_with_config_dir(config_dir, config_file, config)
+}
+
+pub fn resolve_runtime_config_from_loaded(
+    config_file: &Path,
+    config: &RebeccaConfig,
+) -> Result<AppRuntimeConfig> {
+    let config_dir = config_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    resolve_runtime_config_with_config_dir(config_dir, config_file.to_path_buf(), config)
 }
 
 fn resolve_runtime_config_with_config_dir(

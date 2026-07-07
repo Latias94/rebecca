@@ -108,6 +108,8 @@ matched path, reason, a PowerShell-quoted dry-run command hint, and optional
 The `payload_kind` field identifies the shape under `data`:
 
 - `rule-catalog`
+- `capabilities`
+- `cli-schema`
 - `cleanup-plan`
 - `app-leftovers-cleanup-plan`
 - `project-artifact-cleanup-plan`
@@ -126,6 +128,9 @@ The `payload_kind` field identifies the shape under `data`:
 - `cache-purge-report`
 - `history-list`
 - `config-paths`
+- `config-view`
+- `config-validation`
+- `rule-validation`
 - `permissions-diagnostic`
 - `active-process-diagnostic`
 
@@ -218,6 +223,28 @@ field, and `catalog --kind cleanup-rule --platform linux|windows|macos|unknown`
 filters those entries before rendering the API envelope. `catalog-validation` is emitted by
 `rebecca catalog validate`.
 
+`capabilities` is emitted by `rebecca capabilities`. GUI wrappers should call it
+before choosing workflows instead of hard-coding feature assumptions. It reports
+the CLI API version, package version, current platform, compile-time features
+such as `rules`, `windows`, and `ntfs`, available schema documents, command
+payload kinds, NDJSON support, mutating commands, and safety-model facts such as
+preview-by-default cleanup and recoverable deletion.
+
+`cli-schema` is emitted by `rebecca schema export --document <name>`. It returns
+one embedded JSON Schema document from this directory inside a normal API
+envelope. Use it when a GUI wants to validate Rebecca payloads at runtime.
+
+`rule-validation` is emitted by `rebecca rules validate`. This command validates
+external Cleaner Manifest v1 TOML files or directories before import. A success
+payload means the manifests parse, rule ids and target specs are unique, warning
+gates are known, protected target shapes are blocked, browser/state boundaries
+are respected, target shapes have a positive cleanup basis, and dangerous safety
+levels are rejected. Directory inputs are bounded by `--max-depth` and
+`--max-files`, and Rebecca does not traverse symbolic links while discovering
+manifests. The payload includes a `discovery` object so wrappers can show those
+limits. Validation does not enable or import those rules; the payload includes
+`enabled = false` to make that boundary explicit.
+
 `cache-inventory`, `cache-doctor`, and `cache-prune-report` are emitted by
 `rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune`.
 Inventory entries intentionally expose both `absolute_path` and `display_path`.
@@ -295,6 +322,13 @@ complete diagnostic counts. The `diagnostics` array is a bounded raw sample list
 controlled by `--diagnostic-limit`; use the summary fields for authoritative
 totals and truncation detection.
 
+`config-view` and `config-validation` are emitted by `rebecca config show` and
+`rebecca config validate`. `config show` returns the loaded TOML config plus the
+effective runtime paths and policies. `config validate` checks the same parse,
+schema-version, path, scan-cache, purge-root, and runtime path resolution rules
+without writing configuration. Use these commands instead of editing or parsing
+Rebecca's config file format directly.
+
 Purge targets carry the same estimate provenance fields as cleanup targets.
 Consumers should use the explicit `rule_id`, `status`, `reason_code`,
 `estimate_source`, backend/source/confidence/caveat fields, and `project_artifact`
@@ -304,6 +338,8 @@ not a freshness guarantee and is never deletion authority.
 ## Examples
 
 ```powershell
+rebecca capabilities --format json
+rebecca schema export --document payloads --format json
 rebecca scan --format json
 rebecca clean --format json --category system
 rebecca clean --format ndjson --scan-cache --category system
@@ -315,6 +351,9 @@ rebecca catalog --format json --kind cleanup-rule --platform linux
 rebecca cache inspect --format json --namespace scan-cache
 rebecca cache doctor --format json
 rebecca cache prune --format json --namespace scan-cache --stale-only
+rebecca config show --format json
+rebecca config validate --format json
+rebecca rules validate --format json --dir ./rules
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
 rebecca inspect map --format ndjson --root . --top 20 --group-by type --group-by extension

@@ -7,10 +7,12 @@ use std::io;
 mod apps;
 mod cache;
 mod cache_view;
+mod capabilities;
 mod catalog;
 mod clean;
 mod clean_view;
 mod cli;
+mod config_cmd;
 mod history_view;
 mod info;
 mod inspect;
@@ -19,8 +21,10 @@ mod progress;
 mod purge;
 mod purge_view;
 mod render;
+mod rules_cmd;
 mod runtime;
 mod scan;
+mod schema;
 mod text;
 mod trash_backend;
 mod tui;
@@ -29,7 +33,7 @@ mod workbench;
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
     CompletionArgs, ConfigCommand, DoctorCommand, HistoryArgs, InspectCommand, OutputMode,
-    PurgeArgs, ScanArgs, TuiArgs,
+    PurgeArgs, RulesCommand, ScanArgs, SchemaCommand, TuiArgs,
 };
 use runtime::CliRuntime;
 
@@ -78,7 +82,19 @@ fn run() -> Result<()> {
     let runtime = CliRuntime::with_ctrlc_handler()?;
 
     match cli.command {
+        Command::Capabilities => capabilities::run(cli.format),
         Command::Catalog(args) => run_catalog(args, cli.format),
+        Command::Rules { command } => match command {
+            RulesCommand::Validate(args) => rules_cmd::validate(
+                cli.format,
+                args.files,
+                args.dirs,
+                rules_cmd::RuleDiscoveryOptions {
+                    max_depth: args.max_depth,
+                    max_files: args.max_files,
+                },
+            ),
+        },
         Command::Scan(args) => run_scan(args, cli.format),
         Command::Clean(args) => run_clean(args, cli.format, &runtime),
         Command::Tui(args) => run_tui(args, cli.format, &runtime),
@@ -162,10 +178,15 @@ fn run() -> Result<()> {
         },
         Command::Config { command } => match command {
             ConfigCommand::Paths => info::print_config_paths(cli.format),
+            ConfigCommand::Show(args) => config_cmd::show(cli.format, args.file),
+            ConfigCommand::Validate(args) => config_cmd::validate(cli.format, args.file),
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Permissions => info::print_privilege_level(cli.format),
             DoctorCommand::ActiveProcesses => info::print_active_processes(cli.format),
+        },
+        Command::Schema { command } => match command {
+            SchemaCommand::Export(args) => schema::export(cli.format, args.document),
         },
         Command::Completion(args) => run_completion(args),
     }
@@ -548,6 +569,7 @@ fn command_output_mode(cli: &Cli) -> OutputMode {
 
 fn command_api_contract(command: &Command) -> output::CliApiContract {
     match command {
+        Command::Capabilities => output::CliApiContract::v1("capabilities", "capabilities"),
         Command::Catalog(args) => {
             if matches!(args.command.as_ref(), Some(CatalogCommand::Validate)) {
                 output::CliApiContract::v1("catalog validate", "catalog-validation")
@@ -555,6 +577,11 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
                 output::CliApiContract::v1("catalog", "catalog")
             }
         }
+        Command::Rules { command } => match command {
+            RulesCommand::Validate(_) => {
+                output::CliApiContract::v1("rules validate", "rule-validation")
+            }
+        },
         Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),
         Command::Clean(_) => output::CliApiContract::v1("clean", "cleanup-plan"),
         Command::Tui(_) => output::CliApiContract::v1("tui", "terminal-workbench"),
@@ -592,6 +619,10 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
         },
         Command::Config { command } => match command {
             ConfigCommand::Paths => output::CliApiContract::v1("config paths", "config-paths"),
+            ConfigCommand::Show(_) => output::CliApiContract::v1("config show", "config-view"),
+            ConfigCommand::Validate(_) => {
+                output::CliApiContract::v1("config validate", "config-validation")
+            }
         },
         Command::Doctor { command } => match command {
             DoctorCommand::Permissions => {
@@ -600,6 +631,9 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
             DoctorCommand::ActiveProcesses => {
                 output::CliApiContract::v1("doctor active-processes", "active-process-diagnostic")
             }
+        },
+        Command::Schema { command } => match command {
+            SchemaCommand::Export(_) => output::CliApiContract::v1("schema export", "cli-schema"),
         },
         Command::Completion(_) => output::CliApiContract::v1("completion", "completion-script"),
     }

@@ -3,6 +3,9 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+pub const DEFAULT_RULE_VALIDATE_MAX_DEPTH: usize = 8;
+pub const DEFAULT_RULE_VALIDATE_MAX_FILES: usize = 512;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputMode {
     Human,
@@ -177,6 +180,14 @@ pub enum CatalogCommand {
     Validate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SchemaDocumentArg {
+    Envelope,
+    Event,
+    Error,
+    Payloads,
+}
+
 impl From<CatalogKindArg> for rebecca::core::catalog::CatalogItemKind {
     fn from(kind: CatalogKindArg) -> Self {
         match kind {
@@ -241,8 +252,15 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Report machine-readable CLI capabilities for GUI wrappers.
+    Capabilities,
     /// List or validate cleanup rules, project artifacts, warnings, and safety catalog entries.
     Catalog(CatalogArgs),
+    /// Validate external cleanup rule manifests before import.
+    Rules {
+        #[command(subcommand)]
+        command: RulesCommand,
+    },
     /// Show the built-in cleanup rules that would be considered.
     Scan(ScanArgs),
     /// Build or execute a cleanup plan.
@@ -278,6 +296,11 @@ pub enum Command {
     Doctor {
         #[command(subcommand)]
         command: DoctorCommand,
+    },
+    /// Export Rebecca CLI API schemas.
+    Schema {
+        #[command(subcommand)]
+        command: SchemaCommand,
     },
     /// Generate shell completion scripts from the live parser.
     Completion(CompletionArgs),
@@ -465,6 +488,28 @@ pub struct CatalogArgs {
     /// Include cleanup rules for a platform.
     #[arg(long, value_enum)]
     pub platform: Option<PlatformArg>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RulesCommand {
+    /// Validate external Cleaner Manifest v1 files or directories without enabling them.
+    Validate(RulesValidateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct RulesValidateArgs {
+    /// External Cleaner Manifest v1 TOML file. Can be repeated.
+    #[arg(long = "file", value_name = "PATH")]
+    pub files: Vec<PathBuf>,
+    /// Directory containing external Cleaner Manifest v1 TOML files. Can be repeated.
+    #[arg(long = "dir", value_name = "PATH")]
+    pub dirs: Vec<PathBuf>,
+    /// Maximum directory depth below each --dir to inspect.
+    #[arg(long = "max-depth", value_name = "N", default_value_t = DEFAULT_RULE_VALIDATE_MAX_DEPTH)]
+    pub max_depth: usize,
+    /// Maximum number of manifest files accepted across all inputs.
+    #[arg(long = "max-files", value_name = "N", default_value_t = DEFAULT_RULE_VALIDATE_MAX_FILES)]
+    pub max_files: usize,
 }
 
 #[derive(Debug, Args)]
@@ -728,6 +773,17 @@ pub enum AppsCommand {
 pub enum ConfigCommand {
     /// Print config, state, cache, and history paths.
     Paths,
+    /// Print the loaded config and effective runtime config.
+    Show(ConfigFileArgs),
+    /// Validate the current or supplied config file.
+    Validate(ConfigFileArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ConfigFileArgs {
+    /// Config file to read instead of the default Rebecca config.toml.
+    #[arg(long = "file", value_name = "PATH")]
+    pub file: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -736,6 +792,19 @@ pub enum DoctorCommand {
     Permissions,
     /// Report warning-bearing cleanup rules whose applications appear to be running.
     ActiveProcesses,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SchemaCommand {
+    /// Export one CLI API v1 JSON schema document.
+    Export(SchemaExportArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SchemaExportArgs {
+    /// Schema document to export.
+    #[arg(long = "document", value_enum, default_value_t = SchemaDocumentArg::Payloads)]
+    pub document: SchemaDocumentArg,
 }
 
 #[derive(Debug, Args)]

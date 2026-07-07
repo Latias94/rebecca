@@ -1,0 +1,35 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "rules validate",
+  "payload_kind": "rule-validation",
+  "generated_at_unix_seconds": 1783420000,
+  "data": {
+    "valid": true,
+    "enabled": false,
+    "files": [
+      "/Users/example/RebeccaRules/example-cache.toml"
+    ],
+    "discovery": {
+      "directory_max_depth": 8,
+      "file_limit": 512,
+      "symlink_traversal": false
+    },
+    "rule_count": 1,
+    "target_count": 1,
+    "platforms": [
+      "macos"
+    ],
+    "categories": [
+      "development"
+    ],
+    "rules": [
+      "macos.example-cache"
+    ],
+    "checks": [
+      "Cleaner Manifest v1 TOML parses",
+      "protected target shapes are blocked",
+      "target shapes have positive cleanup basis"
+    ]
+  }
+}

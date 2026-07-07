@@ -1,0 +1,18 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "schema export",
+  "payload_kind": "cli-schema",
+  "generated_at_unix_seconds": 1783420000,
+  "data": {
+    "api_version": "rebecca.cli.v1",
+    "document": "payloads",
+    "media_type": "application/schema+json",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://rebecca.local/schemas/cli/v1/payloads.schema.json",
+      "title": "Rebecca CLI API v1 payload families",
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "config show",
+  "payload_kind": "config-view",
+  "generated_at_unix_seconds": 1783420000,
+  "data": {
+    "schema_version": 1,
+    "config_file": "/Users/example/Library/Application Support/Rebecca/config.toml",
+    "loaded_from_file": false,
+    "config": {
+      "version": 1,
+      "scan_cache": {
+        "directory_record_max_age_seconds": 300
+      }
+    },
+    "runtime": {
+      "app_paths": {
+        "config_file": "/Users/example/Library/Application Support/Rebecca/config.toml",
+        "history_file": "/Users/example/Library/Application Support/Rebecca/state/history.jsonl"
+      },
+      "protected_paths": [],
+      "purge": {
+        "roots": [],
+        "max_depth": 6,
+        "min_age_days": 7
+      }
+    }
+  }
+}

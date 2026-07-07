@@ -1,0 +1,65 @@
+{
+  "api_version": "rebecca.cli.v1",
+  "kind": "success",
+  "command": "capabilities",
+  "payload_kind": "capabilities",
+  "generated_at_unix_seconds": 1783420000,
+  "data": {
+    "api_version": "rebecca.cli.v1",
+    "cli_version": "0.2.0",
+    "platform": {
+      "current": "macos",
+      "cleanup_execution_supported": true
+    },
+    "features": {
+      "rules": true,
+      "windows": true,
+      "ntfs": false
+    },
+    "output_formats": [
+      "human",
+      "json",
+      "ndjson"
+    ],
+    "schema_documents": [
+      "envelope",
+      "event",
+      "error",
+      "payloads"
+    ],
+    "commands": [
+      {
+        "name": "capabilities",
+        "payload_kind": "capabilities",
+        "machine_readable": true,
+        "ndjson": false,
+        "mutates_files": false
+      },
+      {
+        "name": "rules validate",
+        "payload_kind": "rule-validation",
+        "machine_readable": true,
+        "ndjson": false,
+        "mutates_files": false
+      },
+      {
+        "name": "clean",
+        "payload_kind": "cleanup-plan",
+        "machine_readable": true,
+        "ndjson": true,
+        "mutates_files": true
+      }
+    ],
+    "long_running_commands": [
+      "clean",
+      "inspect map"
+    ],
+    "safety_model": {
+      "preview_default": true,
+      "explicit_execution_flag": "--yes",
+      "recoverable_delete_default": true,
+      "persistent_risky_opt_in": false,
+      "external_rules_enabled_by_validation": false
+    }
+  }
+}
