@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{RebeccaError, Result};
 use crate::scan::{
-    MeasuredScan, ScanBackendEvidence, ScanBackendKind, ScanEstimateConfidence, ScanReport,
+    MeasuredScan, ScanBackendEvidence, ScanBackendKind, ScanEstimateConfidence,
+    ScanMetricSemantics, ScanReport,
 };
 
 pub const SCAN_CACHE_VERSION: u32 = 1;
@@ -69,6 +70,8 @@ pub struct ScanCacheRecord {
     pub backend_source: Option<String>,
     #[serde(default = "default_scan_cache_confidence")]
     pub confidence: ScanEstimateConfidence,
+    #[serde(default)]
+    pub metric_semantics: ScanMetricSemantics,
     #[serde(default, skip_serializing_if = "ScanBackendEvidence::is_empty")]
     pub backend_evidence: ScanBackendEvidence,
     #[serde(default)]
@@ -90,6 +93,7 @@ impl ScanCacheRecord {
             backend: measured_scan.backend,
             backend_source: measured_scan.backend_source,
             confidence: measured_scan.confidence,
+            metric_semantics: measured_scan.metric_semantics,
             backend_evidence: measured_scan.backend_evidence,
             identity: snapshot.identity,
             fingerprint: snapshot.fingerprint,
@@ -116,6 +120,20 @@ impl ScanCacheRecord {
 
         if self.is_expired_directory_record(policy, now_unix_seconds) {
             return Some(ScanCacheMiss::Expired);
+        }
+
+        None
+    }
+
+    pub(crate) fn compatibility_miss_reason(
+        &self,
+        compatibility: ScanCacheCompatibility,
+    ) -> Option<ScanCacheMiss> {
+        if self.backend != compatibility.backend {
+            return Some(ScanCacheMiss::IncompatibleBackend);
+        }
+        if self.metric_semantics != compatibility.metric_semantics {
+            return Some(ScanCacheMiss::IncompatibleMetricSemantics);
         }
 
         None
@@ -424,6 +442,7 @@ pub struct ScanCacheHit {
     pub backend: ScanBackendKind,
     pub backend_source: Option<String>,
     pub confidence: ScanEstimateConfidence,
+    pub metric_semantics: ScanMetricSemantics,
     pub backend_evidence: ScanBackendEvidence,
 }
 
@@ -434,8 +453,28 @@ impl ScanCacheHit {
             backend: record.backend,
             backend_source: record.backend_source.clone(),
             confidence: record.confidence,
+            metric_semantics: record.metric_semantics,
             backend_evidence: record.backend_evidence.clone(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanCacheCompatibility {
+    pub backend: ScanBackendKind,
+    pub metric_semantics: ScanMetricSemantics,
+}
+
+impl ScanCacheCompatibility {
+    pub const fn new(backend: ScanBackendKind, metric_semantics: ScanMetricSemantics) -> Self {
+        Self {
+            backend,
+            metric_semantics,
+        }
+    }
+
+    pub const fn logical_bytes(backend: ScanBackendKind) -> Self {
+        Self::new(backend, ScanMetricSemantics::LogicalBytes)
     }
 }
 
@@ -481,6 +520,8 @@ pub enum ScanCacheMiss {
     Expired,
     Corrupted,
     MetadataUnavailable,
+    IncompatibleBackend,
+    IncompatibleMetricSemantics,
     UsnJournalChanged,
     UsnRangeUnavailable,
     UsnTargetChanged,
@@ -494,6 +535,8 @@ impl ScanCacheMiss {
             Self::Expired => "expired",
             Self::Corrupted => "corrupted",
             Self::MetadataUnavailable => "metadata-unavailable",
+            Self::IncompatibleBackend => "incompatible-backend",
+            Self::IncompatibleMetricSemantics => "incompatible-metric-semantics",
             Self::UsnJournalChanged => "usn-journal-changed",
             Self::UsnRangeUnavailable => "usn-range-unavailable",
             Self::UsnTargetChanged => "usn-target-changed",

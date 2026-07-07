@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use rebecca_core::scan::{
-    ScanBackendEvidence, ScanBackendKind, ScanEstimateConfidence, ScanReport,
+    ScanBackendEvidence, ScanBackendKind, ScanEstimateConfidence, ScanMetricSemantics, ScanReport,
 };
 use rebecca_core::scan_cache::{
     SCAN_CACHE_VERSION, ScanCacheFileType, ScanCacheFingerprint, ScanCacheIdentity,
@@ -89,6 +89,7 @@ fn usn_record() -> ScanCacheRecord {
         backend: ScanBackendKind::WindowsNative,
         backend_source: None,
         confidence: ScanEstimateConfidence::Exact,
+        metric_semantics: ScanMetricSemantics::LogicalBytes,
         backend_evidence: ScanBackendEvidence::default(),
         identity: ScanCacheIdentity {
             volume_serial: Some(5),

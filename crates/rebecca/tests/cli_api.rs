@@ -227,6 +227,97 @@ fn invalid_format_is_rejected_by_clap() {
 }
 
 #[test]
+fn parse_error_format_json_returns_error_envelope() {
+    let output = common::command::rebecca()
+        .args(["clean", "--format", "json", "--bogus"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+
+    let value = parse_json(&output.stderr);
+    assert_error_schema(&value);
+    assert_eq!(value["command"], "clean");
+    assert_eq!(value["error"]["code"], "invalid-arguments");
+    assert_eq!(value["error"]["source"], "clap");
+    assert!(
+        value["error"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("unexpected argument")
+    );
+}
+
+#[test]
+fn parse_error_format_ndjson_returns_error_event() {
+    let output = common::command::rebecca()
+        .args(["inspect", "artifacts", "--format", "ndjson", "--bogus"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let events = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 1);
+    let event = events.first().unwrap();
+    assert_event_schema(event);
+    assert_eq!(event["command"], "inspect artifacts");
+    assert_eq!(event["event_kind"], "error");
+    assert_eq!(event["error"]["code"], "invalid-arguments");
+}
+
+#[test]
+fn destructive_commands_reject_dry_run_yes_in_machine_format() {
+    let cases = [
+        (
+            ["clean", "--format", "json", "--dry-run", "--yes"].as_slice(),
+            "clean",
+        ),
+        (
+            ["apps", "clean", "--format", "json", "--dry-run", "--yes"].as_slice(),
+            "apps clean",
+        ),
+        (
+            ["purge", "--format", "json", "--dry-run", "--yes"].as_slice(),
+            "purge",
+        ),
+        (
+            ["cache", "prune", "--format", "json", "--dry-run", "--yes"].as_slice(),
+            "cache prune",
+        ),
+        (
+            ["cache", "purge", "--format", "json", "--dry-run", "--yes"].as_slice(),
+            "cache purge",
+        ),
+    ];
+
+    for (args, command) in cases {
+        let output = common::command::rebecca().args(args).output().unwrap();
+
+        assert!(!output.status.success(), "{command} should fail");
+        assert!(
+            output.stdout.is_empty(),
+            "{command} should not write stdout"
+        );
+        let value = parse_json(&output.stderr);
+        assert_error_schema(&value);
+        assert_eq!(value["command"], command);
+        assert_eq!(value["error"]["code"], "validation-error");
+        assert!(
+            value["error"]["detail"]
+                .as_str()
+                .unwrap()
+                .contains("--dry-run cannot be combined with --yes")
+        );
+    }
+}
+
+#[test]
 fn clean_format_ndjson_emits_lifecycle_events() {
     let temp = tempfile::tempdir().unwrap();
     let temp_cache = temp.path().join("temp");

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
@@ -56,6 +56,10 @@ pub(crate) fn scan_with_runtime(options: AppsScanOptions, runtime: &CliRuntime) 
 }
 
 pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime) -> Result<()> {
+    if options.dry_run && options.yes {
+        return Err(anyhow!("--dry-run cannot be combined with --yes"));
+    }
+
     let mode = if options.yes && !options.dry_run {
         DeleteMode::RecoverableDelete
     } else {

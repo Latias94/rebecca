@@ -14,6 +14,7 @@ use rebecca_core::executor::{
 };
 use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca_core::protection::ProtectionPolicy;
+use rebecca_core::safety_catalog::default_safety_knowledge_for_platform;
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, Result, TargetStatus};
 
 #[test]
@@ -86,6 +87,42 @@ fn executor_records_failure_without_aborting_plan() {
         plan.summary.issue_matrix[0].reason_code,
         CleanupTargetIssueReason::ExecutionFailed
     );
+}
+
+#[test]
+fn executor_revalidates_targets_with_supplied_platform_safety_knowledge() {
+    let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+        Platform::Linux,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.targets.push(CleanupTarget::allowed(
+        "linux.unsafe-etc",
+        PathBuf::from("/etc"),
+        10,
+        DeleteMode::RecoverableDelete,
+    ));
+    plan.recompute_summary();
+    let linux_knowledge = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should exist");
+    let policy = ProtectionPolicy::new().with_safety_knowledge(linux_knowledge);
+    let backend = FakeBackend::success();
+
+    let report = execute_cleanup_plan_with_policy(&mut plan, &backend, policy).unwrap();
+
+    assert_eq!(backend.calls.get(), 0);
+    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
+    assert_eq!(
+        plan.targets[0].reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        plan.targets[0]
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("critical linux path"))
+    );
+    assert_eq!(report.summary.blocked_actions, 1);
+    assert_eq!(plan.summary.blocked_targets, 1);
 }
 
 #[test]

@@ -16,6 +16,7 @@ use rebecca_core::project_artifacts::{
     discover_project_artifacts_with_diagnostics,
 };
 use rebecca_core::protection::ProtectionPolicy;
+use rebecca_core::safety_catalog::default_safety_knowledge_for_platform;
 use rebecca_core::scan::ScanCancellationToken;
 
 fn rule(id: &str, target: impl AsRef<Path>, safety_level: SafetyLevel) -> RuleDefinition {
@@ -47,7 +48,15 @@ fn build_index<'a>(
     rules: &[RuleDefinition],
     protection_policy: ProtectionPolicy<'a>,
 ) -> CleanupAdviceIndex<'a> {
-    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    build_index_for_platform(Platform::Windows, rules, protection_policy)
+}
+
+fn build_index_for_platform<'a>(
+    platform: Platform,
+    rules: &[RuleDefinition],
+    protection_policy: ProtectionPolicy<'a>,
+) -> CleanupAdviceIndex<'a> {
+    let request = PlanRequest::for_platform(platform, DeleteMode::DryRun);
     CleanupAdviceIndex::build(
         CleanupAdviceBuildRequest::new(request, protection_policy),
         rules,
@@ -259,6 +268,20 @@ fn protected_path_wins_over_app_leftover_match() {
     );
     assert_eq!(advice.source.unwrap().label(), "protection");
     assert_eq!(advice.app_leftover, None);
+    assert_eq!(advice.suggested_command, None);
+}
+
+#[test]
+fn cleanup_advice_uses_supplied_platform_safety_knowledge() {
+    let linux_knowledge = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should exist");
+    let policy = ProtectionPolicy::new().with_safety_knowledge(linux_knowledge);
+    let index = build_index_for_platform(Platform::Linux, &[], policy);
+
+    let advice = index.advise_path(&PathBuf::from("/etc/passwd"));
+
+    assert_eq!(advice.status, CleanupAdviceStatus::Protected);
+    assert_eq!(advice.protection_kind.as_deref(), Some("critical-path"));
     assert_eq!(advice.suggested_command, None);
 }
 

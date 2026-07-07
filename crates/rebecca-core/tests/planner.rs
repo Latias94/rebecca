@@ -16,6 +16,7 @@ use rebecca_core::planner::{
     build_cleanup_plan_with_environment_and_progress,
     build_cleanup_plan_with_environment_and_progress_and_cancellation,
 };
+use rebecca_core::safety_catalog::default_safety_knowledge_for_platform;
 use rebecca_core::scan::{
     ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence, ScanReport,
 };
@@ -145,6 +146,58 @@ fn linux_planning_uses_xdg_cache_home_fallback_from_home() {
         plan.targets
             .iter()
             .any(|target| target.path.ends_with(".cache/pip"))
+    );
+}
+
+#[test]
+fn planner_uses_supplied_platform_safety_knowledge() {
+    let env = MapEnvironment::new();
+    let rules = vec![RuleDefinition {
+        id: "linux.unsafe-etc".to_string(),
+        platform: Platform::Linux,
+        category: "system".to_string(),
+        name: "Unsafe etc".to_string(),
+        safety_level: SafetyLevel::Safe,
+        path_templates: vec![RuleTargetSpec::ExactPath(PathBuf::from("/etc"))],
+        restore_hint: Some("Do not delete system configuration.".to_string()),
+        warnings: Vec::new(),
+        provenance: RuleProvenance {
+            source: RuleSource::Owned,
+            license: "project-owned".to_string(),
+            notes: "test rule".to_string(),
+        },
+    }];
+    let request = PlanRequest::for_platform(Platform::Linux, DeleteMode::DryRun);
+    let cancellation = ScanCancellationToken::new();
+    let linux_knowledge = default_safety_knowledge_for_platform(Platform::Linux)
+        .expect("Linux safety knowledge should exist");
+    let context = PlanBuildContext::new(&cancellation).with_safety_knowledge(linux_knowledge);
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &env,
+        &NoopApplicationDiscovery::new(),
+        context,
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.blocked_targets, 1);
+    let target = plan
+        .targets
+        .first()
+        .expect("blocked target should be emitted");
+    assert_eq!(target.status, TargetStatus::Blocked);
+    assert_eq!(
+        target.reason_code,
+        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    );
+    assert!(
+        target
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("critical linux path"))
     );
 }
 
@@ -948,6 +1001,78 @@ fn planner_uses_scan_cache_when_context_enables_it_for_file_targets() {
     );
     assert_eq!(file_events, 0);
     assert_eq!(cache_events, ["hit:windows.custom-file-cache:99"]);
+}
+
+#[test]
+fn planner_rebuilds_scan_cache_when_cached_backend_is_incompatible() {
+    let fixture = PlannerFixture::new();
+    fixture.write("temp/cached.tmp", b"abc");
+    let path = fixture.root.join("temp").join("cached.tmp");
+    let rules = vec![custom_exact_path_rule(
+        "windows.custom-file-cache",
+        path.clone(),
+    )];
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let cache = ScanCacheStore::new(fixture.root.join("cache").join("scan"));
+    let mut record = cache
+        .store(
+            &path,
+            ScanReport {
+                bytes_scanned: 99,
+                files_scanned: 1,
+                directories_scanned: 0,
+            },
+        )
+        .unwrap();
+    record.backend = ScanBackendKind::WindowsNative;
+    fs::write(
+        cache.cache_file_for(&path),
+        serde_json::to_vec_pretty(&record).unwrap(),
+    )
+    .unwrap();
+    let cancellation = ScanCancellationToken::new();
+    let applications = NoopApplicationDiscovery::new();
+    let mut cache_events = Vec::new();
+
+    let plan = build_cleanup_plan_with_context(
+        &request,
+        &rules,
+        &fixture.env,
+        &applications,
+        PlanBuildContext::new(&cancellation)
+            .with_scan_backend(ScanBackendKind::PortableRecursive)
+            .with_scan_cache(&cache),
+        |event| match event {
+            PlanProgressEvent::ScanCacheHit { .. } => {
+                cache_events.push("hit".to_string());
+            }
+            PlanProgressEvent::ScanCacheMiss { reason, .. } => {
+                cache_events.push(format!("miss:{}", reason.label()));
+            }
+            PlanProgressEvent::ScanCacheWriteSkipped { .. } => {
+                cache_events.push("write-skipped".to_string());
+            }
+            _ => {}
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.summary.estimated_bytes, 3);
+    assert_eq!(plan.targets[0].estimate_source, EstimateSource::FreshScan);
+    assert_eq!(
+        plan.targets[0].estimate_provenance.estimate_backend,
+        Some(ScanBackendKind::PortableRecursive)
+    );
+    assert_eq!(cache_events, ["miss:incompatible-backend"]);
+    assert_scan_cache_hit(
+        cache.load(&path),
+        ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 0,
+        },
+        ScanBackendKind::PortableRecursive,
+    );
 }
 
 #[test]

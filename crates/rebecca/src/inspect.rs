@@ -691,7 +691,8 @@ pub(crate) fn annotate_map_report_with_cleanup_advice(
     cancellation: &ScanCancellationToken,
 ) -> Result<()> {
     let rules = rebecca::rules::builtin_rules()?;
-    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let request = PlanRequest::for_platform(Platform::current(), DeleteMode::DryRun);
+    let safety_knowledge = rebecca::rules::builtin_safety_knowledge_for_platform(request.platform)?;
     let applications = crate::info::application_discovery();
     let env = PlatformEnvironment::current(SystemEnvironment);
     let protected_storage = runtime_config.app_paths.storage_entries();
@@ -702,7 +703,6 @@ pub(crate) fn annotate_map_report_with_cleanup_advice(
     if !protected_paths.is_empty() {
         protection_policy = protection_policy.with_protected_paths(&protected_paths);
     }
-    let request = PlanRequest::for_platform(Platform::current(), DeleteMode::DryRun);
     let mut index = CleanupAdviceIndex::build(
         CleanupAdviceBuildRequest::new(request, protection_policy),
         &rules,

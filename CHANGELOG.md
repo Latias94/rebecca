@@ -10,6 +10,8 @@ All notable changes to Rebecca will be documented in this file.
 - `scan` now lists current-host cleanup rules by default, `catalog` exposes cleanup-rule platform metadata with `--platform` filtering, and doctor diagnostics report Linux support instead of returning Windows-only placeholders.
 
 ### Added
+- Machine-mode clap parse failures are now rendered as structured `invalid-arguments` JSON/NDJSON errors when `--format json` or `--format ndjson` was already discoverable; invalid `--format` values still use clap's native error so callers can see the accepted format values.
+- Scan-cache records now persist `metric_semantics`, and cleanup/inspect cache lookups require compatible backend plus logical-byte semantics before reusing a record, preventing stale cross-backend estimates from being treated as authoritative hits.
 - TUI disk analytics now includes a keyboard-reachable Treemap view (`4`/`w`), mouse tab/row/tile selection, mouse-wheel selection movement, and deterministic Treemap snapshot and hit-test coverage while keeping cleanup execution behind preview and typed confirmation.
 - TUI disk analytics now includes keyboard-reachable type and extension distribution views, scoped directory/root refresh with previous-scan restore, retryable task errors, and headless replay coverage for the new journeys.
 - `rebecca inspect map --group-by type` now emits file-vs-directory distribution groups alongside existing extension, depth, and age groups.
@@ -116,6 +118,8 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune` now expose Rebecca cache inventory, stale/corrupt record recommendations, namespace filtering, dry-run previews, and execution reports for targeted cache metadata pruning.
 
 ### Changed
+- Runtime cleanup planning, workbench preview/execution, and inspect-map cleanup advice now select built-in safety knowledge from the request platform instead of the safety catalog default platform.
+- `clean`, `apps clean`, `purge`, `cache prune`, and `cache purge` now reject `--dry-run --yes` before reading configuration or touching cache state.
 - Built-in cleanup rule catalog validation is now platform-aware: rule file paths, manifest `platform` values, and rule id prefixes must agree under `rules/<platform>/`.
 - Documented Rebecca disk-cleaner skill dogfood verification and example prompts so users can confirm installation and trigger the workflow predictably.
 - Inspect progress now samples backend stage and metric events by default while keeping unsampled backend details available with `--progress-detail file`, reducing noisy MFT NDJSON and spinner output without changing final report payloads.

@@ -88,6 +88,10 @@ pub(crate) enum ConfirmationKind {
 }
 
 pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> Result<()> {
+    if options.dry_run && options.yes {
+        return Err(anyhow!("--dry-run cannot be combined with --yes"));
+    }
+
     let mode = if options.yes && !options.dry_run {
         DeleteMode::RecoverableDelete
     } else {
@@ -135,7 +139,8 @@ pub(crate) fn run_workflow_with_runtime_config(
     runtime_config: AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<()> {
-    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let safety_knowledge =
+        rebecca::rules::builtin_safety_knowledge_for_platform(options.request.platform)?;
     let cancellation = runtime.cancellation();
     let mut progress = PlanProgressReporter::new(
         options.output_mode.is_human() && !options.no_progress,

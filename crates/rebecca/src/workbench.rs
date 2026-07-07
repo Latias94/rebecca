@@ -102,7 +102,8 @@ where
         return Ok(plan);
     }
 
-    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let safety_knowledge =
+        rebecca::rules::builtin_safety_knowledge_for_platform(plan.request.platform)?;
     let protected_storage = runtime_config.app_paths.storage_entries();
     let protected_paths = merged_protected_paths(
         runtime_config.protected_paths.as_slice(),
@@ -135,7 +136,8 @@ fn build_plan(
     progress: impl for<'a> FnMut(PlanProgressEvent<'a>),
 ) -> Result<CleanupPlan> {
     let catalog = rebecca::rules::builtin_rules()?;
-    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let safety_knowledge =
+        rebecca::rules::builtin_safety_knowledge_for_platform(plan_request.platform)?;
     let applications = crate::info::application_discovery();
     let protected_storage = runtime_config.app_paths.storage_entries();
     let protected_paths = merged_protected_paths(

@@ -14,7 +14,7 @@ use crate::safety::is_reparse_like;
 use crate::scan::{
     ScanBackendKind, ScanCancellationToken, ScanEngine, ScanProgressEvent, ScanReport,
 };
-use crate::scan_cache::{ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
+use crate::scan_cache::{ScanCacheCompatibility, ScanCacheLookup, ScanCachePolicy, ScanCacheStore};
 
 pub const DEFAULT_SPACE_INSIGHT_TOP_LIMIT: usize = 10;
 pub const DEFAULT_SPACE_INSIGHT_DIAGNOSTIC_LIMIT: usize = 100;
@@ -740,7 +740,12 @@ where
 {
     let mut cache_miss_reason = None;
     if let Some(scan_cache) = &request.scan_cache {
-        match scan_cache.store.load_with_policy(path, scan_cache.policy) {
+        let compatibility = ScanCacheCompatibility::logical_bytes(request.scan_backend);
+        match scan_cache.store.load_with_policy_and_compatibility(
+            path,
+            scan_cache.policy,
+            compatibility,
+        ) {
             ScanCacheLookup::Hit(hit) => {
                 progress(InspectProgressEvent::CacheEvent {
                     path,

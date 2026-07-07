@@ -7,9 +7,10 @@ use crate::error::{RebeccaError, Result};
 use crate::scan::{MeasuredScan, ScanBackendKind, ScanReport};
 
 use super::{
-    SCAN_CACHE_DIR, SCAN_CACHE_PRUNE_BATCH_LIMIT, ScanCacheHit, ScanCacheLookup, ScanCacheMiss,
-    ScanCachePathSnapshot, ScanCachePolicy, ScanCachePruneReport, ScanCacheRecord, ScanCacheStore,
-    ScanCacheUsnValidation, ScanCacheUsnValidator, ScanCacheWriteDurability,
+    SCAN_CACHE_DIR, SCAN_CACHE_PRUNE_BATCH_LIMIT, ScanCacheCompatibility, ScanCacheHit,
+    ScanCacheLookup, ScanCacheMiss, ScanCachePathSnapshot, ScanCachePolicy, ScanCachePruneReport,
+    ScanCacheRecord, ScanCacheStore, ScanCacheUsnValidation, ScanCacheUsnValidator,
+    ScanCacheWriteDurability,
 };
 
 #[cfg(test)]
@@ -149,7 +150,29 @@ impl ScanCacheStore {
     }
 
     pub fn load_with_policy(&self, root: &Path, policy: ScanCachePolicy) -> ScanCacheLookup {
-        self.load_with_policy_and_optional_usn_validator(root, policy, None)
+        self.load_with_policy_compatibility_and_optional_usn_validator(root, policy, None, None)
+    }
+
+    pub fn load_with_compatibility(
+        &self,
+        root: &Path,
+        compatibility: ScanCacheCompatibility,
+    ) -> ScanCacheLookup {
+        self.load_with_policy_and_compatibility(root, ScanCachePolicy::default(), compatibility)
+    }
+
+    pub fn load_with_policy_and_compatibility(
+        &self,
+        root: &Path,
+        policy: ScanCachePolicy,
+        compatibility: ScanCacheCompatibility,
+    ) -> ScanCacheLookup {
+        self.load_with_policy_compatibility_and_optional_usn_validator(
+            root,
+            policy,
+            Some(compatibility),
+            None,
+        )
     }
 
     pub fn load_with_policy_and_usn_validator(
@@ -158,13 +181,19 @@ impl ScanCacheStore {
         policy: ScanCachePolicy,
         usn_validator: &dyn ScanCacheUsnValidator,
     ) -> ScanCacheLookup {
-        self.load_with_policy_and_optional_usn_validator(root, policy, Some(usn_validator))
+        self.load_with_policy_compatibility_and_optional_usn_validator(
+            root,
+            policy,
+            None,
+            Some(usn_validator),
+        )
     }
 
-    fn load_with_policy_and_optional_usn_validator(
+    fn load_with_policy_compatibility_and_optional_usn_validator(
         &self,
         root: &Path,
         policy: ScanCachePolicy,
+        compatibility: Option<ScanCacheCompatibility>,
         usn_validator: Option<&dyn ScanCacheUsnValidator>,
     ) -> ScanCacheLookup {
         let cache_file = self.cache_file_for(root);
@@ -203,6 +232,12 @@ impl ScanCacheStore {
                 ScanCacheLookup::miss(reason)
             }
             None => {
+                if let Some(compatibility) = compatibility
+                    && let Some(reason) = record.compatibility_miss_reason(compatibility)
+                {
+                    return ScanCacheLookup::miss(reason);
+                }
+
                 if let Some(usn_validator) = usn_validator
                     && let ScanCacheUsnValidation::Invalidated(reason) =
                         usn_validator.validate_record(&record)
@@ -360,11 +395,11 @@ fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{STRICT_SYNC_CALLS, path_hash, unix_now};
-    use crate::scan::{ScanBackendKind, ScanEstimateConfidence, ScanReport};
+    use crate::scan::{ScanBackendKind, ScanEstimateConfidence, ScanMetricSemantics, ScanReport};
     use crate::scan_cache::{
-        DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheFileType,
-        ScanCacheHit, ScanCacheLookup, ScanCacheMiss, ScanCachePolicy, ScanCacheStore,
-        ScanCacheUsnChange, ScanCacheUsnCheckpoint, ScanCacheUsnInvalidationReason,
+        DEFAULT_DIRECTORY_SCAN_CACHE_MAX_AGE_SECONDS, SCAN_CACHE_VERSION, ScanCacheCompatibility,
+        ScanCacheFileType, ScanCacheHit, ScanCacheLookup, ScanCacheMiss, ScanCachePolicy,
+        ScanCacheStore, ScanCacheUsnChange, ScanCacheUsnCheckpoint, ScanCacheUsnInvalidationReason,
         ScanCacheUsnJournalState, ScanCacheUsnValidation, ScanCacheUsnValidator,
         ScanCacheWriteDurability,
     };
@@ -380,6 +415,7 @@ mod tests {
             backend,
             backend_source: None,
             confidence: ScanEstimateConfidence::Exact,
+            metric_semantics: ScanMetricSemantics::LogicalBytes,
             backend_evidence: crate::scan::ScanBackendEvidence::default(),
         })
     }
@@ -479,6 +515,7 @@ mod tests {
                 backend: ScanBackendKind::WindowsNtfsMftExperimental,
                 backend_source: Some("windows-ntfs-mft-experimental-sequential".to_string()),
                 confidence: ScanEstimateConfidence::Exact,
+                metric_semantics: ScanMetricSemantics::LogicalBytes,
                 backend_evidence: crate::scan::ScanBackendEvidence::default(),
             })
         );
@@ -506,8 +543,72 @@ mod tests {
         assert_eq!(parsed["backend"], "portable-recursive");
         assert!(parsed.get("backend_source").is_none());
         assert_eq!(parsed["confidence"], "exact");
+        assert_eq!(parsed["metric_semantics"], "logical-bytes");
         assert_eq!(parsed["identity"].as_object().unwrap().len(), 2);
         assert!(parsed["identity"].get("usn_checkpoint").is_none());
+    }
+
+    #[test]
+    fn scan_cache_compatible_lookup_rejects_backend_mismatch_without_pruning() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file.bin"), b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 3,
+            files_scanned: 1,
+            directories_scanned: 1,
+        };
+        store
+            .store_measured_scan(
+                &root,
+                crate::scan::MeasuredScan::exact(report, ScanBackendKind::WindowsNative),
+            )
+            .unwrap();
+
+        let lookup = store.load_with_compatibility(
+            &root,
+            ScanCacheCompatibility::logical_bytes(ScanBackendKind::PortableRecursive),
+        );
+
+        assert_eq!(
+            lookup,
+            ScanCacheLookup::miss(ScanCacheMiss::IncompatibleBackend)
+        );
+        assert!(store.cache_file_for(&root).exists());
+    }
+
+    #[test]
+    fn scan_cache_compatible_lookup_rejects_metric_semantics_mismatch_without_pruning() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file.bin"), b"abc").unwrap();
+        let store = ScanCacheStore::new(temp.path().join("cache").join("scan"));
+        let report = ScanReport {
+            bytes_scanned: 4096,
+            files_scanned: 1,
+            directories_scanned: 1,
+        };
+        store
+            .store_measured_scan(
+                &root,
+                crate::scan::MeasuredScan::exact(report, ScanBackendKind::PortableRecursive)
+                    .with_metric_semantics(ScanMetricSemantics::AllocatedBytes),
+            )
+            .unwrap();
+
+        let lookup = store.load_with_compatibility(
+            &root,
+            ScanCacheCompatibility::logical_bytes(ScanBackendKind::PortableRecursive),
+        );
+
+        assert_eq!(
+            lookup,
+            ScanCacheLookup::miss(ScanCacheMiss::IncompatibleMetricSemantics)
+        );
+        assert!(store.cache_file_for(&root).exists());
     }
 
     #[test]

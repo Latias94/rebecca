@@ -248,6 +248,16 @@ pub(crate) fn render_error(contract: CliApiContract, mode: OutputMode, err: &any
 fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
     let detail = err.to_string();
 
+    if err.downcast_ref::<clap::Error>().is_some() {
+        return ApiErrorBody {
+            code: "invalid-arguments",
+            title: "Invalid command arguments",
+            detail,
+            exit_code: 1,
+            source: Some("clap"),
+        };
+    }
+
     if let Some(core_error) = err.downcast_ref::<rebecca::core::RebeccaError>() {
         let (code, title) = match core_error {
             rebecca::core::RebeccaError::InvalidRuleId(_) => {
@@ -320,7 +330,9 @@ fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
         };
     }
 
-    let (code, title) = if detail.contains("invalid protected path") {
+    let (code, title) = if detail.contains("invalid protected path")
+        || detail.contains("--dry-run cannot be combined with --yes")
+    {
         ("validation-error", "Validation failed")
     } else if detail.contains("purge root") {
         ("invalid-purge-root", "Invalid purge root")

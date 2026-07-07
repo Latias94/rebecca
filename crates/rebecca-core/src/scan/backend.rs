@@ -39,6 +39,23 @@ impl ScanEstimateConfidence {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScanMetricSemantics {
+    #[default]
+    LogicalBytes,
+    AllocatedBytes,
+}
+
+impl ScanMetricSemantics {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::LogicalBytes => "logical-bytes",
+            Self::AllocatedBytes => "allocated-bytes",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanEstimateCaveat {
     pub code: String,
@@ -93,6 +110,8 @@ pub struct MeasuredScan {
     pub report: ScanReport,
     pub backend: ScanBackendKind,
     pub confidence: ScanEstimateConfidence,
+    #[serde(default)]
+    pub metric_semantics: ScanMetricSemantics,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,11 +128,17 @@ impl MeasuredScan {
             report,
             backend,
             confidence: ScanEstimateConfidence::Exact,
+            metric_semantics: ScanMetricSemantics::LogicalBytes,
             backend_source: None,
             fallback_reason: None,
             caveats: Vec::new(),
             backend_evidence: ScanBackendEvidence::default(),
         }
+    }
+
+    pub fn with_metric_semantics(mut self, semantics: ScanMetricSemantics) -> Self {
+        self.metric_semantics = semantics;
+        self
     }
 
     #[cfg(all(windows, feature = "ntfs"))]

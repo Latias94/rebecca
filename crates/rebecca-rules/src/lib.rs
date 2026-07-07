@@ -136,6 +136,18 @@ pub fn builtin_safety_knowledge() -> Result<SafetyKnowledge> {
         })
 }
 
+pub fn builtin_safety_knowledge_for_platform(platform: Platform) -> Result<SafetyKnowledge> {
+    builtin_safety_catalog()?
+        .knowledge_for_platform(platform)
+        .cloned()
+        .ok_or_else(|| {
+            RebeccaError::SafetyCatalogInvalid(format!(
+                "built-in safety catalog has no safety knowledge for platform {}",
+                platform.label()
+            ))
+        })
+}
+
 pub fn builtin_safety_catalog() -> Result<SafetyCatalog> {
     parse_safety_catalog(BUILTIN_SAFETY_CATALOG.0, BUILTIN_SAFETY_CATALOG.1)
 }
@@ -851,7 +863,10 @@ mod tests {
         Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec, SafetyLevel,
     };
 
-    use super::{builtin_rules, builtin_safety_knowledge, parse_rule_file};
+    use super::{
+        builtin_rules, builtin_safety_knowledge, builtin_safety_knowledge_for_platform,
+        parse_rule_file,
+    };
 
     fn parse_single_rule_file(path: &str, raw: &str) -> RuleDefinition {
         let safety_knowledge =
@@ -900,6 +915,21 @@ mod tests {
         assert!(knowledge.is_allowed_steam_library_target("steamapps/downloading"));
         assert!(catalog.knowledge_for_platform(Platform::Linux).is_some());
         assert!(catalog.knowledge_for_platform(Platform::Macos).is_some());
+    }
+
+    #[test]
+    fn builtin_safety_knowledge_for_platform_selects_requested_platform() {
+        let linux = builtin_safety_knowledge_for_platform(Platform::Linux)
+            .expect("Linux safety knowledge should load");
+        let macos = builtin_safety_knowledge_for_platform(Platform::Macos)
+            .expect("macOS safety knowledge should load");
+
+        assert_eq!(linux.platform(), Platform::Linux);
+        assert_eq!(macos.platform(), Platform::Macos);
+        assert_ne!(
+            linux.critical_path_prefixes(),
+            macos.critical_path_prefixes()
+        );
     }
 
     #[test]

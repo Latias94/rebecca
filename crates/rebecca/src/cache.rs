@@ -77,10 +77,11 @@ pub fn doctor(options: CacheDoctorOptions) -> Result<()> {
 }
 
 pub fn prune(options: CachePruneOptions) -> Result<()> {
-    let runtime_config = load_runtime_config()?;
     if options.dry_run && options.yes {
         return Err(anyhow!("--dry-run cannot be combined with --yes"));
     }
+
+    let runtime_config = load_runtime_config()?;
     let dry_run = !options.yes || options.dry_run;
     let report = prune_app_cache_inventory(
         &runtime_config.app_paths,
@@ -104,13 +105,16 @@ pub fn prune(options: CachePruneOptions) -> Result<()> {
 }
 
 pub fn purge(options: CachePurgeOptions) -> Result<()> {
-    let paths = load_app_paths()?;
+    if options.dry_run && options.yes {
+        return Err(anyhow!("--dry-run cannot be combined with --yes"));
+    }
     if options.permanent && (options.dry_run || !options.yes) {
         return Err(anyhow!(
             "--permanent requires --yes and cannot be combined with --dry-run"
         ));
     }
 
+    let paths = load_app_paths()?;
     let mode = if options.yes && !options.dry_run {
         if options.permanent {
             CachePurgeMode::PermanentDelete

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 use clap_complete::{Shell, generate};
 use std::io;
@@ -65,7 +66,13 @@ fn run() -> Result<()> {
         println!();
         return Ok(());
     } else {
-        Cli::parse()
+        match Cli::try_parse() {
+            Ok(cli) => cli,
+            Err(err) => {
+                handle_cli_parse_error(err)?;
+                unreachable!("CLI parse error handler should exit or return an error");
+            }
+        }
     };
 
     let runtime = CliRuntime::with_ctrlc_handler()?;
@@ -162,6 +169,129 @@ fn run() -> Result<()> {
         },
         Command::Completion(args) => run_completion(args),
     }
+}
+
+fn handle_cli_parse_error(err: clap::Error) -> Result<()> {
+    if matches!(
+        err.kind(),
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+    ) {
+        err.print()?;
+        std::process::exit(0);
+    }
+
+    if let Some(mode) = detect_machine_output_mode_from_args() {
+        let contract = infer_command_api_contract_from_args();
+        let err = anyhow::Error::new(err);
+        output::render_error(contract, mode, &err);
+        return Err(output::MachineErrorRendered.into());
+    }
+
+    let exit_code = err.exit_code();
+    err.print()?;
+    std::process::exit(exit_code);
+}
+
+fn detect_machine_output_mode_from_args() -> Option<OutputMode> {
+    let mut args = std::env::args_os().skip(1);
+    while let Some(arg) = args.next() {
+        let value = arg.to_string_lossy();
+        if value == "--format" {
+            let format = args.next()?;
+            return output_mode_from_raw(&format.to_string_lossy());
+        }
+        if let Some(format) = value.strip_prefix("--format=") {
+            return output_mode_from_raw(format);
+        }
+    }
+
+    None
+}
+
+fn output_mode_from_raw(raw: &str) -> Option<OutputMode> {
+    match raw {
+        "json" => Some(OutputMode::Json),
+        "ndjson" => Some(OutputMode::Ndjson),
+        _ => None,
+    }
+}
+
+fn infer_command_api_contract_from_args() -> output::CliApiContract {
+    let tokens = positional_tokens_for_command_contract();
+    let command = tokens.first().map(String::as_str);
+    match command {
+        Some("catalog") => {
+            if matches!(tokens.get(1).map(String::as_str), Some("validate")) {
+                output::CliApiContract::v1("catalog validate", "catalog-validation")
+            } else {
+                output::CliApiContract::v1("catalog", "catalog")
+            }
+        }
+        Some("scan") => output::CliApiContract::v1("scan", "rule-catalog"),
+        Some("clean") => output::CliApiContract::v1("clean", "cleanup-plan"),
+        Some("tui") | Some("i") => output::CliApiContract::v1("tui", "terminal-workbench"),
+        Some("inspect") => match tokens.get(1).map(String::as_str) {
+            Some("space") => output::CliApiContract::v1("inspect space", "inspect-space"),
+            Some("map") => output::CliApiContract::v1("inspect map", "inspect-map"),
+            Some("artifacts") => {
+                output::CliApiContract::v1("inspect artifacts", "inspect-artifacts")
+            }
+            Some("lint") => output::CliApiContract::v1("inspect lint", "inspect-lint"),
+            _ => output::CliApiContract::v1("inspect", "command-error"),
+        },
+        Some("purge") => output::CliApiContract::v1("purge", "project-artifact-cleanup-plan"),
+        Some("history") => output::CliApiContract::v1("history", "history-list"),
+        Some("cache") => match tokens.get(1).map(String::as_str) {
+            Some("inspect") => output::CliApiContract::v1("cache inspect", "cache-inventory"),
+            Some("doctor") => output::CliApiContract::v1("cache doctor", "cache-doctor"),
+            Some("prune") => output::CliApiContract::v1("cache prune", "cache-prune-report"),
+            Some("purge") => output::CliApiContract::v1("cache purge", "cache-purge-report"),
+            _ => output::CliApiContract::v1("cache", "command-error"),
+        },
+        Some("apps") => match tokens.get(1).map(String::as_str) {
+            Some("scan") => output::CliApiContract::v1("apps scan", "app-leftovers-cleanup-plan"),
+            Some("clean") => output::CliApiContract::v1("apps clean", "app-leftovers-cleanup-plan"),
+            _ => output::CliApiContract::v1("apps", "command-error"),
+        },
+        Some("config") => match tokens.get(1).map(String::as_str) {
+            Some("paths") => output::CliApiContract::v1("config paths", "config-paths"),
+            _ => output::CliApiContract::v1("config", "command-error"),
+        },
+        Some("doctor") => match tokens.get(1).map(String::as_str) {
+            Some("permissions") => {
+                output::CliApiContract::v1("doctor permissions", "permissions-diagnostic")
+            }
+            Some("active-processes") => {
+                output::CliApiContract::v1("doctor active-processes", "active-process-diagnostic")
+            }
+            _ => output::CliApiContract::v1("doctor", "command-error"),
+        },
+        Some("completion") => output::CliApiContract::v1("completion", "completion-script"),
+        _ => output::CliApiContract::v1("rebecca", "command-error"),
+    }
+}
+
+fn positional_tokens_for_command_contract() -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut skip_next = false;
+    for arg in std::env::args_os().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+
+        let value = arg.to_string_lossy();
+        if value == "--format" {
+            skip_next = true;
+            continue;
+        }
+        if value.starts_with("--format=") || value.starts_with('-') {
+            continue;
+        }
+        tokens.push(value.into_owned());
+    }
+
+    tokens
 }
 
 fn run_tui(args: TuiArgs, global_mode: OutputMode, runtime: &CliRuntime) -> Result<()> {

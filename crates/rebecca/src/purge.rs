@@ -30,6 +30,10 @@ pub struct PurgeOptions {
 }
 
 pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> Result<()> {
+    if options.dry_run && options.yes {
+        return Err(anyhow!("--dry-run cannot be combined with --yes"));
+    }
+
     let runtime_config = load_runtime_config()?;
     let mode = if options.yes && !options.dry_run {
         DeleteMode::RecoverableDelete

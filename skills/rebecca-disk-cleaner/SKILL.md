@@ -147,8 +147,9 @@ Rebecca command.
      command output.
 
 6. Execute only after confirmation.
-   - Run the confirmed Rebecca command with `--yes`.
-   - Keep the command otherwise identical to the preview.
+   - Run the confirmed Rebecca command by replacing `--dry-run` with `--yes`.
+   - Keep the command otherwise identical to the preview. Never combine
+     `--dry-run` and `--yes`.
    - Do not add `sudo` on Linux or macOS unless the confirmed preview is for a
      reviewed target that actually needs elevated execution and the user
      explicitly chooses it.
@@ -186,6 +187,8 @@ Rebecca command.
   `Group Containers` roots.
 - Use `--exclude <PATH>` for user-protected paths instead of editing plans by
   hand.
+- Treat `--dry-run` and `--yes` as mutually exclusive: preview first, then
+  execute by replacing the preview flag with `--yes`.
 - Do not clean broad roots such as an entire profile or drive unless the user
   explicitly asked for that scope.
 - Keep stdout clean for JSON, NDJSON, CSV, and TSV consumers; progress belongs

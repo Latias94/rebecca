@@ -52,7 +52,10 @@ Success responses use `envelope.schema.json`:
 
 Failures use `error.schema.json`. Error codes are stable kebab-case strings
 such as `invalid-rule-id`, `invalid-category`, `config-parse-failed`, and
-`platform-unavailable`.
+`platform-unavailable`. When `--format json` or `--format ndjson` is already
+discoverable in argv, command-line parse failures use `invalid-arguments` in
+the same error envelope/event. Invalid `--format` values are intentionally left
+to clap's native error output so humans can see the accepted values.
 
 NDJSON events use `event.schema.json`. Consumers should read stdout line by
 line and parse each line independently.
@@ -135,7 +138,9 @@ byte total trust without changing `estimated_bytes` arithmetic. `estimate_source
 remains the stable source field:
 
 - `fresh-scan`: bytes came from a live filesystem scan during this command;
-- `scan-cache`: bytes came from an enabled scan-cache hit;
+- `scan-cache`: bytes came from an enabled scan-cache hit whose root metadata,
+  backend, confidence, and metric semantics were compatible with the current
+  request;
 - `not-measured`: the target was skipped or blocked before byte measurement;
 - `unknown`: legacy or externally supplied plans that predate this field.
 
@@ -154,6 +159,12 @@ When known, targets also include:
 - `estimate_backend_evidence`: optional structured evidence with `timings_ms`,
   `counters`, and `cache_events`. Consumers should prefer this object over
   parsing human caveat text when comparing scan/cache behavior.
+
+Scan-cache miss evidence may include reasons such as `missing`, `stale`,
+`expired`, `metadata-unavailable`, `incompatible-backend`, or
+`incompatible-metric-semantics`. Incompatible records are retained rather than
+pruned because they may still be valid for a future request using the original
+backend or byte metric.
 
 The `windows-ntfs-mft-experimental` backend is read-only, opt-in, and only live
 in binaries compiled with the `ntfs` Cargo feature. When live NTFS metadata is

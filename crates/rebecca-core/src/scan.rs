@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 pub use backend::{
     MeasuredScan, ScanBackend, ScanBackendEvidence, ScanBackendKind, ScanCacheEvidenceEvent,
-    ScanEstimateCaveat, ScanEstimateConfidence, ScanRequest,
+    ScanEstimateCaveat, ScanEstimateConfidence, ScanMetricSemantics, ScanRequest,
 };
 pub use portable::PortableRecursiveScanBackend;
 pub use progress::{ScanCancellationToken, ScanProgressEvent};

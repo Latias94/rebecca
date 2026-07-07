@@ -13,7 +13,7 @@ use crate::safety::{
     PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path_with_policy, is_reparse_like,
 };
 use crate::scan::{ScanProgressEvent, ScanReport};
-use crate::scan_cache::{ScanCacheLookup, ScanCacheMiss};
+use crate::scan_cache::{ScanCacheCompatibility, ScanCacheLookup, ScanCacheMiss};
 
 use super::{PlanBuildContext, PlanProgressEvent};
 
@@ -387,7 +387,12 @@ where
     let cacheable_target = context.scan_cache().is_some() && is_cacheable_scan_target(path);
     let mut cache_miss_reason = None;
     if cacheable_target && let Some(store) = context.scan_cache() {
-        match store.load_with_policy(path, context.scan_cache_policy()) {
+        let compatibility = ScanCacheCompatibility::logical_bytes(context.scan_backend());
+        match store.load_with_policy_and_compatibility(
+            path,
+            context.scan_cache_policy(),
+            compatibility,
+        ) {
             ScanCacheLookup::Hit(hit) => {
                 progress(PathMeasureProgressEvent::ScanCacheHit { report: hit.report });
                 let mut evidence = hit.backend_evidence;
