@@ -116,7 +116,7 @@ impl MeasuredScan {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     pub(crate) fn with_backend_source(mut self, source: impl Into<String>) -> Self {
         self.backend_source = Some(source.into());
         self
@@ -143,7 +143,7 @@ impl MeasuredScan {
         self
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     pub(crate) fn with_backend_evidence(mut self, evidence: ScanBackendEvidence) -> Self {
         self.backend_evidence.merge(evidence);
         self

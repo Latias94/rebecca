@@ -130,10 +130,12 @@ should keep matching totals and emit bounded group summaries from the same
 traversal rather than paying for a second scan. Sort variants using
 `--sort files` and `--group-sort files` should only reorder bounded output
 lists, not change totals or backend provenance.
-Selecting `--scan-backend windows-ntfs-mft-experimental` is adaptive: scoped
-roots should normally report `windows-ntfs-mft-experimental-targeted-fsctl`,
-while drive-root maps or explicit full-index diagnostics may report sequential
-or FSCTL-record full-index sources. On the earlier 2026-07-02 elevated E: run,
+Selecting `--scan-backend windows-ntfs-mft-experimental` is adaptive only in
+binaries compiled with the `ntfs` Cargo feature: scoped roots should normally
+report `windows-ntfs-mft-experimental-targeted-fsctl`, while drive-root maps or
+explicit full-index diagnostics may report sequential or FSCTL-record full-index
+sources. Builds without the feature should report portable fallback provenance
+instead of loading the NTFS parser. On the earlier 2026-07-02 elevated E: run,
 `target/ntfs-dogfood/20260702-181216-50924/` showed why this split matters:
 the old scoped map path tried full-volume construction and exceeded the 20
 second internal budget while reading sequential MFT bytes. A follow-up run with

@@ -142,12 +142,11 @@ fn windows_ntfs_mft_experimental_selection_falls_back_with_caveat() {
 
     assert_eq!(measured.report.bytes_scanned, 4);
     assert_eq!(measured.backend, ScanBackendKind::PortableRecursive);
-    assert!(
-        measured
-            .fallback_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
-    );
+    let fallback_reason = measured.fallback_reason.as_deref().unwrap();
+    assert!(fallback_reason.contains("windows-ntfs-mft-experimental"));
+    if !cfg!(feature = "ntfs") {
+        assert!(fallback_reason.contains("ntfs feature is disabled"));
+    }
     assert!(
         measured
             .caveats

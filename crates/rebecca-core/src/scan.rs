@@ -3,11 +3,11 @@ mod portable;
 mod progress;
 #[cfg(windows)]
 pub(crate) mod windows_native;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 mod windows_ntfs_mft;
 
 use std::path::{Path, PathBuf};
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -24,18 +24,18 @@ pub use progress::{ScanCancellationToken, ScanProgressEvent};
 #[cfg(windows)]
 pub use windows_native::WindowsNativeDirectoryScanBackend;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 use crate::disk_map::{DiskMapBackendOptions, DiskMapBackendRoot};
-use crate::error::Result;
+use crate::error::{RebeccaError, Result};
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::plan::{CleanupTarget, CleanupTargetIssueReason};
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 use crate::progress::{InspectProgressEvent, InspectProgressResult};
 use crate::safety::{PATH_DOES_NOT_EXIST_REASON, PathDisposition, assess_existing_path};
 
 static SCAN_THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
-#[cfg(all(debug_assertions, windows))]
+#[cfg(all(debug_assertions, windows, feature = "ntfs"))]
 const TEST_DISABLE_LIVE_NTFS_MFT_ENV: &str = "REBECCA_TEST_DISABLE_LIVE_NTFS_MFT";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,11 +58,11 @@ impl ScanReport {
 
 #[derive(Debug, Clone)]
 pub struct ScanEngine {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     context: Arc<ScanEngineContext>,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 #[derive(Debug, Default)]
 struct ScanEngineContext {
     ntfs_mft_cache: windows_ntfs_mft::WindowsNtfsMftIndexCache,
@@ -77,12 +77,12 @@ impl Default for ScanEngine {
 impl ScanEngine {
     pub fn new() -> Self {
         Self {
-            #[cfg(windows)]
+            #[cfg(all(windows, feature = "ntfs"))]
             context: Arc::new(ScanEngineContext::default()),
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     pub fn with_ntfs_mft_manifest_cache_root(cache_root: impl Into<PathBuf>) -> Self {
         let manifest_store = windows_ntfs_mft::NtfsVolumeIndexManifestStore::new(cache_root.into());
         Self {
@@ -102,7 +102,7 @@ impl ScanEngine {
         self.measure_scan_with_progress(path, &ScanCancellationToken::new(), |_| {})
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     pub(crate) fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
         &self,
         path: &Path,
@@ -323,7 +323,7 @@ where
     )))
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 fn measure_windows_ntfs_mft<F>(
     engine: &ScanEngine,
     request: ScanRequest<'_>,
@@ -345,7 +345,7 @@ where
         .measure_path_with_progress(request, progress)
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ntfs"))]
 fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
     engine: &ScanEngine,
     path: &Path,
@@ -374,7 +374,7 @@ where
     )
 }
 
-#[cfg(not(windows))]
+#[cfg(not(all(windows, feature = "ntfs")))]
 fn measure_windows_ntfs_mft<F>(
     _engine: &ScanEngine,
     _request: ScanRequest<'_>,
@@ -383,8 +383,21 @@ fn measure_windows_ntfs_mft<F>(
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
-    Err(crate::error::RebeccaError::PlatformUnavailable(
-        "windows-ntfs-mft-experimental scan backend requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
+    Err(windows_ntfs_mft_unavailable_error("scan backend"))
+}
+
+pub(crate) fn windows_ntfs_mft_unavailable_error(capability: &str) -> RebeccaError {
+    let reason = if cfg!(all(windows, not(feature = "ntfs"))) {
+        "requires the rebecca-core ntfs feature; the ntfs feature is disabled in this build"
+    } else if cfg!(windows) {
+        "requires a live NTFS volume index provider; live volume indexing is not enabled in this build"
+    } else if cfg!(feature = "ntfs") {
+        "requires Windows; live volume indexing is not available on this platform"
+    } else {
+        "requires Windows and the rebecca-core ntfs feature; the ntfs feature is disabled in this build"
+    };
+    RebeccaError::PlatformUnavailable(format!(
+        "windows-ntfs-mft-experimental {capability} {reason}"
     ))
 }
 
@@ -402,7 +415,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     use super::{ScanBackendKind, ScanCancellationToken, ScanEngine};
     use super::{run_scoped_scan, scan_parallelism_budget};
     use crate::executor::cleanup_parallelism_budget;
@@ -433,7 +446,7 @@ mod tests {
         assert_eq!(scan_parallelism_budget(), cleanup_parallelism_budget());
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     #[test]
     fn scan_engine_ntfs_manifest_constructor_keeps_portable_scans_available() {
         let temp = tempfile::tempdir().unwrap();

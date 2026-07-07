@@ -13,12 +13,16 @@ readme = "../../README.md"
 keywords = ["windows", "cleanup", "cache", "safety"]
 categories = ["filesystem", "command-line-utilities"]
 
+[features]
+default = []
+ntfs = ["dep:rebecca-ntfs"]
+
 [dependencies]
 directories.workspace = true
 globset.workspace = true
 ignore.workspace = true
 rayon.workspace = true
-rebecca-ntfs.workspace = true
+rebecca-ntfs = { workspace = true, optional = true }
 rebecca-safety.workspace = true
 serde.workspace = true
 serde_json.workspace = true

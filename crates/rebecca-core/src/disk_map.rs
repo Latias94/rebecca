@@ -481,14 +481,14 @@ where
 }
 
 fn scan_engine_for_disk_map(request: &DiskMapRequest) -> ScanEngine {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "ntfs"))]
     {
         if let Some(cache_root) = &request.ntfs_mft_manifest_cache_root {
             return ScanEngine::with_ntfs_mft_manifest_cache_root(cache_root.clone());
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(all(windows, feature = "ntfs")))]
     {
         let _ = &request.ntfs_mft_manifest_cache_root;
     }
@@ -1985,7 +1985,7 @@ where
     }
 
     if request.scan_backend == ScanBackendKind::WindowsNtfsMftExperimental {
-        #[cfg(windows)]
+        #[cfg(all(windows, feature = "ntfs"))]
         {
             match scan_engine.inspect_windows_ntfs_mft_disk_map_with_progress(
                 root,
@@ -2031,11 +2031,9 @@ where
             }
         }
 
-        #[cfg(not(windows))]
+        #[cfg(not(all(windows, feature = "ntfs")))]
         {
-            let err = RebeccaError::PlatformUnavailable(
-                "windows-ntfs-mft-experimental disk-map inventory requires a live NTFS volume index provider; live volume indexing is not enabled in this build".to_string(),
-            );
+            let err = crate::scan::windows_ntfs_mft_unavailable_error("disk-map inventory");
             let fallback_reason =
                 format!("windows-ntfs-mft-experimental disk-map inventory was unavailable: {err}");
             return DiskMapRootInspection {

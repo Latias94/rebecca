@@ -164,22 +164,25 @@ opt into platform scanners per command with `--scan-backend`:
   estimates and for `inspect map` ranked inventory on supported local paths; it
   falls back to the portable scanner when unsupported.
 - `windows-ntfs-mft-experimental` attempts read-only targeted NTFS/MFT traversal
-  for local fixed NTFS volumes. It resolves the requested target's file
-  reference, reads only the MFT records needed for that subtree through
-  per-record FSCTL lookup, expands reachable `$I30` directory indexes, and falls
-  back to a safe directory scanner when the volume is unsupported, unprivileged,
-  too slow within the live metadata budget, or too ambiguous to trust.
+  for local fixed NTFS volumes in builds compiled with the `ntfs` Cargo feature.
+  It resolves the requested target's file reference, reads only the MFT records
+  needed for that subtree through per-record FSCTL lookup, expands reachable
+  `$I30` directory indexes, and falls back to a safe directory scanner when the
+  feature is disabled, the volume is unsupported, unprivileged, too slow within
+  the live metadata budget, or too ambiguous to trust.
 
 `inspect map` defaults to the portable recursive inventory path because it is a
 read-only disk-map surface. Selecting `--scan-backend windows-native` uses
 native Windows find-data entry metadata for the ranked inventory when the root
 is an absolute supported local path, and records portable fallback provenance
 when it is not. Selecting `--scan-backend windows-ntfs-mft-experimental` makes
-the command adaptive: scoped roots use targeted per-record NTFS/MFT traversal,
-while drive roots or explicit full-index diagnostics may use full-volume MFT
-inventory. Any budget, privilege, metadata, or traversal failure must fall back
-with provenance or report a clear timeout instead of returning partial NTFS data
-as exact.
+the command adaptive only when the binary was compiled with the `ntfs` feature:
+scoped roots use targeted per-record NTFS/MFT traversal, while drive roots or
+explicit full-index diagnostics may use full-volume MFT inventory. Builds
+without the feature keep the selector for contract stability but report portable
+fallback provenance. Any budget, privilege, metadata, or traversal failure must
+fall back with provenance or report a clear timeout instead of returning partial
+NTFS data as exact.
 
 `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` controls the experimental live
 NTFS/MFT metadata budget. The default is `20` seconds. Set a larger value for

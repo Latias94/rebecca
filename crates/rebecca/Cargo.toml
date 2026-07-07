@@ -15,6 +15,7 @@ categories = ["command-line-utilities", "filesystem"]
 
 [features]
 default = ["rules", "windows"]
+ntfs = ["rebecca-core/ntfs"]
 rules = ["dep:rebecca-rules"]
 windows = ["dep:rebecca-windows"]
 
