@@ -288,7 +288,11 @@ fn cache_inspect_json_reports_corrupt_scan_cache_record() {
     assert_eq!(value["summary"]["corrupt_entries"], 1);
     assert_eq!(value["summary"]["prunable_entries"], 1);
     assert_eq!(value["entries"][0]["reason_code"], "scan-cache-corrupt");
-    assert_eq!(value["entries"][0]["display_path"], "scan\\bad.json");
+    let display_path = value["entries"][0]["display_path"].as_str().unwrap();
+    assert_eq!(
+        std::path::Path::new(display_path),
+        std::path::Path::new("scan").join("bad.json")
+    );
 }
 
 #[test]
