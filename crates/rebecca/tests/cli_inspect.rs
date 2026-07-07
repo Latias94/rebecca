@@ -293,7 +293,15 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
 
     let value = &envelope["data"];
     assert_eq!(value["totals"]["logical_bytes"], 7);
-    assert_eq!(value["totals"]["allocated_bytes"], serde_json::Value::Null);
+    if cfg!(unix) {
+        assert!(
+            value["totals"]["allocated_bytes"]
+                .as_u64()
+                .is_some_and(|bytes| bytes >= 7)
+        );
+    } else {
+        assert_eq!(value["totals"]["allocated_bytes"], serde_json::Value::Null);
+    }
     assert_eq!(value["totals"]["files"], 3);
     assert_eq!(value["top_entries"].as_array().unwrap().len(), 2);
     assert_eq!(
