@@ -756,9 +756,9 @@ fn inspect_map_json_reports_app_leftover_cleanup_advice() {
 #[test]
 fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
     let temp = tempfile::tempdir().unwrap();
-    let local = temp.path().join("local");
-    let root = local.join("npm-cache");
-    let target = root.join("_cacache");
+    let Some((root, target, rule_id)) = npm_cache_rule_fixture(&temp) else {
+        return;
+    };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
     let output = isolated::isolated_rebecca(&temp)
@@ -796,9 +796,9 @@ fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
     assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV);
     assert!(lines[1].contains("maybe-cleanable"));
     assert!(lines[1].contains("cleanup-rule"));
-    assert!(lines[1].contains("windows.npm-cache"));
+    assert!(lines[1].contains(rule_id));
     assert!(lines[1].contains("--allow-moderate"));
-    assert!(lines[1].contains("rebecca clean --dry-run --rule windows.npm-cache"));
+    assert!(lines[1].contains(&format!("rebecca clean --dry-run --rule {rule_id}")));
 }
 
 #[test]
@@ -1760,9 +1760,9 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
 #[test]
 fn inspect_map_ndjson_advice_status_filter_implies_cleanup_advice() {
     let temp = tempfile::tempdir().unwrap();
-    let local = temp.path().join("local");
-    let root = local.join("npm-cache");
-    let target = root.join("_cacache");
+    let Some((root, target, _rule_id)) = npm_cache_rule_fixture(&temp) else {
+        return;
+    };
     write_fixture_file(target.join("content.bin"), b"abcdef");
 
     let output = isolated::isolated_rebecca(&temp)
