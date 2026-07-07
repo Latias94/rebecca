@@ -21,7 +21,134 @@ use crate::tui::progress::{TuiTaskId, TuiTaskProgressEvent};
 
 const TASK_CHANNEL_CAPACITY: usize = 256;
 
-pub(super) struct ActiveTask {
+pub(super) struct TuiTaskManager {
+    active: Option<ActiveTask>,
+}
+
+impl TuiTaskManager {
+    pub(super) fn new() -> Self {
+        Self { active: None }
+    }
+
+    pub(super) fn handle_effect(
+        &mut self,
+        app: &mut TuiApp,
+        effect: TuiEffect,
+        runtime_config: &AppRuntimeConfig,
+        runtime: &CliRuntime,
+    ) -> Result<()> {
+        match effect {
+            TuiEffect::None | TuiEffect::Quit => Ok(()),
+            TuiEffect::CancelTask => {
+                self.cancel(app);
+                Ok(())
+            }
+            TuiEffect::Scan(_)
+            | TuiEffect::Refresh(_)
+            | TuiEffect::Preview(_)
+            | TuiEffect::Execute(_) => self.start(app, effect, runtime_config, runtime),
+        }
+    }
+
+    pub(super) fn poll(
+        &mut self,
+        app: &mut TuiApp,
+        runtime_config: &AppRuntimeConfig,
+    ) -> Result<()> {
+        let mut outcome = None;
+        let mut disconnected = false;
+        let mut pending_progress = None;
+
+        if let Some(task) = self.active.as_ref() {
+            loop {
+                match task.receiver.try_recv() {
+                    Ok(TaskMessage::Progress { task_id, event }) => {
+                        if task_id == task.id {
+                            if event.is_coalescible() {
+                                pending_progress = Some(event);
+                            } else {
+                                apply_pending_progress(app, &mut pending_progress);
+                                app.apply_task_progress(event);
+                            }
+                        }
+                    }
+                    Ok(TaskMessage::Finished {
+                        task_id,
+                        outcome: result,
+                    }) => {
+                        if task_id == task.id {
+                            apply_pending_progress(app, &mut pending_progress);
+                            outcome = Some(*result);
+                            break;
+                        }
+                    }
+                    Err(TryRecvError::Empty) => {
+                        apply_pending_progress(app, &mut pending_progress);
+                        break;
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        apply_pending_progress(app, &mut pending_progress);
+                        disconnected = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(outcome) = outcome {
+            if let Some(task) = self.active.take() {
+                let effect = task.effect.clone();
+                let _ = task.handle.join();
+                apply_outcome(app, outcome, runtime_config, effect)?;
+            }
+        } else if disconnected && let Some(task) = self.active.take() {
+            let label = task.label;
+            let _ = task.handle.join();
+            app.apply_error(format!("{label} worker stopped before reporting a result"));
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn shutdown(&mut self) {
+        if let Some(task) = self.active.take() {
+            task.cancel_and_join();
+        }
+    }
+
+    fn start(
+        &mut self,
+        app: &mut TuiApp,
+        effect: TuiEffect,
+        runtime_config: &AppRuntimeConfig,
+        runtime: &CliRuntime,
+    ) -> Result<()> {
+        if self.active.is_some() {
+            app.apply_task_already_running();
+            return Ok(());
+        }
+
+        self.active = Some(spawn_task(app, effect, runtime_config, runtime)?);
+        Ok(())
+    }
+
+    fn cancel(&mut self, app: &mut TuiApp) {
+        if let Some(task) = self.active.as_ref() {
+            task.cancel();
+            app.apply_cancel_requested();
+        } else {
+            app.apply_error("no active background task to cancel");
+        }
+    }
+}
+
+impl Drop for TuiTaskManager {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+struct ActiveTask {
     id: TuiTaskId,
     label: &'static str,
     effect: TuiEffect,
@@ -31,11 +158,11 @@ pub(super) struct ActiveTask {
 }
 
 impl ActiveTask {
-    pub(super) fn cancel(&self) {
+    fn cancel(&self) {
         self.cancellation.cancel();
     }
 
-    pub(super) fn cancel_and_join(self) {
+    fn cancel_and_join(self) {
         self.cancel();
         let _ = self.handle.join();
     }
@@ -70,12 +197,12 @@ struct TaskFailure {
     cancelled: bool,
 }
 
-pub(super) fn start(
+fn spawn_task(
     app: &mut TuiApp,
     effect: TuiEffect,
     runtime_config: &AppRuntimeConfig,
     runtime: &CliRuntime,
-) -> Result<Option<ActiveTask>> {
+) -> Result<ActiveTask> {
     let runtime_config = runtime_config.clone();
     let task_runtime = runtime.child_task();
     let cancellation = task_runtime.cancellation().clone();
@@ -84,7 +211,9 @@ pub(super) fn start(
     let task_id = app.allocate_task_id();
 
     let (label, handle) = match effect {
-        TuiEffect::None | TuiEffect::CancelTask | TuiEffect::Quit => return Ok(None),
+        TuiEffect::None | TuiEffect::CancelTask | TuiEffect::Quit => {
+            bail!("non-background tui effect cannot start a task")
+        }
         TuiEffect::Scan(roots) => {
             let entry_limit = app.entry_limit;
             let scan_backend = app.scan_backend;
@@ -182,74 +311,14 @@ pub(super) fn start(
         }
     };
 
-    Ok(Some(ActiveTask {
+    Ok(ActiveTask {
         id: task_id,
         label,
         effect: active_effect,
         cancellation,
         receiver,
         handle,
-    }))
-}
-
-pub(super) fn poll(
-    app: &mut TuiApp,
-    active_task: &mut Option<ActiveTask>,
-    runtime_config: &AppRuntimeConfig,
-) -> Result<()> {
-    let mut outcome = None;
-    let mut disconnected = false;
-    let mut pending_progress = None;
-
-    if let Some(task) = active_task.as_ref() {
-        loop {
-            match task.receiver.try_recv() {
-                Ok(TaskMessage::Progress { task_id, event }) => {
-                    if task_id == task.id {
-                        if event.is_coalescible() {
-                            pending_progress = Some(event);
-                        } else {
-                            apply_pending_progress(app, &mut pending_progress);
-                            app.apply_task_progress(event);
-                        }
-                    }
-                }
-                Ok(TaskMessage::Finished {
-                    task_id,
-                    outcome: result,
-                }) => {
-                    if task_id == task.id {
-                        apply_pending_progress(app, &mut pending_progress);
-                        outcome = Some(*result);
-                        break;
-                    }
-                }
-                Err(TryRecvError::Empty) => {
-                    apply_pending_progress(app, &mut pending_progress);
-                    break;
-                }
-                Err(TryRecvError::Disconnected) => {
-                    apply_pending_progress(app, &mut pending_progress);
-                    disconnected = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    if let Some(outcome) = outcome {
-        if let Some(task) = active_task.take() {
-            let effect = task.effect.clone();
-            let _ = task.handle.join();
-            apply_outcome(app, outcome, runtime_config, effect)?;
-        }
-    } else if disconnected && let Some(task) = active_task.take() {
-        let label = task.label;
-        let _ = task.handle.join();
-        app.apply_error(format!("{label} worker stopped before reporting a result"));
-    }
-
-    Ok(())
+    })
 }
 
 fn apply_pending_progress(app: &mut TuiApp, pending_progress: &mut Option<TuiTaskProgressEvent>) {
@@ -646,6 +715,81 @@ fn plan_progress_event(event: PlanProgressEvent<'_>) -> TuiTaskProgressEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rebecca::core::config::{AppPaths, PurgeRuntimeConfig};
+    use rebecca::core::scan_cache::ScanCachePolicy;
+
+    #[test]
+    fn task_manager_rejects_second_background_task() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut app = TuiApp::root_picker(Vec::new(), ScanBackendKind::PortableRecursive, 10);
+        let (active_task, _sender, _cancellation) = active_task_fixture(TuiTaskId(7));
+        let mut manager = TuiTaskManager {
+            active: Some(active_task),
+        };
+        let runtime_config = runtime_config_fixture(temp.path().to_path_buf());
+        let runtime = CliRuntime::new(ScanCancellationToken::new());
+
+        manager
+            .start(
+                &mut app,
+                TuiEffect::Scan(vec![temp.path().to_path_buf()]),
+                &runtime_config,
+                &runtime,
+            )
+            .unwrap();
+
+        assert_eq!(app.message, "A background task is already running.");
+        assert_eq!(
+            manager.active.as_ref().map(|task| task.id),
+            Some(TuiTaskId(7))
+        );
+        manager.shutdown();
+    }
+
+    #[test]
+    fn task_manager_cancel_marks_task_and_ui() {
+        let mut app = TuiApp::root_picker(Vec::new(), ScanBackendKind::PortableRecursive, 10);
+        app.apply_task_started("Scanning fixture...");
+        let (active_task, _sender, cancellation) = active_task_fixture(TuiTaskId(7));
+        let mut manager = TuiTaskManager {
+            active: Some(active_task),
+        };
+
+        manager.cancel(&mut app);
+
+        assert!(cancellation.is_cancelled());
+        let status = app.task_status.as_ref().unwrap();
+        assert!(status.cancel_requested);
+        assert_eq!(status.phase, "Cancel requested");
+        manager.shutdown();
+    }
+
+    #[test]
+    fn task_manager_ignores_stale_progress() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut app = TuiApp::root_picker(Vec::new(), ScanBackendKind::PortableRecursive, 10);
+        let (active_task, sender, _cancellation) = active_task_fixture(TuiTaskId(7));
+        sender
+            .send(TaskMessage::Progress {
+                task_id: TuiTaskId(6),
+                event: important_progress(),
+            })
+            .unwrap();
+        let mut manager = TuiTaskManager {
+            active: Some(active_task),
+        };
+        let runtime_config = runtime_config_fixture(temp.path().to_path_buf());
+
+        manager.poll(&mut app, &runtime_config).unwrap();
+
+        assert!(app.task_status.is_none());
+        assert_eq!(
+            manager.active.as_ref().map(|task| task.id),
+            Some(TuiTaskId(7))
+        );
+        drop(sender);
+        manager.shutdown();
+    }
 
     #[test]
     fn full_task_channel_drops_coalescible_progress() {
@@ -729,6 +873,45 @@ mod tests {
         TuiTaskProgressEvent::BackendMetric {
             metric: "records",
             value: 42,
+        }
+    }
+
+    fn active_task_fixture(
+        id: TuiTaskId,
+    ) -> (ActiveTask, SyncSender<TaskMessage>, ScanCancellationToken) {
+        let (sender, receiver) = mpsc::sync_channel(TASK_CHANNEL_CAPACITY);
+        let cancellation = ScanCancellationToken::new();
+        let handle = thread::spawn(|| {});
+        (
+            ActiveTask {
+                id,
+                label: "test",
+                effect: TuiEffect::Scan(Vec::new()),
+                cancellation: cancellation.clone(),
+                receiver,
+                handle,
+            },
+            sender,
+            cancellation,
+        )
+    }
+
+    fn runtime_config_fixture(root: PathBuf) -> AppRuntimeConfig {
+        AppRuntimeConfig {
+            app_paths: AppPaths {
+                config_dir: root.join("config"),
+                config_file: root.join("config").join("config.toml"),
+                state_dir: root.join("state"),
+                cache_dir: root.join("cache"),
+                history_file: root.join("state").join("history.jsonl"),
+            },
+            scan_cache_policy: ScanCachePolicy::default(),
+            protected_paths: Vec::new(),
+            purge: PurgeRuntimeConfig {
+                roots: Vec::new(),
+                max_depth: 1,
+                min_age_days: 0,
+            },
         }
     }
 }

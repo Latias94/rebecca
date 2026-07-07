@@ -286,6 +286,164 @@ fn tui_replay_tab_reaches_treemap_without_a_terminal() {
 }
 
 #[test]
+fn tui_replay_semantic_tab_reaches_treemap_without_a_terminal() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha.bin"), b"abcdef");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "click:tab:treemap",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | treemap"));
+    assert!(stdout.contains("Treemap: workspace"));
+}
+
+#[test]
+fn tui_replay_semantic_row_selects_visible_map_row() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "click:row:1",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout
+            .lines()
+            .any(|line| { line.starts_with('>') && line.contains("small.txt") })
+    );
+    assert!(stdout.contains("Status: Selected small.txt."));
+}
+
+#[test]
+fn tui_replay_semantic_distribution_row_filters_map() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("cache.tmp"), b"abcdef");
+    write_fixture_file(root.join("notes.txt"), b"abc");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "click:tab:extensions click:row:0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | map"));
+    assert!(stdout.contains("filter .tmp"));
+    assert!(stdout.contains("cache.tmp"));
+    assert!(!stdout.contains("notes.txt"));
+}
+
+#[test]
+fn tui_replay_semantic_wheel_moves_visible_selection() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "wheel:down",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout
+            .lines()
+            .any(|line| { line.starts_with('>') && line.contains("small.txt") })
+    );
+}
+
+#[test]
+fn tui_replay_semantic_treemap_tile_selects_visible_row() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("big").join("data.bin"), b"abcdef");
+    write_fixture_file(root.join("small.txt"), b"x");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "tui",
+            "--once",
+            "--root",
+            root.to_str().unwrap(),
+            "--replay-keys",
+            "click:tab:treemap click:tile:0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Rebecca TUI | treemap"));
+    assert!(stdout.contains("Status: Selected "));
+}
+
+#[test]
 fn tui_replay_double_tab_reaches_type_distribution_without_a_terminal() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

@@ -25,6 +25,7 @@ mod model;
 mod navigation;
 mod progress;
 mod projection;
+mod replay;
 mod snapshot;
 mod task;
 mod terminal;
@@ -63,7 +64,13 @@ pub(crate) fn run_with_runtime(options: TuiOptions, runtime: &CliRuntime) -> Res
         let mut app = initial_app(&options, &runtime_config, runtime)?;
         app.set_history(load_recent_history(&runtime_config)?);
         if let Some(keys) = options.replay_keys.as_deref() {
-            drive_replay(&mut app, keys, &runtime_config, runtime)?;
+            replay::drive(
+                &mut app,
+                keys,
+                options.terminal_width,
+                &runtime_config,
+                runtime,
+            )?;
         }
         if !options.once {
             run_interactive(app, None, view_options, &runtime_config, runtime)?;
@@ -86,12 +93,12 @@ fn run_interactive(
     runtime: &CliRuntime,
 ) -> Result<()> {
     let mut terminal = terminal::TerminalGuard::enter()?;
-    let mut active_task = match startup_effect {
-        Some(effect) => task::start(&mut app, effect, runtime_config, runtime)?,
-        None => None,
-    };
+    let mut task_manager = task::TuiTaskManager::new();
+    if let Some(effect) = startup_effect {
+        task_manager.handle_effect(&mut app, effect, runtime_config, runtime)?;
+    }
     while !app.should_quit() {
-        task::poll(&mut app, &mut active_task, runtime_config)?;
+        task_manager.poll(&mut app, runtime_config)?;
         let mut draw_area = ratatui::layout::Rect::new(0, 0, 0, 0);
         terminal.terminal_mut().draw(|frame| {
             draw_area = frame.area();
@@ -104,24 +111,11 @@ fn run_interactive(
                     .map(|action| app.handle_mouse_action(action))
                     .unwrap_or(TuiEffect::None),
             };
-            if matches!(effect, TuiEffect::CancelTask) {
-                if let Some(task) = active_task.as_ref() {
-                    task.cancel();
-                    app.apply_cancel_requested();
-                } else {
-                    app.apply_error("no active background task to cancel");
-                }
-            } else if active_task.is_some() && starts_background_task(&effect) {
-                app.apply_task_already_running();
-            } else if let Some(task) = task::start(&mut app, effect, runtime_config, runtime)? {
-                active_task = Some(task);
-            }
+            task_manager.handle_effect(&mut app, effect, runtime_config, runtime)?;
         }
     }
 
-    if let Some(task) = active_task.take() {
-        task.cancel_and_join();
-    }
+    task_manager.shutdown();
 
     Ok(())
 }
@@ -167,26 +161,7 @@ fn initial_app(
     ))
 }
 
-fn drive_replay(
-    app: &mut TuiApp,
-    keys: &str,
-    runtime_config: &AppRuntimeConfig,
-    runtime: &CliRuntime,
-) -> Result<()> {
-    for token in keys.split_whitespace() {
-        let Some(key) = terminal::replay_token_to_key(token) else {
-            bail!("unknown tui replay key token: {token}");
-        };
-        let effect = app.handle_key(key);
-        handle_effect(app, effect, runtime_config, runtime)?;
-        if app.should_quit() {
-            break;
-        }
-    }
-    Ok(())
-}
-
-fn handle_effect(
+pub(super) fn handle_effect(
     app: &mut TuiApp,
     effect: TuiEffect,
     runtime_config: &AppRuntimeConfig,
@@ -235,13 +210,6 @@ fn handle_effect(
         }
     }
     Ok(())
-}
-
-fn starts_background_task(effect: &TuiEffect) -> bool {
-    matches!(
-        effect,
-        TuiEffect::Scan(_) | TuiEffect::Refresh(_) | TuiEffect::Preview(_) | TuiEffect::Execute(_)
-    )
 }
 
 fn root_choices() -> Result<Vec<RootChoice>> {
