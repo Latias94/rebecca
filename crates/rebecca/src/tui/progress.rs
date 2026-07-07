@@ -98,6 +98,15 @@ pub(crate) enum TuiTaskProgressEvent {
     },
 }
 
+impl TuiTaskProgressEvent {
+    pub(crate) fn is_coalescible(&self) -> bool {
+        matches!(
+            self,
+            Self::Traversal { .. } | Self::FileMeasured { .. } | Self::CleanupFileMeasured { .. }
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TuiTaskStatus {
     pub(crate) label: String,
@@ -448,5 +457,46 @@ mod tests {
         assert_eq!(status.last_event, "portable: MFT unavailable");
         assert!(status.cancel_requested);
         assert_eq!(status.phase, "Cancel requested");
+    }
+
+    #[test]
+    fn only_high_volume_progress_events_are_coalescible() {
+        assert!(
+            TuiTaskProgressEvent::Traversal {
+                root: PathBuf::from("/tmp"),
+                counter: "files".to_string(),
+                value: 10,
+                logical_bytes: 128,
+                files: 10,
+                directories: 2,
+            }
+            .is_coalescible()
+        );
+        assert!(
+            TuiTaskProgressEvent::FileMeasured {
+                target_path: PathBuf::from("/tmp"),
+                path: PathBuf::from("/tmp/a.bin"),
+                file_size: 128,
+                files_scanned: 1,
+                bytes_scanned: 128,
+            }
+            .is_coalescible()
+        );
+        assert!(
+            !TuiTaskProgressEvent::BackendFallback {
+                root: PathBuf::from("/tmp"),
+                backend: "portable".to_string(),
+                reason: "fallback".to_string(),
+            }
+            .is_coalescible()
+        );
+        assert!(
+            !TuiTaskProgressEvent::ExecutionFinished {
+                completed_targets: 1,
+                freed_bytes: 128,
+                pending_reclaim_bytes: 0,
+            }
+            .is_coalescible()
+        );
     }
 }

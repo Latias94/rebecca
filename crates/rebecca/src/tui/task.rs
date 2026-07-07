@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 
 use anyhow::{Context, Result, bail};
@@ -18,6 +18,8 @@ use crate::runtime::CliRuntime;
 use crate::tui::app::TuiApp;
 use crate::tui::effect::TuiEffect;
 use crate::tui::progress::{TuiTaskId, TuiTaskProgressEvent};
+
+const TASK_CHANNEL_CAPACITY: usize = 256;
 
 pub(super) struct ActiveTask {
     id: TuiTaskId,
@@ -50,6 +52,12 @@ enum TaskMessage {
     },
 }
 
+impl TaskMessage {
+    fn is_coalescible_progress(&self) -> bool {
+        matches!(self, Self::Progress { event, .. } if event.is_coalescible())
+    }
+}
+
 enum TaskOutcome {
     Scan(Result<DiskMapSession, TaskFailure>),
     Refresh(Result<DiskMapSession, TaskFailure>),
@@ -71,7 +79,7 @@ pub(super) fn start(
     let runtime_config = runtime_config.clone();
     let task_runtime = runtime.child_task();
     let cancellation = task_runtime.cancellation().clone();
-    let (sender, receiver) = mpsc::channel();
+    let (sender, receiver) = mpsc::sync_channel(TASK_CHANNEL_CAPACITY);
     let active_effect = effect.clone();
     let task_id = app.allocate_task_id();
 
@@ -191,13 +199,19 @@ pub(super) fn poll(
 ) -> Result<()> {
     let mut outcome = None;
     let mut disconnected = false;
+    let mut pending_progress = None;
 
     if let Some(task) = active_task.as_ref() {
         loop {
             match task.receiver.try_recv() {
                 Ok(TaskMessage::Progress { task_id, event }) => {
                     if task_id == task.id {
-                        app.apply_task_progress(event);
+                        if event.is_coalescible() {
+                            pending_progress = Some(event);
+                        } else {
+                            apply_pending_progress(app, &mut pending_progress);
+                            app.apply_task_progress(event);
+                        }
                     }
                 }
                 Ok(TaskMessage::Finished {
@@ -205,12 +219,17 @@ pub(super) fn poll(
                     outcome: result,
                 }) => {
                     if task_id == task.id {
+                        apply_pending_progress(app, &mut pending_progress);
                         outcome = Some(*result);
                         break;
                     }
                 }
-                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Empty) => {
+                    apply_pending_progress(app, &mut pending_progress);
+                    break;
+                }
                 Err(TryRecvError::Disconnected) => {
+                    apply_pending_progress(app, &mut pending_progress);
                     disconnected = true;
                     break;
                 }
@@ -231,6 +250,12 @@ pub(super) fn poll(
     }
 
     Ok(())
+}
+
+fn apply_pending_progress(app: &mut TuiApp, pending_progress: &mut Option<TuiTaskProgressEvent>) {
+    if let Some(event) = pending_progress.take() {
+        app.apply_task_progress(event);
+    }
 }
 
 fn apply_outcome(
@@ -350,28 +375,47 @@ fn resolve_roots(roots: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
 
 fn progress_sender(
     task_id: TuiTaskId,
-    sender: Sender<TaskMessage>,
+    sender: SyncSender<TaskMessage>,
 ) -> impl FnMut(TuiTaskProgressEvent) -> rebecca::core::Result<()> {
     move |event| {
-        sender
-            .send(TaskMessage::Progress { task_id, event })
-            .map_err(|_| {
-                RebeccaError::OperationCancelled("tui task receiver was closed".to_string())
-            })
+        send_progress_message(&sender, TaskMessage::Progress { task_id, event })
+            .map_err(|_| tui_receiver_closed())
     }
 }
 
 fn plan_progress_sender(
     task_id: TuiTaskId,
-    sender: Sender<TaskMessage>,
+    sender: SyncSender<TaskMessage>,
 ) -> impl for<'a> FnMut(PlanProgressEvent<'a>) {
     move |event| {
-        let _ = sender.send(TaskMessage::Progress {
-            task_id,
-            event: plan_progress_event(event),
-        });
+        let _ = send_progress_message(
+            &sender,
+            TaskMessage::Progress {
+                task_id,
+                event: plan_progress_event(event),
+            },
+        );
     }
 }
+
+fn send_progress_message(
+    sender: &SyncSender<TaskMessage>,
+    message: TaskMessage,
+) -> std::result::Result<(), TaskSendError> {
+    match sender.try_send(message) {
+        Ok(()) => Ok(()),
+        Err(TrySendError::Full(message)) if message.is_coalescible_progress() => Ok(()),
+        Err(TrySendError::Full(message)) => sender.send(message).map_err(|_| TaskSendError),
+        Err(TrySendError::Disconnected(_)) => Err(TaskSendError),
+    }
+}
+
+fn tui_receiver_closed() -> RebeccaError {
+    RebeccaError::OperationCancelled("tui task receiver was closed".to_string())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TaskSendError;
 
 fn inspect_progress_event(event: InspectProgressEvent<'_>) -> TuiTaskProgressEvent {
     match event {
@@ -596,5 +640,95 @@ fn plan_progress_event(event: PlanProgressEvent<'_>) -> TuiTaskProgressEvent {
             pruned: report.pruned,
             retained: report.retained,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_task_channel_drops_coalescible_progress() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let task_id = TuiTaskId(7);
+        sender
+            .send(TaskMessage::Progress {
+                task_id,
+                event: important_progress(),
+            })
+            .unwrap();
+
+        send_progress_message(
+            &sender,
+            TaskMessage::Progress {
+                task_id,
+                event: coalescible_progress(2),
+            },
+        )
+        .unwrap();
+
+        drop(sender);
+        let messages = receiver.try_iter().collect::<Vec<_>>();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            &messages[0],
+            TaskMessage::Progress {
+                event: TuiTaskProgressEvent::BackendMetric { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn disconnected_task_channel_reports_send_error() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        drop(receiver);
+
+        assert_eq!(
+            send_progress_message(
+                &sender,
+                TaskMessage::Progress {
+                    task_id: TuiTaskId(7),
+                    event: important_progress(),
+                },
+            ),
+            Err(TaskSendError)
+        );
+    }
+
+    #[test]
+    fn task_message_classifies_only_coalescible_progress() {
+        assert!(
+            TaskMessage::Progress {
+                task_id: TuiTaskId(7),
+                event: coalescible_progress(1),
+            }
+            .is_coalescible_progress()
+        );
+        assert!(
+            !TaskMessage::Progress {
+                task_id: TuiTaskId(7),
+                event: important_progress(),
+            }
+            .is_coalescible_progress()
+        );
+    }
+
+    fn coalescible_progress(value: u64) -> TuiTaskProgressEvent {
+        TuiTaskProgressEvent::Traversal {
+            root: PathBuf::from("/tmp"),
+            counter: "files".to_string(),
+            value,
+            logical_bytes: value,
+            files: value,
+            directories: 0,
+        }
+    }
+
+    fn important_progress() -> TuiTaskProgressEvent {
+        TuiTaskProgressEvent::BackendMetric {
+            metric: "records",
+            value: 42,
+        }
     }
 }
