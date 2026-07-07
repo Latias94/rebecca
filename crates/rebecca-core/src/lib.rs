@@ -15,6 +15,7 @@ pub mod history;
 pub mod inspect;
 pub mod inventory;
 pub mod lint;
+mod macos_paths;
 pub mod manifest;
 pub mod model;
 mod parallelism;

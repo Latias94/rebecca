@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::Platform;
+use crate::{Platform, macos_paths};
 
 pub trait Environment {
     fn get(&self, key: &str) -> Option<OsString>;
@@ -53,7 +53,7 @@ where
                 .filter(|value| !value.is_empty())
                 .or_else(|| linux_xdg_default(key, &self.inner));
         }
-        if self.platform == Platform::Macos && macos_default_suffix(key).is_some() {
+        if self.platform == Platform::Macos && macos_paths::default_home_suffix(key).is_some() {
             return value
                 .filter(|value| !value.is_empty())
                 .or_else(|| macos_default(key, &self.inner));
@@ -106,7 +106,7 @@ fn linux_xdg_default(key: &str, env: &impl Environment) -> Option<OsString> {
 }
 
 fn macos_default(key: &str, env: &impl Environment) -> Option<OsString> {
-    let suffix = macos_default_suffix(key)?;
+    let suffix = macos_paths::default_home_suffix(key)?;
     home_relative_default(env, suffix)
 }
 
@@ -129,17 +129,6 @@ fn linux_xdg_default_suffix(key: &str) -> Option<&'static [&'static str]> {
         "XDG_CONFIG_HOME" => Some(&[".config"]),
         "XDG_DATA_HOME" => Some(&[".local", "share"]),
         "XDG_STATE_HOME" => Some(&[".local", "state"]),
-        _ => None,
-    }
-}
-
-fn macos_default_suffix(key: &str) -> Option<&'static [&'static str]> {
-    match key {
-        "MACOS_CACHE_HOME" => Some(&["Library", "Caches"]),
-        "MACOS_APPLICATION_SUPPORT_HOME" => Some(&["Library", "Application Support"]),
-        "MACOS_LOG_HOME" => Some(&["Library", "Logs"]),
-        "MACOS_CONTAINER_HOME" => Some(&["Library", "Containers"]),
-        "MACOS_GROUP_CONTAINER_HOME" => Some(&["Library", "Group Containers"]),
         _ => None,
     }
 }
