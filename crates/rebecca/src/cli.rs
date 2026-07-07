@@ -496,6 +496,16 @@ pub struct CatalogArgs {
 pub enum RulesCommand {
     /// Validate external Cleaner Manifest v1 files or directories without enabling them.
     Validate(RulesValidateArgs),
+    /// Import an external Cleaner Manifest v1 file into Rebecca-owned storage, disabled by default.
+    Import(RulesImportArgs),
+    /// List imported external rule manifests.
+    List,
+    /// Enable an imported external rule manifest after revalidation.
+    Enable(RulesImportIdArgs),
+    /// Disable an imported external rule manifest.
+    Disable(RulesImportIdArgs),
+    /// Remove an imported external rule manifest from Rebecca-owned storage.
+    Remove(RulesImportIdArgs),
 }
 
 #[derive(Debug, Args)]
@@ -512,6 +522,20 @@ pub struct RulesValidateArgs {
     /// Maximum number of manifest files accepted across all inputs.
     #[arg(long = "max-files", value_name = "N", default_value_t = DEFAULT_RULE_VALIDATE_MAX_FILES)]
     pub max_files: usize,
+}
+
+#[derive(Debug, Args)]
+pub struct RulesImportArgs {
+    /// External Cleaner Manifest v1 TOML file to import.
+    #[arg(long = "file", value_name = "PATH")]
+    pub file: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct RulesImportIdArgs {
+    /// Imported external rule id from rules import/list.
+    #[arg(value_name = "IMPORT_ID")]
+    pub import_id: String,
 }
 
 #[derive(Debug, Args)]

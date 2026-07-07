@@ -31,6 +31,9 @@
         "inspect-space",
         "permissions-diagnostic",
         "project-artifact-cleanup-plan",
+        "rule-import",
+        "rule-import-list",
+        "rule-import-mutation",
         "rule-validation",
         "rule-catalog"
       ]
@@ -509,6 +512,125 @@
           "$ref": "#/$defs/nonEmptyString"
         },
         "enabled_by_validation": {
+          "type": "boolean"
+        }
+      }
+    },
+    "externalRuleEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_id",
+        "source_display_path",
+        "stored_manifest_path",
+        "content_hash",
+        "imported_at_unix_seconds",
+        "enabled",
+        "rule_ids",
+        "platforms"
+      ],
+      "properties": {
+        "import_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source_display_path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "stored_manifest_path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "imported_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rule_ids": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "platforms": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "externalRuleDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "import_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason_code": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "ruleImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "imported"
+      ],
+      "properties": {
+        "imported": {
+          "$ref": "#/$defs/externalRuleEntry"
+        }
+      }
+    },
+    "ruleImportList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store_dir",
+        "entries"
+      ],
+      "properties": {
+        "store_dir": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/externalRuleEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/externalRuleDiagnostic"
+          }
+        }
+      }
+    },
+    "ruleImportMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_id",
+        "enabled",
+        "removed"
+      ],
+      "properties": {
+        "import_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "removed": {
           "type": "boolean"
         }
       }

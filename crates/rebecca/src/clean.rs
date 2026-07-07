@@ -6,6 +6,7 @@ use indicatif::ProgressBar;
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::environment::SystemEnvironment;
 use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy;
+use rebecca::core::external_rules::ExternalRuleStore;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::planner::{
@@ -173,9 +174,31 @@ pub(crate) fn run_workflow_with_runtime_config(
         }
     }
     progress.started()?;
+    let combined_rules;
+    let rules = match options.rule_source {
+        WorkflowRuleSource::RuleCatalog(rules) => {
+            let external_rules =
+                ExternalRuleStore::default_for_state_dir(&runtime_config.app_paths.state_dir)
+                    .load_enabled_rules();
+            for diagnostic in &external_rules.diagnostics {
+                eprintln!("Warning: external rule skipped: {}", diagnostic.message);
+            }
+            if external_rules.rules.is_empty() {
+                rules
+            } else {
+                combined_rules = rules
+                    .iter()
+                    .cloned()
+                    .chain(external_rules.rules)
+                    .collect::<Vec<_>>();
+                &combined_rules
+            }
+        }
+        WorkflowRuleSource::NativeWorkflow => options.rule_source.rules(),
+    };
     let plan_result = build_cleanup_plan_with_context(
         &options.request,
-        options.rule_source.rules(),
+        rules,
         &SystemEnvironment,
         applications.as_ref(),
         context,

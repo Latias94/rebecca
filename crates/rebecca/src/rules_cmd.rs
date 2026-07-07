@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use rebecca::core::config::load_app_paths;
+use rebecca::core::external_rules::ExternalRuleStore;
 use rebecca::core::{RebeccaError, RuleDefinition};
 use serde::Serialize;
 
@@ -124,6 +126,94 @@ pub fn validate(
             Ok(())
         },
     )
+}
+
+pub fn import(output_mode: OutputMode, file: PathBuf) -> Result<()> {
+    let store = external_rule_store()?;
+    let report = store.import_manifest(&file)?;
+    crate::output::print_command_success_with_contract(
+        CliApiContract::v1("rules import", "rule-import"),
+        output_mode,
+        || &report,
+        || {
+            println!("External rule imported: {}", report.imported.import_id);
+            println!("Enabled: {}", report.imported.enabled);
+            println!("Rules: {}", report.imported.rule_ids.join(", "));
+            Ok(())
+        },
+    )
+}
+
+pub fn list(output_mode: OutputMode) -> Result<()> {
+    let store = external_rule_store()?;
+    let report = store.list()?;
+    crate::output::print_command_success_with_contract(
+        CliApiContract::v1("rules list", "rule-import-list"),
+        output_mode,
+        || &report,
+        || {
+            println!("Imported external rules: {}", report.entries.len());
+            for entry in &report.entries {
+                println!(
+                    "  - {} enabled={} rules={}",
+                    entry.import_id,
+                    entry.enabled,
+                    entry.rule_ids.join(", ")
+                );
+            }
+            Ok(())
+        },
+    )
+}
+
+pub fn enable(output_mode: OutputMode, import_id: String) -> Result<()> {
+    mutate_enabled(output_mode, "rules enable", import_id, true)
+}
+
+pub fn disable(output_mode: OutputMode, import_id: String) -> Result<()> {
+    mutate_enabled(output_mode, "rules disable", import_id, false)
+}
+
+pub fn remove(output_mode: OutputMode, import_id: String) -> Result<()> {
+    let store = external_rule_store()?;
+    let report = store.remove(&import_id)?;
+    crate::output::print_command_success_with_contract(
+        CliApiContract::v1("rules remove", "rule-import-mutation"),
+        output_mode,
+        || &report,
+        || {
+            println!("External rule removed: {}", report.import_id);
+            Ok(())
+        },
+    )
+}
+
+fn mutate_enabled(
+    output_mode: OutputMode,
+    command: &'static str,
+    import_id: String,
+    enabled: bool,
+) -> Result<()> {
+    let store = external_rule_store()?;
+    let report = store.set_enabled(&import_id, enabled)?;
+    crate::output::print_command_success_with_contract(
+        CliApiContract::v1(command, "rule-import-mutation"),
+        output_mode,
+        || &report,
+        || {
+            println!(
+                "External rule {}: enabled={}",
+                report.import_id, report.enabled
+            );
+            Ok(())
+        },
+    )
+}
+
+fn external_rule_store() -> Result<ExternalRuleStore> {
+    Ok(ExternalRuleStore::default_for_state_dir(
+        &load_app_paths()?.state_dir,
+    ))
 }
 
 fn build_validation_report(

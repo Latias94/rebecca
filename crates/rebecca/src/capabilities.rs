@@ -165,6 +165,15 @@ fn command_capabilities() -> Vec<CommandCapability> {
         command("catalog validate", "catalog-validation", false, false),
         command("rules validate", "rule-validation", false, false)
             .with_schema_documents(RULE_SCHEMA_DOCS),
+        command("rules import", "rule-import", true, false).with_schema_documents(RULE_SCHEMA_DOCS),
+        command("rules list", "rule-import-list", false, false)
+            .with_schema_documents(RULE_SCHEMA_DOCS),
+        command("rules enable", "rule-import-mutation", true, false)
+            .with_schema_documents(RULE_SCHEMA_DOCS),
+        command("rules disable", "rule-import-mutation", true, false)
+            .with_schema_documents(RULE_SCHEMA_DOCS),
+        command("rules remove", "rule-import-mutation", true, false)
+            .with_schema_documents(RULE_SCHEMA_DOCS),
         command("scan", "rule-catalog", false, false).with_schema_documents(CLEANUP_SCHEMA_DOCS),
         command("clean", "cleanup-plan", true, true)
             .with_schema_documents(CLEANUP_SCHEMA_DOCS)

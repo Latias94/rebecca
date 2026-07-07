@@ -38,6 +38,59 @@ fn assert_success_schema(value: &serde_json::Value) {
     assert!(value.get("data").is_some());
 }
 
+fn external_rule_manifest(family_id: &str) -> String {
+    let (platform, target) = if cfg!(target_os = "linux") {
+        ("linux", "%XDG_CACHE_HOME%/pip/RebeccaExternalFixture")
+    } else if cfg!(target_os = "macos") {
+        ("macos", "%MACOS_CACHE_HOME%/pip/RebeccaExternalFixture")
+    } else {
+        ("windows", "%TEMP%\\RebeccaExternalFixture")
+    };
+
+    format!(
+        r#"
+manifest_version = 1
+id = "{family_id}"
+category = "development"
+name = "External cache"
+safety_level = "safe"
+restore_hint = "The external fixture cache can be recreated."
+
+[provenance]
+source = "reference-only"
+license = "example-user-rule"
+notes = "Local user-authored validation fixture; no external rule data copied."
+
+[[platforms]]
+platform = "{platform}"
+
+[[platforms.targets]]
+kind = "template"
+value = "{target}"
+search_kind = "file"
+"#
+    )
+}
+
+fn create_external_rule_target(temp: &tempfile::TempDir) {
+    let target = if cfg!(target_os = "linux") {
+        temp.path()
+            .join("cache")
+            .join("pip")
+            .join("RebeccaExternalFixture")
+    } else if cfg!(target_os = "macos") {
+        temp.path()
+            .join("Library")
+            .join("Caches")
+            .join("pip")
+            .join("RebeccaExternalFixture")
+    } else {
+        temp.path().join("temp").join("RebeccaExternalFixture")
+    };
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("cache.bin"), b"external-cache").unwrap();
+}
+
 fn assert_error_schema(value: &serde_json::Value) {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
     assert_error_shape(value);
@@ -602,6 +655,129 @@ value = "MACOS_HOME/.ssh"
 
     let validator = validator_for_payload_def("ruleValidation");
     validator.validate(&envelope["data"]).unwrap();
+}
+
+#[test]
+fn rules_import_lifecycle_is_disabled_by_default_and_feeds_clean_when_enabled() {
+    let temp = tempfile::tempdir().unwrap();
+    let rule_file = temp.path().join("external-cache.toml");
+    std::fs::write(&rule_file, external_rule_manifest("external-cache")).unwrap();
+    create_external_rule_target(&temp);
+
+    let import = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "rules",
+            "import",
+            "--format",
+            "json",
+            "--file",
+            rule_file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        import.status.success(),
+        "stderr: {}",
+        common::support::stderr(&import)
+    );
+    let import_envelope = common::support::api_envelope(&import.stdout);
+    assert_eq!(import_envelope["payload_kind"], "rule-import");
+    assert_eq!(import_envelope["data"]["imported"]["enabled"], false);
+    let import_id = import_envelope["data"]["imported"]["import_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rule_id = common::support::current_platform_rule_id("external-cache");
+    assert_eq!(import_envelope["data"]["imported"]["rule_ids"][0], rule_id);
+
+    let disabled_clean = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--no-scan-cache",
+            "--rule",
+            &rule_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(!disabled_clean.status.success());
+
+    let enable = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "enable", "--format", "json", &import_id])
+        .output()
+        .unwrap();
+    assert!(
+        enable.status.success(),
+        "stderr: {}",
+        common::support::stderr(&enable)
+    );
+    let enable_envelope = common::support::api_envelope(&enable.stdout);
+    assert_eq!(enable_envelope["payload_kind"], "rule-import-mutation");
+    assert_eq!(enable_envelope["data"]["enabled"], true);
+
+    let list = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "list", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        list.status.success(),
+        "stderr: {}",
+        common::support::stderr(&list)
+    );
+    let list_envelope = common::support::api_envelope(&list.stdout);
+    assert_eq!(list_envelope["payload_kind"], "rule-import-list");
+    assert_eq!(list_envelope["data"]["entries"][0]["enabled"], true);
+
+    let enabled_clean = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean",
+            "--dry-run",
+            "--format",
+            "json",
+            "--no-scan-cache",
+            "--rule",
+            &rule_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        enabled_clean.status.success(),
+        "stderr: {}",
+        common::support::stderr(&enabled_clean)
+    );
+    let clean_envelope = common::support::api_envelope(&enabled_clean.stdout);
+    assert!(
+        clean_envelope["data"]["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|target| target["rule_id"] == rule_id && target["status"] == "allowed")
+    );
+
+    let disable = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "disable", "--format", "json", &import_id])
+        .output()
+        .unwrap();
+    assert!(disable.status.success());
+    let disable_envelope = common::support::api_envelope(&disable.stdout);
+    assert_eq!(disable_envelope["data"]["enabled"], false);
+
+    let remove = common::isolated::isolated_rebecca(&temp)
+        .args(["rules", "remove", "--format", "json", &import_id])
+        .output()
+        .unwrap();
+    assert!(remove.status.success());
+    let remove_envelope = common::support::api_envelope(&remove.stdout);
+    assert_eq!(remove_envelope["data"]["removed"], true);
+
+    let validator = validator_for_payload_def("ruleImport");
+    validator.validate(&import_envelope["data"]).unwrap();
+    let validator = validator_for_payload_def("ruleImportList");
+    validator.validate(&list_envelope["data"]).unwrap();
+    let validator = validator_for_payload_def("ruleImportMutation");
+    validator.validate(&remove_envelope["data"]).unwrap();
 }
 
 #[test]
@@ -1193,6 +1369,9 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"cli-schema"));
     assert!(payload_kinds.contains(&"config-validation"));
     assert!(payload_kinds.contains(&"config-view"));
+    assert!(payload_kinds.contains(&"rule-import"));
+    assert!(payload_kinds.contains(&"rule-import-list"));
+    assert!(payload_kinds.contains(&"rule-import-mutation"));
     assert!(payload_kinds.contains(&"rule-validation"));
     assert!(payload_kinds.contains(&"catalog"));
     assert!(payload_kinds.contains(&"catalog-validation"));
@@ -1211,6 +1390,9 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert_eq!(payloads["$defs"]["cliSchema"]["type"], "object");
     assert_eq!(payloads["$defs"]["configValidation"]["type"], "object");
     assert_eq!(payloads["$defs"]["configView"]["type"], "object");
+    assert_eq!(payloads["$defs"]["ruleImport"]["type"], "object");
+    assert_eq!(payloads["$defs"]["ruleImportList"]["type"], "object");
+    assert_eq!(payloads["$defs"]["ruleImportMutation"]["type"], "object");
     assert_eq!(payloads["$defs"]["ruleValidation"]["type"], "object");
     let catalog_item = &payloads["$defs"]["catalogItem"];
     assert_eq!(catalog_item["oneOf"].as_array().unwrap().len(), 5);

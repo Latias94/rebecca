@@ -11,6 +11,7 @@ pub mod environment;
 pub mod error;
 pub mod execution;
 pub mod executor;
+pub mod external_rules;
 pub mod history;
 pub mod inspect;
 pub mod inventory;
