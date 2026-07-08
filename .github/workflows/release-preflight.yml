@@ -145,7 +145,24 @@ jobs:
       - name: Verify registry-independent crate dry-runs
         shell: pwsh
         run: |
+          function Test-CrateVersionPublished {
+            param(
+              [Parameter(Mandatory = $true)]
+              [string]$Crate,
+              [Parameter(Mandatory = $true)]
+              [string]$Version
+            )
+
+            cargo info "$Crate@$Version" --registry crates-io *> $null
+            return $LASTEXITCODE -eq 0
+          }
+
           foreach ($crate in @("rebecca-safety", "rebecca-ntfs")) {
+            if (Test-CrateVersionPublished -Crate $crate -Version "${{ inputs.version }}") {
+              Write-Host "Skipping dry-run for $crate ${{ inputs.version }} because it is already published."
+              continue
+            }
+
             cargo publish -p $crate --locked --dry-run --registry crates-io
           }
 
