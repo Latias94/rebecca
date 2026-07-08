@@ -65,6 +65,17 @@ rebecca purge --dry-run --root .
 rebecca purge --dry-run --root . --artifact target
 ```
 
+Save a reviewed preview when you want to execute it later:
+
+```powershell
+rebecca clean --dry-run --category browser --save-plan cleanup-plan.json
+rebecca plan inspect cleanup-plan.json
+rebecca plan run cleanup-plan.json
+rebecca plan run cleanup-plan.json --yes
+```
+
+`plan run` rechecks the current platform and target metadata first. If a target changed since the preview, Rebecca skips it and asks you to save a fresh plan.
+
 Execute only after the preview looks right. Normal cleanup moves allowed targets to the system Trash or Windows Recycle Bin, so the space is pending until the trash is emptied:
 
 ```powershell

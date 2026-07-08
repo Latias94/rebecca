@@ -23,6 +23,7 @@ mod purge_view;
 mod render;
 mod rules_cmd;
 mod runtime;
+mod saved_plan;
 mod scan;
 mod schema;
 mod skills;
@@ -35,7 +36,8 @@ mod workbench;
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
     CompletionArgs, ConfigCommand, DoctorCommand, HistoryArgs, InspectCommand, OutputMode,
-    PurgeArgs, RulesCommand, ScanArgs, SchemaCommand, SkillsCommand, TrashCommand, TuiArgs,
+    PlanCommand, PurgeArgs, RulesCommand, ScanArgs, SchemaCommand, SkillsCommand, TrashCommand,
+    TuiArgs,
 };
 use runtime::CliRuntime;
 
@@ -104,6 +106,23 @@ fn run() -> Result<()> {
         },
         Command::Scan(args) => run_scan(args, cli.format),
         Command::Clean(args) => run_clean(args, cli.format, &runtime),
+        Command::Plan { command } => match command {
+            PlanCommand::Inspect(args) => {
+                saved_plan::inspect(saved_plan::SavedPlanInspectOptions {
+                    output_mode: cli.format,
+                    file: args.file,
+                })
+            }
+            PlanCommand::Run(args) => saved_plan::run_with_runtime(
+                saved_plan::SavedPlanRunOptions {
+                    output_mode: cli.format,
+                    file: args.file,
+                    yes: args.yes,
+                    permanent: args.permanent,
+                },
+                &runtime,
+            ),
+        },
         Command::Tui(args) => run_tui(args, cli.format, &runtime),
         Command::Inspect { command } => run_inspect(command, cli.format, &runtime),
         Command::Purge(args) => run_purge(args, cli.format, &runtime),
@@ -166,6 +185,7 @@ fn run() -> Result<()> {
                 progress_detail,
                 scan_cache,
                 no_scan_cache,
+                save_plan,
                 exclude_paths,
             } => apps::clean_with_runtime(
                 apps::AppsCleanOptions {
@@ -180,6 +200,7 @@ fn run() -> Result<()> {
                         scan_cache,
                         no_scan_cache,
                     ),
+                    save_plan,
                     exclude_paths,
                 },
                 &runtime,
@@ -280,6 +301,11 @@ fn infer_command_api_contract_from_args() -> output::CliApiContract {
         },
         Some("scan") => output::CliApiContract::v1("scan", "rule-catalog"),
         Some("clean") => output::CliApiContract::v1("clean", "cleanup-plan"),
+        Some("plan") => match tokens.get(1).map(String::as_str) {
+            Some("inspect") => output::CliApiContract::v1("plan inspect", "saved-cleanup-plan"),
+            Some("run") => output::CliApiContract::v1("plan run", "cleanup-plan"),
+            _ => output::CliApiContract::v1("plan", "command-error"),
+        },
         Some("tui") | Some("i") => output::CliApiContract::v1("tui", "terminal-workbench"),
         Some("inspect") => match tokens.get(1).map(String::as_str) {
             Some("space") => output::CliApiContract::v1("inspect space", "inspect-space"),
@@ -543,6 +569,7 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             categories: selection.categories,
             rules: selection.rules,
             exclude_paths: execution.exclude_paths,
+            save_plan: execution.save_plan,
             allow_moderate: risk.allow_moderate,
             allow_risky: risk.allow_risky,
             allow_warnings: risk.allow_warnings,
@@ -566,6 +593,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
         reclaim_limit_bytes,
         artifacts,
         exclude_paths,
+        save_plan,
     } = args;
 
     purge::run_with_runtime(
@@ -587,6 +615,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             reclaim_limit_bytes,
             artifacts,
             exclude_paths,
+            save_plan,
         },
         runtime,
     )
@@ -654,6 +683,12 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
         },
         Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),
         Command::Clean(_) => output::CliApiContract::v1("clean", "cleanup-plan"),
+        Command::Plan { command } => match command {
+            PlanCommand::Inspect(_) => {
+                output::CliApiContract::v1("plan inspect", "saved-cleanup-plan")
+            }
+            PlanCommand::Run(_) => output::CliApiContract::v1("plan run", "cleanup-plan"),
+        },
         Command::Tui(_) => output::CliApiContract::v1("tui", "terminal-workbench"),
         Command::Inspect { command } => match command {
             InspectCommand::Space(_) => {

@@ -49,6 +49,7 @@ pub struct CleanOptions {
     pub categories: Vec<String>,
     pub rules: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
+    pub save_plan: Option<PathBuf>,
     pub allow_moderate: bool,
     pub allow_risky: bool,
     pub allow_warnings: Vec<String>,
@@ -64,6 +65,7 @@ pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) scan_cache: bool,
     pub(crate) scan_backend: ScanBackendKind,
     pub(crate) exclude_paths: Vec<PathBuf>,
+    pub(crate) save_plan: Option<PathBuf>,
     pub(crate) output_contract: WorkflowOutputContract,
     pub(crate) human_renderer: HumanPlanRenderer,
     pub(crate) success_renderer: WorkflowSuccessRenderer,
@@ -134,6 +136,7 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
             scan_cache: options.scan_cache,
             scan_backend: options.scan_backend,
             exclude_paths: options.exclude_paths,
+            save_plan: options.save_plan,
             output_contract: WorkflowOutputContract::v1("clean", "cleanup-plan"),
             human_renderer: render::clean::print_plan,
             success_renderer: output::print_plan_with_events,
@@ -154,6 +157,10 @@ pub(crate) fn run_workflow_with_runtime_config(
     runtime_config: AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<()> {
+    if options.save_plan.is_some() && !options.request.mode.is_dry_run() {
+        return Err(anyhow!("--save-plan only works with preview plans"));
+    }
+
     let safety_knowledge =
         rebecca::rules::builtin_safety_knowledge_for_platform(options.request.platform)?;
     let cancellation = runtime.cancellation();
@@ -241,14 +248,23 @@ pub(crate) fn run_workflow_with_runtime_config(
     let event_writer = progress.into_event_writer();
 
     if options.request.mode.is_dry_run() {
-        return (options.success_renderer)(
+        if let Some(path) = &options.save_plan {
+            crate::saved_plan::write_saved_plan(&plan, path)?;
+        }
+        (options.success_renderer)(
             &plan,
             options.output_contract,
             options.output_mode,
             options.human_renderer,
             scan_cache_summary,
             event_writer,
-        );
+        )?;
+        if options.output_mode.is_human()
+            && let Some(path) = &options.save_plan
+        {
+            print_saved_plan_guidance(path);
+        }
+        return Ok(());
     }
 
     if plan.summary.allowed_targets == 0 {
@@ -311,7 +327,7 @@ pub(crate) fn run_workflow_with_runtime_config(
     )
 }
 
-fn execute_plan(
+pub(crate) fn execute_plan(
     plan: &mut CleanupPlan,
     execution_policy: ProtectionPolicy<'_>,
     cancellation: &rebecca::core::scan::ScanCancellationToken,
@@ -365,7 +381,10 @@ fn finish_stream_with_cancellation(
     Ok(())
 }
 
-fn merged_protected_paths(config_paths: &[PathBuf], cli_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
+pub(crate) fn merged_protected_paths(
+    config_paths: &[PathBuf],
+    cli_paths: &[PathBuf],
+) -> Result<Vec<PathBuf>> {
     let mut merged = Vec::with_capacity(config_paths.len() + cli_paths.len());
     for path in config_paths.iter().chain(cli_paths) {
         rebecca::core::config::validate_user_protected_path(path)
@@ -564,6 +583,34 @@ fn target_scanning_message(next_target: u64, rule_id: &str, path: &Path) -> Stri
         "plan | target {next_target} | scanning {rule_id} | {} | Ctrl+C cancels",
         compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
     )
+}
+
+fn print_saved_plan_guidance(path: &Path) {
+    println!();
+    println!("Saved plan: {}", path.display());
+    println!(
+        "Review later: {}",
+        crate::output::format_shell_command(
+            "rebecca",
+            &[
+                "plan".to_string(),
+                "inspect".to_string(),
+                path.display().to_string()
+            ],
+        )
+    );
+    println!(
+        "Execute later: {}",
+        crate::output::format_shell_command(
+            "rebecca",
+            &[
+                "plan".to_string(),
+                "run".to_string(),
+                path.display().to_string(),
+                "--yes".to_string(),
+            ],
+        )
+    );
 }
 
 fn target_finished_message(

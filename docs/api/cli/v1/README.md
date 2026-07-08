@@ -111,6 +111,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `capabilities`
 - `cli-schema`
 - `cleanup-plan`
+- `saved-cleanup-plan`
 - `app-leftovers-cleanup-plan`
 - `project-artifact-cleanup-plan`
 - `catalog`
@@ -368,6 +369,23 @@ Consumers should use the explicit `rule_id`, `status`, `reason_code`,
 explanation fields. Provenance explains where a byte estimate came from; it is
 not a freshness guarantee and is never deletion authority.
 
+## Saved Cleanup Plans
+
+`clean --dry-run --save-plan <FILE>`, `purge --dry-run --save-plan <FILE>`, and
+`apps clean --dry-run --save-plan <FILE>` write a `saved-cleanup-plan` document.
+The saved document contains the original dry-run `plan` plus per-target metadata
+fingerprints. `plan inspect <FILE>` returns the saved document without touching
+the filesystem. `plan run <FILE>` revalidates the current host and target
+fingerprints but still does not delete anything. `plan run <FILE> --yes` moves
+still-valid targets to trash by default, and `--permanent` bypasses trash.
+
+If a target path disappears, changes type, changes file length, changes
+modification time, or becomes a symlink/reparse point, Rebecca blocks or skips
+that target and reports a stable reason code such as
+`execution-target-missing`, `saved-plan-target-changed`, or
+`safety-policy-blocked`. Callers should treat saved plans as review artifacts,
+not as reusable delete scripts.
+
 ## Examples
 
 ```powershell
@@ -375,6 +393,9 @@ rebecca capabilities --format json
 rebecca schema export --document payloads --format json
 rebecca scan --format json
 rebecca clean --format json --category system
+rebecca clean --dry-run --save-plan cleanup-plan.json --category system
+rebecca plan inspect --format json cleanup-plan.json
+rebecca plan run --format json cleanup-plan.json --yes
 rebecca clean --format ndjson --scan-cache --category system
 rebecca clean --format ndjson --progress-detail file --rule windows.user-temp
 rebecca doctor active-processes --format json

@@ -803,6 +803,7 @@ fn artifacts_with_runtime_config(
             scan_cache: options.scan_cache,
             scan_backend: ScanBackendKind::PortableRecursive,
             exclude_paths: options.exclude_paths,
+            save_plan: None,
             output_contract: WorkflowOutputContract::v1(options.command, "inspect-artifacts"),
             human_renderer: render::purge::print_project_artifact_insight,
             success_renderer: print_project_artifact_insight_with_events,

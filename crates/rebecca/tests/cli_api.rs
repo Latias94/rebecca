@@ -1373,6 +1373,7 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
     assert!(payload_kinds.contains(&"active-process-diagnostic"));
     assert!(payload_kinds.contains(&"trash-report"));
     assert!(payload_kinds.contains(&"skill-management"));
+    assert!(payload_kinds.contains(&"saved-cleanup-plan"));
 }
 
 #[test]
@@ -1424,6 +1425,7 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"inspect-space"));
     assert!(payload_kinds.contains(&"trash-report"));
     assert!(payload_kinds.contains(&"skill-management"));
+    assert!(payload_kinds.contains(&"saved-cleanup-plan"));
 
     assert_eq!(payloads["$defs"]["capabilities"]["type"], "object");
     assert_eq!(payloads["$defs"]["cliSchema"]["type"], "object");
@@ -1445,6 +1447,7 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert_eq!(payloads["$defs"]["cacheDoctor"]["type"], "object");
     assert_eq!(payloads["$defs"]["cachePruneReport"]["type"], "object");
     assert_eq!(payloads["$defs"]["skillManagement"]["type"], "object");
+    assert_eq!(payloads["$defs"]["savedCleanupPlan"]["type"], "object");
 
     let event = read_doc_json("event.schema.json");
     assert_eq!(

@@ -383,6 +383,9 @@ fn issue_resolution_hint(reason_label: &str) -> Option<&'static str> {
         "execution-target-shadowed" => {
             Some("the path changed during validation; rerun the preview before executing.")
         }
+        "saved-plan-target-changed" => {
+            Some("the saved plan is stale for this path; rerun the preview and save a fresh plan.")
+        }
         "project-artifact-recently-modified" => {
             Some("lower --min-age-days only if the artifact is inactive.")
         }

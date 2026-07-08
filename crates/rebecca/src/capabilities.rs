@@ -106,6 +106,7 @@ const LONG_RUNNING_COMMANDS: &[&str] = &[
     "clean",
     "apps scan",
     "apps clean",
+    "plan run",
     "purge",
     "inspect artifacts",
     "inspect map",
@@ -184,6 +185,14 @@ fn command_capabilities() -> Vec<CommandCapability> {
                 "--allow-risky",
                 "--allow-warning",
             ])
+            .with_macos_privacy_relevant(),
+        command("plan inspect", "saved-cleanup-plan", false, false)
+            .with_schema_documents(PAYLOAD_SCHEMA_DOCS),
+        command("plan run", "cleanup-plan", true, true)
+            .with_schema_documents(PAYLOAD_SCHEMA_DOCS)
+            .with_preflight(clean_preflight_commands())
+            .with_required_execution_flag("--yes")
+            .with_required_confirmation_flags(&["--permanent"])
             .with_macos_privacy_relevant(),
         command("apps scan", "app-leftovers-cleanup-plan", false, true)
             .with_schema_documents(PAYLOAD_SCHEMA_DOCS)

@@ -28,6 +28,7 @@ pub struct PurgeOptions {
     pub reclaim_limit_bytes: Option<u64>,
     pub artifacts: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
+    pub save_plan: Option<PathBuf>,
 }
 
 pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> Result<()> {
@@ -72,6 +73,7 @@ pub(crate) fn run_with_runtime(options: PurgeOptions, runtime: &CliRuntime) -> R
             scan_cache: options.scan_cache,
             scan_backend: ScanBackendKind::PortableRecursive,
             exclude_paths: options.exclude_paths,
+            save_plan: options.save_plan,
             output_contract: WorkflowOutputContract::v1("purge", "project-artifact-cleanup-plan"),
             human_renderer: render::purge::print_plan,
             success_renderer: crate::output::print_plan_with_events,

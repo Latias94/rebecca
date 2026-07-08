@@ -18,6 +18,7 @@
         "catalog-validation",
         "cli-schema",
         "cleanup-plan",
+        "saved-cleanup-plan",
         "config-paths",
         "config-validation",
         "config-view",
@@ -832,6 +833,8 @@
         "duplicate-target-path",
         "safety-policy-skipped",
         "execution-target-missing",
+        "execution-target-shadowed",
+        "saved-plan-target-changed",
         "safety-policy-blocked",
         "project-artifact-recently-modified",
         "reclaim-limit-satisfied",
@@ -941,6 +944,105 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/cleanupWarningSummary"
+          }
+        }
+      }
+    },
+    "savedPathKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "directory",
+        "symlink",
+        "other"
+      ]
+    },
+    "savedPathMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "len",
+        "modified_at_unix_seconds",
+        "readonly",
+        "reparse_like"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/savedPathKind"
+        },
+        "len": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "modified_at_unix_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "readonly": {
+          "type": "boolean"
+        },
+        "reparse_like": {
+          "type": "boolean"
+        }
+      }
+    },
+    "savedCleanupTargetFingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_index",
+        "rule_id",
+        "path",
+        "status"
+      ],
+      "properties": {
+        "target_index": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "rule_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "metadata": {
+          "$ref": "#/$defs/savedPathMetadata"
+        }
+      }
+    },
+    "savedCleanupPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "generated_by",
+        "generated_at_unix_seconds",
+        "plan",
+        "target_fingerprints"
+      ],
+      "properties": {
+        "schema": {
+          "const": "rebecca.saved-cleanup-plan.v1"
+        },
+        "generated_by": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "generated_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "plan": {
+          "type": "object"
+        },
+        "target_fingerprints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/savedCleanupTargetFingerprint"
           }
         }
       }

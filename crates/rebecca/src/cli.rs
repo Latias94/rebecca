@@ -10,6 +10,8 @@ const ROOT_AFTER_LONG_HELP: &str = "\
 Common tasks:
   rebecca inspect map --root . --top 20 --cleanup-advice
   rebecca clean --dry-run --category browser
+  rebecca clean --dry-run --category browser --save-plan cleanup-plan.json
+  rebecca plan run cleanup-plan.json --yes
   rebecca clean --yes --category browser
   rebecca purge --dry-run --root . --artifact target
   rebecca trash empty
@@ -22,9 +24,12 @@ const CLEAN_AFTER_LONG_HELP: &str = "\
 Examples:
   rebecca clean --dry-run
   rebecca clean --dry-run --category browser
+  rebecca clean --dry-run --category browser --save-plan cleanup-plan.json
   rebecca clean --dry-run --rule windows.user-temp
   rebecca clean --yes --category browser
   rebecca clean --yes --permanent --category browser
+  rebecca plan inspect cleanup-plan.json
+  rebecca plan run cleanup-plan.json --yes
 
 Without --yes, clean only previews. With --yes, allowed targets move to the
 system Trash or Windows Recycle Bin. Add --permanent only when you want to
@@ -53,12 +58,27 @@ const PURGE_AFTER_LONG_HELP: &str = "\
 Examples:
   rebecca purge --dry-run --root .
   rebecca purge --dry-run --root . --artifact target
+  rebecca purge --dry-run --root . --artifact target --save-plan purge-plan.json
   rebecca purge --dry-run --root . --min-age-days 0
   rebecca purge --yes --root . --artifact target
   rebecca purge --yes --permanent --root . --artifact target
+  rebecca plan run purge-plan.json --yes
 
 Purge is for rebuildable project output such as target, node_modules, build,
 dist, and similar artifact directories.";
+
+const PLAN_AFTER_LONG_HELP: &str = "\
+Examples:
+  rebecca clean --dry-run --category browser --save-plan cleanup-plan.json
+  rebecca purge --dry-run --root . --artifact target --save-plan purge-plan.json
+  rebecca plan inspect cleanup-plan.json
+  rebecca plan run cleanup-plan.json
+  rebecca plan run cleanup-plan.json --yes
+  rebecca plan run cleanup-plan.json --yes --permanent
+
+Saved plans are review artifacts, not blind delete scripts. Rebecca validates
+the current platform and target metadata before execution. Without --yes, plan
+run only reports what is still executable.";
 
 const TRASH_EMPTY_AFTER_LONG_HELP: &str = "\
 Examples:
@@ -347,6 +367,11 @@ pub enum Command {
     Scan(ScanArgs),
     /// Build or execute a cleanup plan.
     Clean(CleanArgs),
+    /// Inspect or execute a saved dry-run cleanup plan.
+    Plan {
+        #[command(subcommand)]
+        command: PlanCommand,
+    },
     /// Open an interactive terminal workbench for disk usage and safe cleanup.
     #[command(visible_alias = "i")]
     Tui(TuiArgs),
@@ -669,6 +694,9 @@ pub struct CleanupExecutionArgs {
     /// Exclude a path from cleanup for this run. Can be repeated.
     #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub exclude_paths: Vec<PathBuf>,
+    /// Write the preview plan to a JSON file for later review and execution.
+    #[arg(long = "save-plan", value_name = "FILE", value_hint = ValueHint::FilePath, conflicts_with = "yes")]
+    pub save_plan: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -786,6 +814,39 @@ pub struct PurgeArgs {
     /// Exclude a path from project artifact purge for this run. Can be repeated.
     #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub exclude_paths: Vec<PathBuf>,
+    /// Write the preview plan to a JSON file for later review and execution.
+    #[arg(long = "save-plan", value_name = "FILE", value_hint = ValueHint::FilePath, conflicts_with = "yes")]
+    pub save_plan: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PlanCommand {
+    /// Read a saved cleanup plan without executing it.
+    #[command(after_long_help = PLAN_AFTER_LONG_HELP)]
+    Inspect(SavedPlanInspectArgs),
+    /// Revalidate a saved cleanup plan, then execute it only with --yes.
+    #[command(after_long_help = PLAN_AFTER_LONG_HELP)]
+    Run(SavedPlanRunArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SavedPlanInspectArgs {
+    /// Saved plan JSON produced by --save-plan.
+    #[arg(value_name = "FILE", value_hint = ValueHint::FilePath)]
+    pub file: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct SavedPlanRunArgs {
+    /// Saved plan JSON produced by --save-plan.
+    #[arg(value_name = "FILE", value_hint = ValueHint::FilePath)]
+    pub file: PathBuf,
+    /// Execute still-valid allowed targets. Without --yes, Rebecca only revalidates the plan.
+    #[arg(long)]
+    pub yes: bool,
+    /// Permanently delete still-valid allowed targets. Requires --yes and bypasses trash.
+    #[arg(long, requires = "yes")]
+    pub permanent: bool,
 }
 
 #[derive(Debug, Args)]
@@ -912,6 +973,9 @@ pub enum AppsCommand {
         /// Disable the rebuildable scan cache for preview estimates.
         #[arg(long, conflicts_with = "scan_cache")]
         no_scan_cache: bool,
+        /// Write the preview plan to a JSON file for later review and execution.
+        #[arg(long = "save-plan", value_name = "FILE", value_hint = ValueHint::FilePath, conflicts_with = "yes")]
+        save_plan: Option<PathBuf>,
         /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
         #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
         exclude_paths: Vec<PathBuf>,
