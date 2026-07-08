@@ -6,17 +6,24 @@ Release handling is split across four workflows:
 
 - `ci.yml` runs formatting, linting, tests, Linux and macOS no-root cleanup smokes, cargo-dist planning, and a Windows release-packaging smoke test on pushes and pull requests;
 - `release-gates.yml` is a manual evidence gate that runs the shared release gate wrapper, uploads dogfood/performance artifacts, runs macOS cleanup smoke, and can compare full benchmark output against a prior workflow artifact;
-- `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks crate package file lists, dry-runs the first registry-independent crate publish, exercises the repository PowerShell release archive scripts, and runs macOS cleanup smoke;
-- `release.yml` publishes `rebecca-core`, `rebecca-rules`, `rebecca-windows`, and `rebecca` to crates.io in dependency order, then publishes the tag-driven ZIP, PowerShell installer, and checksum files to GitHub Releases.
+- `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks crate package file lists, dry-runs registry-independent crate publishes, exercises the repository PowerShell release archive scripts, and runs macOS cleanup smoke;
+- `release.yml` publishes `rebecca-safety`, `rebecca-ntfs`, `rebecca-core`, `rebecca-rules`, `rebecca-windows`, and `rebecca` to crates.io in dependency order, then publishes the tag-driven ZIP, PowerShell installer, checksum files, and standalone shell completion assets to GitHub Releases.
 
 ## Artifact Names
 
-For tag `v0.2.0`, cargo-dist currently publishes:
+Starting with the next release built from this branch, the workflow publishes
+assets shaped like:
 
 ```text
 rebecca-x86_64-pc-windows-msvc.zip
 rebecca-x86_64-pc-windows-msvc.zip.sha256
 rebecca-installer.ps1
+rebecca.bash
+_rebecca
+rebecca.fish
+rebecca.ps1
+rebecca.elv
+rebecca-completions.sha256
 sha256.sum
 source.tar.gz
 source.tar.gz.sha256
@@ -42,6 +49,25 @@ cargo install rebecca --locked
 
 The release workflow dry-runs unpublished crates before publishing, skips crate versions already visible on crates.io, and waits for each dependency crate to become visible before publishing the next dependent crate. GitHub Release hosting waits for crates.io publishing to complete successfully, so a tag has one release status instead of two independent tag-triggered publishers.
 
+## Shell Completion Assets
+
+Release builds generate completion scripts from the same live clap parser used by
+the binary:
+
+```powershell
+rebecca completion powershell > rebecca.ps1
+rebecca completion bash > rebecca.bash
+rebecca completion zsh > _rebecca
+rebecca completion fish > rebecca.fish
+rebecca completion elvish > rebecca.elv
+```
+
+The GitHub Release includes those five files as standalone assets plus
+`rebecca-completions.sha256` for their checksums. The repository PowerShell
+archive smoke path also packages them under `completions\`; the installer copies
+that directory to the chosen install root when present. Rebecca does not edit
+user shell profiles during install.
+
 ## Verify Checksums
 
 When downloading assets manually, verify the ZIP checksum against either the per-asset `.sha256` file or the unified `sha256.sum` file from the same GitHub Release:
@@ -66,6 +92,7 @@ Maintainers can run the repository's PowerShell package and checksum scripts loc
 .\scripts\release\write-sbom.ps1 -Tag v0.2.0 -DistDir target\release-smoke
 .\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
 Get-Content target\release-smoke\SHA256SUMS
+Get-ChildItem target\release-smoke\rebecca-0.2.0-windows-x86_64-msvc\completions
 ```
 
 Local smoke artifacts are not official releases.

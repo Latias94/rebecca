@@ -399,6 +399,15 @@ function Install-FromArchive {
         }
     }
 
+    $sourceCompletions = Join-Path $payloadDir "completions"
+    if (Test-Path -LiteralPath $sourceCompletions -PathType Container) {
+        $targetCompletions = Join-Path $installDirResolved "completions"
+        New-Item -ItemType Directory -Force -Path $targetCompletions | Out-Null
+        Get-ChildItem -LiteralPath $sourceCompletions -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $targetCompletions -Force
+        }
+    }
+
     $installRecord = [ordered]@{
         name = "rebecca"
         version = $Version
@@ -435,6 +444,15 @@ function Write-PathHint {
         Write-Host "Install directory is not on PATH: $InstallDirFull"
         Write-Host "Run directly: `"$InstallDirFull\rebecca.exe`" --version"
         Write-Host "Add this directory to your user PATH if you want to run rebecca from any terminal."
+    }
+}
+
+function Write-CompletionHint {
+    param([string]$InstallDirFull)
+
+    $completionDir = Join-Path $InstallDirFull "completions"
+    if (Test-Path -LiteralPath $completionDir -PathType Container) {
+        Write-Host "Shell completions are installed in: $completionDir"
     }
 }
 
@@ -487,7 +505,9 @@ try {
 
     Write-Host "Installed Rebecca to $binary"
     & $binary --version
-    Write-PathHint -InstallDirFull (Split-Path -Parent $binary)
+    $installedRoot = Split-Path -Parent $binary
+    Write-PathHint -InstallDirFull $installedRoot
+    Write-CompletionHint -InstallDirFull $installedRoot
 }
 finally {
     if (-not [string]::IsNullOrWhiteSpace($tempRoot) -and (Test-Path -LiteralPath $tempRoot)) {

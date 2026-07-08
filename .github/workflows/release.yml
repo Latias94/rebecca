@@ -216,6 +216,8 @@ jobs:
           }
 
           crates=(
+            rebecca-safety
+            rebecca-ntfs
             rebecca-core
             rebecca-rules
             rebecca-windows
@@ -312,6 +314,44 @@ jobs:
             ${{ steps.cargo-dist.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
 
+  build-completions:
+    name: build-completions
+    needs:
+      - plan
+    if: ${{ needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' }}
+    runs-on: "ubuntu-24.04"
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+      - name: Generate shell completions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/completions
+          cargo run -p rebecca --locked -- completion bash > target/completions/rebecca.bash
+          cargo run -p rebecca --locked -- completion zsh > target/completions/_rebecca
+          cargo run -p rebecca --locked -- completion fish > target/completions/rebecca.fish
+          cargo run -p rebecca --locked -- completion powershell > target/completions/rebecca.ps1
+          cargo run -p rebecca --locked -- completion elvish > target/completions/rebecca.elv
+          (
+            cd target/completions
+            sha256sum rebecca.bash _rebecca rebecca.fish rebecca.ps1 rebecca.elv > rebecca-completions.sha256
+          )
+          for file in target/completions/*; do
+            test -s "$file"
+          done
+      - name: "Upload completion artifacts"
+        uses: actions/upload-artifact@v7
+        with:
+          name: artifacts-completions
+          path: target/completions/*
+
   # Build and package all the platform-agnostic(ish) things
   build-global-artifacts:
     needs:
@@ -366,9 +406,10 @@ jobs:
       - plan
       - publish-crates
       - build-local-artifacts
+      - build-completions
       - build-global-artifacts
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && needs.publish-crates.result == 'success' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && needs.publish-crates.result == 'success' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') && (needs.build-completions.result == 'skipped' || needs.build-completions.result == 'success') }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-24.04"

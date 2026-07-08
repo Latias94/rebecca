@@ -10,6 +10,10 @@ All notable changes to Rebecca will be documented in this file.
 - `scan` now lists current-host cleanup rules by default, `catalog` exposes cleanup-rule platform metadata with `--platform` filtering, and doctor diagnostics report Linux support instead of returning Windows-only placeholders.
 
 ### Added
+- `rebecca completion` is now release-covered for Bash, Zsh, Fish, PowerShell,
+  and Elvish; path-bearing arguments carry clap `ValueHint` metadata, release
+  archives include generated completion files, and GitHub Releases publish the
+  generated completion scripts plus a checksum manifest as standalone assets.
 - GUI-oriented macOS readiness contracts: `capabilities` advertises startup
   preflights and schema documents, config/rules validation return structured
   diagnostics, external rules can be imported/listed/enabled/disabled/removed
@@ -198,6 +202,9 @@ All notable changes to Rebecca will be documented in this file.
 - `inspect-space` and `inspect-map` machine payloads now include `diagnostic_summary`; `diagnostics` is a bounded raw sample list rather than the authoritative count of all diagnostic observations.
 
 ### Fixed
+- The tag-driven release workflow now publishes `rebecca-safety` and
+  `rebecca-ntfs` before dependent crates, so `rebecca-core` can dry-run and
+  publish against crates.io without missing workspace dependencies.
 - Ubuntu clean API tests no longer build empty plans from Windows-only cleanup rules; cross-platform user-temp fixtures now select the current platform rule and Linux target clippy covers that boundary.
 - Ubuntu clippy builds no longer see Windows-only NTFS/MFT disk-map support structures or scan evidence builders as unused portable code.
 - Machine JSON and NDJSON output now treats closed stdout pipes as a clean exit instead of panicking, so wrappers can safely stop reading early.

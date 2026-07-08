@@ -43,10 +43,10 @@ cargo install rebecca --locked
 
 ```toml
 [dependencies]
-rebecca = "0.1"
+rebecca = "0.2"
 ```
 
-`rebecca` is the user-facing package. It exposes the curated library surface and the CLI binary while the implementation remains split across `rebecca-core`, `rebecca-rules`, and `rebecca-windows`.
+`rebecca` is the user-facing package. It exposes the curated library surface and the CLI binary while the implementation remains split across `rebecca-core`, `rebecca-rules`, `rebecca-safety`, `rebecca-ntfs`, and `rebecca-windows`.
 
 **Run from source**
 
@@ -313,6 +313,8 @@ cargo run -p rebecca -- purge --yes --root . --scan-cache
 cargo run -p rebecca -- completion powershell
 cargo run -p rebecca -- completion bash
 cargo run -p rebecca -- completion zsh
+cargo run -p rebecca -- completion fish
+cargo run -p rebecca -- completion elvish
 
 cargo run -p rebecca -- history
 cargo run -p rebecca -- history --limit 10
@@ -334,6 +336,25 @@ On macOS, `doctor permissions` also performs read-only privacy probes for Mail,
 Messages, and Safari paths. A `likely-blocked` result means Full Disk Access may
 be needed for the terminal before cleaning reviewed user-owned cache paths;
 `sudo` is not a TCC workaround.
+
+## Shell Completions
+
+Rebecca generates shell completion scripts from the live clap parser, so subcommands,
+flags, enum values, and path-aware arguments stay aligned with the binary.
+
+```powershell
+rebecca completion powershell > rebecca.ps1
+rebecca completion bash > rebecca.bash
+rebecca completion zsh > _rebecca
+rebecca completion fish > rebecca.fish
+rebecca completion elvish > rebecca.elv
+```
+
+GitHub Releases also publish the same standalone completion assets with
+`rebecca-completions.sha256`. The repository PowerShell installer copies
+packaged completions to `<install-dir>\completions` when the archive contains
+them, but it does not edit shell profiles. Install the generated file through
+the shell-specific completion path you already manage.
 
 ## CLI API
 

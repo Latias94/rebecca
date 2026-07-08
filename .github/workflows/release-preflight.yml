@@ -79,14 +79,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "target/package-lists" | Out-Null
-          foreach ($crate in @("rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca")) {
+          foreach ($crate in @("rebecca-safety", "rebecca-ntfs", "rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca")) {
             cargo package -p $crate --list > "target/package-lists/$crate.txt"
           }
 
       - name: Verify registry-independent crate dry-runs
         shell: pwsh
         run: |
-          foreach ($crate in @("rebecca-core")) {
+          foreach ($crate in @("rebecca-safety", "rebecca-ntfs")) {
             cargo publish -p $crate --locked --dry-run --registry crates-io
           }
 
@@ -111,6 +111,13 @@ jobs:
           }
 
           ./scripts/install.ps1 -AssetPath $asset.FullName -ChecksumsPath "target/release-preflight/SHA256SUMS" -InstallDir "target/install-preflight" -SkipAttestation
+          $completion = Join-Path "target/install-preflight/completions" "rebecca.ps1"
+          if (-not (Test-Path -LiteralPath $completion -PathType Leaf)) {
+            throw "Installed release archive did not include PowerShell completion: $completion"
+          }
+          if (-not (Select-String -LiteralPath $completion -Pattern "completion" -Quiet)) {
+            throw "Installed PowerShell completion did not include Rebecca commands."
+          }
 
       - name: Upload package lists
         uses: actions/upload-artifact@v7

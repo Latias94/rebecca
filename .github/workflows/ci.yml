@@ -162,3 +162,10 @@ jobs:
           }
 
           ./scripts/install.ps1 -AssetPath $asset.FullName -ChecksumsPath "target/release-smoke/SHA256SUMS" -InstallDir "target/install-smoke" -SkipAttestation
+          $completion = Join-Path "target/install-smoke/completions" "rebecca.ps1"
+          if (-not (Test-Path -LiteralPath $completion -PathType Leaf)) {
+            throw "Installed release archive did not include PowerShell completion: $completion"
+          }
+          if (-not (Select-String -LiteralPath $completion -Pattern "completion" -Quiet)) {
+            throw "Installed PowerShell completion did not include Rebecca commands."
+          }

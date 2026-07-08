@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum, ValueHint};
 
 pub const DEFAULT_RULE_VALIDATE_MAX_DEPTH: usize = 8;
 pub const DEFAULT_RULE_VALIDATE_MAX_FILES: usize = 512;
@@ -335,7 +335,7 @@ pub struct InspectSpaceArgs {
     #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
     pub scan_backend: ScanBackendArg,
     /// Directory to inspect. Can be repeated. Defaults to the current directory.
-    #[arg(long = "root", value_name = "PATH")]
+    #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::DirPath)]
     pub roots: Vec<PathBuf>,
     /// Maximum number of largest entries to include.
     #[arg(long = "top", value_name = "N", default_value_t = 10)]
@@ -357,7 +357,7 @@ pub struct InspectMapArgs {
     #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
     pub scan_backend: ScanBackendArg,
     /// Directory or file to inspect. Can be repeated. Defaults to the current directory.
-    #[arg(long = "root", value_name = "PATH")]
+    #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub roots: Vec<PathBuf>,
     /// Maximum number of largest entries to include. Use 0 for totals only.
     #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_TOP_LIMIT)]
@@ -427,7 +427,7 @@ pub struct InspectArtifactsArgs {
     #[arg(long)]
     pub scan_cache: bool,
     /// Directory to scan for project artifacts. Overrides configured purge roots.
-    #[arg(long = "root", value_name = "PATH")]
+    #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::DirPath)]
     pub roots: Vec<PathBuf>,
     /// Maximum directory depth to scan below each root. Defaults to config or 6.
     #[arg(long, value_name = "N")]
@@ -442,20 +442,20 @@ pub struct InspectArtifactsArgs {
     #[arg(long = "artifact", value_name = "ARTIFACT")]
     pub artifacts: Vec<String>,
     /// Exclude a path from project artifact insight for this run. Can be repeated.
-    #[arg(long = "exclude", value_name = "PATH")]
+    #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub exclude_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Args)]
 pub struct InspectLintArgs {
     /// Directory to inspect. Can be repeated. Defaults to the current directory.
-    #[arg(long = "root", value_name = "PATH")]
+    #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::DirPath)]
     pub roots: Vec<PathBuf>,
     /// Directory whose files should be treated as keep candidates in duplicate groups.
-    #[arg(long = "reference", value_name = "PATH")]
+    #[arg(long = "reference", value_name = "PATH", value_hint = ValueHint::DirPath)]
     pub reference_roots: Vec<PathBuf>,
     /// Exclude a path from lint inventory for this run. Can be repeated.
-    #[arg(long = "exclude", value_name = "PATH")]
+    #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub exclude_paths: Vec<PathBuf>,
     /// Include files at or above this size in the large-file report.
     #[arg(long, value_name = "BYTES", default_value_t = rebecca::core::lint::DEFAULT_LARGE_FILE_THRESHOLD_BYTES)]
@@ -511,10 +511,10 @@ pub enum RulesCommand {
 #[derive(Debug, Args)]
 pub struct RulesValidateArgs {
     /// External Cleaner Manifest v1 TOML file. Can be repeated.
-    #[arg(long = "file", value_name = "PATH")]
+    #[arg(long = "file", value_name = "PATH", value_hint = ValueHint::FilePath)]
     pub files: Vec<PathBuf>,
     /// Directory containing external Cleaner Manifest v1 TOML files. Can be repeated.
-    #[arg(long = "dir", value_name = "PATH")]
+    #[arg(long = "dir", value_name = "PATH", value_hint = ValueHint::DirPath)]
     pub dirs: Vec<PathBuf>,
     /// Maximum directory depth below each --dir to inspect.
     #[arg(long = "max-depth", value_name = "N", default_value_t = DEFAULT_RULE_VALIDATE_MAX_DEPTH)]
@@ -527,7 +527,7 @@ pub struct RulesValidateArgs {
 #[derive(Debug, Args)]
 pub struct RulesImportArgs {
     /// External Cleaner Manifest v1 TOML file to import.
-    #[arg(long = "file", value_name = "PATH")]
+    #[arg(long = "file", value_name = "PATH", value_hint = ValueHint::FilePath)]
     pub file: PathBuf,
 }
 
@@ -576,7 +576,7 @@ pub struct CleanupExecutionArgs {
     #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
     pub scan_backend: ScanBackendArg,
     /// Exclude a path from cleanup for this run. Can be repeated.
-    #[arg(long = "exclude", value_name = "PATH")]
+    #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub exclude_paths: Vec<PathBuf>,
 }
 
@@ -612,7 +612,7 @@ pub struct CleanArgs {
 #[derive(Debug, Args)]
 pub struct TuiArgs {
     /// Directory or file to inspect. Can be repeated. Without roots, the TUI opens a root picker.
-    #[arg(long = "root", value_name = "PATH")]
+    #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub roots: Vec<PathBuf>,
     /// Select the scan backend used for disk-map inventory.
     #[arg(long = "scan-backend", value_enum)]
@@ -669,7 +669,7 @@ pub struct PurgeArgs {
     #[arg(long, conflicts_with = "scan_cache")]
     pub no_scan_cache: bool,
     /// Directory to scan for project artifacts. Overrides configured purge roots.
-    #[arg(long = "root", value_name = "PATH")]
+    #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::DirPath)]
     pub roots: Vec<PathBuf>,
     /// Maximum directory depth to scan below each root. Defaults to config or 6.
     #[arg(long, value_name = "N")]
@@ -684,7 +684,7 @@ pub struct PurgeArgs {
     #[arg(long = "artifact", value_name = "ARTIFACT")]
     pub artifacts: Vec<String>,
     /// Exclude a path from project artifact purge for this run. Can be repeated.
-    #[arg(long = "exclude", value_name = "PATH")]
+    #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub exclude_paths: Vec<PathBuf>,
 }
 
@@ -772,7 +772,7 @@ pub enum AppsCommand {
         #[arg(long, conflicts_with = "scan_cache")]
         no_scan_cache: bool,
         /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
-        #[arg(long = "exclude", value_name = "PATH")]
+        #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
         exclude_paths: Vec<PathBuf>,
     },
     /// Preview or move leftover app cache data to recoverable trash.
@@ -796,7 +796,7 @@ pub enum AppsCommand {
         #[arg(long, conflicts_with = "scan_cache")]
         no_scan_cache: bool,
         /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
-        #[arg(long = "exclude", value_name = "PATH")]
+        #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
         exclude_paths: Vec<PathBuf>,
     },
 }
@@ -814,7 +814,7 @@ pub enum ConfigCommand {
 #[derive(Debug, Args)]
 pub struct ConfigFileArgs {
     /// Config file to read instead of the default Rebecca config.toml.
-    #[arg(long = "file", value_name = "PATH")]
+    #[arg(long = "file", value_name = "PATH", value_hint = ValueHint::FilePath)]
     pub file: Option<PathBuf>,
 }
 

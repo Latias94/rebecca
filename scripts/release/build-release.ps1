@@ -129,6 +129,7 @@ try {
     New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "docs") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "scripts") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $stageDir "completions") | Out-Null
 
     Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $stageDir "rebecca.exe")
     Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $stageDir
@@ -140,6 +141,9 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs\security-audit.md") -Destination (Join-Path $stageDir "docs")
     Copy-Item -LiteralPath (Join-Path $repoRoot "docs\release.md") -Destination (Join-Path $stageDir "docs")
     Copy-Item -LiteralPath (Join-Path $repoRoot "scripts\install.ps1") -Destination (Join-Path $stageDir "scripts")
+    & (Join-Path $repoRoot "scripts\release\write-completions.ps1") `
+        -BinaryPath $binaryPath `
+        -OutDir (Join-Path $stageDir "completions")
 
     $metadata = @(
         "name=rebecca",
