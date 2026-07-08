@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use rebecca_core::plan::{
-    CleanupPlan, CleanupTarget, CleanupTargetIssueReason, EstimateProvenance, EstimateSource,
+    CleanupPlan, CleanupTarget, CleanupTargetEvidence, CleanupTargetIssueReason,
+    EstimateProvenance, EstimateSource,
 };
 use rebecca_core::project_artifacts::{
     ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
@@ -12,7 +13,7 @@ use rebecca_core::scan::{
 };
 use rebecca_core::{
     CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance,
-    RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel,
+    RuleSelection, RuleSource, RuleTargetSpec, SafetyLevel, TargetStatus,
 };
 
 #[test]
@@ -52,10 +53,34 @@ fn cleanup_plan_serialization_preserves_target_contract() {
     assert!(decoded.summary.warning_matrix.is_empty());
     assert!(decoded.targets[0].reason_code.is_none());
     assert!(decoded.targets[0].warnings.is_empty());
+    assert!(decoded.targets[0].evidence.is_empty());
     assert_eq!(
         decoded.targets[0].estimate_source,
         EstimateSource::FreshScan
     );
+}
+
+#[test]
+fn cleanup_plan_summary_ignores_non_issue_status_evidence() {
+    let request = PlanRequest::for_platform(Platform::Windows, DeleteMode::DryRun);
+    let mut target = CleanupTarget::allowed(
+        "windows.user-temp",
+        PathBuf::from("C:/Users/Alice/AppData/Local/Temp"),
+        42,
+        DeleteMode::DryRun,
+    );
+    target.evidence.push(CleanupTargetEvidence::issue(
+        TargetStatus::Allowed,
+        CleanupTargetIssueReason::Unclassified,
+        "malformed external evidence",
+    ));
+
+    let mut plan = CleanupPlan::empty(request);
+    plan.targets.push(target);
+    plan.recompute_summary();
+
+    assert_eq!(plan.summary.allowed_targets, 1);
+    assert!(plan.summary.issue_matrix.is_empty());
 }
 
 #[test]
@@ -77,6 +102,16 @@ fn cleanup_plan_serialization_preserves_warning_contract() {
     let json = serde_json::to_value(&plan).expect("plan should serialize");
     assert_eq!(json["targets"][0]["warnings"][0], "active-process");
     assert_eq!(json["targets"][0]["reason_code"], "warning-gate-required");
+    assert_eq!(json["targets"][0]["evidence"][0]["kind"], "issue");
+    assert_eq!(
+        json["targets"][0]["evidence"][0]["reason_code"],
+        "warning-gate-required"
+    );
+    assert_eq!(json["targets"][0]["evidence"][1]["kind"], "warning");
+    assert_eq!(
+        json["targets"][0]["evidence"][1]["warning"],
+        "active-process"
+    );
     assert_eq!(
         json["summary"]["warning_matrix"][0]["warning"],
         "active-process"
@@ -89,6 +124,7 @@ fn cleanup_plan_serialization_preserves_warning_contract() {
         Some(CleanupTargetIssueReason::WarningGateRequired)
     );
     assert_eq!(decoded.targets[0].warnings, ["active-process"]);
+    assert_eq!(decoded.targets[0].evidence.len(), 2);
     assert_eq!(decoded.summary.warning_matrix[0].warning, "active-process");
 }
 
@@ -112,6 +148,11 @@ fn cleanup_plan_serialization_preserves_protected_issue_contract() {
         "safety-policy-blocked"
     );
     assert_eq!(value["targets"][0]["reason_code"], "safety-policy-blocked");
+    assert_eq!(value["targets"][0]["evidence"][0]["kind"], "issue");
+    assert_eq!(
+        value["targets"][0]["evidence"][0]["reason_code"],
+        "safety-policy-blocked"
+    );
 
     let decoded: CleanupPlan = serde_json::from_str(&json).expect("plan should deserialize");
 
@@ -125,6 +166,7 @@ fn cleanup_plan_serialization_preserves_protected_issue_contract() {
         decoded.targets[0].reason_code,
         Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
     );
+    assert_eq!(decoded.targets[0].evidence.len(), 1);
     assert_eq!(
         decoded.targets[0].reason.as_deref(),
         Some("browser private data is protected")

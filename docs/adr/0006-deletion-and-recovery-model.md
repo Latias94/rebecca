@@ -41,9 +41,10 @@ All destructive commands must build a cleanup plan before execution.
   cleanup targets.
 - Reparse points, junctions, and symlinks are not followed by default.
 - History records both `freed_bytes` and `pending_reclaim_bytes` because moving to recoverable trash does not immediately free disk space.
-- Skipped, blocked, and failed targets carry stable `reason_code` values, while
-  summaries aggregate those values into an `issue_matrix` keyed by target status
-  and reason code. Detailed `reason` text remains available for local context.
+- Skipped, blocked, and failed targets carry ordered `evidence` facts with stable
+  `reason_code` projections, while summaries aggregate those facts into an
+  `issue_matrix` keyed by target status and reason code. Detailed `reason` text
+  remains available for local context.
 
 # Alternatives Considered
 

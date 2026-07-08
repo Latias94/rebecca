@@ -25,7 +25,7 @@ pub use progress::{ScanCancellationToken, ScanProgressEvent};
 pub use windows_native::WindowsNativeDirectoryScanBackend;
 
 #[cfg(all(windows, feature = "ntfs"))]
-use crate::disk_map::{DiskMapBackendOptions, DiskMapBackendRoot};
+use crate::disk_map::{DiskMapBackendOptions, DiskMapBackendReport};
 use crate::error::Result;
 use crate::model::DeleteMode;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
@@ -109,7 +109,7 @@ impl ScanEngine {
         options: DiskMapBackendOptions,
         cancellation: &ScanCancellationToken,
         progress: &mut F,
-    ) -> Result<DiskMapBackendRoot>
+    ) -> Result<DiskMapBackendReport>
     where
         F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
     {
@@ -352,7 +352,7 @@ fn inspect_windows_ntfs_mft_disk_map_with_progress<F>(
     options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
     progress: &mut F,
-) -> Result<DiskMapBackendRoot>
+) -> Result<DiskMapBackendReport>
 where
     F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult,
 {

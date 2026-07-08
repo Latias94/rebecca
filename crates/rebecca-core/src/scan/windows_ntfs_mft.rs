@@ -42,8 +42,9 @@ use windows::Win32::System::Ioctl::{
 use windows::core::{Error as WindowsError, HRESULT, PCWSTR};
 
 use crate::disk_map::{
-    DiskMapBackendOptions, DiskMapBackendRoot, DiskMapEntry, DiskMapEntryKind, DiskMapFileIdentity,
-    DiskMapGroupCollector, DiskMapMetadataSemantics, DiskMapMetrics, DiskMapTopEntries,
+    DiskMapBackendOptions, DiskMapBackendReport, DiskMapEntry, DiskMapEntryKind,
+    DiskMapFileIdentity, DiskMapGroupCollector, DiskMapMetadataSemantics, DiskMapMetrics,
+    DiskMapTopEntries,
 };
 use crate::error::{RebeccaError, Result, ScanFailure, ScanFailurePhase};
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
@@ -1895,7 +1896,7 @@ pub(super) fn inspect_disk_map_with_progress<'a, F>(
     options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
     progress: &'a mut F,
-) -> Result<DiskMapBackendRoot>
+) -> Result<DiskMapBackendReport>
 where
     F: for<'event> FnMut(InspectProgressEvent<'event>) -> InspectProgressResult + 'a,
 {
@@ -1909,7 +1910,7 @@ fn inspect_disk_map_inner<'a>(
     options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
     observer: Option<&'a mut NtfsMftBuildObserver<'a>>,
-) -> Result<DiskMapBackendRoot> {
+) -> Result<DiskMapBackendReport> {
     check_not_cancelled(cancellation)?;
     let metadata = root_metadata(path)?;
     if is_reparse_like(&metadata) {
@@ -2041,7 +2042,7 @@ fn inspect_disk_map_inner<'a>(
     let measured =
         with_bounded_mft_caveats(measured, index.caveats.clone().into_iter().chain(caveats));
 
-    Ok(DiskMapBackendRoot {
+    Ok(DiskMapBackendReport {
         metrics,
         top_entries: top_entries.into_sorted_entries(),
         groups,
@@ -2774,7 +2775,7 @@ fn build_targeted_mft_disk_map<'a>(
     options: DiskMapBackendOptions,
     cancellation: &ScanCancellationToken,
     observer: Option<&'a mut NtfsMftBuildObserver<'a>>,
-) -> Result<DiskMapBackendRoot> {
+) -> Result<DiskMapBackendReport> {
     let monitor = ntfs_mft_build_monitor(observer);
     check_mft_build_progress(cancellation, &monitor)?;
     let volume = monitor.measure_checked(NtfsMftBuildStage::OpenVolume, cancellation, || {
@@ -2835,7 +2836,7 @@ fn build_targeted_mft_disk_map<'a>(
     .with_backend_evidence(monitor.evidence());
     let measured = with_bounded_mft_caveats(measured, caveats);
 
-    Ok(DiskMapBackendRoot {
+    Ok(DiskMapBackendReport {
         metrics: targeted_map.metrics,
         top_entries: targeted_map.top_entries,
         groups: targeted_map.groups,

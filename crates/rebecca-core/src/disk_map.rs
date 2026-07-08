@@ -1822,7 +1822,7 @@ where
                         files: root_map.metrics.files,
                         directories: root_map.metrics.directories,
                     })?;
-                    push_backend_root(root, root_map, state);
+                    push_backend_report(root, root_map, state);
                     return Ok(unique_files);
                 }
                 Err(err) if disk_map_backend_error_can_fallback(&err) => {
@@ -1949,23 +1949,23 @@ where
 }
 
 #[cfg(all(windows, feature = "ntfs"))]
-fn push_backend_root(
+fn push_backend_report(
     root: &Path,
-    root_map: DiskMapBackendRoot,
+    report: DiskMapBackendReport,
     state: &mut DiskMapInspectionState,
 ) {
-    state.report.totals.add(root_map.metrics);
-    for entry in root_map.top_entries {
+    state.report.totals.add(report.metrics);
+    for entry in report.top_entries {
         state.top_entries.push(entry);
     }
-    state.groups.merge(root_map.groups);
-    state.diagnostics.extend(root_map.diagnostics);
+    state.groups.merge(report.groups);
+    state.diagnostics.extend(report.diagnostics);
     state.report.roots.push(DiskMapRoot {
         path: root.to_path_buf(),
         status: DiskMapRootStatus::Scanned,
-        metrics: root_map.metrics,
+        metrics: report.metrics,
         estimate_source: EstimateSource::FreshScan,
-        estimate_provenance: root_map.estimate_provenance,
+        estimate_provenance: report.estimate_provenance,
         reason: None,
     });
 }
@@ -2156,7 +2156,7 @@ fn push_root_skip(
 }
 
 #[cfg(all(windows, feature = "ntfs"))]
-pub(crate) struct DiskMapBackendRoot {
+pub(crate) struct DiskMapBackendReport {
     pub(crate) metrics: DiskMapMetrics,
     pub(crate) top_entries: Vec<DiskMapEntry>,
     pub(crate) groups: DiskMapGroupCollector,

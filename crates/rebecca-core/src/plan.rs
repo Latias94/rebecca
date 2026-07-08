@@ -168,8 +168,55 @@ pub struct CleanupTarget {
     pub project_artifact: Option<ProjectArtifactContextMatch>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<CleanupTargetEvidence>,
     pub freed_bytes: u64,
     pub pending_reclaim_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupTargetEvidence {
+    pub kind: CleanupTargetEvidenceKind,
+    pub status: TargetStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<CleanupTargetIssueReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl CleanupTargetEvidence {
+    pub fn issue(
+        status: TargetStatus,
+        reason_code: CleanupTargetIssueReason,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: CleanupTargetEvidenceKind::Issue,
+            status,
+            reason_code: Some(reason_code),
+            warning: None,
+            reason: Some(reason.into()),
+        }
+    }
+
+    pub fn warning(status: TargetStatus, warning: impl Into<String>) -> Self {
+        Self {
+            kind: CleanupTargetEvidenceKind::Warning,
+            status,
+            reason_code: None,
+            warning: Some(warning.into()),
+            reason: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CleanupTargetEvidenceKind {
+    Issue,
+    Warning,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -238,6 +285,7 @@ impl CleanupTarget {
             modified_at_unix_seconds: None,
             project_artifact: None,
             warnings: Vec::new(),
+            evidence: Vec::new(),
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -265,6 +313,7 @@ impl CleanupTarget {
         reason_code: CleanupTargetIssueReason,
         reason: impl Into<String>,
     ) -> Self {
+        let reason = reason.into();
         Self {
             rule_id: rule_id.into(),
             path,
@@ -273,13 +322,18 @@ impl CleanupTarget {
             estimate_provenance: EstimateProvenance::default(),
             mode,
             status: TargetStatus::Skipped,
-            reason: Some(reason.into()),
+            reason: Some(reason.clone()),
             reason_code: Some(reason_code),
             restore_hint: None,
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
             project_artifact: None,
             warnings: Vec::new(),
+            evidence: vec![CleanupTargetEvidence::issue(
+                TargetStatus::Skipped,
+                reason_code,
+                reason,
+            )],
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -307,6 +361,7 @@ impl CleanupTarget {
         reason_code: CleanupTargetIssueReason,
         reason: impl Into<String>,
     ) -> Self {
+        let reason = reason.into();
         Self {
             rule_id: rule_id.into(),
             path,
@@ -315,13 +370,18 @@ impl CleanupTarget {
             estimate_provenance: EstimateProvenance::default(),
             mode,
             status: TargetStatus::Blocked,
-            reason: Some(reason.into()),
+            reason: Some(reason.clone()),
             reason_code: Some(reason_code),
             restore_hint: None,
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
             project_artifact: None,
             warnings: Vec::new(),
+            evidence: vec![CleanupTargetEvidence::issue(
+                TargetStatus::Blocked,
+                reason_code,
+                reason,
+            )],
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -352,6 +412,7 @@ impl CleanupTarget {
         reason_code: CleanupTargetIssueReason,
         reason: impl Into<String>,
     ) -> Self {
+        let reason = reason.into();
         Self {
             rule_id: rule_id.into(),
             path,
@@ -364,13 +425,18 @@ impl CleanupTarget {
             estimate_provenance: EstimateProvenance::default(),
             mode,
             status: TargetStatus::Failed,
-            reason: Some(reason.into()),
+            reason: Some(reason.clone()),
             reason_code: Some(reason_code),
             restore_hint: None,
             deletion_style: CleanupTargetDeletionStyle::default(),
             modified_at_unix_seconds: None,
             project_artifact: None,
             warnings: Vec::new(),
+            evidence: vec![CleanupTargetEvidence::issue(
+                TargetStatus::Failed,
+                reason_code,
+                reason,
+            )],
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -410,8 +476,57 @@ impl CleanupTarget {
     }
 
     pub fn with_warnings(mut self, warnings: Vec<String>) -> Self {
+        self.evidence
+            .retain(|evidence| evidence.kind != CleanupTargetEvidenceKind::Warning);
+        self.evidence.extend(
+            warnings
+                .iter()
+                .cloned()
+                .map(|warning| CleanupTargetEvidence::warning(self.status, warning)),
+        );
         self.warnings = warnings;
         self
+    }
+
+    fn for_each_issue_evidence(
+        &self,
+        mut visit: impl FnMut(TargetStatus, CleanupTargetIssueReason),
+    ) {
+        let mut emitted = false;
+        for evidence in &self.evidence {
+            if evidence.kind == CleanupTargetEvidenceKind::Issue
+                && evidence.status.is_issue()
+                && let Some(reason_code) = evidence.reason_code
+            {
+                visit(evidence.status, reason_code);
+                emitted = true;
+            }
+        }
+
+        if !emitted
+            && self.status.is_issue()
+            && let Some(reason_code) = self.reason_code
+        {
+            visit(self.status, reason_code);
+        }
+    }
+
+    fn for_each_warning_evidence(&self, mut visit: impl FnMut(&str)) {
+        let mut emitted = false;
+        for evidence in &self.evidence {
+            if evidence.kind == CleanupTargetEvidenceKind::Warning
+                && let Some(warning) = evidence.warning.as_deref()
+            {
+                visit(warning);
+                emitted = true;
+            }
+        }
+
+        if !emitted {
+            for warning in &self.warnings {
+                visit(warning);
+            }
+        }
     }
 }
 
@@ -460,13 +575,11 @@ impl CleanupPlan {
                 TargetStatus::Completed => summary.completed_targets += 1,
             }
 
-            if target.status.is_issue()
-                && let Some(reason_code) = target.reason_code
-            {
+            target.for_each_issue_evidence(|status, reason_code| {
                 let bucket = issue_matrix
-                    .entry((target.status, reason_code))
+                    .entry((status, reason_code))
                     .or_insert_with(|| CleanupIssueSummary {
-                        status: target.status,
+                        status,
                         reason_code,
                         targets: 0,
                         estimated_bytes: 0,
@@ -475,14 +588,14 @@ impl CleanupPlan {
                 bucket.estimated_bytes = bucket
                     .estimated_bytes
                     .saturating_add(target.estimated_bytes);
-            }
+            });
 
-            for warning in &target.warnings {
+            target.for_each_warning_evidence(|warning| {
                 let bucket =
                     warning_matrix
-                        .entry(warning.clone())
+                        .entry(warning.to_owned())
                         .or_insert_with(|| WarningSummary {
-                            warning: warning.clone(),
+                            warning: warning.to_owned(),
                             targets: 0,
                             estimated_bytes: 0,
                         });
@@ -490,7 +603,7 @@ impl CleanupPlan {
                 bucket.estimated_bytes = bucket
                     .estimated_bytes
                     .saturating_add(target.estimated_bytes);
-            }
+            });
         }
 
         summary.issue_matrix = issue_matrix.into_values().collect();

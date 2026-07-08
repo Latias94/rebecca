@@ -335,6 +335,10 @@ fn clean_dry_run_json_skips_warning_rule_without_named_gate() {
     assert!(value["targets"].as_array().unwrap().iter().all(|target| {
         target["reason_code"] == "warning-gate-required"
             && target["warnings"].as_array().unwrap()[0] == "active-process"
+            && target["evidence"][0]["kind"] == "issue"
+            && target["evidence"][0]["reason_code"] == "warning-gate-required"
+            && target["evidence"][1]["kind"] == "warning"
+            && target["evidence"][1]["warning"] == "active-process"
     }));
 }
 
