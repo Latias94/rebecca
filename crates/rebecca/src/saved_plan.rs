@@ -12,13 +12,14 @@ use rebecca::core::safety::{PATH_DOES_NOT_EXIST_REASON, is_reparse_like};
 use rebecca::core::{CleanupWorkflow, DeleteMode, Platform, TargetStatus};
 use serde::{Deserialize, Serialize};
 
-use crate::clean::{execute_plan, merged_protected_paths};
+use crate::clean::execute_plan;
 use crate::cli::OutputMode;
 use crate::output::{
     CliApiContract, HumanPlanRenderer, WorkflowOutputContract, format_bytes, format_shell_command,
 };
 use crate::runtime::CliRuntime;
 use crate::workflow_artifacts::WorkflowArtifacts;
+use crate::workflow_planner::merged_protected_paths;
 use crate::{output, render};
 
 const SAVED_PLAN_SCHEMA: &str = "rebecca.saved-cleanup-plan.v1";

@@ -4,11 +4,12 @@ use anyhow::{Result, anyhow};
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
-use crate::clean::{ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow};
+use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow};
 use crate::cli::{OutputMode, ProgressDetail};
 use crate::output::WorkflowOutputContract;
 use crate::render;
 use crate::runtime::CliRuntime;
+use crate::workflow_planner::WorkflowRuleSource;
 
 #[derive(Debug)]
 pub struct AppsScanOptions {

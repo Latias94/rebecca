@@ -34,6 +34,7 @@ mod trash_backend;
 mod tui;
 mod workbench;
 mod workflow_artifacts;
+mod workflow_planner;
 
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,

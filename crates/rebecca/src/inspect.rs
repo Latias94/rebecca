@@ -32,9 +32,7 @@ use rebecca::core::{
 };
 use serde::Serialize;
 
-use crate::clean::{
-    ConfirmationKind, WorkflowRuleSource, WorkflowRunOptions, run_workflow_with_runtime_config,
-};
+use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::{OutputMode, ProgressDetail, ScanBackendArg};
 use crate::output::{
@@ -51,6 +49,7 @@ use crate::purge_view::ProjectArtifactInsightReport;
 use crate::render;
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
+use crate::workflow_planner::WorkflowRuleSource;
 
 const NTFS_MFT_VOLUME_INDEX_CACHE_ENV: &str = "REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE";
 
