@@ -2,7 +2,7 @@
 
 Rebecca is a cleanup CLI for caches, app leftovers, project artifacts, and disk usage inspection.
 
-It is built around one simple habit: look first, delete second. `clean`, `purge`, `apps clean`, and the TUI all use the same planner, warning gates, protected path checks, recoverable trash backend, and history log.
+It is built around one simple habit: look first, delete second. `clean`, `purge`, `apps clean`, and the TUI all use the same planner, warning gates, protected path checks, system Trash or Recycle Bin behavior, and history log.
 
 <p align="center">
   <a href="docs/security-audit.md">Safety audit</a> |
@@ -66,11 +66,26 @@ rebecca clean --dry-run --rule windows.slack-cache --allow-warning active-proces
 rebecca purge --dry-run --root .
 ```
 
-Execute only after the preview looks right:
+Execute only after the preview looks right. Normal cleanup moves allowed targets to the system Trash or Windows Recycle Bin, so the space is pending until the trash is emptied:
 
 ```powershell
 rebecca clean --yes --category browser
 rebecca purge --yes --root . --artifact target
+```
+
+Bypass the trash only when you want irreversible deletion:
+
+```powershell
+rebecca clean --yes --permanent --category browser
+rebecca purge --yes --permanent --root . --artifact target
+```
+
+Preview and empty trash from Rebecca:
+
+```powershell
+rebecca trash empty
+rebecca trash empty --yes
+rebecca trash empty --drive E --yes
 ```
 
 Open the interactive workbench when you want to browse and decide from the terminal:
@@ -143,7 +158,7 @@ Rebecca is a local deletion tool, so the defaults are intentionally boring:
 - Warning-bearing rules stay blocked until you pass the named `--allow-warning <WARNING>` gate.
 - Junctions, symlinks, and other reparse points are blocked by default.
 - `--exclude <PATH>` and `[protection].protected_paths` keep paths out of a run.
-- Permanent deletion and administrator auto-elevation are not part of normal cleanup.
+- Permanent deletion is explicit with `--permanent`; administrator auto-elevation is not part of normal cleanup.
 
 Do not start by running `sudo rebecca clean --yes`. Preview as the current user, review permission-sensitive targets, then elevate only for the specific system cache you intend to clean.
 

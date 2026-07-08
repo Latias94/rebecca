@@ -287,7 +287,7 @@ fn spawn_task(
             )
         }
         TuiEffect::Execute(request) => {
-            app.apply_task_started("Moving allowed targets to recoverable trash...");
+            app.apply_task_started("Moving allowed targets to the system trash...");
             (
                 "execute",
                 thread::spawn(move || {

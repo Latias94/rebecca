@@ -27,6 +27,7 @@ mod scan;
 mod schema;
 mod skills;
 mod text;
+mod trash;
 mod trash_backend;
 mod tui;
 mod workbench;
@@ -34,7 +35,7 @@ mod workbench;
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
     CompletionArgs, ConfigCommand, DoctorCommand, HistoryArgs, InspectCommand, OutputMode,
-    PurgeArgs, RulesCommand, ScanArgs, SchemaCommand, SkillsCommand, TuiArgs,
+    PurgeArgs, RulesCommand, ScanArgs, SchemaCommand, SkillsCommand, TrashCommand, TuiArgs,
 };
 use runtime::CliRuntime;
 
@@ -160,6 +161,7 @@ fn run() -> Result<()> {
             AppsCommand::Clean {
                 dry_run,
                 yes,
+                permanent,
                 no_progress,
                 progress_detail,
                 scan_cache,
@@ -170,6 +172,7 @@ fn run() -> Result<()> {
                     dry_run,
                     output_mode: cli.format,
                     yes,
+                    permanent,
                     no_progress,
                     progress_detail,
                     scan_cache: effective_scan_cache(
@@ -198,6 +201,13 @@ fn run() -> Result<()> {
             SkillsCommand::Install(args) => skills::install(cli.format, args),
             SkillsCommand::Remove(args) => skills::remove(cli.format, args),
             SkillsCommand::Path(args) => skills::path(cli.format, args),
+        },
+        Command::Trash { command } => match command {
+            TrashCommand::Empty { yes, drives } => trash::empty(trash::TrashEmptyOptions {
+                output_mode: cli.format,
+                yes,
+                drives,
+            }),
         },
         Command::Completion(args) => run_completion(args),
     }
@@ -315,6 +325,10 @@ fn infer_command_api_contract_from_args() -> output::CliApiContract {
             }
             Some("path") => output::CliApiContract::v1("skills path", "skill-management"),
             _ => output::CliApiContract::v1("skills", "command-error"),
+        },
+        Some("trash") => match tokens.get(1).map(String::as_str) {
+            Some("empty") => output::CliApiContract::v1("trash empty", "trash-report"),
+            _ => output::CliApiContract::v1("trash", "command-error"),
         },
         Some("completion") => output::CliApiContract::v1("completion", "completion-script"),
         _ => output::CliApiContract::v1("rebecca", "command-error"),
@@ -506,6 +520,7 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
     let CleanArgs {
         dry_run,
         yes,
+        permanent,
         selection,
         execution,
         risk,
@@ -516,6 +531,7 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             dry_run,
             output_mode: global_mode,
             yes,
+            permanent,
             no_progress: execution.no_progress,
             progress_detail: execution.progress_detail,
             scan_cache: effective_scan_cache(
@@ -539,6 +555,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
     let PurgeArgs {
         dry_run,
         yes,
+        permanent,
         no_progress,
         progress_detail,
         scan_cache,
@@ -556,6 +573,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             dry_run,
             output_mode: global_mode,
             yes,
+            permanent,
             no_progress,
             progress_detail,
             scan_cache: effective_scan_cache(
@@ -695,6 +713,9 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
                 output::CliApiContract::v1("skills remove", "skill-management")
             }
             SkillsCommand::Path(_) => output::CliApiContract::v1("skills path", "skill-management"),
+        },
+        Command::Trash { command } => match command {
+            TrashCommand::Empty { .. } => output::CliApiContract::v1("trash empty", "trash-report"),
         },
         Command::Completion(_) => output::CliApiContract::v1("completion", "completion-script"),
     }

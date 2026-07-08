@@ -678,7 +678,7 @@ impl TuiApp {
                 {
                     self.screen = TuiScreen::Confirm;
                     self.message = format!(
-                        "Type {} and press Enter to move targets to recoverable trash.",
+                        "Type {} and press Enter to move targets to the system trash.",
                         self.confirmation_phrase()
                     );
                 } else {

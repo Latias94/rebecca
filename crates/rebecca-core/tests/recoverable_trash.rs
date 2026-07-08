@@ -80,7 +80,7 @@ fn recoverable_trash_backend_moves_file_when_supported() -> Result<()> {
     let outcome = backend.delete(&target)?;
 
     assert_eq!(outcome.pending_reclaim_bytes, 5);
-    assert_eq!(outcome.note.as_deref(), Some("moved to recoverable trash"));
+    assert_eq!(outcome.note.as_deref(), Some("moved to system trash"));
     assert!(!file.exists());
     Ok(())
 }

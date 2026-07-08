@@ -57,6 +57,8 @@ fn purge_help_shows_project_artifact_options() {
     assert!(stdout.contains("--exclude"));
     assert!(stdout.contains("--scan-cache"));
     assert!(stdout.contains("--no-scan-cache"));
+    assert!(stdout.contains("--permanent"));
+    assert!(stdout.contains("bypasses the system trash or Recycle Bin"));
     assert!(!stdout.contains("--list-artifacts"));
 }
 
@@ -191,6 +193,51 @@ fn purge_json_builds_project_artifact_plan_without_deleting() {
         )
         .ends_with(Path::new("app").join("Cargo.toml"))
     );
+}
+
+#[test]
+fn purge_permanent_json_deletes_artifacts_without_pending_reclaim() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let target_file = workspace
+        .join("app")
+        .join("target")
+        .join("debug")
+        .join("app.bin");
+    write_fixture_file(&target_file, b"rust");
+    write_rust_project(workspace.join("app"));
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "purge",
+            "--format",
+            "json",
+            "--no-progress",
+            "--root",
+            workspace.to_str().unwrap(),
+            "--min-age-days",
+            "0",
+            "--yes",
+            "--permanent",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(
+        !target_file.exists(),
+        "target file should be permanently deleted"
+    );
+
+    let value: serde_json::Value = common::support::api_data(&output.stdout);
+    assert_eq!(value["request"]["mode"], "permanent-delete");
+    assert_eq!(value["summary"]["completed_targets"], 1);
+    assert_eq!(value["summary"]["freed_bytes"], 4);
+    assert_eq!(value["summary"]["pending_reclaim_bytes"], 0);
 }
 
 #[test]

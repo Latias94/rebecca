@@ -325,6 +325,11 @@ pub enum Command {
         #[command(subcommand)]
         command: SkillsCommand,
     },
+    /// Inspect or empty the system trash or Windows Recycle Bin.
+    Trash {
+        #[command(subcommand)]
+        command: TrashCommand,
+    },
     /// Generate shell completion scripts from the live parser.
     Completion(CompletionArgs),
 }
@@ -619,9 +624,12 @@ pub struct CleanArgs {
     /// Preview the cleanup plan without deleting anything. This is the default unless --yes is set.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
-    /// Move allowed targets to recoverable trash instead of previewing.
+    /// Move allowed targets to the system trash or Recycle Bin instead of previewing.
     #[arg(long)]
     pub yes: bool,
+    /// Permanently delete allowed targets. Requires --yes and bypasses the system trash or Recycle Bin.
+    #[arg(long, requires = "yes", conflicts_with = "dry_run")]
+    pub permanent: bool,
     #[command(flatten)]
     pub selection: CleanupSelectionArgs,
     #[command(flatten)]
@@ -674,9 +682,12 @@ pub struct PurgeArgs {
     /// Preview the purge plan without deleting anything.
     #[arg(short = 'n', long)]
     pub dry_run: bool,
-    /// Delete project artifacts instead of previewing them.
+    /// Move project artifacts to the system trash or Recycle Bin instead of previewing.
     #[arg(long)]
     pub yes: bool,
+    /// Permanently delete project artifacts. Requires --yes and bypasses the system trash or Recycle Bin.
+    #[arg(long, requires = "yes", conflicts_with = "dry_run")]
+    pub permanent: bool,
     /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
     pub no_progress: bool,
@@ -749,12 +760,25 @@ pub enum CacheCommand {
         /// Preview the purge without deleting anything.
         #[arg(long)]
         dry_run: bool,
-        /// Move rebuildable cache entries to recoverable trash instead of previewing them.
+        /// Move rebuildable cache entries to the system trash or Recycle Bin instead of previewing them.
         #[arg(long)]
         yes: bool,
         /// Permanently delete rebuildable cache entries. Requires --yes and conflicts with --dry-run.
         #[arg(long, requires = "yes", conflicts_with = "dry_run")]
         permanent: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TrashCommand {
+    /// Preview or empty the system trash. On Windows this uses the Recycle Bin.
+    Empty {
+        /// Empty the trash. Without --yes, Rebecca only reports what would be freed.
+        #[arg(long)]
+        yes: bool,
+        /// Windows only: limit the Recycle Bin operation to one drive, such as C or E:. Can be repeated.
+        #[arg(long = "drive", value_name = "DRIVE")]
+        drives: Vec<String>,
     },
 }
 
@@ -796,14 +820,17 @@ pub enum AppsCommand {
         #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
         exclude_paths: Vec<PathBuf>,
     },
-    /// Preview or move leftover app cache data to recoverable trash.
+    /// Preview or move leftover app cache data to the system trash or Recycle Bin.
     Clean {
         /// Preview the app leftovers plan without deleting anything.
         #[arg(short = 'n', long)]
         dry_run: bool,
-        /// Delete leftover app cache data instead of previewing it.
+        /// Move leftover app cache data to the system trash or Recycle Bin instead of previewing.
         #[arg(long)]
         yes: bool,
+        /// Permanently delete leftover app cache data. Requires --yes and bypasses the system trash or Recycle Bin.
+        #[arg(long, requires = "yes", conflicts_with = "dry_run")]
+        permanent: bool,
         /// Disable the stderr progress spinner; useful for scripts and captured logs.
         #[arg(long)]
         no_progress: bool,

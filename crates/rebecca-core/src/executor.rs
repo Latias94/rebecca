@@ -67,6 +67,9 @@ pub struct RecoverableTrashBackend {
     adapter: Arc<dyn RecoverableTrashAdapter>,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PermanentDeleteBackend;
+
 impl std::fmt::Debug for RecoverableTrashBackend {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -140,6 +143,12 @@ impl CachePurgeBackend for RecoverableTrashBackend {
                 )))
             }
         }
+    }
+}
+
+impl CleanupBackend for PermanentDeleteBackend {
+    fn delete(&self, target: &CleanupTarget) -> Result<ExecutionOutcome> {
+        delete_permanently(&target.path, target.estimated_bytes, target.deletion_style)
     }
 }
 
@@ -265,6 +274,50 @@ fn recoverable_delete_candidate_metadata(path: &Path, role: &str) -> Result<fs::
     Ok(metadata)
 }
 
+fn delete_permanently(
+    path: &Path,
+    estimated_bytes: u64,
+    deletion_style: CleanupTargetDeletionStyle,
+) -> Result<ExecutionOutcome> {
+    let delete_paths = permanent_delete_paths(path, deletion_style)?;
+    for path in delete_paths {
+        permanently_delete_path(&path)?;
+    }
+    Ok(permanent_delete_outcome(estimated_bytes))
+}
+
+fn permanent_delete_paths(
+    path: &Path,
+    deletion_style: CleanupTargetDeletionStyle,
+) -> Result<Vec<PathBuf>> {
+    let metadata = recoverable_delete_candidate_metadata(path, "target")?;
+    match deletion_style {
+        CleanupTargetDeletionStyle::DeleteWholePath => Ok(vec![path.to_path_buf()]),
+        CleanupTargetDeletionStyle::PreserveRootContents => {
+            if metadata.is_dir() {
+                preserve_root_delete_paths(path)
+            } else {
+                Ok(vec![path.to_path_buf()])
+            }
+        }
+    }
+}
+
+fn permanently_delete_path(path: &Path) -> Result<()> {
+    let metadata = recoverable_delete_candidate_metadata(path, "target")?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else if metadata.is_file() {
+        fs::remove_file(path)?;
+    } else {
+        return Err(RebeccaError::ExecutionFailed(format!(
+            "permanent delete does not support {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 fn reconstruct_or_fallback_after_batch_failure(
     adapter: &dyn RecoverableTrashAdapter,
     target: &CleanupTarget,
@@ -289,7 +342,15 @@ fn recoverable_trash_outcome(estimated_bytes: u64) -> ExecutionOutcome {
     ExecutionOutcome {
         freed_bytes: 0,
         pending_reclaim_bytes: estimated_bytes,
-        note: Some("moved to recoverable trash".to_string()),
+        note: Some("moved to system trash".to_string()),
+    }
+}
+
+fn permanent_delete_outcome(estimated_bytes: u64) -> ExecutionOutcome {
+    ExecutionOutcome {
+        freed_bytes: estimated_bytes,
+        pending_reclaim_bytes: 0,
+        note: Some("deleted permanently".to_string()),
     }
 }
 

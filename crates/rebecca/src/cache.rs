@@ -228,7 +228,7 @@ fn render_cache_purge_report(report: &CachePurgeReport) -> Result<String> {
     if projection.show_delete_hint() {
         writeln!(
             output,
-            "Run with --yes to move these rebuildable cache entries to recoverable trash, or --yes --permanent to delete them permanently."
+            "Run with --yes to move these rebuildable cache entries to the system trash or Recycle Bin. Use --yes --permanent to bypass it."
         )?;
     }
 
@@ -486,7 +486,7 @@ mod tests {
         assert!(rendered.contains("Issue matrix:"));
         assert!(rendered.contains("- skipped symlink-skipped: 1 entry, 0 (0 B)"));
         assert!(rendered.contains(
-            "Run with --yes to move these rebuildable cache entries to recoverable trash"
+            "Run with --yes to move these rebuildable cache entries to the system trash or Recycle Bin"
         ));
     }
 

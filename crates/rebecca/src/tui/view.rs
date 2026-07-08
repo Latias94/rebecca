@@ -388,7 +388,7 @@ fn render_busy(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
 
 fn render_confirm(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let lines = vec![
-        Line::from("Rebecca will move allowed targets to recoverable trash."),
+        Line::from("Rebecca will move allowed targets to the system trash."),
         Line::from(format!("Required phrase: {}", app.confirmation_phrase())),
         Line::from(format!("Input: {}", app.message)),
     ];

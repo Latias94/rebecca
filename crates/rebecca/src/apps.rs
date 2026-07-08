@@ -24,6 +24,7 @@ pub struct AppsCleanOptions {
     pub dry_run: bool,
     pub output_mode: OutputMode,
     pub yes: bool,
+    pub permanent: bool,
     pub no_progress: bool,
     pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
@@ -59,9 +60,18 @@ pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime
     if options.dry_run && options.yes {
         return Err(anyhow!("--dry-run cannot be combined with --yes"));
     }
+    if options.permanent && (options.dry_run || !options.yes) {
+        return Err(anyhow!(
+            "--permanent requires --yes and cannot be combined with --dry-run"
+        ));
+    }
 
     let mode = if options.yes && !options.dry_run {
-        DeleteMode::RecoverableDelete
+        if options.permanent {
+            DeleteMode::PermanentDelete
+        } else {
+            DeleteMode::RecoverableDelete
+        }
     } else {
         DeleteMode::DryRun
     };

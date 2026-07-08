@@ -4,7 +4,7 @@ use anyhow::Result;
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::{
     CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
-    DeleteMode, PlanRequest,
+    DeleteMode, PlanRequest, Platform,
 };
 
 use crate::clean_view::{CleanPlanProjection, CleanTargetRow, ScanCacheProgressSummary};
@@ -117,12 +117,26 @@ fn print_plan_decision(projection: &CleanPlanProjection<'_>) {
     if projection.mode.is_dry_run() && projection.summary.allowed_targets > 0 {
         println!(
             "Next command: {}",
-            suggested_execution_command(projection.request)
+            suggested_execution_command(projection.request, false)
+        );
+        println!(
+            "Default delete: moves files to {}.",
+            recoverable_destination_label(projection.request.platform)
+        );
+        println!(
+            "Skip the trash: {}",
+            suggested_execution_command(projection.request, true)
         );
         let opt_ins = required_opt_in_flags(projection.request);
         if !opt_ins.is_empty() {
             println!("Required opt-ins in next command: {}.", opt_ins.join(", "));
         }
+    }
+
+    if projection.mode == DeleteMode::RecoverableDelete
+        && projection.summary.pending_reclaim_bytes > 0
+    {
+        println!("Free that space now: rebecca trash empty --yes");
     }
 
     if !projection.warning_matrix().is_empty() {
@@ -159,23 +173,35 @@ fn decision_label(projection: &CleanPlanProjection<'_>) -> &'static str {
         DeleteMode::RecoverableDelete if projection.summary.completed_targets > 0 => {
             "cleanup executed."
         }
+        DeleteMode::PermanentDelete if projection.summary.failed_targets > 0 => {
+            "permanent cleanup finished with failures."
+        }
+        DeleteMode::PermanentDelete if projection.summary.completed_targets > 0 => {
+            "permanent cleanup executed."
+        }
         DeleteMode::RecoverableDelete => "no cleanup target was executed.",
+        DeleteMode::PermanentDelete => "no cleanup target was executed.",
     }
 }
 
-fn execution_label(projection: &CleanPlanProjection<'_>) -> &'static str {
+fn execution_label(projection: &CleanPlanProjection<'_>) -> String {
+    let destination = recoverable_destination_label(projection.request.platform);
     match projection.mode {
         DeleteMode::DryRun if projection.summary.allowed_targets > 0 => {
-            "would move allowed targets to recoverable trash."
+            format!("would move allowed targets to {destination}.")
         }
-        DeleteMode::DryRun => "no eligible target would be deleted.",
+        DeleteMode::DryRun => "no eligible target would be deleted.".to_string(),
         DeleteMode::RecoverableDelete if projection.summary.pending_reclaim_bytes > 0 => {
-            "moved allowed targets to recoverable trash; empty it to reclaim pending bytes."
+            format!("moved allowed targets to {destination}; empty it to free the pending space.")
         }
         DeleteMode::RecoverableDelete if projection.summary.completed_targets > 0 => {
-            "moved allowed targets to recoverable trash."
+            format!("moved allowed targets to {destination}.")
         }
-        DeleteMode::RecoverableDelete => "nothing was moved to recoverable trash.",
+        DeleteMode::RecoverableDelete => format!("nothing was moved to {destination}."),
+        DeleteMode::PermanentDelete if projection.summary.completed_targets > 0 => {
+            format!("deleted allowed targets permanently; this bypassed {destination}.")
+        }
+        DeleteMode::PermanentDelete => "nothing was deleted permanently.".to_string(),
     }
 }
 
@@ -197,10 +223,11 @@ fn reclaimable_now_bytes(projection: &CleanPlanProjection<'_>) -> u64 {
             .summary
             .freed_bytes
             .saturating_add(projection.summary.pending_reclaim_bytes),
+        DeleteMode::PermanentDelete => projection.summary.freed_bytes,
     }
 }
 
-fn suggested_execution_command(request: &PlanRequest) -> String {
+fn suggested_execution_command(request: &PlanRequest, permanent: bool) -> String {
     let mut args = match request.workflow {
         CleanupWorkflow::Rules => vec!["clean".to_string(), "--yes".to_string()],
         CleanupWorkflow::AppLeftovers => {
@@ -208,6 +235,9 @@ fn suggested_execution_command(request: &PlanRequest) -> String {
         }
         CleanupWorkflow::ProjectArtifacts => vec!["purge".to_string(), "--yes".to_string()],
     };
+    if permanent {
+        args.push("--permanent".to_string());
+    }
 
     match request.workflow {
         CleanupWorkflow::Rules => {
@@ -238,6 +268,14 @@ fn suggested_execution_command(request: &PlanRequest) -> String {
     }
 
     format_shell_command("rebecca", &args)
+}
+
+fn recoverable_destination_label(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Windows => "the Windows Recycle Bin",
+        Platform::Linux | Platform::Macos => "the system Trash",
+        Platform::Unknown => "the system trash",
+    }
 }
 
 fn required_opt_in_flags(request: &PlanRequest) -> Vec<String> {

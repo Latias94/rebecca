@@ -75,11 +75,9 @@ fn cache_purge_human_output_reports_scope_and_status_counts() {
     assert!(stdout.contains(
         "Entry status: 2 would delete, 0 recoverably deleted, 0 permanently deleted, 0 skipped, 0 failed"
     ));
-    assert!(
-        stdout.contains(
-            "Run with --yes to move these rebuildable cache entries to recoverable trash"
-        )
-    );
+    assert!(stdout.contains(
+        "Run with --yes to move these rebuildable cache entries to the system trash or Recycle Bin"
+    ));
 }
 
 #[cfg(windows)]
@@ -132,7 +130,7 @@ fn cache_purge_yes_moves_direct_contents_to_recoverable_trash_by_default() {
         value["entries"][0]["reason"]
             .as_str()
             .unwrap()
-            .contains("recoverable trash")
+            .contains("system trash")
     );
     assert!(
         value["summary"]["issue_matrix"]

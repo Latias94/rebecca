@@ -253,6 +253,7 @@ fn cleanup_mode_label(mode: DeleteMode) -> &'static str {
     match mode {
         DeleteMode::DryRun => "dry-run",
         DeleteMode::RecoverableDelete => "recoverable-delete",
+        DeleteMode::PermanentDelete => "permanent-delete",
     }
 }
 

@@ -363,7 +363,7 @@ impl TuiTaskStatus {
     }
 
     pub(crate) fn cancel_wait_message(&self) -> &'static str {
-        if self.label.contains("recoverable trash") || self.targets_started > 0 {
+        if self.label.contains("trash") || self.targets_started > 0 {
             "Cancel requested; cleanup will stop before the next target or after the current trash operation returns."
         } else {
             "Cancel requested; waiting for cooperative checkpoint."
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn execution_cancel_request_reports_target_boundary() {
-        let mut status = TuiTaskStatus::started("Moving allowed targets to recoverable trash...");
+        let mut status = TuiTaskStatus::started("Moving allowed targets to the system trash...");
 
         status.mark_cancel_requested();
 

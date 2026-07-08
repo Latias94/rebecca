@@ -212,6 +212,7 @@ fn command_capabilities() -> Vec<CommandCapability> {
         command("cache purge", "cache-purge-report", true, false)
             .with_required_execution_flag("--yes")
             .with_required_confirmation_flags(&["--permanent"]),
+        command("trash empty", "trash-report", true, false).with_required_execution_flag("--yes"),
         command("config paths", "config-paths", false, false)
             .with_schema_documents(CONFIG_SCHEMA_DOCS),
         command("config show", "config-view", false, false)

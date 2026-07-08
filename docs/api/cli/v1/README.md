@@ -126,6 +126,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `inspect-artifacts`
 - `inspect-lint`
 - `cache-purge-report`
+- `trash-report`
 - `history-list`
 - `config-paths`
 - `config-view`

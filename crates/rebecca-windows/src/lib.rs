@@ -1,5 +1,6 @@
 pub mod apps;
 pub mod process;
+pub mod recycle_bin;
 pub mod steam;
 pub mod usn_cache;
 

@@ -160,8 +160,8 @@ Rebecca command.
 
 5. Present a numbered decision list.
    - For each option, include the command, estimated reclaim, safety level,
-     warning gates, and whether it moves data to recoverable trash or is
-     permanent.
+     warning gates, and whether it moves data to the system trash or Windows
+     Recycle Bin. Say "permanent" only when the command uses `--permanent`.
    - If a command needs `--allow-warning <WARNING>`, explain the named warning
      and keep it out of the execution command unless the user confirms it.
    - Completion criterion: the user can choose by number without reading raw
@@ -171,11 +171,22 @@ Rebecca command.
    - Run the confirmed Rebecca command by replacing `--dry-run` with `--yes`.
    - Keep the command otherwise identical to the preview. Never combine
      `--dry-run` and `--yes`.
+   - By default, `--yes` moves data to the system trash or Windows Recycle Bin.
+     If the user wants to bypass trash, add `--permanent` only after they
+     explicitly confirm irreversible deletion.
+   - If the user wants to free space after a normal cleanup, preview the trash
+     first, then ask before emptying it:
+
+     ```powershell
+     rebecca trash empty
+     rebecca trash empty --yes
+     ```
+
+     On Windows, use `--drive C` or `--drive E` when the user only wants to
+     empty one drive's Recycle Bin.
    - Do not add `sudo` on Linux or macOS unless the confirmed preview is for a
      reviewed target that actually needs elevated execution and the user
      explicitly chooses it.
-   - Avoid `--permanent` unless the user explicitly confirms irreversible
-     deletion.
    - Do not use `Remove-Item`, `rm -rf`, shell wildcards, or ad hoc deletion as
      the primary cleanup path.
    - Completion criterion: execution finishes and Rebecca reports reclaimed,
@@ -190,8 +201,8 @@ Rebecca command.
      rebecca history --limit 5
      ```
 
-   - Summarize reclaimed bytes, pending recoverable-trash reclaim, skipped targets,
-     warnings, and follow-up commands.
+   - Summarize freed bytes, pending trash or Recycle Bin reclaim, skipped
+     targets, warnings, and follow-up commands.
    - Completion criterion: the user has a concise before/after or execution
      summary and any residual risk is named.
 

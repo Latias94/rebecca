@@ -118,7 +118,7 @@ fn cleanup_target_state_transitions_replace_issue_evidence_and_sync_warnings() {
             .all(|evidence| evidence.status == TargetStatus::Failed)
     );
 
-    target.mark_completed(0, 12, Some("moved to recoverable trash".to_string()));
+    target.mark_completed(0, 12, Some("moved to system trash".to_string()));
 
     assert_eq!(target.status, TargetStatus::Completed);
     assert_eq!(target.reason_code, None);

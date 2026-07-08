@@ -1612,6 +1612,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "trash",
  "unicode-width",
 ]
 

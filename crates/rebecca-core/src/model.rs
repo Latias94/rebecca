@@ -75,6 +75,7 @@ impl SafetyLevel {
 pub enum DeleteMode {
     DryRun,
     RecoverableDelete,
+    PermanentDelete,
 }
 
 impl DeleteMode {

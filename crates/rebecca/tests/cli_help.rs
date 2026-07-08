@@ -26,6 +26,7 @@ fn root_help_shows_completion_and_rejects_hidden_default_scan() {
     assert!(stdout.contains("tui"));
     assert!(stdout.contains("purge"));
     assert!(stdout.contains("skills"));
+    assert!(stdout.contains("trash"));
 }
 
 #[test]
@@ -44,7 +45,9 @@ fn clean_help_preserves_preview_execution_and_warning_controls() {
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("Preview the cleanup plan without deleting anything"));
     assert!(stdout.contains("--yes"));
-    assert!(stdout.contains("Move allowed targets to recoverable trash"));
+    assert!(stdout.contains("Move allowed targets to the system trash or Recycle Bin"));
+    assert!(stdout.contains("--permanent"));
+    assert!(stdout.contains("bypasses the system trash or Recycle Bin"));
     assert!(stdout.contains("--allow-moderate"));
     assert!(stdout.contains("--allow-risky"));
     assert!(stdout.contains("--allow-warning <WARNING>"));

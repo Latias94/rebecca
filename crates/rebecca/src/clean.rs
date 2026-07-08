@@ -5,7 +5,9 @@ use anyhow::{Context, Result, anyhow};
 use indicatif::ProgressBar;
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::executor::execute_cleanup_plan_parallel_with_policy_and_cancellation;
+use rebecca::core::executor::{
+    PermanentDeleteBackend, execute_cleanup_plan_parallel_with_policy_and_cancellation,
+};
 use rebecca::core::external_rules::ExternalRuleStore;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::CleanupPlan;
@@ -39,6 +41,7 @@ pub struct CleanOptions {
     pub dry_run: bool,
     pub output_mode: OutputMode,
     pub yes: bool,
+    pub permanent: bool,
     pub no_progress: bool,
     pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
@@ -94,9 +97,18 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
     if options.dry_run && options.yes {
         return Err(anyhow!("--dry-run cannot be combined with --yes"));
     }
+    if options.permanent && (options.dry_run || !options.yes) {
+        return Err(anyhow!(
+            "--permanent requires --yes and cannot be combined with --dry-run"
+        ));
+    }
 
     let mode = if options.yes && !options.dry_run {
-        DeleteMode::RecoverableDelete
+        if options.permanent {
+            DeleteMode::PermanentDelete
+        } else {
+            DeleteMode::RecoverableDelete
+        }
     } else {
         DeleteMode::DryRun
     };
@@ -262,18 +274,17 @@ pub(crate) fn run_workflow_with_runtime_config(
         return finish_stream_with_cancellation(event_writer, options.cancellation_message);
     }
 
-    let backend = recoverable_trash_backend();
     let mut execution_policy = ProtectionPolicy::new()
         .with_safety_knowledge(&safety_knowledge)
         .with_protected_storage(&protected_storage);
     if !protected_paths.is_empty() {
         execution_policy = execution_policy.with_protected_paths(&protected_paths);
     }
-    let mut execution_report = match execute_cleanup_plan_parallel_with_policy_and_cancellation(
+    let mut execution_report = match execute_plan(
         &mut plan,
-        &backend,
         execution_policy,
         cancellation,
+        options.request.mode,
     ) {
         Ok(report) => report,
         Err(RebeccaError::OperationCancelled(_)) => {
@@ -298,6 +309,35 @@ pub(crate) fn run_workflow_with_runtime_config(
         scan_cache_summary,
         event_writer,
     )
+}
+
+fn execute_plan(
+    plan: &mut CleanupPlan,
+    execution_policy: ProtectionPolicy<'_>,
+    cancellation: &rebecca::core::scan::ScanCancellationToken,
+    mode: DeleteMode,
+) -> std::result::Result<rebecca::core::execution::ExecutionReport, RebeccaError> {
+    match mode {
+        DeleteMode::RecoverableDelete => {
+            let backend = recoverable_trash_backend();
+            execute_cleanup_plan_parallel_with_policy_and_cancellation(
+                plan,
+                &backend,
+                execution_policy,
+                cancellation,
+            )
+        }
+        DeleteMode::PermanentDelete => {
+            let backend = PermanentDeleteBackend;
+            execute_cleanup_plan_parallel_with_policy_and_cancellation(
+                plan,
+                &backend,
+                execution_policy,
+                cancellation,
+            )
+        }
+        DeleteMode::DryRun => unreachable!("dry-run returns before execution"),
+    }
 }
 
 fn finish_stream_with_error(
@@ -623,20 +663,34 @@ impl ProgressDetail {
 }
 
 fn confirm_cleanup(plan: &CleanupPlan, kind: ConfirmationKind) -> Result<bool> {
-    let prompt = match kind {
-        ConfirmationKind::Cleanup => format!(
-            "Move {} target(s), {} bytes, to recoverable trash?",
-            plan.summary.allowed_targets, plan.summary.estimated_bytes
+    let target_label = match kind {
+        ConfirmationKind::Cleanup => {
+            format_count(plan.summary.allowed_targets as u64, "target", "targets")
+        }
+        ConfirmationKind::AppLeftovers => format_count(
+            plan.summary.allowed_targets as u64,
+            "app leftover target",
+            "app leftover targets",
         ),
-        ConfirmationKind::AppLeftovers => format!(
-            "Move {} app leftover target(s), {} bytes, to recoverable trash?",
-            plan.summary.allowed_targets, plan.summary.estimated_bytes
-        ),
-        ConfirmationKind::ProjectArtifacts => format!(
-            "Move {} project artifact target(s), {} bytes, to recoverable trash?",
-            plan.summary.allowed_targets, plan.summary.estimated_bytes
+        ConfirmationKind::ProjectArtifacts => format_count(
+            plan.summary.allowed_targets as u64,
+            "project artifact target",
+            "project artifact targets",
         ),
     };
+    let action = match plan.request.mode {
+        DeleteMode::RecoverableDelete => "Move",
+        DeleteMode::PermanentDelete => "Permanently delete",
+        DeleteMode::DryRun => "Preview",
+    };
+    let destination = match plan.request.mode {
+        DeleteMode::RecoverableDelete => " to the system trash or Recycle Bin",
+        DeleteMode::PermanentDelete | DeleteMode::DryRun => "",
+    };
+    let prompt = format!(
+        "{} {}, {} bytes{}?",
+        action, target_label, plan.summary.estimated_bytes, destination
+    );
 
     dialoguer::Confirm::new()
         .with_prompt(prompt)

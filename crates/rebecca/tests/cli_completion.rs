@@ -1,7 +1,7 @@
 mod common;
 
 const SUPPORTED_SHELLS: &[&str] = &["bash", "elvish", "fish", "powershell", "zsh"];
-const TOP_LEVEL_COMMANDS: &[&str] = &["scan", "clean", "tui", "purge", "completion"];
+const TOP_LEVEL_COMMANDS: &[&str] = &["scan", "clean", "tui", "purge", "trash", "completion"];
 
 #[test]
 fn completion_help_lists_supported_shells() {

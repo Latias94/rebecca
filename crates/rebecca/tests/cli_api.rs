@@ -1371,6 +1371,7 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         .collect::<Vec<_>>();
     assert!(!payload_kinds.contains(&"project-artifact-insight"));
     assert!(payload_kinds.contains(&"active-process-diagnostic"));
+    assert!(payload_kinds.contains(&"trash-report"));
     assert!(payload_kinds.contains(&"skill-management"));
 }
 
@@ -1421,6 +1422,7 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"inspect-map-group"));
     assert!(payload_kinds.contains(&"inspect-progress"));
     assert!(payload_kinds.contains(&"inspect-space"));
+    assert!(payload_kinds.contains(&"trash-report"));
     assert!(payload_kinds.contains(&"skill-management"));
 
     assert_eq!(payloads["$defs"]["capabilities"]["type"], "object");
