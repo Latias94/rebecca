@@ -18,6 +18,7 @@
         "catalog-validation",
         "cli-schema",
         "cleanup-plan",
+        "cleanup-receipt",
         "saved-cleanup-plan",
         "config-paths",
         "config-validation",
@@ -944,6 +945,137 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/cleanupWarningSummary"
+          }
+        }
+      }
+    },
+    "cleanupReceiptDestination": {
+      "type": "string",
+      "enum": [
+        "windows-recycle-bin",
+        "system-trash",
+        "permanent-delete"
+      ]
+    },
+    "cleanupReceiptTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_index",
+        "rule_id",
+        "path",
+        "status",
+        "estimated_bytes",
+        "freed_bytes",
+        "pending_reclaim_bytes"
+      ],
+      "properties": {
+        "target_index": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "rule_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "freed_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "pending_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/cleanupIssueReason"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "cleanupReceiptNextStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "label"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "label": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "command": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "cleanupReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "generated_by",
+        "generated_at_unix_seconds",
+        "command",
+        "platform",
+        "workflow",
+        "mode",
+        "destination",
+        "summary",
+        "execution_report",
+        "targets",
+        "next_steps"
+      ],
+      "properties": {
+        "schema": {
+          "const": "rebecca.cleanup-receipt.v1"
+        },
+        "generated_by": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "generated_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "command": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "platform": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "workflow": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "mode": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "destination": {
+          "$ref": "#/$defs/cleanupReceiptDestination"
+        },
+        "summary": {
+          "$ref": "#/$defs/cleanupSummary"
+        },
+        "execution_report": {
+          "type": "object"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupReceiptTarget"
+          }
+        },
+        "next_steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupReceiptNextStep"
           }
         }
       }

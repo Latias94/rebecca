@@ -34,6 +34,7 @@ pub(crate) struct SavedPlanRunOptions {
     pub(crate) file: PathBuf,
     pub(crate) yes: bool,
     pub(crate) permanent: bool,
+    pub(crate) receipt: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +107,9 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
     if options.permanent && !options.yes {
         return Err(anyhow!("--permanent requires --yes"));
     }
+    if options.receipt.is_some() && !options.yes {
+        return Err(anyhow!("--receipt requires --yes"));
+    }
 
     let saved = read_saved_plan(&options.file)?;
     let mode = if options.yes {
@@ -121,7 +125,7 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
     let contract = plan_run_contract(plan.request.workflow);
     let human_renderer = human_renderer_for_workflow(plan.request.workflow);
 
-    if mode.is_dry_run() || plan.summary.allowed_targets == 0 {
+    if mode.is_dry_run() {
         output::print_plan_with_events(
             &plan,
             contract,
@@ -136,8 +140,31 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
         return Ok(());
     }
 
+    if plan.summary.allowed_targets == 0 {
+        if let Some(path) = &options.receipt {
+            crate::cleanup_receipt::write_cleanup_receipt(&plan, contract.command, path)?;
+        }
+        output::print_plan_with_events(
+            &plan,
+            contract,
+            options.output_mode,
+            human_renderer,
+            None,
+            None,
+        )?;
+        if options.output_mode.is_human()
+            && let Some(path) = &options.receipt
+        {
+            crate::cleanup_receipt::print_receipt_guidance(path, &plan);
+        }
+        return Ok(());
+    }
+
     let runtime_config = load_runtime_config()?;
     execute_saved_plan(&mut plan, &runtime_config, runtime, mode)?;
+    if let Some(path) = &options.receipt {
+        crate::cleanup_receipt::write_cleanup_receipt(&plan, contract.command, path)?;
+    }
     output::print_plan_with_events(
         &plan,
         contract,
@@ -145,7 +172,13 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
         human_renderer,
         None,
         None,
-    )
+    )?;
+    if options.output_mode.is_human()
+        && let Some(path) = &options.receipt
+    {
+        crate::cleanup_receipt::print_receipt_guidance(path, &plan);
+    }
+    Ok(())
 }
 
 fn read_saved_plan(path: &Path) -> Result<SavedCleanupPlan> {

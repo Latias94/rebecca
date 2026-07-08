@@ -11,6 +11,7 @@ mod capabilities;
 mod catalog;
 mod clean;
 mod clean_view;
+mod cleanup_receipt;
 mod cli;
 mod config_cmd;
 mod history_view;
@@ -119,6 +120,7 @@ fn run() -> Result<()> {
                     file: args.file,
                     yes: args.yes,
                     permanent: args.permanent,
+                    receipt: args.receipt,
                 },
                 &runtime,
             ),
@@ -186,6 +188,7 @@ fn run() -> Result<()> {
                 scan_cache,
                 no_scan_cache,
                 save_plan,
+                receipt,
                 exclude_paths,
             } => apps::clean_with_runtime(
                 apps::AppsCleanOptions {
@@ -201,6 +204,7 @@ fn run() -> Result<()> {
                         no_scan_cache,
                     ),
                     save_plan,
+                    receipt,
                     exclude_paths,
                 },
                 &runtime,
@@ -570,6 +574,7 @@ fn run_clean(args: CleanArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             rules: selection.rules,
             exclude_paths: execution.exclude_paths,
             save_plan: execution.save_plan,
+            receipt: execution.receipt,
             allow_moderate: risk.allow_moderate,
             allow_risky: risk.allow_risky,
             allow_warnings: risk.allow_warnings,
@@ -594,6 +599,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
         artifacts,
         exclude_paths,
         save_plan,
+        receipt,
     } = args;
 
     purge::run_with_runtime(
@@ -616,6 +622,7 @@ fn run_purge(args: PurgeArgs, global_mode: OutputMode, runtime: &CliRuntime) -> 
             artifacts,
             exclude_paths,
             save_plan,
+            receipt,
         },
         runtime,
     )

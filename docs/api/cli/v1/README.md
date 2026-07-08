@@ -111,6 +111,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `capabilities`
 - `cli-schema`
 - `cleanup-plan`
+- `cleanup-receipt`
 - `saved-cleanup-plan`
 - `app-leftovers-cleanup-plan`
 - `project-artifact-cleanup-plan`
@@ -386,6 +387,18 @@ that target and reports a stable reason code such as
 `safety-policy-blocked`. Callers should treat saved plans as review artifacts,
 not as reusable delete scripts.
 
+## Cleanup Receipts
+
+`clean --yes --receipt <FILE>`, `purge --yes --receipt <FILE>`,
+`apps clean --yes --receipt <FILE>`, and
+`plan run <FILE> --yes --receipt <FILE>` write a `cleanup-receipt` document
+after execution. The receipt records the command, platform, workflow, delete
+mode, destination, summary, execution report, target outcomes, and next steps.
+For recoverable cleanup, `destination` is `windows-recycle-bin` on Windows and
+`system-trash` elsewhere; space remains pending until the user empties trash.
+For permanent cleanup, `destination` is `permanent-delete` and the receipt
+records that the system trash was bypassed.
+
 ## Examples
 
 ```powershell
@@ -395,7 +408,8 @@ rebecca scan --format json
 rebecca clean --format json --category system
 rebecca clean --dry-run --save-plan cleanup-plan.json --category system
 rebecca plan inspect --format json cleanup-plan.json
-rebecca plan run --format json cleanup-plan.json --yes
+rebecca plan run --format json cleanup-plan.json --yes --receipt cleanup-receipt.json
+rebecca clean --format json --yes --category system --receipt cleanup-receipt.json
 rebecca clean --format ndjson --scan-cache --category system
 rebecca clean --format ndjson --progress-detail file --rule windows.user-temp
 rebecca doctor active-processes --format json

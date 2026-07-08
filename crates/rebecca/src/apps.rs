@@ -29,6 +29,7 @@ pub struct AppsCleanOptions {
     pub progress_detail: ProgressDetail,
     pub scan_cache: bool,
     pub save_plan: Option<PathBuf>,
+    pub receipt: Option<PathBuf>,
     pub exclude_paths: Vec<PathBuf>,
 }
 
@@ -48,6 +49,7 @@ pub(crate) fn scan_with_runtime(options: AppsScanOptions, runtime: &CliRuntime) 
             scan_backend: ScanBackendKind::PortableRecursive,
             exclude_paths: options.exclude_paths,
             save_plan: None,
+            receipt: None,
             output_contract: WorkflowOutputContract::v1("apps scan", "app-leftovers-cleanup-plan"),
             human_renderer: render::clean::print_plan,
             success_renderer: crate::output::print_plan_with_events,
@@ -92,6 +94,7 @@ pub(crate) fn clean_with_runtime(options: AppsCleanOptions, runtime: &CliRuntime
             scan_backend: ScanBackendKind::PortableRecursive,
             exclude_paths: options.exclude_paths,
             save_plan: options.save_plan,
+            receipt: options.receipt,
             output_contract: WorkflowOutputContract::v1("apps clean", "app-leftovers-cleanup-plan"),
             human_renderer: render::clean::print_plan,
             success_renderer: crate::output::print_plan_with_events,

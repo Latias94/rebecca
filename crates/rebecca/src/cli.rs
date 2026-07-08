@@ -12,6 +12,7 @@ Common tasks:
   rebecca clean --dry-run --category browser
   rebecca clean --dry-run --category browser --save-plan cleanup-plan.json
   rebecca plan run cleanup-plan.json --yes
+  rebecca clean --yes --category browser --receipt cleanup-receipt.json
   rebecca clean --yes --category browser
   rebecca purge --dry-run --root . --artifact target
   rebecca trash empty
@@ -27,6 +28,7 @@ Examples:
   rebecca clean --dry-run --category browser --save-plan cleanup-plan.json
   rebecca clean --dry-run --rule windows.user-temp
   rebecca clean --yes --category browser
+  rebecca clean --yes --category browser --receipt cleanup-receipt.json
   rebecca clean --yes --permanent --category browser
   rebecca plan inspect cleanup-plan.json
   rebecca plan run cleanup-plan.json --yes
@@ -74,6 +76,7 @@ Examples:
   rebecca plan inspect cleanup-plan.json
   rebecca plan run cleanup-plan.json
   rebecca plan run cleanup-plan.json --yes
+  rebecca plan run cleanup-plan.json --yes --receipt cleanup-receipt.json
   rebecca plan run cleanup-plan.json --yes --permanent
 
 Saved plans are review artifacts, not blind delete scripts. Rebecca validates
@@ -697,6 +700,9 @@ pub struct CleanupExecutionArgs {
     /// Write the preview plan to a JSON file for later review and execution.
     #[arg(long = "save-plan", value_name = "FILE", value_hint = ValueHint::FilePath, conflicts_with = "yes")]
     pub save_plan: Option<PathBuf>,
+    /// Write a cleanup receipt JSON file after executing with --yes.
+    #[arg(long = "receipt", value_name = "FILE", value_hint = ValueHint::FilePath, requires = "yes", conflicts_with = "dry_run")]
+    pub receipt: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -817,6 +823,9 @@ pub struct PurgeArgs {
     /// Write the preview plan to a JSON file for later review and execution.
     #[arg(long = "save-plan", value_name = "FILE", value_hint = ValueHint::FilePath, conflicts_with = "yes")]
     pub save_plan: Option<PathBuf>,
+    /// Write a cleanup receipt JSON file after executing with --yes.
+    #[arg(long = "receipt", value_name = "FILE", value_hint = ValueHint::FilePath, requires = "yes", conflicts_with = "dry_run")]
+    pub receipt: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -847,6 +856,9 @@ pub struct SavedPlanRunArgs {
     /// Permanently delete still-valid allowed targets. Requires --yes and bypasses trash.
     #[arg(long, requires = "yes")]
     pub permanent: bool,
+    /// Write a cleanup receipt JSON file after executing with --yes.
+    #[arg(long = "receipt", value_name = "FILE", value_hint = ValueHint::FilePath, requires = "yes")]
+    pub receipt: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -976,6 +988,9 @@ pub enum AppsCommand {
         /// Write the preview plan to a JSON file for later review and execution.
         #[arg(long = "save-plan", value_name = "FILE", value_hint = ValueHint::FilePath, conflicts_with = "yes")]
         save_plan: Option<PathBuf>,
+        /// Write a cleanup receipt JSON file after executing with --yes.
+        #[arg(long = "receipt", value_name = "FILE", value_hint = ValueHint::FilePath, requires = "yes", conflicts_with = "dry_run")]
+        receipt: Option<PathBuf>,
         /// Exclude a path from app leftovers cleanup for this run. Can be repeated.
         #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
         exclude_paths: Vec<PathBuf>,

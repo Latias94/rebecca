@@ -5,6 +5,7 @@ All notable changes to Rebecca will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Executed `clean`, `purge`, `apps clean`, and `plan run` commands can now write a cleanup receipt with `--receipt <FILE>`. The receipt records what command ran, whether data went to trash or was permanently deleted, target outcomes, execution totals, and next steps such as `rebecca trash empty --yes`.
 - `clean`, `purge`, and `apps clean` can now save dry-run cleanup plans with `--save-plan <FILE>`. New `rebecca plan inspect` and `rebecca plan run` commands let users review a saved plan, revalidate target metadata, and execute it later with `--yes`; stale targets are skipped with `saved-plan-target-changed`.
 - `rebecca skills install`, `skills path`, and `skills remove` manage the packaged `rebecca-disk-cleaner` agent skill. The default install root is `~/.agents/skills`, with `--agent codex`, `--destination`, `--dry-run`, `--force`, and `delete`/`uninstall` aliases for other agent setups.
 - `rebecca trash empty` previews or empties the system trash from Rebecca. On Windows it uses the Recycle Bin and supports `--drive C` or `--drive E`; normal cleanup still moves files to trash by default, and `--permanent` bypasses trash for `clean`, `purge`, or `apps clean`.

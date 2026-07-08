@@ -50,6 +50,7 @@ pub struct CleanOptions {
     pub rules: Vec<String>,
     pub exclude_paths: Vec<PathBuf>,
     pub save_plan: Option<PathBuf>,
+    pub receipt: Option<PathBuf>,
     pub allow_moderate: bool,
     pub allow_risky: bool,
     pub allow_warnings: Vec<String>,
@@ -66,6 +67,7 @@ pub(crate) struct WorkflowRunOptions<'a> {
     pub(crate) scan_backend: ScanBackendKind,
     pub(crate) exclude_paths: Vec<PathBuf>,
     pub(crate) save_plan: Option<PathBuf>,
+    pub(crate) receipt: Option<PathBuf>,
     pub(crate) output_contract: WorkflowOutputContract,
     pub(crate) human_renderer: HumanPlanRenderer,
     pub(crate) success_renderer: WorkflowSuccessRenderer,
@@ -137,6 +139,7 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
             scan_backend: options.scan_backend,
             exclude_paths: options.exclude_paths,
             save_plan: options.save_plan,
+            receipt: options.receipt,
             output_contract: WorkflowOutputContract::v1("clean", "cleanup-plan"),
             human_renderer: render::clean::print_plan,
             success_renderer: output::print_plan_with_events,
@@ -159,6 +162,9 @@ pub(crate) fn run_workflow_with_runtime_config(
 ) -> Result<()> {
     if options.save_plan.is_some() && !options.request.mode.is_dry_run() {
         return Err(anyhow!("--save-plan only works with preview plans"));
+    }
+    if options.receipt.is_some() && options.request.mode.is_dry_run() {
+        return Err(anyhow!("--receipt requires --yes"));
     }
 
     let safety_knowledge =
@@ -268,14 +274,27 @@ pub(crate) fn run_workflow_with_runtime_config(
     }
 
     if plan.summary.allowed_targets == 0 {
-        return (options.success_renderer)(
+        if let Some(path) = &options.receipt {
+            crate::cleanup_receipt::write_cleanup_receipt(
+                &plan,
+                options.output_contract.command,
+                path,
+            )?;
+        }
+        (options.success_renderer)(
             &plan,
             options.output_contract,
             options.output_mode,
             options.human_renderer,
             scan_cache_summary,
             event_writer,
-        );
+        )?;
+        if options.output_mode.is_human()
+            && let Some(path) = &options.receipt
+        {
+            crate::cleanup_receipt::print_receipt_guidance(path, &plan);
+        }
+        return Ok(());
     }
 
     let confirmed = if options.yes {
@@ -316,6 +335,13 @@ pub(crate) fn run_workflow_with_runtime_config(
         execution_report.push_warning(warning);
     }
     plan.execution_report = Some(execution_report);
+    if let Some(path) = &options.receipt {
+        crate::cleanup_receipt::write_cleanup_receipt(
+            &plan,
+            options.output_contract.command,
+            path,
+        )?;
+    }
 
     (options.success_renderer)(
         &plan,
@@ -324,7 +350,13 @@ pub(crate) fn run_workflow_with_runtime_config(
         options.human_renderer,
         scan_cache_summary,
         event_writer,
-    )
+    )?;
+    if options.output_mode.is_human()
+        && let Some(path) = &options.receipt
+    {
+        crate::cleanup_receipt::print_receipt_guidance(path, &plan);
+    }
+    Ok(())
 }
 
 pub(crate) fn execute_plan(

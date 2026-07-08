@@ -83,6 +83,13 @@ rebecca clean --yes --category browser
 rebecca purge --yes --root . --artifact target
 ```
 
+Write a cleanup receipt when you want an audit file for what happened:
+
+```powershell
+rebecca clean --yes --category browser --receipt cleanup-receipt.json
+rebecca plan run cleanup-plan.json --yes --receipt cleanup-receipt.json
+```
+
 Bypass the trash only when you want irreversible deletion:
 
 ```powershell
