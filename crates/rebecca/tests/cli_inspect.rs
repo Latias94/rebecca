@@ -582,6 +582,14 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
     assert_eq!(advice["category"], "development");
     assert_eq!(advice["safety_level"], "moderate");
     assert_eq!(advice["required_flags"][0], "--allow-moderate");
+    assert_eq!(advice["evidence"][0]["status"], advice["status"]);
+    assert_eq!(advice["evidence"][0]["source"], advice["source"]);
+    assert_eq!(advice["evidence"][0]["relation"], advice["relation"]);
+    assert_eq!(advice["evidence"][0]["rule_id"], advice["rule_id"]);
+    assert_eq!(
+        advice["evidence"][0]["required_flags"],
+        advice["required_flags"]
+    );
     assert_eq!(advice["suggested_command"]["command"], "rebecca");
     assert_eq!(
         advice["suggested_command"]["args"],

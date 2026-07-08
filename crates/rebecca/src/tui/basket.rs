@@ -169,6 +169,7 @@ mod tests {
             protection_kind: None,
             matched_path: None,
             app_leftover: None,
+            evidence: Vec::new(),
             suggested_command: Some(CleanupAdviceCommand {
                 command: "rebecca".to_string(),
                 args: vec![

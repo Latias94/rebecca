@@ -4,7 +4,8 @@ use rebecca_core::app_leftovers::{AppLeftoverCandidate, AppLeftoverSource};
 use rebecca_core::applications::InstalledApplication;
 use rebecca_core::applications::NoopApplicationDiscovery;
 use rebecca_core::cleanup_advice::{
-    CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceRelation, CleanupAdviceStatus,
+    CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceRelation, CleanupAdviceSource,
+    CleanupAdviceStatus,
 };
 use rebecca_core::environment::MapEnvironment;
 use rebecca_core::model::{
@@ -102,6 +103,50 @@ fn exact_safe_rule_target_is_cleanable() {
         advice.suggested_command.as_ref().unwrap().args,
         ["clean", "--dry-run", "--rule", "test.cache"]
     );
+    assert_eq!(advice.evidence.len(), 1);
+    assert_eq!(advice.evidence[0].status, advice.status);
+    assert_eq!(
+        advice.evidence[0].source,
+        Some(CleanupAdviceSource::CleanupRule)
+    );
+    assert_eq!(advice.evidence[0].relation, advice.relation);
+    assert_eq!(
+        advice.evidence[0].rule_id.as_deref(),
+        advice.rule_id.as_deref()
+    );
+    assert_eq!(
+        advice.evidence[0].matched_path.as_deref(),
+        advice.matched_path.as_deref()
+    );
+}
+
+#[test]
+fn advice_retains_ranked_evidence_for_all_matching_targets() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("cache");
+    let index = build_index(
+        &[
+            rule("test.safe", &target, SafetyLevel::Safe),
+            rule("test.moderate", &target, SafetyLevel::Moderate),
+        ],
+        ProtectionPolicy::new(),
+    );
+
+    let advice = index.advise_path(&target);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::Cleanable);
+    assert_eq!(advice.rule_id.as_deref(), Some("test.safe"));
+    let rule_ids = advice
+        .evidence
+        .iter()
+        .map(|evidence| evidence.rule_id.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(rule_ids, [Some("test.safe"), Some("test.moderate")]);
+    assert_eq!(
+        advice.evidence[1].status,
+        CleanupAdviceStatus::MaybeCleanable
+    );
+    assert_eq!(advice.evidence[1].required_flags, ["--allow-moderate"]);
 }
 
 #[test]

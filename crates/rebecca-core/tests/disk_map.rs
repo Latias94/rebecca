@@ -5,6 +5,10 @@ use rebecca_core::disk_map::{
     DiskMapDiagnosticKind, DiskMapEntryKind, DiskMapGroupKind, DiskMapRequest, DiskMapSortField,
     inspect_map,
 };
+use rebecca_core::inventory::{
+    InventoryDiagnosticKind, InventoryEntryKind, InventoryGroupKind, InventoryMetrics,
+    InventorySortField,
+};
 use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken, ScanEstimateConfidence};
 
 static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -52,6 +56,20 @@ fn write_file(path: impl AsRef<std::path::Path>, bytes: &[u8]) {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn disk_map_public_domain_types_are_inventory_types() {
+    let metrics: InventoryMetrics = rebecca_core::disk_map::DiskMapMetrics::default();
+    let _: rebecca_core::disk_map::DiskMapMetrics = metrics;
+
+    assert_eq!(DiskMapEntryKind::File, InventoryEntryKind::File);
+    assert_eq!(DiskMapGroupKind::Extension, InventoryGroupKind::Extension);
+    assert_eq!(DiskMapSortField::Allocated, InventorySortField::Allocated);
+    assert_eq!(
+        DiskMapDiagnosticKind::Fallback,
+        InventoryDiagnosticKind::Fallback
+    );
 }
 
 #[test]

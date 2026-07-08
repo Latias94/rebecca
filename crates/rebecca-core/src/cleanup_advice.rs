@@ -18,7 +18,7 @@ use crate::protection::{
     ProtectedCategory, ProtectionAssessment, ProtectionBlock, ProtectionBlockKind, ProtectionPolicy,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupAdviceStatus {
     Cleanable,
@@ -40,7 +40,7 @@ impl CleanupAdviceStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupAdviceSource {
     CleanupRule,
@@ -60,7 +60,7 @@ impl CleanupAdviceSource {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupAdviceRelation {
     Exact,
@@ -82,6 +82,32 @@ impl CleanupAdviceRelation {
 pub struct CleanupAdviceCommand {
     pub command: String,
     pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupAdviceEvidence {
+    pub status: CleanupAdviceStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<CleanupAdviceSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation: Option<CleanupAdviceRelation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety_level: Option<SafetyLevel>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protection_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_leftover: Option<AppLeftoverAdviceContext>,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +133,8 @@ pub struct CleanupAdvice {
     pub matched_path: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_leftover: Option<AppLeftoverAdviceContext>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<CleanupAdviceEvidence>,
     pub reason: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested_command: Option<CleanupAdviceCommand>,
@@ -126,12 +154,27 @@ impl CleanupAdvice {
             protection_kind: None,
             matched_path: None,
             app_leftover: None,
+            evidence: Vec::new(),
             reason: "no cleanup rule or protection policy matched this path".to_string(),
             suggested_command: None,
         }
     }
 
     fn protected(kind: String, reason: String) -> Self {
+        let evidence = CleanupAdviceEvidence {
+            status: CleanupAdviceStatus::Protected,
+            source: Some(CleanupAdviceSource::Protection),
+            relation: None,
+            rule_id: None,
+            category: None,
+            safety_level: None,
+            required_flags: Vec::new(),
+            required_warnings: Vec::new(),
+            protection_kind: Some(kind.clone()),
+            matched_path: None,
+            app_leftover: None,
+            reason: reason.clone(),
+        };
         Self {
             status: CleanupAdviceStatus::Protected,
             source: Some(CleanupAdviceSource::Protection),
@@ -144,6 +187,7 @@ impl CleanupAdvice {
             protection_kind: Some(kind),
             matched_path: None,
             app_leftover: None,
+            evidence: vec![evidence],
             reason,
             suggested_command: None,
         }
@@ -237,14 +281,19 @@ impl<'a> CleanupAdviceIndex<'a> {
     }
 
     pub fn advise_path(&self, path: &Path) -> CleanupAdvice {
-        if let Some(advice) = self
+        let mut candidates = self
             .targets
             .iter()
             .filter_map(|target| target.advice_for(path, self.protection_policy))
-            .max_by_key(CleanupAdviceCandidate::rank)
-            .map(CleanupAdviceCandidate::into_advice)
-        {
-            return advice;
+            .collect::<Vec<_>>();
+
+        if !candidates.is_empty() {
+            candidates.sort_by(|left, right| right.cmp(left));
+            let primary = candidates.remove(0);
+            let evidence = std::iter::once(primary.evidence.clone())
+                .chain(candidates.into_iter().map(|candidate| candidate.evidence))
+                .collect();
+            return primary.into_advice(evidence);
         }
 
         match self.protection_policy.assess_path(path) {
@@ -370,7 +419,21 @@ impl CleanupAdviceTarget {
         if let Some(block) = self.protection_block(entry_path, relation, protection_policy) {
             return Some(CleanupAdviceCandidate {
                 rank: advice_rank(CleanupAdviceStatus::Protected, relation),
-                advice: CleanupAdvice::protected(block.kind.label().to_string(), block.message),
+                evidence: CleanupAdviceEvidence {
+                    status: CleanupAdviceStatus::Protected,
+                    source: Some(CleanupAdviceSource::Protection),
+                    relation: Some(relation),
+                    rule_id: None,
+                    category: None,
+                    safety_level: None,
+                    required_flags: Vec::new(),
+                    required_warnings: Vec::new(),
+                    protection_kind: Some(block.kind.label().to_string()),
+                    matched_path: Some(self.path.clone()),
+                    app_leftover: None,
+                    reason: block.message,
+                },
+                suggested_command: None,
             });
         }
 
@@ -384,7 +447,7 @@ impl CleanupAdviceTarget {
 
         Some(CleanupAdviceCandidate {
             rank: advice_rank(status, relation),
-            advice: CleanupAdvice {
+            evidence: CleanupAdviceEvidence {
                 status,
                 source: Some(self.source),
                 relation: Some(relation),
@@ -397,8 +460,8 @@ impl CleanupAdviceTarget {
                 matched_path: Some(self.path.clone()),
                 app_leftover: self.app_leftover.clone(),
                 reason: self.advice_reason(status, relation),
-                suggested_command: self.suggested_command.clone(),
             },
+            suggested_command: self.suggested_command.clone(),
         })
     }
 
@@ -464,18 +527,62 @@ impl CleanupAdviceTarget {
 #[derive(Debug, Clone)]
 struct CleanupAdviceCandidate {
     rank: (u8, u8),
-    advice: CleanupAdvice,
+    evidence: CleanupAdviceEvidence,
+    suggested_command: Option<CleanupAdviceCommand>,
 }
 
 impl CleanupAdviceCandidate {
-    fn rank(&self) -> (u8, u8) {
-        self.rank
-    }
-
-    fn into_advice(self) -> CleanupAdvice {
-        self.advice
+    fn into_advice(self, evidence: Vec<CleanupAdviceEvidence>) -> CleanupAdvice {
+        let primary = self.evidence;
+        CleanupAdvice {
+            status: primary.status,
+            source: primary.source,
+            relation: primary.relation,
+            rule_id: primary.rule_id,
+            category: primary.category,
+            safety_level: primary.safety_level,
+            required_flags: primary.required_flags,
+            required_warnings: primary.required_warnings,
+            protection_kind: primary.protection_kind,
+            matched_path: primary.matched_path,
+            app_leftover: primary.app_leftover,
+            evidence,
+            reason: primary.reason,
+            suggested_command: self.suggested_command,
+        }
     }
 }
+
+impl Ord for CleanupAdviceCandidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.rank
+            .cmp(&other.rank)
+            .then_with(|| self.evidence.status.cmp(&other.evidence.status))
+            .then_with(|| self.evidence.source.cmp(&other.evidence.source))
+            .then_with(|| self.evidence.relation.cmp(&other.evidence.relation))
+            .then_with(|| self.evidence.rule_id.cmp(&other.evidence.rule_id))
+            .then_with(|| self.evidence.matched_path.cmp(&other.evidence.matched_path))
+    }
+}
+
+impl PartialOrd for CleanupAdviceCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for CleanupAdviceCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.rank == other.rank
+            && self.evidence.status == other.evidence.status
+            && self.evidence.source == other.evidence.source
+            && self.evidence.relation == other.evidence.relation
+            && self.evidence.rule_id == other.evidence.rule_id
+            && self.evidence.matched_path == other.evidence.matched_path
+    }
+}
+
+impl Eq for CleanupAdviceCandidate {}
 
 fn advice_rank(status: CleanupAdviceStatus, relation: CleanupAdviceRelation) -> (u8, u8) {
     let status_rank = match status {

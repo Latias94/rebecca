@@ -51,6 +51,133 @@ pub struct Inventory {
     pub diagnostics: Vec<InventoryDiagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventoryMetrics {
+    pub logical_bytes: u64,
+    pub allocated_bytes: Option<u64>,
+    pub unique_logical_bytes: Option<u64>,
+    pub unique_allocated_bytes: Option<u64>,
+    pub files: u64,
+    pub directories: u64,
+}
+
+impl InventoryMetrics {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.logical_bytes = self.logical_bytes.saturating_add(other.logical_bytes);
+        self.allocated_bytes = add_optional_bytes(
+            self.allocated_bytes,
+            self.files,
+            other.allocated_bytes,
+            other.files,
+        );
+        self.unique_logical_bytes = add_optional_bytes(
+            self.unique_logical_bytes,
+            self.files,
+            other.unique_logical_bytes,
+            other.files,
+        );
+        self.unique_allocated_bytes = add_optional_bytes(
+            self.unique_allocated_bytes,
+            self.files,
+            other.unique_allocated_bytes,
+            other.files,
+        );
+        self.files = self.files.saturating_add(other.files);
+        self.directories = self.directories.saturating_add(other.directories);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InventorySortField {
+    #[default]
+    Logical,
+    Allocated,
+    Files,
+    Unique,
+}
+
+impl InventorySortField {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Logical => "logical",
+            Self::Allocated => "allocated",
+            Self::Files => "files",
+            Self::Unique => "unique",
+        }
+    }
+
+    pub(crate) fn metrics_value(self, metrics: &InventoryMetrics) -> u64 {
+        self.value(
+            metrics.logical_bytes,
+            metrics.allocated_bytes,
+            metrics.unique_logical_bytes,
+            metrics.files,
+        )
+    }
+
+    pub(crate) fn value(
+        self,
+        logical_bytes: u64,
+        allocated_bytes: Option<u64>,
+        unique_logical_bytes: Option<u64>,
+        files: u64,
+    ) -> u64 {
+        match self {
+            Self::Logical => logical_bytes,
+            Self::Allocated => allocated_bytes.unwrap_or(logical_bytes),
+            Self::Files => files,
+            Self::Unique => unique_logical_bytes.unwrap_or(logical_bytes),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InventoryEntryKind {
+    File,
+    Directory,
+    Other,
+}
+
+impl InventoryEntryKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Directory => "directory",
+            Self::Other => "other",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InventoryGroupKind {
+    Type,
+    Extension,
+    Depth,
+    Age,
+}
+
+impl InventoryGroupKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Type => "type",
+            Self::Extension => "extension",
+            Self::Depth => "depth",
+            Self::Age => "age",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventoryGroup {
+    pub kind: InventoryGroupKind,
+    pub key: String,
+    pub label: String,
+    pub metrics: InventoryMetrics,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryRoot {
     pub path: PathBuf,
@@ -130,6 +257,20 @@ impl InventoryDiagnostic {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventoryDiagnosticSummary {
+    pub total: u64,
+    pub retained: u64,
+    pub truncated: u64,
+    pub by_kind: Vec<InventoryDiagnosticKindSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventoryDiagnosticKindSummary {
+    pub kind: InventoryDiagnosticKind,
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum InventoryDiagnosticKind {
@@ -140,6 +281,8 @@ pub enum InventoryDiagnosticKind {
     DirectoryReadSkipped,
     DirectoryEntryReadSkipped,
     MetadataReadSkipped,
+    Fallback,
+    ScanFailed,
     Excluded,
 }
 
@@ -153,6 +296,8 @@ impl InventoryDiagnosticKind {
             Self::DirectoryReadSkipped => "directory-read-skipped",
             Self::DirectoryEntryReadSkipped => "directory-entry-read-skipped",
             Self::MetadataReadSkipped => "metadata-read-skipped",
+            Self::Fallback => "fallback",
+            Self::ScanFailed => "scan-failed",
             Self::Excluded => "excluded",
         }
     }
@@ -404,6 +549,23 @@ fn file_identity(metadata: &std::fs::Metadata) -> Option<FileIdentity> {
 #[cfg(not(unix))]
 fn file_identity(_metadata: &std::fs::Metadata) -> Option<FileIdentity> {
     None
+}
+
+fn add_optional_bytes(
+    left: Option<u64>,
+    left_files: u64,
+    right: Option<u64>,
+    right_files: u64,
+) -> Option<u64> {
+    if right_files == 0 {
+        return left;
+    }
+
+    match (left, right) {
+        (None, Some(right)) if left_files == 0 => Some(right),
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+        _ => None,
+    }
 }
 
 fn check_cancelled(cancellation: &ScanCancellationToken) -> Result<()> {

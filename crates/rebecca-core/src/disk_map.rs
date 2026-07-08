@@ -11,6 +11,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::cleanup_advice::CleanupAdvice;
 use crate::error::{RebeccaError, Result, ScanFailureKind};
+pub use crate::inventory::{
+    InventoryDiagnostic as DiskMapDiagnostic, InventoryDiagnosticKind as DiskMapDiagnosticKind,
+    InventoryDiagnosticKindSummary as DiskMapDiagnosticKindSummary,
+    InventoryDiagnosticSummary as DiskMapDiagnosticSummary, InventoryEntryKind as DiskMapEntryKind,
+    InventoryGroup as DiskMapGroup, InventoryGroupKind as DiskMapGroupKind,
+    InventoryMetrics as DiskMapMetrics, InventorySortField as DiskMapSortField,
+};
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::progress::{
     InspectProgressCounterKind, InspectProgressEvent, InspectProgressResult,
@@ -189,96 +196,6 @@ impl DiskMapRootStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DiskMapMetrics {
-    pub logical_bytes: u64,
-    pub allocated_bytes: Option<u64>,
-    pub unique_logical_bytes: Option<u64>,
-    pub unique_allocated_bytes: Option<u64>,
-    pub files: u64,
-    pub directories: u64,
-}
-
-impl DiskMapMetrics {
-    pub(crate) fn add(&mut self, other: Self) {
-        self.logical_bytes = self.logical_bytes.saturating_add(other.logical_bytes);
-        self.allocated_bytes = add_optional_bytes(
-            self.allocated_bytes,
-            self.files,
-            other.allocated_bytes,
-            other.files,
-        );
-        self.unique_logical_bytes = add_optional_bytes(
-            self.unique_logical_bytes,
-            self.files,
-            other.unique_logical_bytes,
-            other.files,
-        );
-        self.unique_allocated_bytes = add_optional_bytes(
-            self.unique_allocated_bytes,
-            self.files,
-            other.unique_allocated_bytes,
-            other.files,
-        );
-        self.files = self.files.saturating_add(other.files);
-        self.directories = self.directories.saturating_add(other.directories);
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DiskMapSortField {
-    #[default]
-    Logical,
-    Allocated,
-    Files,
-    Unique,
-}
-
-impl DiskMapSortField {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Logical => "logical",
-            Self::Allocated => "allocated",
-            Self::Files => "files",
-            Self::Unique => "unique",
-        }
-    }
-
-    fn entry_value(self, entry: &DiskMapEntry) -> u64 {
-        self.value(
-            entry.logical_bytes,
-            entry.allocated_bytes,
-            entry.unique_logical_bytes,
-            entry.files,
-        )
-    }
-
-    pub(crate) fn metrics_value(self, metrics: &DiskMapMetrics) -> u64 {
-        self.value(
-            metrics.logical_bytes,
-            metrics.allocated_bytes,
-            metrics.unique_logical_bytes,
-            metrics.files,
-        )
-    }
-
-    fn value(
-        self,
-        logical_bytes: u64,
-        allocated_bytes: Option<u64>,
-        unique_logical_bytes: Option<u64>,
-        files: u64,
-    ) -> u64 {
-        match self {
-            Self::Logical => logical_bytes,
-            Self::Allocated => allocated_bytes.unwrap_or(logical_bytes),
-            Self::Files => files,
-            Self::Unique => unique_logical_bytes.unwrap_or(logical_bytes),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiskMapEntry {
     pub path: PathBuf,
@@ -321,111 +238,6 @@ impl DiskMapEntry {
             estimate_source: EstimateSource::FreshScan,
             estimate_provenance: estimate_provenance.clone(),
             cleanup_advice: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DiskMapGroupKind {
-    Type,
-    Extension,
-    Depth,
-    Age,
-}
-
-impl DiskMapGroupKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Type => "type",
-            Self::Extension => "extension",
-            Self::Depth => "depth",
-            Self::Age => "age",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DiskMapGroup {
-    pub kind: DiskMapGroupKind,
-    pub key: String,
-    pub label: String,
-    pub metrics: DiskMapMetrics,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DiskMapEntryKind {
-    File,
-    Directory,
-    Other,
-}
-
-impl DiskMapEntryKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::File => "file",
-            Self::Directory => "directory",
-            Self::Other => "other",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct DiskMapDiagnostic {
-    pub kind: DiskMapDiagnosticKind,
-    pub path: PathBuf,
-    pub detail: String,
-}
-
-impl DiskMapDiagnostic {
-    pub fn new(kind: DiskMapDiagnosticKind, path: PathBuf, detail: impl Into<String>) -> Self {
-        Self {
-            kind,
-            path,
-            detail: detail.into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DiskMapDiagnosticSummary {
-    pub total: u64,
-    pub retained: u64,
-    pub truncated: u64,
-    pub by_kind: Vec<DiskMapDiagnosticKindSummary>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DiskMapDiagnosticKindSummary {
-    pub kind: DiskMapDiagnosticKind,
-    pub count: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DiskMapDiagnosticKind {
-    RootMissing,
-    RootMetadataReadSkipped,
-    ReparsePointSkipped,
-    DirectoryReadSkipped,
-    DirectoryEntryReadSkipped,
-    MetadataReadSkipped,
-    Fallback,
-    ScanFailed,
-}
-
-impl DiskMapDiagnosticKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::RootMissing => "root-missing",
-            Self::RootMetadataReadSkipped => "root-metadata-read-skipped",
-            Self::ReparsePointSkipped => "reparse-point-skipped",
-            Self::DirectoryReadSkipped => "directory-read-skipped",
-            Self::DirectoryEntryReadSkipped => "directory-entry-read-skipped",
-            Self::MetadataReadSkipped => "metadata-read-skipped",
-            Self::Fallback => "fallback",
-            Self::ScanFailed => "scan-failed",
         }
     }
 }
@@ -2309,7 +2121,12 @@ struct DiskMapTopRank {
 impl DiskMapTopRank {
     fn from_entry(entry: &DiskMapEntry, sort: DiskMapSortField) -> Self {
         Self {
-            sort_value: sort.entry_value(entry),
+            sort_value: sort.value(
+                entry.logical_bytes,
+                entry.allocated_bytes,
+                entry.unique_logical_bytes,
+                entry.files,
+            ),
             logical_bytes: entry.logical_bytes,
             files: entry.files,
             directories: entry.directories,
@@ -2379,23 +2196,6 @@ fn portable_estimate_provenance(fallback_reason: Option<String>) -> EstimateProv
     );
     provenance.estimate_fallback_reason = fallback_reason;
     provenance
-}
-
-fn add_optional_bytes(
-    left: Option<u64>,
-    left_files: u64,
-    right: Option<u64>,
-    right_files: u64,
-) -> Option<u64> {
-    if right_files == 0 {
-        return left;
-    }
-
-    match (left, right) {
-        (None, Some(right)) if left_files == 0 => Some(right),
-        (Some(left), Some(right)) => Some(left.saturating_add(right)),
-        _ => None,
-    }
 }
 
 fn disk_map_backend_error_can_fallback(err: &RebeccaError) -> bool {

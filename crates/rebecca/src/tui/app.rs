@@ -1763,6 +1763,7 @@ mod tests {
                     protection_kind: None,
                     matched_path: None,
                     app_leftover: None,
+                    evidence: Vec::new(),
                     reason: "test rule".to_string(),
                     suggested_command: Some(CleanupAdviceCommand {
                         command: "rebecca".to_string(),

@@ -1011,6 +1011,7 @@ mod tests {
             protection_kind: None,
             matched_path: Some(path.to_path_buf()),
             app_leftover: None,
+            evidence: Vec::new(),
             reason: "fixture cache".to_string(),
             suggested_command: None,
         }
