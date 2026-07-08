@@ -18,6 +18,8 @@ fn trash_empty_help_explains_preview_and_drive_scope() {
     assert!(stdout.contains("On Windows this uses the Recycle Bin"));
     assert!(stdout.contains("--yes"));
     assert!(stdout.contains("--drive <DRIVE>"));
+    assert!(stdout.contains("rebecca trash empty --yes"));
+    assert!(stdout.contains("rebecca trash empty --drive E --yes"));
 }
 
 #[cfg(windows)]

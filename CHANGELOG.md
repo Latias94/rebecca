@@ -8,6 +8,9 @@ All notable changes to Rebecca will be documented in this file.
 - `rebecca skills install`, `skills path`, and `skills remove` manage the packaged `rebecca-disk-cleaner` agent skill. The default install root is `~/.agents/skills`, with `--agent codex`, `--destination`, `--dry-run`, `--force`, and `delete`/`uninstall` aliases for other agent setups.
 - `rebecca trash empty` previews or empties the system trash from Rebecca. On Windows it uses the Recycle Bin and supports `--drive C` or `--drive E`; normal cleanup still moves files to trash by default, and `--permanent` bypasses trash for `clean`, `purge`, or `apps clean`.
 
+### Changed
+- Help, README examples, `clean`/`purge` summaries, `inspect map`, and the TUI result screen now start with the action a user can take next: preview, move to trash, permanently delete, or empty trash.
+
 ## [0.3.0] - 2026-07-08
 
 ### Breaking

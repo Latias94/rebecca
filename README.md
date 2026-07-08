@@ -48,22 +48,21 @@ The default target is `~/.agents/skills`. Use `--agent codex` for `$CODEX_HOME/s
 
 ## Use it
 
-Start with read-only commands:
+Find where space went:
 
 ```powershell
 rebecca inspect map --root . --top 20
-rebecca inspect space --root .
-rebecca inspect artifacts --root .
-rebecca catalog --kind cleanup-rule
+rebecca inspect map --root . --top 20 --cleanup-advice
+rebecca tui --root .
 ```
 
-Preview cleanup before execution:
+Preview cleanup. This does not delete anything:
 
 ```powershell
 rebecca clean --dry-run
 rebecca clean --dry-run --category browser
-rebecca clean --dry-run --rule windows.slack-cache --allow-warning active-process
 rebecca purge --dry-run --root .
+rebecca purge --dry-run --root . --artifact target
 ```
 
 Execute only after the preview looks right. Normal cleanup moves allowed targets to the system Trash or Windows Recycle Bin, so the space is pending until the trash is emptied:
@@ -88,11 +87,11 @@ rebecca trash empty --yes
 rebecca trash empty --drive E --yes
 ```
 
-Open the interactive workbench when you want to browse and decide from the terminal:
+List the rules Rebecca knows about:
 
 ```powershell
-rebecca tui --root .
-rebecca i
+rebecca catalog --kind cleanup-rule
+rebecca catalog --kind project-artifact
 ```
 
 The TUI shows a ranked disk map, treemap, type distribution, extension distribution, cleanup advice, staged rules, preview, execution, and history. Mouse input selects and navigates; cleanup still requires an explicit confirmation.

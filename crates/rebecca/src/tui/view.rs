@@ -439,7 +439,7 @@ fn render_status(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}{}{} | 1 map 4/w treemap 2/t types 3/x extensions Tab cycle s sort / filter Backspace clear-filter r refresh R root Space stage c preview g history ? help q quit | mouse click/wheel",
+            "{}{}{} | Enter open | Space stage | c preview | ? all keys | q quit",
             app.message,
             search,
             active_group_filter_status(app)
@@ -471,6 +471,13 @@ fn plan_lines(_title: &'static str, plan: Option<&CleanupPlan>) -> Vec<Line<'sta
             plan.summary.freed_bytes,
             format_bytes(plan.summary.freed_bytes)
         )),
+        Line::from(format!(
+            "Pending reclaim: {} ({})",
+            plan.summary.pending_reclaim_bytes,
+            format_bytes(plan.summary.pending_reclaim_bytes)
+        )),
+        Line::from("Normal execution moves targets to system trash or Recycle Bin."),
+        Line::from("Free pending space after execution: rebecca trash empty --yes"),
         Line::from("e execute  Esc return  q quit"),
     ]
 }

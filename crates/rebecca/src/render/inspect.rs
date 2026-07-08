@@ -108,6 +108,8 @@ pub(crate) fn print_map_report(
     options: InspectMapRenderOptions,
 ) -> Result<()> {
     println!("Disk map");
+    print_map_summary(report, options);
+    println!();
     println!("Roots: {}", report.roots.len());
     println!(
         "Logical bytes: {} ({})",
@@ -201,6 +203,49 @@ pub(crate) fn print_map_report(
     }
 
     Ok(())
+}
+
+fn print_map_summary(report: &DiskMapReport, options: InspectMapRenderOptions) {
+    println!("Summary:");
+    if let Some(entry) = report.top_entries.first() {
+        println!(
+            "- Largest entry: {} at {} ({})",
+            map_entry_path(entry, options),
+            entry.logical_bytes,
+            format_bytes(entry.logical_bytes)
+        );
+    } else {
+        println!("- Largest entry: none matched the current filters.");
+    }
+
+    let advised_entries = cleanup_advised_entries(report);
+    let (clean_entries, clean_bytes) =
+        cleanup_advice_totals(&advised_entries, CleanupAdviceStatus::Cleanable);
+    let (maybe_entries, maybe_bytes) =
+        cleanup_advice_totals(&advised_entries, CleanupAdviceStatus::MaybeCleanable);
+    let candidate_entries = clean_entries.saturating_add(maybe_entries);
+    let candidate_bytes = clean_bytes.saturating_add(maybe_bytes);
+    if candidate_entries > 0 {
+        println!(
+            "- Cleanup candidates in ranked entries: {}, {} ({})",
+            format_count(candidate_entries, "entry", "entries"),
+            candidate_bytes,
+            format_bytes(candidate_bytes)
+        );
+    } else if advised_entries.is_empty() {
+        println!("- Cleanup candidates in ranked entries: not requested.");
+    } else {
+        println!("- Cleanup candidates in ranked entries: none directly cleanable.");
+    }
+
+    if let Some(command) = advised_entries
+        .iter()
+        .find_map(|(advice, _)| cleanup_advice_command(advice))
+    {
+        println!("- Next cleanup preview: {command}");
+    } else {
+        println!("- Next cleanup preview: rerun with --cleanup-advice.");
+    }
 }
 
 fn print_top_map_entries(report: &DiskMapReport, options: InspectMapRenderOptions) {
@@ -466,16 +511,7 @@ fn cleanup_advice_screen_reader_suffix(advice: Option<&CleanupAdvice>) -> String
 }
 
 fn print_cleanup_advice_summary(report: &DiskMapReport) {
-    let advised_entries = report
-        .top_entries
-        .iter()
-        .filter_map(|entry| {
-            entry
-                .cleanup_advice
-                .as_ref()
-                .map(|advice| (advice, entry.logical_bytes))
-        })
-        .collect::<Vec<_>>();
+    let advised_entries = cleanup_advised_entries(report);
 
     if advised_entries.is_empty() {
         return;
@@ -517,6 +553,19 @@ fn print_cleanup_advice_summary(report: &DiskMapReport) {
         println!("Suggested cleanup commands: none");
         println!("Cleanup advice is read-only; no cleanup rule matched the ranked entries.");
     }
+}
+
+fn cleanup_advised_entries(report: &DiskMapReport) -> Vec<(&CleanupAdvice, u64)> {
+    report
+        .top_entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .cleanup_advice
+                .as_ref()
+                .map(|advice| (advice, entry.logical_bytes))
+        })
+        .collect()
 }
 
 fn cleanup_advice_totals(

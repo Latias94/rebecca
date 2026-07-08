@@ -27,6 +27,9 @@ fn root_help_shows_completion_and_rejects_hidden_default_scan() {
     assert!(stdout.contains("purge"));
     assert!(stdout.contains("skills"));
     assert!(stdout.contains("trash"));
+    assert!(stdout.contains("Common tasks:"));
+    assert!(stdout.contains("rebecca inspect map --root . --top 20 --cleanup-advice"));
+    assert!(stdout.contains("Use --permanent only when you want irreversible deletion."));
 }
 
 #[test]
@@ -53,6 +56,8 @@ fn clean_help_preserves_preview_execution_and_warning_controls() {
     assert!(stdout.contains("--allow-warning <WARNING>"));
     assert!(stdout.contains("--scan-cache"));
     assert!(stdout.contains("--no-scan-cache"));
+    assert!(stdout.contains("rebecca clean --yes --category browser"));
+    assert!(stdout.contains("rebecca clean --yes --permanent --category browser"));
 }
 
 #[test]
@@ -68,6 +73,7 @@ fn tui_help_shows_interactive_workbench_controls() {
     assert!(!stdout.contains("--once"));
     assert!(!stdout.contains("--replay-keys"));
     assert!(!stdout.contains("--terminal-width"));
+    assert!(stdout.contains("rebecca i --root"));
 }
 
 #[test]
@@ -114,6 +120,7 @@ fn inspect_map_help_preserves_human_output_controls() {
     assert!(stdout.contains("type, extension, depth, age"));
     assert!(stdout.contains("--table <FORMAT>"));
     assert!(stdout.contains("--cleanup-advice"));
+    assert!(stdout.contains("rebecca inspect map --root . --top 20 --cleanup-advice"));
 }
 
 #[test]

@@ -228,6 +228,13 @@ fn plan_lines(plan: Option<&CleanupPlan>) -> Vec<Line<'static>> {
             plan.summary.freed_bytes,
             format_bytes(plan.summary.freed_bytes)
         )),
+        Line::from(format!(
+            "Pending reclaim: {} ({})",
+            plan.summary.pending_reclaim_bytes,
+            format_bytes(plan.summary.pending_reclaim_bytes)
+        )),
+        Line::from("Normal execution moves targets to system trash or Recycle Bin."),
+        Line::from("Free pending space after execution: rebecca trash empty --yes"),
         Line::from("e execute  Esc return  q quit"),
     ]
 }

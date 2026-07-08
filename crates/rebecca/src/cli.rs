@@ -6,6 +6,69 @@ use clap::{Args, Parser, Subcommand, ValueEnum, ValueHint};
 pub const DEFAULT_RULE_VALIDATE_MAX_DEPTH: usize = 8;
 pub const DEFAULT_RULE_VALIDATE_MAX_FILES: usize = 512;
 
+const ROOT_AFTER_LONG_HELP: &str = "\
+Common tasks:
+  rebecca inspect map --root . --top 20 --cleanup-advice
+  rebecca clean --dry-run --category browser
+  rebecca clean --yes --category browser
+  rebecca purge --dry-run --root . --artifact target
+  rebecca trash empty
+  rebecca tui --root .
+
+Normal cleanup moves allowed targets to the system Trash or Windows Recycle Bin.
+Use --permanent only when you want irreversible deletion.";
+
+const CLEAN_AFTER_LONG_HELP: &str = "\
+Examples:
+  rebecca clean --dry-run
+  rebecca clean --dry-run --category browser
+  rebecca clean --dry-run --rule windows.user-temp
+  rebecca clean --yes --category browser
+  rebecca clean --yes --permanent --category browser
+
+Without --yes, clean only previews. With --yes, allowed targets move to the
+system Trash or Windows Recycle Bin. Add --permanent only when you want to
+bypass trash.";
+
+const INSPECT_MAP_AFTER_LONG_HELP: &str = "\
+Examples:
+  rebecca inspect map --root . --top 20
+  rebecca inspect map --root . --top 20 --cleanup-advice
+  rebecca inspect map --root . --group-by extension
+  rebecca inspect map --root . --table csv --table-row entry
+
+Use inspect map when you want to understand where space went. Use clean or
+purge for deletion.";
+
+const TUI_AFTER_LONG_HELP: &str = "\
+Examples:
+  rebecca tui
+  rebecca tui --root .
+  rebecca i --root C:\\
+
+The TUI is an interactive workbench for browsing disk usage, staging cleanup
+rules, previewing targets, and executing only after typed confirmation.";
+
+const PURGE_AFTER_LONG_HELP: &str = "\
+Examples:
+  rebecca purge --dry-run --root .
+  rebecca purge --dry-run --root . --artifact target
+  rebecca purge --dry-run --root . --min-age-days 0
+  rebecca purge --yes --root . --artifact target
+  rebecca purge --yes --permanent --root . --artifact target
+
+Purge is for rebuildable project output such as target, node_modules, build,
+dist, and similar artifact directories.";
+
+const TRASH_EMPTY_AFTER_LONG_HELP: &str = "\
+Examples:
+  rebecca trash empty
+  rebecca trash empty --yes
+  rebecca trash empty --drive E --yes
+
+Normal cleanup moves data to trash first. Run this command without --yes to
+preview the pending space, then add --yes when you are ready to empty it.";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputMode {
     Human,
@@ -252,6 +315,7 @@ impl From<SafetyLevelArg> for rebecca::core::SafetyLevel {
     name = "rebecca",
     version,
     about = "Cross-platform cleanup CLI",
+    after_long_help = ROOT_AFTER_LONG_HELP,
     subcommand_required = true,
     arg_required_else_help = true
 )]
@@ -372,6 +436,7 @@ pub struct InspectSpaceArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(after_long_help = INSPECT_MAP_AFTER_LONG_HELP)]
 pub struct InspectMapArgs {
     /// Disable the stderr progress spinner; useful for scripts and captured logs.
     #[arg(long)]
@@ -620,6 +685,7 @@ pub struct RiskArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(after_long_help = CLEAN_AFTER_LONG_HELP)]
 pub struct CleanArgs {
     /// Preview the cleanup plan without deleting anything. This is the default unless --yes is set.
     #[arg(short = 'n', long)]
@@ -639,6 +705,7 @@ pub struct CleanArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(after_long_help = TUI_AFTER_LONG_HELP)]
 pub struct TuiArgs {
     /// Directory or file to inspect. Can be repeated. Without roots, the TUI opens a root picker.
     #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::AnyPath)]
@@ -678,6 +745,7 @@ pub struct TuiArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(after_long_help = PURGE_AFTER_LONG_HELP)]
 pub struct PurgeArgs {
     /// Preview the purge plan without deleting anything.
     #[arg(short = 'n', long)]
@@ -772,6 +840,7 @@ pub enum CacheCommand {
 #[derive(Debug, Subcommand)]
 pub enum TrashCommand {
     /// Preview or empty the system trash. On Windows this uses the Recycle Bin.
+    #[command(after_long_help = TRASH_EMPTY_AFTER_LONG_HELP)]
     Empty {
         /// Empty the trash. Without --yes, Rebecca only reports what would be freed.
         #[arg(long)]

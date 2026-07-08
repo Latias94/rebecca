@@ -9,7 +9,7 @@ use rebecca::core::{
 
 use crate::clean_view::{CleanPlanProjection, CleanTargetRow, ScanCacheProgressSummary};
 use crate::output::{format_bytes, format_shell_command, restore_hint_suffix};
-use crate::render::estimate_provenance_suffix;
+use crate::render::{estimate_provenance_suffix, format_count};
 
 pub(crate) fn print_plan(
     plan: &CleanupPlan,
@@ -44,6 +44,7 @@ pub(crate) fn print_plan(
 pub(super) fn print_plan_overview(projection: &CleanPlanProjection<'_>) {
     println!("Workflow: {}", projection.workflow_title);
     println!("Cleanup mode: {}", projection.mode_label);
+    println!("{}", user_summary_line(projection));
     println!("Targets: {}", projection.summary.total_targets);
     println!("Allowed: {}", projection.summary.allowed_targets);
     println!("Skipped: {}", projection.summary.skipped_targets);
@@ -182,6 +183,48 @@ fn decision_label(projection: &CleanPlanProjection<'_>) -> &'static str {
         DeleteMode::RecoverableDelete => "no cleanup target was executed.",
         DeleteMode::PermanentDelete => "no cleanup target was executed.",
     }
+}
+
+fn user_summary_line(projection: &CleanPlanProjection<'_>) -> String {
+    let target_label = format_usize_count(
+        projection.summary.allowed_targets,
+        "eligible target",
+        "eligible targets",
+    );
+    let destination = recoverable_destination_label(projection.request.platform);
+    match projection.mode {
+        DeleteMode::DryRun if projection.summary.allowed_targets > 0 => format!(
+            "Summary: {} can reclaim {} ({}); default execution moves them to {}.",
+            target_label,
+            reclaimable_now_bytes(projection),
+            format_bytes(reclaimable_now_bytes(projection)),
+            destination
+        ),
+        DeleteMode::DryRun => {
+            "Summary: no eligible cleanup targets matched this request.".to_string()
+        }
+        DeleteMode::RecoverableDelete if projection.summary.completed_targets > 0 => format!(
+            "Summary: moved {} to {}; {} ({}) is pending trash reclaim.",
+            format_usize_count(projection.summary.completed_targets, "target", "targets"),
+            destination,
+            projection.summary.pending_reclaim_bytes,
+            format_bytes(projection.summary.pending_reclaim_bytes)
+        ),
+        DeleteMode::RecoverableDelete => {
+            format!("Summary: no target was moved to {destination}.")
+        }
+        DeleteMode::PermanentDelete if projection.summary.completed_targets > 0 => format!(
+            "Summary: permanently deleted {}; freed {} ({}).",
+            format_usize_count(projection.summary.completed_targets, "target", "targets"),
+            projection.summary.freed_bytes,
+            format_bytes(projection.summary.freed_bytes)
+        ),
+        DeleteMode::PermanentDelete => "Summary: no target was permanently deleted.".to_string(),
+    }
+}
+
+fn format_usize_count(count: usize, singular: &str, plural: &str) -> String {
+    format_count(count as u64, singular, plural)
 }
 
 fn execution_label(projection: &CleanPlanProjection<'_>) -> String {
