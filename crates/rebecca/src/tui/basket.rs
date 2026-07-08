@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
 use rebecca::core::plan::CleanupPlan;
@@ -13,23 +14,39 @@ pub(crate) struct CleanupBasketItem {
     pub(crate) reason: String,
     pub(crate) required_flags: Vec<String>,
     pub(crate) required_warnings: Vec<String>,
+    pub(crate) source_path: PathBuf,
+    pub(crate) source_logical_bytes: u64,
+    pub(crate) source_files: u64,
+    pub(crate) source_directories: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CleanupBasketSource {
+    pub(crate) path: PathBuf,
+    pub(crate) logical_bytes: u64,
+    pub(crate) files: u64,
+    pub(crate) directories: u64,
 }
 
 pub(crate) type CleanupBasket = BTreeMap<String, CleanupBasketItem>;
 
-pub(crate) fn toggle_advice(basket: &mut CleanupBasket, advice: Option<&CleanupAdvice>) -> String {
+pub(crate) fn toggle_advice(
+    basket: &mut CleanupBasket,
+    advice: Option<&CleanupAdvice>,
+    source: CleanupBasketSource,
+) -> String {
     let Some(advice) = advice else {
-        return "Selected entry has no cleanup advice to stage.".to_string();
+        return "Selected entry has no cleanup advice to add.".to_string();
     };
     if !stageable_advice(advice) {
-        return format!("{} entries cannot be staged.", advice.status.label());
+        return format!("{} entries cannot be added.", advice.status.label());
     }
     let Some(rule_id) = advice.rule_id.as_ref() else {
         return "This advice is not backed by a cleanup rule yet.".to_string();
     };
 
     if basket.remove(rule_id).is_some() {
-        return format!("Unstaged rule {rule_id}.");
+        return format!("Removed {rule_id} from the Reclaim Basket.");
     }
 
     basket.insert(
@@ -40,9 +57,13 @@ pub(crate) fn toggle_advice(basket: &mut CleanupBasket, advice: Option<&CleanupA
             reason: advice.reason.clone(),
             required_flags: advice.required_flags.clone(),
             required_warnings: advice.required_warnings.clone(),
+            source_path: source.path,
+            source_logical_bytes: source.logical_bytes,
+            source_files: source.files,
+            source_directories: source.directories,
         },
     );
-    format!("Staged rule {rule_id}; preview covers all matching targets.")
+    format!("Added {rule_id} to the Reclaim Basket; preview will expand matching targets.")
 }
 
 pub(crate) fn workbench_request(
@@ -66,7 +87,12 @@ pub(crate) fn confirmation_phrase(plan: Option<&CleanupPlan>) -> String {
 }
 
 pub(crate) fn label(item: &CleanupBasketItem) -> String {
-    let mut label = format!("{} [{}]", item.rule_id, item.status.label());
+    let mut label = format!(
+        "{} [{}] {}",
+        item.rule_id,
+        item.status.label(),
+        crate::output::format_bytes(item.source_logical_bytes)
+    );
     if !item.required_flags.is_empty() {
         label.push_str(" flags:");
         label.push_str(&item.required_flags.join(","));
@@ -76,6 +102,19 @@ pub(crate) fn label(item: &CleanupBasketItem) -> String {
         label.push_str(&item.required_warnings.join(","));
     }
     label
+}
+
+pub(crate) fn source_summary(item: &CleanupBasketItem) -> String {
+    format!(
+        "{} | {}, {}",
+        item.source_path.display(),
+        crate::text::format_count(item.source_files, "file", "files"),
+        crate::text::format_count(item.source_directories, "dir", "dirs")
+    )
+}
+
+pub(crate) fn total_source_logical_bytes(basket: &CleanupBasket) -> u64 {
+    basket.values().map(|item| item.source_logical_bytes).sum()
 }
 
 fn stageable_advice(advice: &CleanupAdvice) -> bool {
@@ -89,6 +128,8 @@ fn stageable_advice(advice: &CleanupAdvice) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use rebecca::core::cleanup_advice::{CleanupAdviceCommand, CleanupAdviceSource};
 
     use super::*;
@@ -99,14 +140,14 @@ mod tests {
         let advice = advice(CleanupAdviceStatus::Cleanable, Some("linux.user-temp"));
 
         assert_eq!(
-            toggle_advice(&mut basket, Some(&advice)),
-            "Staged rule linux.user-temp; preview covers all matching targets."
+            toggle_advice(&mut basket, Some(&advice), source()),
+            "Added linux.user-temp to the Reclaim Basket; preview will expand matching targets."
         );
         assert!(basket.contains_key("linux.user-temp"));
 
         assert_eq!(
-            toggle_advice(&mut basket, Some(&advice)),
-            "Unstaged rule linux.user-temp."
+            toggle_advice(&mut basket, Some(&advice), source()),
+            "Removed linux.user-temp from the Reclaim Basket."
         );
         assert!(basket.is_empty());
     }
@@ -116,8 +157,8 @@ mod tests {
         let mut basket = CleanupBasket::new();
 
         assert_eq!(
-            toggle_advice(&mut basket, None),
-            "Selected entry has no cleanup advice to stage."
+            toggle_advice(&mut basket, None, source()),
+            "Selected entry has no cleanup advice to add."
         );
         assert_eq!(
             toggle_advice(
@@ -125,14 +166,16 @@ mod tests {
                 Some(&advice(
                     CleanupAdviceStatus::Protected,
                     Some("linux.user-temp")
-                ))
+                )),
+                source()
             ),
-            "protected entries cannot be staged."
+            "protected entries cannot be added."
         );
         assert_eq!(
             toggle_advice(
                 &mut basket,
-                Some(&advice(CleanupAdviceStatus::Cleanable, None))
+                Some(&advice(CleanupAdviceStatus::Cleanable, None)),
+                source()
             ),
             "This advice is not backed by a cleanup rule yet."
         );
@@ -147,12 +190,29 @@ mod tests {
             reason: "temporary files".to_string(),
             required_flags: vec!["--allow-moderate".to_string()],
             required_warnings: vec!["active-process".to_string()],
+            source_path: PathBuf::from("/tmp/cache"),
+            source_logical_bytes: 42,
+            source_files: 2,
+            source_directories: 1,
         };
 
         assert_eq!(
             label(&item),
-            "linux.user-temp [maybe-cleanable] flags:--allow-moderate warnings:active-process"
+            "linux.user-temp [maybe-cleanable] 42 B flags:--allow-moderate warnings:active-process"
         );
+        assert_eq!(source_summary(&item), "/tmp/cache | 2 files, 1 dir");
+        let mut basket = CleanupBasket::new();
+        basket.insert(item.rule_id.clone(), item);
+        assert_eq!(total_source_logical_bytes(&basket), 42);
+    }
+
+    fn source() -> CleanupBasketSource {
+        CleanupBasketSource {
+            path: PathBuf::from("/tmp/cache"),
+            logical_bytes: 42,
+            files: 2,
+            directories: 1,
+        }
     }
 
     fn advice(status: CleanupAdviceStatus, rule_id: Option<&str>) -> CleanupAdvice {

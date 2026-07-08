@@ -28,8 +28,8 @@ use crate::output::{
     WorkflowSuccessRenderer, format_bytes,
 };
 use crate::progress::{
-    HumanProgressThrottle, PROGRESS_PATH_MAX_CHARS, compact_progress_path, format_byte_rate,
-    format_file_rate, stderr_spinner,
+    HumanProgressThrottle, PROGRESS_PATH_MAX_CHARS, compact_progress_path, format_scan_counters,
+    stderr_spinner,
 };
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
@@ -392,7 +392,7 @@ struct PlanProgressReporter {
 impl PlanProgressReporter {
     fn new(enabled: bool, detail: ProgressDetail, event_writer: Option<NdjsonEventWriter>) -> Self {
         let now = Instant::now();
-        let bar = stderr_spinner(enabled, "plan | building cleanup plan");
+        let bar = stderr_spinner(enabled, "plan | building cleanup plan | Ctrl+C cancels");
 
         Self {
             bar,
@@ -561,7 +561,7 @@ impl PlanProgressReporter {
 
 fn target_scanning_message(next_target: u64, rule_id: &str, path: &Path) -> String {
     format!(
-        "plan | target {next_target} | scanning {rule_id} | {}",
+        "plan | target {next_target} | scanning {rule_id} | {} | Ctrl+C cancels",
         compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
     )
 }
@@ -588,11 +588,8 @@ fn file_progress_message(
     elapsed: Duration,
 ) -> String {
     format!(
-        "scan | {rule_id} | {} | {} | {}, {}",
-        format_count(files_scanned, "file", "files"),
-        format_bytes(bytes_scanned),
-        format_file_rate(files_scanned, elapsed),
-        format_byte_rate(bytes_scanned, elapsed)
+        "scan | {rule_id} | {}",
+        format_scan_counters(files_scanned, 0, bytes_scanned, elapsed)
     )
 }
 
@@ -715,6 +712,9 @@ mod tests {
         let path = message
             .strip_prefix("plan | target 3 | scanning windows.user-temp | ")
             .expect("progress message should keep the path as the final segment");
+        let path = path
+            .strip_suffix(" | Ctrl+C cancels")
+            .expect("progress message should include cancellation hint");
         assert!(path.starts_with("..."));
         assert!(path.ends_with(r"\Cache\Nested\Target"));
         assert!(path.chars().count() <= PROGRESS_PATH_MAX_CHARS);
@@ -736,7 +736,7 @@ mod tests {
 
         assert_eq!(
             message,
-            "scan | windows.user-temp | 4 files | 20 B | 4.0 files/s, 20 B/s"
+            "scan | windows.user-temp | 4 files | 0 dirs | 20 B | 4.0 files/s, 20 B/s"
         );
     }
 

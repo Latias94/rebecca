@@ -62,7 +62,7 @@ fn render_header(frame: &mut Frame<'_>, app: &TuiApp, area: Rect, color: bool) {
         spans.push(Span::raw(" "));
     }
     spans.push(Span::raw(format!(
-        " basket:{}  sort:{}{}",
+        " reclaim:{}  sort:{}{}",
         app.basket.len(),
         app.sort.label(),
         group_filter_suffix(app)
@@ -294,13 +294,24 @@ fn render_details(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from("Rule basket"));
+    lines.push(Line::from("Reclaim Basket"));
     if app.basket.is_empty() {
         lines.push(Line::from("  empty"));
     } else {
-        lines.push(Line::from("  preview includes all matching rule targets"));
+        lines.push(Line::from(format!(
+            "  selected scopes: {} ({})",
+            basket::total_source_logical_bytes(&app.basket),
+            format_bytes(basket::total_source_logical_bytes(&app.basket))
+        )));
+        lines.push(Line::from(
+            "  preview expands these rules into concrete targets",
+        ));
         for item in app.basket.values() {
             lines.push(Line::from(format!("  {}", basket::label(item))));
+            lines.push(Line::from(format!(
+                "    from {}",
+                basket::source_summary(item)
+            )));
         }
     }
 
@@ -439,7 +450,7 @@ fn render_status(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{}{}{} | Enter open | Space stage | c preview | ? all keys | q quit",
+            "{}{}{} | Enter open | Space add | c preview | ? all keys | q quit",
             app.message,
             search,
             active_group_filter_status(app)
@@ -493,8 +504,8 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(
             "Mouse: click tabs, map rows, treemap tiles, or distribution rows; click selects only",
         ),
-        Line::from("Space stages the cleanup rule; preview includes all matching targets"),
-        Line::from("e executes only after typed confirmation"),
+        Line::from("Space adds a cleanup rule to the Reclaim Basket"),
+        Line::from("c previews concrete targets; e executes only after typed confirmation"),
         Line::from("g shows recent cleanup history"),
         Line::from("q quits"),
     ]

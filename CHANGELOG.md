@@ -10,6 +10,7 @@ All notable changes to Rebecca will be documented in this file.
 
 ### Changed
 - Help, README examples, `clean`/`purge` summaries, `inspect map`, and the TUI result screen now start with the action a user can take next: preview, move to trash, permanently delete, or empty trash.
+- Long-running inspect and cleanup progress now shows clearer scan counters, rates, current scope, and cancellation hints; the TUI cleanup basket is now presented as a Reclaim Basket with selected-scope sizes before preview.
 
 ## [0.3.0] - 2026-07-08
 

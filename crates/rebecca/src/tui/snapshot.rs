@@ -19,7 +19,7 @@ pub(crate) fn snapshot(app: &TuiApp, options: ViewOptions) -> String {
     let width = options.width;
     lines.push(trim_to_width(
         format!(
-            "Rebecca TUI | {} | basket {} | sort {}{}",
+            "Rebecca TUI | {} | reclaim {} | sort {}{}",
             screen_label(app.screen),
             app.basket.len(),
             app.sort.label(),
@@ -250,8 +250,8 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::from(
             "Mouse: click tabs, map rows, treemap tiles, or distribution rows; click selects only",
         ),
-        Line::from("Space stages the cleanup rule; preview includes all matching targets"),
-        Line::from("e executes only after typed confirmation"),
+        Line::from("Space adds a cleanup rule to the Reclaim Basket"),
+        Line::from("c previews concrete targets; e executes only after typed confirmation"),
         Line::from("g shows recent cleanup history"),
         Line::from("q quits"),
     ]

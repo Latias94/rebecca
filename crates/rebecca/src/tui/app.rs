@@ -10,7 +10,9 @@ use rebecca::core::plan::CleanupPlan;
 use rebecca::core::scan::ScanBackendKind;
 
 use crate::output::format_bytes;
-use crate::tui::basket::{CleanupBasket, confirmation_phrase, toggle_advice, workbench_request};
+use crate::tui::basket::{
+    CleanupBasket, CleanupBasketSource, confirmation_phrase, toggle_advice, workbench_request,
+};
 use crate::tui::effect::TuiEffect;
 use crate::tui::input::{TuiKey, TuiMouseAction};
 use crate::tui::model::{TuiGroupFilter, TuiScreen};
@@ -137,7 +139,9 @@ impl TuiApp {
             preview: None,
             executed: None,
             history: Vec::new(),
-            message: "Space stages a cleanup rule, c previews all matching targets.".to_string(),
+            message:
+                "Space adds a cleanup rule to the Reclaim Basket; c previews concrete targets."
+                    .to_string(),
             task_status: None,
             scan_backend,
             entry_limit,
@@ -402,7 +406,7 @@ impl TuiApp {
         self.group_filter = None;
         self.bump_session_generation();
         self.message =
-            "Scan complete. Space stages cleanup rules, c previews all matching targets."
+            "Scan complete. Space adds rules to the Reclaim Basket; c previews concrete targets."
                 .to_string();
         self.task_status = None;
         self.failed_effect = None;
@@ -984,7 +988,13 @@ impl TuiApp {
         let Some(row) = self.selected_row() else {
             return;
         };
-        self.message = toggle_advice(&mut self.basket, row.cleanup_advice.as_ref());
+        let source = CleanupBasketSource {
+            path: row.path.clone(),
+            logical_bytes: row.metrics.logical_bytes,
+            files: row.metrics.files,
+            directories: row.metrics.directories,
+        };
+        self.message = toggle_advice(&mut self.basket, row.cleanup_advice.as_ref(), source);
     }
 
     fn cycle_sort(&mut self) {
@@ -1256,6 +1266,9 @@ mod tests {
 
         assert_eq!(app.handle_key(TuiKey::Space), TuiEffect::None);
         assert!(app.basket.contains_key("linux.user-temp"));
+        let item = app.basket.get("linux.user-temp").unwrap();
+        assert_eq!(item.source_logical_bytes, 42);
+        assert_eq!(item.source_files, 1);
 
         let effect = app.handle_key(TuiKey::Char('c'));
         assert_eq!(

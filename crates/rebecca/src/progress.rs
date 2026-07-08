@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::output::format_bytes;
+use crate::text::format_count;
 
 pub(crate) const PROGRESS_PATH_MAX_CHARS: usize = 72;
 
@@ -69,6 +70,22 @@ pub(crate) fn format_byte_rate(bytes_scanned: u64, elapsed: Duration) -> String 
     format!("{}/s", format_bytes(bytes_per_second))
 }
 
+pub(crate) fn format_scan_counters(
+    files: u64,
+    directories: u64,
+    logical_bytes: u64,
+    elapsed: Duration,
+) -> String {
+    format!(
+        "{} | {} | {} | {}, {}",
+        format_count(files, "file", "files"),
+        format_count(directories, "dir", "dirs"),
+        format_bytes(logical_bytes),
+        format_file_rate(files, elapsed),
+        format_byte_rate(logical_bytes, elapsed)
+    )
+}
+
 #[derive(Debug)]
 pub(crate) struct HumanProgressThrottle {
     events_since_refresh: u64,
@@ -114,5 +131,13 @@ mod tests {
     fn rate_formatters_handle_zero_elapsed_inputs() {
         assert_eq!(format_file_rate(0, Duration::ZERO), "0.0 files/s");
         assert_eq!(format_byte_rate(0, Duration::ZERO), "0 B/s");
+    }
+
+    #[test]
+    fn scan_counter_formatter_includes_counts_bytes_and_rates() {
+        assert_eq!(
+            format_scan_counters(4, 2, 20, Duration::from_secs(2)),
+            "4 files | 2 dirs | 20 B | 2.0 files/s, 10 B/s"
+        );
     }
 }

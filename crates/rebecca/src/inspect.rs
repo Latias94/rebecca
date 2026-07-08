@@ -44,7 +44,7 @@ use crate::output::{
 };
 use crate::progress::{
     HumanProgressThrottle, PROGRESS_PATH_MAX_CHARS, compact_progress_path, format_byte_rate,
-    format_file_rate, stderr_spinner,
+    format_file_rate, format_scan_counters, stderr_spinner,
 };
 use crate::purge::resolve_roots;
 use crate::purge_view::ProjectArtifactInsightReport;
@@ -229,7 +229,7 @@ impl InspectProgressReporter {
     ) -> Self {
         Self {
             command_label,
-            bar: stderr_spinner(human_enabled, "inspect | starting"),
+            bar: stderr_spinner(human_enabled, "inspect | starting | Ctrl+C cancels"),
             detail,
             event_writer,
             current_started_at: Instant::now(),
@@ -270,7 +270,7 @@ impl InspectProgressReporter {
             } => {
                 self.current_started_at = Instant::now();
                 bar.set_message(format!(
-                    "{} | root {}/{} | {} | {}",
+                    "{} | scanning root {}/{} | {} | {} | Ctrl+C cancels",
                     self.command_label,
                     root_index.saturating_add(1),
                     root_count,
@@ -288,14 +288,17 @@ impl InspectProgressReporter {
                 ..
             } => {
                 bar.set_message(format!(
-                    "{} | root {}/{} | {} | {} | {}, {}",
+                    "{} | root {}/{} {} | {}",
                     self.command_label,
                     root_index.saturating_add(1),
                     root_count,
                     status.label(),
-                    format_bytes(logical_bytes),
-                    format_count(files, "file", "files"),
-                    format_count(directories, "dir", "dirs")
+                    format_scan_counters(
+                        files,
+                        directories,
+                        logical_bytes,
+                        self.current_started_at.elapsed()
+                    )
                 ));
                 bar.tick();
             }
@@ -303,7 +306,7 @@ impl InspectProgressReporter {
                 path, entry_index, ..
             } => {
                 bar.set_message(format!(
-                    "{} | entry {} | scanning {}",
+                    "{} | entry {} | scanning {} | Ctrl+C cancels",
                     self.command_label,
                     entry_index.saturating_add(1),
                     compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
@@ -317,12 +320,15 @@ impl InspectProgressReporter {
                 ..
             } => {
                 bar.set_message(format!(
-                    "{} | entry | {} | {} | {}, {}",
+                    "{} | measured {} | {}",
                     self.command_label,
                     compact_progress_path(path, PROGRESS_PATH_MAX_CHARS),
-                    format_bytes(logical_bytes),
-                    format_count(files, "file", "files"),
-                    format_count(directories, "dir", "dirs")
+                    format_scan_counters(
+                        files,
+                        directories,
+                        logical_bytes,
+                        self.current_started_at.elapsed()
+                    )
                 ));
                 bar.tick();
             }
@@ -350,12 +356,15 @@ impl InspectProgressReporter {
                 ..
             } => {
                 bar.set_message(format!(
-                    "{} | {} | {} | {}, {}",
+                    "{} | walking {} | {} | Ctrl+C cancels",
                     self.command_label,
                     counter.label(),
-                    format_bytes(logical_bytes),
-                    format_count(files, "file", "files"),
-                    format_count(directories, "dir", "dirs")
+                    format_scan_counters(
+                        files,
+                        directories,
+                        logical_bytes,
+                        self.current_started_at.elapsed()
+                    )
                 ));
             }
             InspectProgressEvent::BackendFallback {
@@ -410,12 +419,15 @@ impl InspectProgressReporter {
                 directories,
             } => {
                 bar.set_message(format!(
-                    "{} | finalizing | {} | {} | {}, {}",
+                    "{} | finalizing {} | {}",
                     self.command_label,
                     format_count(roots as u64, "root", "roots"),
-                    format_bytes(logical_bytes),
-                    format_count(files, "file", "files"),
-                    format_count(directories, "dir", "dirs")
+                    format_scan_counters(
+                        files,
+                        directories,
+                        logical_bytes,
+                        self.current_started_at.elapsed()
+                    )
                 ));
             }
         }

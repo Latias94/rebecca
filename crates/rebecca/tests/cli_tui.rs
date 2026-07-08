@@ -33,6 +33,7 @@ fn tui_once_renders_disk_map_snapshot_for_root() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Rebecca TUI | map"));
+    assert!(stdout.contains("reclaim 0"));
     assert!(stdout.contains("Map: workspace"));
     assert!(stdout.contains("big"));
     assert!(stdout.contains("small.txt"));
