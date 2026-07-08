@@ -83,6 +83,65 @@ jobs:
             cargo package -p $crate --list > "target/package-lists/$crate.txt"
           }
 
+      - name: Verify crates.io publish dependency order
+        shell: pwsh
+        run: |
+          $publishOrder = @("rebecca-safety", "rebecca-ntfs", "rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca")
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $workspaceMemberIds = @{}
+          foreach ($memberId in $metadata.workspace_members) {
+            $workspaceMemberIds[[string]$memberId] = $true
+          }
+
+          $workspacePackages = @{}
+          foreach ($package in $metadata.packages) {
+            if ($workspaceMemberIds.ContainsKey([string]$package.id)) {
+              $workspacePackages[[string]$package.name] = $package
+            }
+          }
+
+          $orderByName = @{}
+          for ($index = 0; $index -lt $publishOrder.Count; $index++) {
+            $crate = $publishOrder[$index]
+            if (-not $workspacePackages.ContainsKey($crate)) {
+              throw "Publish order references workspace crate '$crate', but cargo metadata did not find it."
+            }
+
+            $crateVersion = [string]$workspacePackages[$crate].version
+            if ($crateVersion -ne "${{ inputs.version }}") {
+              throw "$crate version '$crateVersion' does not match release version '${{ inputs.version }}'."
+            }
+
+            $orderByName[$crate] = $index
+          }
+
+          foreach ($crate in $workspacePackages.Keys) {
+            if (-not $orderByName.ContainsKey($crate)) {
+              throw "Workspace crate '$crate' is missing from the crates.io publish order."
+            }
+          }
+
+          $violations = [System.Collections.Generic.List[string]]::new()
+          foreach ($crate in $publishOrder) {
+            $package = $workspacePackages[$crate]
+            foreach ($dependency in $package.dependencies) {
+              $dependencyName = [string]$dependency.name
+              if (-not $orderByName.ContainsKey($dependencyName)) {
+                continue
+              }
+
+              if ($orderByName[$dependencyName] -ge $orderByName[$crate]) {
+                $dependencyKind = if ($null -eq $dependency.kind) { "normal" } else { [string]$dependency.kind }
+                $violations.Add("$crate has a $dependencyKind workspace dependency on $dependencyName, but $dependencyName is not published earlier.")
+              }
+            }
+          }
+
+          if ($violations.Count -gt 0) {
+            $message = "Invalid crates.io publish order:`n" + ($violations -join "`n")
+            throw $message
+          }
+
       - name: Verify registry-independent crate dry-runs
         shell: pwsh
         run: |

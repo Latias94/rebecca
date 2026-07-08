@@ -339,7 +339,7 @@ Focused coverage currently includes:
 - `crates/rebecca-core/tests/safety_catalog.rs` for safety catalog versioning,
   category completeness, warning-kind uniqueness, and data-driven matcher
   coverage;
-- `crates/rebecca-core/tests/planner.rs` for rule selection, target expansion,
+- `crates/rebecca-rules/tests/planner.rs` for rule selection, target expansion,
   scan-cache behavior, protected storage blocking, protected category blocking,
   Steam target behavior, and app-leftover planning;
 - `crates/rebecca-core/tests/executor_contract.rs` for executor status updates,

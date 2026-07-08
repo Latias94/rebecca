@@ -1625,7 +1625,6 @@ dependencies = [
  "ignore",
  "rayon",
  "rebecca-ntfs",
- "rebecca-rules",
  "rebecca-safety",
  "serde",
  "serde_json",
@@ -1653,6 +1652,8 @@ dependencies = [
  "rebecca-core",
  "rebecca-safety",
  "serde",
+ "serde_json",
+ "tempfile",
  "toml",
 ]
 
