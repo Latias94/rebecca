@@ -6,7 +6,7 @@
   "generated_at_unix_seconds": 1783420000,
   "data": {
     "api_version": "rebecca.cli.v1",
-    "cli_version": "0.2.0",
+    "cli_version": "0.3.0",
     "platform": {
       "current": "macos",
       "cleanup_execution_supported": true

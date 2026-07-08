@@ -36,7 +36,7 @@ The tag prefix may be `v` or `V`; the cargo-dist release version omits that pref
 Use the cargo-dist PowerShell installer:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.2.0/rebecca-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/latest/download/rebecca-installer.ps1 | iex"
 ```
 
 Set `REBECCA_INSTALL_DIR` to override the install directory. Run the installer for a newer tag to update.
@@ -88,11 +88,11 @@ Checksum verification proves that the downloaded ZIP matches the checksum file p
 Maintainers can run the repository's PowerShell package and checksum scripts locally. These scripts are also exercised by `ci.yml` and `release-preflight.yml` as an install/archive smoke test; they are not the tag-driven GitHub Release publisher.
 
 ```powershell
-.\scripts\release\build-release.ps1 -Tag v0.2.0 -OutDir target\release-smoke
-.\scripts\release\write-sbom.ps1 -Tag v0.2.0 -DistDir target\release-smoke
+.\scripts\release\build-release.ps1 -Tag v0.3.0 -OutDir target\release-smoke
+.\scripts\release\write-sbom.ps1 -Tag v0.3.0 -DistDir target\release-smoke
 .\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
 Get-Content target\release-smoke\SHA256SUMS
-Get-ChildItem target\release-smoke\rebecca-0.2.0-windows-x86_64-msvc\completions
+Get-ChildItem target\release-smoke\rebecca-0.3.0-windows-x86_64-msvc\completions
 ```
 
 Local smoke artifacts are not official releases.

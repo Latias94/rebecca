@@ -33,7 +33,7 @@ Use Rebecca as a Rust library:
 
 ```toml
 [dependencies]
-rebecca = "0.2"
+rebecca = "0.3"
 ```
 
 The public `rebecca` crate exposes the supported API. The workspace crates under `crates/` are implementation packages and may move faster.

@@ -4,6 +4,8 @@ All notable changes to Rebecca will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-08
+
 ### Breaking
 - Cleanup rule files now use shared family manifests under `rules/cleanup/<id>.toml` with per-platform blocks; the old top-level `platform` and `[[targets]]` shape is gone.
 - Built-in safety data moved to shared Windows, Linux, and macOS safety blocks, and protected critical paths now use the generic `critical-path` reason code.
