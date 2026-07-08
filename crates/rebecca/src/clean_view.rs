@@ -311,8 +311,7 @@ mod tests {
         };
 
         if status == TargetStatus::Completed {
-            target.status = TargetStatus::Completed;
-            target.freed_bytes = estimated_bytes;
+            target.mark_completed(estimated_bytes, 0, None);
         }
 
         target

@@ -246,8 +246,7 @@ fn sample_plan() -> CleanupPlan {
         DeleteMode::RecoverableDelete,
     )
     .with_restore_hint(Some("Temporary files can be recreated.".to_string()));
-    target.status = rebecca_core::TargetStatus::Completed;
-    target.pending_reclaim_bytes = 10;
+    target.mark_completed(0, 10, None);
     plan.targets.push(target);
     plan.recompute_summary();
     plan

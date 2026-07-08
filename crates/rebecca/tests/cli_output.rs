@@ -3,7 +3,7 @@ use std::fs;
 mod common;
 use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::{CleanupPlan, CleanupTarget};
-use rebecca::core::{DeleteMode, PlanRequest, Platform, TargetStatus};
+use rebecca::core::{DeleteMode, PlanRequest, Platform};
 
 #[test]
 fn config_paths_json_is_parseable() {
@@ -182,8 +182,7 @@ history_file = '{}'
         10,
         DeleteMode::RecoverableDelete,
     );
-    target.status = TargetStatus::Completed;
-    target.pending_reclaim_bytes = 10;
+    target.mark_completed(0, 10, None);
     plan.targets.push(target);
     plan.recompute_summary();
     HistoryStore::new(history_path.clone())

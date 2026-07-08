@@ -3,7 +3,7 @@ use std::fs;
 mod common;
 use rebecca::core::history::HistoryEntry;
 use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
-use rebecca::core::{DeleteMode, PlanRequest, Platform, TargetStatus};
+use rebecca::core::{DeleteMode, PlanRequest, Platform};
 
 fn completed_history_entry(
     recorded_at_unix_seconds: u64,
@@ -26,8 +26,7 @@ fn completed_history_entry(
         execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
-    plan.targets[0].status = TargetStatus::Completed;
-    plan.targets[0].pending_reclaim_bytes = pending_reclaim_bytes;
+    plan.targets[0].mark_completed(0, pending_reclaim_bytes, None);
 
     let mut entry = HistoryEntry::from_plan(&plan);
     entry.recorded_at_unix_seconds = recorded_at_unix_seconds;
@@ -128,8 +127,7 @@ fn app_leftovers_history_entry(recorded_at_unix_seconds: u64) -> HistoryEntry {
         execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
-    plan.targets[0].status = TargetStatus::Completed;
-    plan.targets[0].pending_reclaim_bytes = 12;
+    plan.targets[0].mark_completed(0, 12, None);
 
     let mut entry = HistoryEntry::from_plan(&plan);
     entry.recorded_at_unix_seconds = recorded_at_unix_seconds;
@@ -229,8 +227,7 @@ fn history_json_preserves_restore_hints() {
         execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
-    plan.targets[0].status = TargetStatus::Completed;
-    plan.targets[0].pending_reclaim_bytes = 11;
+    plan.targets[0].mark_completed(0, 11, None);
 
     let entry = HistoryEntry::from_plan(&plan);
     std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
@@ -404,10 +401,8 @@ fn history_human_output_lists_restore_hints() {
         execution_report: None,
         discovery_diagnostics: Vec::new(),
     };
-    plan.targets[0].status = TargetStatus::Completed;
-    plan.targets[0].pending_reclaim_bytes = 11;
-    plan.targets[1].status = TargetStatus::Completed;
-    plan.targets[1].pending_reclaim_bytes = 31;
+    plan.targets[0].mark_completed(0, 11, None);
+    plan.targets[1].mark_completed(0, 31, None);
 
     let entry = HistoryEntry::from_plan(&plan);
     std::fs::write(&history_path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();

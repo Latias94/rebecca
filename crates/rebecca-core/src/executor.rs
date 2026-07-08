@@ -582,62 +582,45 @@ fn execution_target_is_still_allowed(
 }
 
 fn mark_target_missing_before_execution(target: &mut CleanupTarget) {
-    target.status = crate::TargetStatus::Skipped;
-    target.reason = Some(PATH_DOES_NOT_EXIST_REASON.to_string());
-    target.reason_code = Some(CleanupTargetIssueReason::ExecutionTargetMissing);
-    target.freed_bytes = 0;
-    target.pending_reclaim_bytes = 0;
+    target.mark_skipped_with_reason_code(
+        CleanupTargetIssueReason::ExecutionTargetMissing,
+        PATH_DOES_NOT_EXIST_REASON,
+    );
 }
 
 fn mark_target_shadowed_before_execution(target: &mut CleanupTarget, parent_rule_id: String) {
-    target.status = crate::TargetStatus::Skipped;
-    target.reason = Some(format!(
-        "covered by overlapping cleanup target from {parent_rule_id}"
-    ));
-    target.reason_code = Some(CleanupTargetIssueReason::ExecutionTargetShadowed);
-    target.freed_bytes = 0;
-    target.pending_reclaim_bytes = 0;
+    target.mark_skipped_with_reason_code(
+        CleanupTargetIssueReason::ExecutionTargetShadowed,
+        format!("covered by overlapping cleanup target from {parent_rule_id}"),
+    );
 }
 
 fn mark_target_skipped_by_policy(target: &mut CleanupTarget, reason: String) {
-    target.status = crate::TargetStatus::Skipped;
-    target.reason = Some(reason);
-    target.reason_code = Some(CleanupTargetIssueReason::SafetyPolicySkipped);
-    target.freed_bytes = 0;
-    target.pending_reclaim_bytes = 0;
+    target.mark_skipped_with_reason_code(CleanupTargetIssueReason::SafetyPolicySkipped, reason);
 }
 
 fn mark_target_blocked_by_policy(target: &mut CleanupTarget, reason: String) {
-    target.status = crate::TargetStatus::Blocked;
-    target.reason = Some(reason);
-    target.reason_code = Some(CleanupTargetIssueReason::SafetyPolicyBlocked);
-    target.freed_bytes = 0;
-    target.pending_reclaim_bytes = 0;
+    target.mark_blocked_with_reason_code(CleanupTargetIssueReason::SafetyPolicyBlocked, reason);
 }
 
 fn apply_delete_result(target: &mut CleanupTarget, outcome: Result<ExecutionOutcome>) {
     match outcome {
         Ok(outcome) => {
-            target.status = crate::TargetStatus::Completed;
-            target.freed_bytes = outcome.freed_bytes;
-            target.pending_reclaim_bytes = outcome.pending_reclaim_bytes;
-            target.reason = outcome.note;
-            target.reason_code = None;
+            target.mark_completed(
+                outcome.freed_bytes,
+                outcome.pending_reclaim_bytes,
+                outcome.note,
+            );
         }
         Err(err) => match &err {
             RebeccaError::SafetyBlocked(_) => {
-                target.status = crate::TargetStatus::Blocked;
-                target.reason = Some(err.to_string());
-                target.reason_code = Some(CleanupTargetIssueReason::SafetyPolicyBlocked);
-                target.freed_bytes = 0;
-                target.pending_reclaim_bytes = 0;
+                target.mark_blocked_with_reason_code(
+                    CleanupTargetIssueReason::SafetyPolicyBlocked,
+                    err.to_string(),
+                );
             }
             _ => {
-                target.status = crate::TargetStatus::Failed;
-                target.reason = Some(err.to_string());
-                target.reason_code = Some(execution_issue_reason(&err));
-                target.freed_bytes = 0;
-                target.pending_reclaim_bytes = 0;
+                target.mark_failed_with_reason_code(execution_issue_reason(&err), err.to_string());
             }
         },
     }

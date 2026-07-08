@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use rebecca_core::plan::{
-    CleanupPlan, CleanupTarget, CleanupTargetEvidence, CleanupTargetIssueReason,
-    EstimateProvenance, EstimateSource,
+    CleanupPlan, CleanupTarget, CleanupTargetEvidence, CleanupTargetEvidenceKind,
+    CleanupTargetIssueReason, EstimateProvenance, EstimateSource,
 };
 use rebecca_core::project_artifacts::{
     ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
@@ -81,6 +81,61 @@ fn cleanup_plan_summary_ignores_non_issue_status_evidence() {
 
     assert_eq!(plan.summary.allowed_targets, 1);
     assert!(plan.summary.issue_matrix.is_empty());
+}
+
+#[test]
+fn cleanup_target_state_transitions_replace_issue_evidence_and_sync_warnings() {
+    let mut target = CleanupTarget::skipped_with_reason_code(
+        "windows.slack-cache",
+        PathBuf::from(r"C:\Users\Alice\AppData\Roaming\Slack\Cache"),
+        DeleteMode::RecoverableDelete,
+        CleanupTargetIssueReason::WarningGateRequired,
+        "warning gate requires --allow-warning active-process",
+    )
+    .with_warnings(vec!["active-process".to_string()]);
+
+    target.mark_failed_with_reason_code(
+        CleanupTargetIssueReason::ExecutionFailed,
+        "backend unavailable",
+    );
+
+    let issue_evidence = target
+        .evidence
+        .iter()
+        .filter(|evidence| evidence.kind == CleanupTargetEvidenceKind::Issue)
+        .collect::<Vec<_>>();
+    assert_eq!(issue_evidence.len(), 1);
+    assert_eq!(issue_evidence[0].status, TargetStatus::Failed);
+    assert_eq!(
+        issue_evidence[0].reason_code,
+        Some(CleanupTargetIssueReason::ExecutionFailed)
+    );
+    assert!(
+        target
+            .evidence
+            .iter()
+            .filter(|evidence| evidence.kind == CleanupTargetEvidenceKind::Warning)
+            .all(|evidence| evidence.status == TargetStatus::Failed)
+    );
+
+    target.mark_completed(0, 12, Some("moved to recoverable trash".to_string()));
+
+    assert_eq!(target.status, TargetStatus::Completed);
+    assert_eq!(target.reason_code, None);
+    assert_eq!(target.pending_reclaim_bytes, 12);
+    assert!(
+        target
+            .evidence
+            .iter()
+            .all(|evidence| evidence.kind != CleanupTargetEvidenceKind::Issue)
+    );
+    assert!(
+        target
+            .evidence
+            .iter()
+            .filter(|evidence| evidence.kind == CleanupTargetEvidenceKind::Warning)
+            .all(|evidence| evidence.status == TargetStatus::Completed)
+    );
 }
 
 #[test]

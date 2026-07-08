@@ -313,7 +313,8 @@ impl CleanupTarget {
         reason_code: CleanupTargetIssueReason,
         reason: impl Into<String>,
     ) -> Self {
-        let reason = reason.into();
+        let (reason, issue_evidence) =
+            Self::issue_reason_and_evidence(TargetStatus::Skipped, reason_code, reason);
         Self {
             rule_id: rule_id.into(),
             path,
@@ -329,11 +330,7 @@ impl CleanupTarget {
             modified_at_unix_seconds: None,
             project_artifact: None,
             warnings: Vec::new(),
-            evidence: vec![CleanupTargetEvidence::issue(
-                TargetStatus::Skipped,
-                reason_code,
-                reason,
-            )],
+            evidence: vec![issue_evidence],
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -361,7 +358,8 @@ impl CleanupTarget {
         reason_code: CleanupTargetIssueReason,
         reason: impl Into<String>,
     ) -> Self {
-        let reason = reason.into();
+        let (reason, issue_evidence) =
+            Self::issue_reason_and_evidence(TargetStatus::Blocked, reason_code, reason);
         Self {
             rule_id: rule_id.into(),
             path,
@@ -377,11 +375,7 @@ impl CleanupTarget {
             modified_at_unix_seconds: None,
             project_artifact: None,
             warnings: Vec::new(),
-            evidence: vec![CleanupTargetEvidence::issue(
-                TargetStatus::Blocked,
-                reason_code,
-                reason,
-            )],
+            evidence: vec![issue_evidence],
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -412,7 +406,8 @@ impl CleanupTarget {
         reason_code: CleanupTargetIssueReason,
         reason: impl Into<String>,
     ) -> Self {
-        let reason = reason.into();
+        let (reason, issue_evidence) =
+            Self::issue_reason_and_evidence(TargetStatus::Failed, reason_code, reason);
         Self {
             rule_id: rule_id.into(),
             path,
@@ -432,11 +427,7 @@ impl CleanupTarget {
             modified_at_unix_seconds: None,
             project_artifact: None,
             warnings: Vec::new(),
-            evidence: vec![CleanupTargetEvidence::issue(
-                TargetStatus::Failed,
-                reason_code,
-                reason,
-            )],
+            evidence: vec![issue_evidence],
             freed_bytes: 0,
             pending_reclaim_bytes: 0,
         }
@@ -486,6 +477,82 @@ impl CleanupTarget {
         );
         self.warnings = warnings;
         self
+    }
+
+    pub fn mark_completed(
+        &mut self,
+        freed_bytes: u64,
+        pending_reclaim_bytes: u64,
+        reason: Option<String>,
+    ) {
+        self.status = TargetStatus::Completed;
+        self.reason = reason;
+        self.reason_code = None;
+        self.freed_bytes = freed_bytes;
+        self.pending_reclaim_bytes = pending_reclaim_bytes;
+        self.remove_issue_evidence_and_sync_warnings();
+    }
+
+    pub fn mark_skipped_with_reason_code(
+        &mut self,
+        reason_code: CleanupTargetIssueReason,
+        reason: impl Into<String>,
+    ) {
+        self.mark_issue_state(TargetStatus::Skipped, reason_code, reason);
+    }
+
+    pub fn mark_blocked_with_reason_code(
+        &mut self,
+        reason_code: CleanupTargetIssueReason,
+        reason: impl Into<String>,
+    ) {
+        self.mark_issue_state(TargetStatus::Blocked, reason_code, reason);
+    }
+
+    pub fn mark_failed_with_reason_code(
+        &mut self,
+        reason_code: CleanupTargetIssueReason,
+        reason: impl Into<String>,
+    ) {
+        self.mark_issue_state(TargetStatus::Failed, reason_code, reason);
+    }
+
+    fn mark_issue_state(
+        &mut self,
+        status: TargetStatus,
+        reason_code: CleanupTargetIssueReason,
+        reason: impl Into<String>,
+    ) {
+        let (reason, issue_evidence) = Self::issue_reason_and_evidence(status, reason_code, reason);
+        self.status = status;
+        self.reason = Some(reason);
+        self.reason_code = Some(reason_code);
+        self.freed_bytes = 0;
+        self.pending_reclaim_bytes = 0;
+        self.remove_issue_evidence_and_sync_warnings();
+        self.evidence.push(issue_evidence);
+    }
+
+    fn issue_reason_and_evidence(
+        status: TargetStatus,
+        reason_code: CleanupTargetIssueReason,
+        reason: impl Into<String>,
+    ) -> (String, CleanupTargetEvidence) {
+        debug_assert!(status.is_issue());
+        let reason = reason.into();
+        let issue_evidence = CleanupTargetEvidence::issue(status, reason_code, reason.clone());
+        (reason, issue_evidence)
+    }
+
+    fn remove_issue_evidence_and_sync_warnings(&mut self) {
+        let status = self.status;
+        self.evidence.retain_mut(|evidence| match evidence.kind {
+            CleanupTargetEvidenceKind::Issue => false,
+            CleanupTargetEvidenceKind::Warning => {
+                evidence.status = status;
+                true
+            }
+        });
     }
 
     fn for_each_issue_evidence(

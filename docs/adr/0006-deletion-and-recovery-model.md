@@ -2,7 +2,7 @@
 title: "Deletion and Recovery Model"
 status: "accepted"
 created: "2026-06-23"
-last_updated: "2026-07-01"
+last_updated: "2026-07-08"
 ---
 
 # Context
@@ -45,6 +45,9 @@ All destructive commands must build a cleanup plan before execution.
   `reason_code` projections, while summaries aggregate those facts into an
   `issue_matrix` keyed by target status and reason code. Detailed `reason` text
   remains available for local context.
+- Execution updates target outcomes only through cleanup-target state
+  transitions that replace stale issue evidence, preserve warning evidence, and
+  keep target fields, summaries, and history projections synchronized.
 
 # Alternatives Considered
 

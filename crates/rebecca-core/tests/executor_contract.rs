@@ -12,10 +12,38 @@ use rebecca_core::executor::{
     CleanupBackend, ExecutionOutcome, execute_cleanup_plan,
     execute_cleanup_plan_parallel_with_policy, execute_cleanup_plan_with_policy,
 };
-use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
+use rebecca_core::plan::{
+    CleanupPlan, CleanupTarget, CleanupTargetEvidenceKind, CleanupTargetIssueReason,
+};
 use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::safety_catalog::default_safety_knowledge_for_platform;
 use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform, Result, TargetStatus};
+
+fn assert_no_issue_evidence(target: &CleanupTarget) {
+    assert!(
+        target
+            .evidence
+            .iter()
+            .all(|evidence| evidence.kind != CleanupTargetEvidenceKind::Issue)
+    );
+}
+
+fn assert_issue_target(
+    target: &CleanupTarget,
+    status: TargetStatus,
+    reason_code: CleanupTargetIssueReason,
+) {
+    assert_eq!(target.status, status);
+    assert_eq!(target.reason_code, Some(reason_code));
+    let issue_evidence = target
+        .evidence
+        .iter()
+        .filter(|evidence| evidence.kind == CleanupTargetEvidenceKind::Issue)
+        .collect::<Vec<_>>();
+    assert_eq!(issue_evidence.len(), 1);
+    assert_eq!(issue_evidence[0].status, status);
+    assert_eq!(issue_evidence[0].reason_code, Some(reason_code));
+}
 
 #[test]
 fn executor_marks_allowed_targets_completed_and_keeps_blocked_targets() {
@@ -48,7 +76,12 @@ fn executor_marks_allowed_targets_completed_and_keeps_blocked_targets() {
     assert_eq!(plan.execution_report.as_ref(), Some(&report));
     assert_eq!(plan.targets[0].status, TargetStatus::Completed);
     assert_eq!(plan.targets[0].pending_reclaim_bytes, 10);
-    assert_eq!(plan.targets[1].status, TargetStatus::Blocked);
+    assert_no_issue_evidence(&plan.targets[0]);
+    assert_issue_target(
+        &plan.targets[1],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
+    );
     assert_eq!(report.summary.completed_actions, 1);
     assert_eq!(report.summary.blocked_actions, 1);
     assert_eq!(
@@ -77,10 +110,10 @@ fn executor_records_failure_without_aborting_plan() {
     let backend = FakeBackend::failure("backend unavailable");
     execute_cleanup_plan(&mut plan, &backend).unwrap();
 
-    assert_eq!(plan.targets[0].status, TargetStatus::Failed);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionFailed)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Failed,
+        CleanupTargetIssueReason::ExecutionFailed,
     );
     assert_eq!(plan.summary.failed_targets, 1);
     assert_eq!(
@@ -109,10 +142,10 @@ fn executor_records_permission_failure_reason_without_aborting_plan() {
     let backend = FakeBackend::failure("permission denied");
     execute_cleanup_plan(&mut plan, &backend).unwrap();
 
-    assert_eq!(plan.targets[0].status, TargetStatus::Failed);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionPermissionDenied)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Failed,
+        CleanupTargetIssueReason::ExecutionPermissionDenied,
     );
     assert_eq!(plan.summary.failed_targets, 1);
     assert_eq!(
@@ -142,10 +175,10 @@ fn executor_records_final_safety_block_as_blocked_target() {
     execute_cleanup_plan(&mut plan, &backend).unwrap();
 
     assert_eq!(backend.calls.get(), 1);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
     assert_eq!(plan.summary.blocked_targets, 1);
     assert_eq!(plan.summary.failed_targets, 0);
@@ -173,10 +206,10 @@ fn executor_default_policy_uses_plan_platform_safety_knowledge() {
     let report = execute_cleanup_plan(&mut plan, &backend).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
     assert!(
         plan.targets[0]
@@ -209,10 +242,10 @@ fn executor_revalidates_targets_with_supplied_platform_safety_knowledge() {
     let report = execute_cleanup_plan_with_policy(&mut plan, &backend, policy).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
     assert!(
         plan.targets[0]
@@ -254,10 +287,11 @@ fn executor_shadows_child_targets_covered_by_parent_delete() {
     assert_eq!(backend.calls.get(), 1);
     assert_eq!(plan.execution_report.as_ref(), Some(&report));
     assert_eq!(plan.targets[0].status, TargetStatus::Completed);
-    assert_eq!(plan.targets[1].status, TargetStatus::Skipped);
-    assert_eq!(
-        plan.targets[1].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    assert_no_issue_evidence(&plan.targets[0]);
+    assert_issue_target(
+        &plan.targets[1],
+        TargetStatus::Skipped,
+        CleanupTargetIssueReason::ExecutionTargetShadowed,
     );
     assert_eq!(plan.summary.completed_targets, 1);
     assert_eq!(plan.summary.skipped_targets, 1);
@@ -302,17 +336,18 @@ fn executor_shadowing_is_order_independent_for_nested_targets() {
     let report = execute_cleanup_plan(&mut plan, &backend).unwrap();
 
     assert_eq!(backend.calls.get(), 1);
-    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
-    assert_eq!(plan.targets[1].status, TargetStatus::Skipped);
     assert_eq!(plan.targets[2].status, TargetStatus::Completed);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Skipped,
+        CleanupTargetIssueReason::ExecutionTargetShadowed,
     );
-    assert_eq!(
-        plan.targets[1].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    assert_issue_target(
+        &plan.targets[1],
+        TargetStatus::Skipped,
+        CleanupTargetIssueReason::ExecutionTargetShadowed,
     );
+    assert_no_issue_evidence(&plan.targets[2]);
     assert!(
         plan.targets[0]
             .reason
@@ -350,10 +385,10 @@ fn executor_revalidates_protected_category_targets_before_backend_calls() {
     execute_cleanup_plan_with_policy(&mut plan, &backend, ProtectionPolicy::new()).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
     assert!(
         plan.targets[0]
@@ -392,10 +427,10 @@ fn executor_revalidates_rebecca_owned_storage_before_backend_calls() {
     execute_cleanup_plan_with_policy(&mut plan, &backend, policy).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
     assert!(
         plan.targets[0]
@@ -431,10 +466,10 @@ fn executor_revalidates_user_protected_paths_before_backend_calls() {
     execute_cleanup_plan_with_policy(&mut plan, &backend, policy).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
     assert!(
         plan.targets[0]
@@ -469,10 +504,10 @@ fn executor_revalidates_project_artifact_targets_before_backend_calls() {
     execute_cleanup_plan_with_policy(&mut plan, &backend, policy).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
 }
 
@@ -496,10 +531,10 @@ fn executor_skips_missing_targets_before_backend_calls() {
     execute_cleanup_plan_with_policy(&mut plan, &backend, ProtectionPolicy::new()).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionTargetMissing)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Skipped,
+        CleanupTargetIssueReason::ExecutionTargetMissing,
     );
     assert!(
         plan.targets[0]
@@ -544,6 +579,7 @@ fn executor_allows_app_leftover_cache_targets_after_revalidation() {
     assert_eq!(backend.calls.get(), 1);
     assert_eq!(plan.targets[0].status, TargetStatus::Completed);
     assert_eq!(plan.targets[0].pending_reclaim_bytes, 5);
+    assert_no_issue_evidence(&plan.targets[0]);
 }
 
 #[test]
@@ -571,10 +607,10 @@ fn executor_skips_missing_app_leftover_targets_before_backend_calls() {
     execute_cleanup_plan_with_policy(&mut plan, &backend, ProtectionPolicy::new()).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Skipped);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionTargetMissing)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Skipped,
+        CleanupTargetIssueReason::ExecutionTargetMissing,
     );
     assert_eq!(
         plan.targets[0].reason.as_deref(),
@@ -637,6 +673,8 @@ fn executor_parallel_batches_independent_targets() {
     assert_eq!(plan.summary.completed_targets, 2);
     assert_eq!(plan.targets[0].status, TargetStatus::Completed);
     assert_eq!(plan.targets[1].status, TargetStatus::Completed);
+    assert_no_issue_evidence(&plan.targets[0]);
+    assert_no_issue_evidence(&plan.targets[1]);
 }
 
 #[test]
@@ -679,10 +717,13 @@ fn executor_parallel_passes_safe_batches_to_batch_backend() {
     assert_eq!(plan.summary.completed_targets, 2);
     assert_eq!(plan.summary.skipped_targets, 1);
     assert_eq!(plan.summary.failed_targets, 0);
-    assert_eq!(
-        plan.targets[1].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionTargetShadowed)
+    assert_no_issue_evidence(&plan.targets[0]);
+    assert_issue_target(
+        &plan.targets[1],
+        TargetStatus::Skipped,
+        CleanupTargetIssueReason::ExecutionTargetShadowed,
     );
+    assert_no_issue_evidence(&plan.targets[2]);
     let batches = backend.batches.lock().unwrap().clone();
     assert_eq!(batches.len(), 1);
     let mut actual_batch = batches[0].clone();
@@ -723,10 +764,11 @@ fn executor_parallel_maps_partial_batch_failures_per_target() {
 
     assert_eq!(plan.targets[0].status, TargetStatus::Completed);
     assert_eq!(plan.targets[0].pending_reclaim_bytes, 10);
-    assert_eq!(plan.targets[1].status, TargetStatus::Failed);
-    assert_eq!(
-        plan.targets[1].reason_code,
-        Some(CleanupTargetIssueReason::ExecutionPermissionDenied)
+    assert_no_issue_evidence(&plan.targets[0]);
+    assert_issue_target(
+        &plan.targets[1],
+        TargetStatus::Failed,
+        CleanupTargetIssueReason::ExecutionPermissionDenied,
     );
     assert_eq!(plan.summary.completed_targets, 1);
     assert_eq!(plan.summary.failed_targets, 1);
@@ -767,13 +809,18 @@ fn executor_parallel_rejects_mismatched_batch_outcome_count() {
 
     assert_eq!(plan.summary.completed_targets, 0);
     assert_eq!(plan.summary.failed_targets, 2);
+    for target in &plan.targets {
+        assert_issue_target(
+            target,
+            TargetStatus::Failed,
+            CleanupTargetIssueReason::ExecutionFailed,
+        );
+    }
     assert!(plan.targets.iter().all(|target| {
-        target.status == TargetStatus::Failed
-            && target.reason_code == Some(CleanupTargetIssueReason::ExecutionFailed)
-            && target
-                .reason
-                .as_deref()
-                .is_some_and(|reason| reason.contains("returned 1 outcome(s) for 2 target(s)"))
+        target
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("returned 1 outcome(s) for 2 target(s)"))
     }));
 }
 
@@ -795,10 +842,10 @@ fn executor_blocks_app_leftover_durable_paths_before_backend_calls() {
     execute_cleanup_plan_with_policy(&mut plan, &backend, ProtectionPolicy::new()).unwrap();
 
     assert_eq!(backend.calls.get(), 0);
-    assert_eq!(plan.targets[0].status, TargetStatus::Blocked);
-    assert_eq!(
-        plan.targets[0].reason_code,
-        Some(CleanupTargetIssueReason::SafetyPolicyBlocked)
+    assert_issue_target(
+        &plan.targets[0],
+        TargetStatus::Blocked,
+        CleanupTargetIssueReason::SafetyPolicyBlocked,
     );
     assert!(
         plan.targets[0]
