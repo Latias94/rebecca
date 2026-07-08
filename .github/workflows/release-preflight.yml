@@ -96,6 +96,14 @@ jobs:
             }
           }
 
+          foreach ($skillAsset in @(
+            "skills/rebecca-disk-cleaner/SKILL.md"
+          )) {
+            if (-not (Select-String -LiteralPath "target/package-lists/rebecca.txt" -Pattern ([regex]::Escape($skillAsset)) -Quiet)) {
+              throw "rebecca package is missing skill asset: $skillAsset"
+            }
+          }
+
       - name: Verify crates.io publish dependency order
         shell: pwsh
         run: |

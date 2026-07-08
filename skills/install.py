@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install repository-shipped Codex skills into the local Codex home."""
+"""Install repository-shipped Rebecca skills into a local agent skills directory."""
 
 from __future__ import annotations
 
@@ -13,14 +13,11 @@ DEFAULT_SKILL = "rebecca-disk-cleaner"
 
 
 def default_skills_dir() -> Path:
-    codex_home = os.environ.get("CODEX_HOME")
-    if codex_home:
-        return Path(codex_home).expanduser() / "skills"
-    return Path.home() / ".codex" / "skills"
+    return Path.home() / ".agents" / "skills"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Install Rebecca Codex skills.")
+    parser = argparse.ArgumentParser(description="Install Rebecca agent skills.")
     parser.add_argument(
         "skill",
         nargs="?",
@@ -31,7 +28,7 @@ def parse_args() -> argparse.Namespace:
         "--destination",
         type=Path,
         default=default_skills_dir(),
-        help="Destination skills directory. Defaults to $CODEX_HOME/skills or ~/.codex/skills.",
+        help="Destination skills directory. Defaults to ~/.agents/skills.",
     )
     parser.add_argument(
         "--dry-run",
@@ -60,7 +57,7 @@ def main() -> int:
 
     destination_root.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination, dirs_exist_ok=True)
-    print("Done. Restart Codex to load the skill.")
+    print("Done. Restart the agent to load the skill.")
     return 0
 
 

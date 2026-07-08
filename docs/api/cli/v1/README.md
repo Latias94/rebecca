@@ -134,6 +134,7 @@ The `payload_kind` field identifies the shape under `data`:
 - `rule-import`
 - `rule-import-list`
 - `rule-import-mutation`
+- `skill-management`
 - `permissions-diagnostic`
 - `active-process-diagnostic`
 
@@ -268,6 +269,14 @@ rule ids, platforms, and `enabled = false`. Enable revalidates the stored
 manifest before planning can consume it; corrupted or now-invalid stored
 manifests fail closed instead of silently participating in cleanup planning.
 
+`skill-management` is emitted by `rebecca skills install`, `skills path`, and
+`skills remove`. The payload reports the selected agent preset, resolved
+`skills_dir`, final `skill_dir`, operation status, whether the command was a
+dry run, whether files changed, and whether the existing directory looked
+Rebecca-managed. The default preset installs to `~/.agents/skills`; `--agent
+codex` resolves `$CODEX_HOME/skills` or `~/.codex/skills`, and
+`--destination <SKILLS_DIR>` is the explicit escape hatch for other agents.
+
 `cache-inventory`, `cache-doctor`, and `cache-prune-report` are emitted by
 `rebecca cache inspect`, `rebecca cache doctor`, and `rebecca cache prune`.
 Inventory entries intentionally expose both `absolute_path` and `display_path`.
@@ -377,6 +386,7 @@ rebecca cache prune --format json --namespace scan-cache --stale-only
 rebecca config show --format json
 rebecca config validate --format json
 rebecca rules validate --format json --dir ./rules
+rebecca skills install --format json --dry-run
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
 rebecca inspect map --format ndjson --root . --top 20 --group-by type --group-by extension

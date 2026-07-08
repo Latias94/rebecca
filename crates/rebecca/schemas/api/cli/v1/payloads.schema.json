@@ -35,7 +35,8 @@
         "rule-import-list",
         "rule-import-mutation",
         "rule-validation",
-        "rule-catalog"
+        "rule-catalog",
+        "skill-management"
       ]
     },
     "nonNegativeInteger": {
@@ -632,6 +633,69 @@
         },
         "removed": {
           "type": "boolean"
+        }
+      }
+    },
+    "skillManagement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "status",
+        "skill",
+        "agent",
+        "skills_dir",
+        "skill_dir",
+        "dry_run",
+        "changed",
+        "managed",
+        "message"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "install",
+            "remove",
+            "path"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "installed",
+            "unchanged",
+            "removed",
+            "missing",
+            "would-install",
+            "would-replace",
+            "would-remove",
+            "path"
+          ]
+        },
+        "skill": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "agent": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "skills_dir": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "skill_dir": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "changed": {
+          "type": "boolean"
+        },
+        "managed": {
+          "type": "boolean"
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
         }
       }
     },

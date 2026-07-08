@@ -1,39 +1,50 @@
-# Rebecca Codex Skills
+# Rebecca Skills
 
-This directory contains optional Codex skills for using Rebecca safely.
+This directory contains optional agent skills for using Rebecca safely.
 
-Install the Rebecca disk cleaner skill with Python.
+After installing Rebecca, install the disk cleaner skill with the CLI:
 
-On Windows:
-
-```powershell
-python .\skills\install.py
+```shell
+rebecca skills install
 ```
 
-On macOS or Linux:
+The default destination is `~/.agents/skills/rebecca-disk-cleaner`. This works
+for agents that read shared skills from `~/.agents/skills`.
 
-```bash
-python3 ./skills/install.py
+Codex users can install to the Codex-specific skills directory:
+
+```shell
+rebecca skills install --agent codex
 ```
 
-The installer copies `skills/rebecca-disk-cleaner` to `$CODEX_HOME/skills` when
-`CODEX_HOME` is set, otherwise to `~/.codex/skills`.
+For another agent, pass its skills root explicitly:
+
+```shell
+rebecca skills install --destination <SKILLS_DIR>
+```
+
+Use `--dry-run` to preview the target path and `--force` to replace an existing
+edited copy. Remove the skill with:
+
+```shell
+rebecca skills remove
+```
 
 Verify the installed skill:
 
 ```bash
-python3 ./skills/install.py --dry-run
-test -f "$HOME/.codex/skills/rebecca-disk-cleaner/SKILL.md"
+rebecca skills path
+test -f "$HOME/.agents/skills/rebecca-disk-cleaner/SKILL.md"
 ```
 
 On Windows PowerShell:
 
 ```powershell
-python .\skills\install.py --dry-run
-Test-Path "$env:USERPROFILE\.codex\skills\rebecca-disk-cleaner\SKILL.md"
+rebecca skills path
+Test-Path "$env:USERPROFILE\.agents\skills\rebecca-disk-cleaner\SKILL.md"
 ```
 
-Example prompts after restarting Codex:
+Example prompts after restarting the agent:
 
 - "Use Rebecca to inspect this project and tell me what can be cleaned, but do not delete anything."
 - "Scan this drive with Rebecca and show the largest folders with cleanup advice."
@@ -48,11 +59,10 @@ Validate repository skills before publishing changes:
 python3 ./skills/validate.py
 ```
 
-PowerShell-only fallback:
+Source checkout fallback when the Rebecca binary is not available yet:
 
 ```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.codex\skills" | Out-Null
-Copy-Item -Recurse -Force .\skills\rebecca-disk-cleaner "$env:USERPROFILE\.codex\skills\"
+python .\skills\install.py --destination "$env:USERPROFILE\.agents\skills"
 ```
 
-Restart Codex after copying the skill.
+Restart the agent after installing or removing the skill.

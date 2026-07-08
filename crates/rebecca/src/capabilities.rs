@@ -226,6 +226,9 @@ fn command_capabilities() -> Vec<CommandCapability> {
             false,
             false,
         ),
+        command("skills path", "skill-management", false, false),
+        command("skills install", "skill-management", true, false),
+        command("skills remove", "skill-management", true, false),
     ]
 }
 

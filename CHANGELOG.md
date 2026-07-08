@@ -4,6 +4,9 @@ All notable changes to Rebecca will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `rebecca skills install`, `skills path`, and `skills remove` manage the packaged `rebecca-disk-cleaner` agent skill. The default install root is `~/.agents/skills`, with `--agent codex`, `--destination`, `--dry-run`, `--force`, and `delete`/`uninstall` aliases for other agent setups.
+
 ## [0.3.0] - 2026-07-08
 
 ### Breaking

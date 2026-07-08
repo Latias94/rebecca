@@ -25,6 +25,7 @@ mod rules_cmd;
 mod runtime;
 mod scan;
 mod schema;
+mod skills;
 mod text;
 mod trash_backend;
 mod tui;
@@ -33,7 +34,7 @@ mod workbench;
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
     CompletionArgs, ConfigCommand, DoctorCommand, HistoryArgs, InspectCommand, OutputMode,
-    PurgeArgs, RulesCommand, ScanArgs, SchemaCommand, TuiArgs,
+    PurgeArgs, RulesCommand, ScanArgs, SchemaCommand, SkillsCommand, TuiArgs,
 };
 use runtime::CliRuntime;
 
@@ -193,6 +194,11 @@ fn run() -> Result<()> {
         Command::Schema { command } => match command {
             SchemaCommand::Export(args) => schema::export(cli.format, args.document),
         },
+        Command::Skills { command } => match command {
+            SkillsCommand::Install(args) => skills::install(cli.format, args),
+            SkillsCommand::Remove(args) => skills::remove(cli.format, args),
+            SkillsCommand::Path(args) => skills::path(cli.format, args),
+        },
         Command::Completion(args) => run_completion(args),
     }
 }
@@ -302,6 +308,14 @@ fn infer_command_api_contract_from_args() -> output::CliApiContract {
             _ => output::CliApiContract::v1("doctor", "command-error"),
         },
         Some("schema") => output::CliApiContract::v1("schema export", "cli-schema"),
+        Some("skills") => match tokens.get(1).map(String::as_str) {
+            Some("install") => output::CliApiContract::v1("skills install", "skill-management"),
+            Some("remove") | Some("delete") | Some("uninstall") => {
+                output::CliApiContract::v1("skills remove", "skill-management")
+            }
+            Some("path") => output::CliApiContract::v1("skills path", "skill-management"),
+            _ => output::CliApiContract::v1("skills", "command-error"),
+        },
         Some("completion") => output::CliApiContract::v1("completion", "completion-script"),
         _ => output::CliApiContract::v1("rebecca", "command-error"),
     }
@@ -672,6 +686,15 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
         },
         Command::Schema { command } => match command {
             SchemaCommand::Export(_) => output::CliApiContract::v1("schema export", "cli-schema"),
+        },
+        Command::Skills { command } => match command {
+            SkillsCommand::Install(_) => {
+                output::CliApiContract::v1("skills install", "skill-management")
+            }
+            SkillsCommand::Remove(_) => {
+                output::CliApiContract::v1("skills remove", "skill-management")
+            }
+            SkillsCommand::Path(_) => output::CliApiContract::v1("skills path", "skill-management"),
         },
         Command::Completion(_) => output::CliApiContract::v1("completion", "completion-script"),
     }

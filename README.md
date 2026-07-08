@@ -38,6 +38,14 @@ rebecca = "0.3"
 
 The public `rebecca` crate exposes the supported API. The workspace crates under `crates/` are implementation packages and may move faster.
 
+Install the Rebecca agent skill when you want an AI coding agent to use Rebecca's preview-first cleanup workflow:
+
+```shell
+rebecca skills install
+```
+
+The default target is `~/.agents/skills`. Use `--agent codex` for `$CODEX_HOME/skills` or `~/.codex/skills`, and use `--destination <SKILLS_DIR>` for another agent. Remove it with `rebecca skills remove`.
+
 ## Use it
 
 Start with read-only commands:

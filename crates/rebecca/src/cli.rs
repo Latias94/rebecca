@@ -174,6 +174,22 @@ pub enum PlatformArg {
     Macos,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum SkillAgentArg {
+    #[default]
+    Agents,
+    Codex,
+}
+
+impl SkillAgentArg {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Agents => "agents",
+            Self::Codex => "codex",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
 pub enum CatalogCommand {
     /// Validate the built-in rule and safety catalogs.
@@ -303,6 +319,11 @@ pub enum Command {
     Schema {
         #[command(subcommand)]
         command: SchemaCommand,
+    },
+    /// Install, locate, or remove Rebecca agent skills.
+    Skills {
+        #[command(subcommand)]
+        command: SkillsCommand,
     },
     /// Generate shell completion scripts from the live parser.
     Completion(CompletionArgs),
@@ -830,6 +851,57 @@ pub enum DoctorCommand {
 pub enum SchemaCommand {
     /// Export one CLI API v1 JSON schema document.
     Export(SchemaExportArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SkillsCommand {
+    /// Install the Rebecca disk-cleaner skill into an agent skills directory.
+    Install(SkillsInstallArgs),
+    /// Remove the Rebecca disk-cleaner skill from an agent skills directory.
+    #[command(alias = "delete", alias = "uninstall")]
+    Remove(SkillsRemoveArgs),
+    /// Print the resolved Rebecca skill install path.
+    Path(SkillsPathArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SkillsTargetArgs {
+    /// Agent path preset. Defaults to ~/.agents/skills.
+    #[arg(long, value_enum, default_value_t = SkillAgentArg::Agents)]
+    pub agent: SkillAgentArg,
+    /// Skills root directory. Overrides --agent and should be the parent skills directory.
+    #[arg(long = "destination", value_name = "SKILLS_DIR", value_hint = ValueHint::DirPath)]
+    pub destination: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct SkillsInstallArgs {
+    #[command(flatten)]
+    pub target: SkillsTargetArgs,
+    /// Show the planned install without writing files.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Replace an existing different Rebecca skill directory.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SkillsRemoveArgs {
+    #[command(flatten)]
+    pub target: SkillsTargetArgs,
+    /// Show the planned removal without deleting files.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Remove the selected skill directory even when Rebecca cannot verify its marker.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SkillsPathArgs {
+    #[command(flatten)]
+    pub target: SkillsTargetArgs,
 }
 
 #[derive(Debug, Args)]

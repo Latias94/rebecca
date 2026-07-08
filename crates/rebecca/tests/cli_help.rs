@@ -25,6 +25,7 @@ fn root_help_shows_completion_and_rejects_hidden_default_scan() {
     assert!(stdout.contains("clean"));
     assert!(stdout.contains("tui"));
     assert!(stdout.contains("purge"));
+    assert!(stdout.contains("skills"));
 }
 
 #[test]

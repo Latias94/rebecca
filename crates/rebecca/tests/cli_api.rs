@@ -343,6 +343,12 @@ fn capabilities_format_json_reports_gui_backend_contract() {
                 .contains(&"doctor permissions".into())
             && command["macos_privacy_relevant"] == true
     }));
+    assert!(commands.iter().any(|command| {
+        command["name"] == "skills install"
+            && command["payload_kind"] == "skill-management"
+            && command["machine_readable"] == true
+            && command["mutates_files"] == true
+    }));
 
     let validator = validator_for_payload_def("capabilities");
     validator.validate(data).unwrap();
@@ -1365,6 +1371,7 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         .collect::<Vec<_>>();
     assert!(!payload_kinds.contains(&"project-artifact-insight"));
     assert!(payload_kinds.contains(&"active-process-diagnostic"));
+    assert!(payload_kinds.contains(&"skill-management"));
 }
 
 #[test]
@@ -1414,6 +1421,7 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert!(payload_kinds.contains(&"inspect-map-group"));
     assert!(payload_kinds.contains(&"inspect-progress"));
     assert!(payload_kinds.contains(&"inspect-space"));
+    assert!(payload_kinds.contains(&"skill-management"));
 
     assert_eq!(payloads["$defs"]["capabilities"]["type"], "object");
     assert_eq!(payloads["$defs"]["cliSchema"]["type"], "object");
@@ -1434,6 +1442,7 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
     assert_eq!(payloads["$defs"]["cacheInventory"]["type"], "object");
     assert_eq!(payloads["$defs"]["cacheDoctor"]["type"], "object");
     assert_eq!(payloads["$defs"]["cachePruneReport"]["type"], "object");
+    assert_eq!(payloads["$defs"]["skillManagement"]["type"], "object");
 
     let event = read_doc_json("event.schema.json");
     assert_eq!(

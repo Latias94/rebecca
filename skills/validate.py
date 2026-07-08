@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate repository-shipped Codex skills."""
+"""Validate repository-shipped Rebecca agent skills."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class ValidationError(Exception):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate Rebecca Codex skills.")
+    parser = argparse.ArgumentParser(description="Validate Rebecca agent skills.")
     parser.add_argument(
         "--skip-install-smoke",
         action="store_true",
