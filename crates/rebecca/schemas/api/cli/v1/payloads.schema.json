@@ -1,0 +1,2862 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebecca.local/schemas/cli/v1/payloads.schema.json",
+  "title": "Rebecca CLI API v1 payload families",
+  "type": "object",
+  "$defs": {
+    "payloadKind": {
+      "type": "string",
+      "enum": [
+        "active-process-diagnostic",
+        "app-leftovers-cleanup-plan",
+        "capabilities",
+        "cache-doctor",
+        "cache-inventory",
+        "cache-purge-report",
+        "cache-prune-report",
+        "catalog",
+        "catalog-validation",
+        "cli-schema",
+        "cleanup-plan",
+        "config-paths",
+        "config-validation",
+        "config-view",
+        "history-list",
+        "inspect-artifacts",
+        "inspect-lint",
+        "inspect-map",
+        "inspect-map-entry",
+        "inspect-map-group",
+        "inspect-progress",
+        "inspect-space",
+        "permissions-diagnostic",
+        "project-artifact-cleanup-plan",
+        "rule-import",
+        "rule-import-list",
+        "rule-import-mutation",
+        "rule-validation",
+        "rule-catalog"
+      ]
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nonEmptyStringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "stringArray": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "cli_version",
+        "platform",
+        "features",
+        "output_formats",
+        "schema_documents",
+        "recommended_startup_commands",
+        "commands",
+        "long_running_commands",
+        "safety_model"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "rebecca.cli.v1"
+        },
+        "cli_version": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "platform": {
+          "$ref": "#/$defs/capabilitiesPlatform"
+        },
+        "features": {
+          "$ref": "#/$defs/capabilitiesFeatures"
+        },
+        "output_formats": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "schema_documents": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "recommended_startup_commands": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/commandCapability"
+          }
+        },
+        "long_running_commands": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "safety_model": {
+          "$ref": "#/$defs/capabilitiesSafetyModel"
+        }
+      }
+    },
+    "capabilitiesPlatform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "cleanup_execution_supported"
+      ],
+      "properties": {
+        "current": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "cleanup_execution_supported": {
+          "type": "boolean"
+        }
+      }
+    },
+    "capabilitiesFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rules",
+        "windows",
+        "ntfs"
+      ],
+      "properties": {
+        "rules": {
+          "type": "boolean"
+        },
+        "windows": {
+          "type": "boolean"
+        },
+        "ntfs": {
+          "type": "boolean"
+        }
+      }
+    },
+    "commandCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "payload_kind",
+        "machine_readable",
+        "ndjson",
+        "mutates_files",
+        "availability",
+        "platforms",
+        "schema_documents",
+        "preflight_commands",
+        "required_execution_flag",
+        "required_confirmation_flags",
+        "macos_privacy_relevant"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "payload_kind": {
+          "$ref": "#/$defs/payloadKind"
+        },
+        "machine_readable": {
+          "type": "boolean"
+        },
+        "ndjson": {
+          "type": "boolean"
+        },
+        "mutates_files": {
+          "type": "boolean"
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "available",
+            "preview-only",
+            "unsupported-platform"
+          ]
+        },
+        "platforms": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "schema_documents": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "preflight_commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "required_execution_flag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required_confirmation_flags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "macos_privacy_relevant": {
+          "type": "boolean"
+        }
+      }
+    },
+    "capabilitiesSafetyModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview_default",
+        "explicit_execution_flag",
+        "recoverable_delete_default",
+        "persistent_risky_opt_in",
+        "external_rules_enabled_by_validation"
+      ],
+      "properties": {
+        "preview_default": {
+          "type": "boolean"
+        },
+        "explicit_execution_flag": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "recoverable_delete_default": {
+          "type": "boolean"
+        },
+        "persistent_risky_opt_in": {
+          "type": "boolean"
+        },
+        "external_rules_enabled_by_validation": {
+          "type": "boolean"
+        }
+      }
+    },
+    "cliSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "document",
+        "media_type",
+        "schema"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "rebecca.cli.v1"
+        },
+        "document": {
+          "type": "string",
+          "enum": [
+            "envelope",
+            "event",
+            "error",
+            "payloads",
+            "config",
+            "cleaner-manifest-v1"
+          ]
+        },
+        "media_type": {
+          "const": "application/schema+json"
+        },
+        "schema": {
+          "type": "object"
+        }
+      }
+    },
+    "configValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "schema_version",
+        "config_file",
+        "loaded_from_file",
+        "summary",
+        "diagnostics",
+        "checks"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "config_file": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "loaded_from_file": {
+          "type": "boolean"
+        },
+        "summary": {
+          "$ref": "#/$defs/validationSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationDiagnostic"
+          }
+        },
+        "checks": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "configView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "config_file",
+        "loaded_from_file",
+        "config",
+        "runtime"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "config_file": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "loaded_from_file": {
+          "type": "boolean"
+        },
+        "config": {
+          "type": "object"
+        },
+        "runtime": {
+          "type": "object"
+        }
+      }
+    },
+    "validationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks_passed",
+        "diagnostics"
+      ],
+      "properties": {
+        "checks_passed": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "validationDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "path",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "ruleValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "enabled",
+        "files",
+        "discovery",
+        "summary",
+        "diagnostics",
+        "rule_count",
+        "target_count",
+        "platforms",
+        "categories",
+        "rules",
+        "rule_previews",
+        "checks"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "files": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "discovery": {
+          "$ref": "#/$defs/ruleDiscovery"
+        },
+        "summary": {
+          "$ref": "#/$defs/validationSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationDiagnostic"
+          }
+        },
+        "rule_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "target_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "platforms": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "categories": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "rules": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "rule_previews": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ruleValidationPreview"
+          }
+        },
+        "checks": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "ruleDiscovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory_max_depth",
+        "file_limit",
+        "symlink_traversal"
+      ],
+      "properties": {
+        "directory_max_depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "file_limit": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "symlink_traversal": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ruleValidationPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "platform",
+        "category",
+        "safety_level",
+        "target_count",
+        "warning_gates",
+        "source",
+        "enabled_by_validation"
+      ],
+      "properties": {
+        "rule_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "platform": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "category": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "safety_level": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "target_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "warning_gates": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "source": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled_by_validation": {
+          "type": "boolean"
+        }
+      }
+    },
+    "externalRuleEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_id",
+        "source_display_path",
+        "stored_manifest_path",
+        "content_hash",
+        "imported_at_unix_seconds",
+        "enabled",
+        "rule_ids",
+        "platforms"
+      ],
+      "properties": {
+        "import_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source_display_path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "stored_manifest_path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "imported_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rule_ids": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "platforms": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "externalRuleDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "import_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason_code": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "ruleImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "imported"
+      ],
+      "properties": {
+        "imported": {
+          "$ref": "#/$defs/externalRuleEntry"
+        }
+      }
+    },
+    "ruleImportList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store_dir",
+        "entries"
+      ],
+      "properties": {
+        "store_dir": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/externalRuleEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/externalRuleDiagnostic"
+          }
+        }
+      }
+    },
+    "ruleImportMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "import_id",
+        "enabled",
+        "removed"
+      ],
+      "properties": {
+        "import_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "removed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "estimateSource": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "fresh-scan",
+        "scan-cache",
+        "not-measured"
+      ]
+    },
+    "estimateBackend": {
+      "type": "string",
+      "enum": [
+        "portable-recursive",
+        "windows-native",
+        "windows-ntfs-mft-experimental"
+      ]
+    },
+    "estimateBackendSource": {
+      "type": "string",
+      "minLength": 1
+    },
+    "estimateConfidence": {
+      "type": "string",
+      "enum": [
+        "exact"
+      ]
+    },
+    "estimateCaveat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "scanCacheEvidenceEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache",
+        "outcome"
+      ],
+      "properties": {
+        "cache": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "estimateBackendEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timings_ms": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nonNegativeInteger"
+          }
+        },
+        "counters": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nonNegativeInteger"
+          }
+        },
+        "cache_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scanCacheEvidenceEvent"
+          }
+        }
+      }
+    },
+    "inventoryEntryRole": {
+      "type": "string",
+      "enum": [
+        "scanned",
+        "reference",
+        "protected"
+      ]
+    },
+    "inventoryDiagnosticKind": {
+      "type": "string",
+      "enum": [
+        "root-missing",
+        "root-metadata-read-skipped",
+        "root-not-directory",
+        "reparse-point-skipped",
+        "directory-read-skipped",
+        "directory-entry-read-skipped",
+        "metadata-read-skipped",
+        "excluded"
+      ]
+    },
+    "targetStatus": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "skipped",
+        "blocked",
+        "failed",
+        "completed"
+      ]
+    },
+    "cleanupIssueReason": {
+      "type": "string",
+      "enum": [
+        "safety-opt-in-required",
+        "warning-gate-required",
+        "target-discovery-skipped",
+        "target-discovery-failed",
+        "duplicate-target-path",
+        "safety-policy-skipped",
+        "execution-target-missing",
+        "safety-policy-blocked",
+        "project-artifact-recently-modified",
+        "reclaim-limit-satisfied",
+        "scan-failed",
+        "scan-permission-denied",
+        "execution-failed",
+        "execution-permission-denied",
+        "unclassified"
+      ]
+    },
+    "cleanupIssueSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason_code",
+        "targets",
+        "estimated_bytes"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/cleanupIssueReason"
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "cleanupWarningSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "warning",
+        "targets",
+        "estimated_bytes"
+      ],
+      "properties": {
+        "warning": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "cleanupSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_targets",
+        "allowed_targets",
+        "skipped_targets",
+        "blocked_targets",
+        "failed_targets",
+        "completed_targets",
+        "estimated_bytes",
+        "freed_bytes",
+        "pending_reclaim_bytes",
+        "issue_matrix",
+        "warning_matrix"
+      ],
+      "properties": {
+        "total_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "allowed_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "skipped_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "blocked_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "failed_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "completed_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "freed_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "pending_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "issue_matrix": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupIssueSummary"
+          }
+        },
+        "warning_matrix": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupWarningSummary"
+          }
+        }
+      }
+    },
+    "activeProcessMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "process_id",
+        "executable_name",
+        "warning",
+        "rule_ids"
+      ],
+      "properties": {
+        "process_id": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "executable_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "warning": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "activeProcessDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "platform_supported",
+        "process_inspection_available",
+        "matches",
+        "unavailable_reason"
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform_supported": {
+          "type": "boolean"
+        },
+        "process_inspection_available": {
+          "type": "boolean"
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/activeProcessMatch"
+          }
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "macosPrivacyProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "path",
+        "status"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "mail",
+            "messages",
+            "safari"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "readable",
+            "permission-denied",
+            "missing",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "macosPrivacyDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "probes",
+        "action_kind",
+        "full_disk_access_relevant",
+        "affected_cleanup_families",
+        "suggested_action"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "likely-blocked",
+            "no-block-detected",
+            "not-probed",
+            "unknown"
+          ]
+        },
+        "probes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/macosPrivacyProbe"
+          }
+        },
+        "action_kind": {
+          "type": "string",
+          "enum": [
+            "grant-full-disk-access-if-needed",
+            "continue-preview-first",
+            "review-dry-run",
+            "no-action"
+          ]
+        },
+        "full_disk_access_relevant": {
+          "type": "boolean"
+        },
+        "affected_cleanup_families": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "mail",
+              "messages",
+              "safari",
+              "user-library-cache"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "suggested_action": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "permissionsDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "platform_supported",
+        "cleanup_execution_supported",
+        "privilege_level",
+        "suggested_action"
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform_supported": {
+          "type": "boolean"
+        },
+        "cleanup_execution_supported": {
+          "type": "boolean"
+        },
+        "privilege_level": {
+          "type": "string",
+          "enum": [
+            "standard-user",
+            "elevated",
+            "unknown",
+            "unsupported-platform"
+          ]
+        },
+        "suggested_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "macos_privacy": {
+          "$ref": "#/$defs/macosPrivacyDiagnostic"
+        }
+      }
+    },
+    "catalogValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "rule_count",
+        "target_count",
+        "category_count",
+        "warning_count",
+        "safety_category_count",
+        "categories",
+        "checks"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "rule_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "target_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "category_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "warning_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "safety_category_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "catalogKind": {
+      "type": "string",
+      "enum": [
+        "cleanup-rule",
+        "project-artifact",
+        "warning",
+        "safety-category",
+        "action-kind"
+      ]
+    },
+    "safetyLevel": {
+      "type": "string",
+      "enum": [
+        "safe",
+        "moderate",
+        "risky",
+        "dangerous"
+      ]
+    },
+    "catalog": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/catalogItem"
+      }
+    },
+    "catalogItem": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/cleanupRuleCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/projectArtifactCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/warningCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/safetyCategoryCatalogItem"
+        },
+        {
+          "$ref": "#/$defs/actionKindCatalogItem"
+        }
+      ]
+    },
+    "cleanupRuleCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "platform",
+        "category",
+        "name",
+        "safety_level",
+        "restore_hint",
+        "warnings",
+        "search_kinds",
+        "targets"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cleanup-rule"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "windows",
+            "linux",
+            "macos",
+            "unknown"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "restore_hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "search_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "file",
+              "glob",
+              "steam-install",
+              "steam-library"
+            ]
+          }
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "projectArtifactCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "artifact",
+        "aliases",
+        "rule_id",
+        "rule_suffix",
+        "restore_hint",
+        "default_min_age_days",
+        "trim_eligible",
+        "deletion_style",
+        "ranking"
+      ],
+      "properties": {
+        "kind": {
+          "const": "project-artifact"
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_suffix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "restore_hint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default_min_age_days": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "trim_eligible": {
+          "type": "boolean"
+        },
+        "deletion_style": {
+          "type": "string",
+          "enum": [
+            "preserve-root-contents",
+            "delete-whole-path"
+          ]
+        },
+        "ranking": {
+          "type": "string",
+          "enum": [
+            "heavy-dependency-tree",
+            "build-output",
+            "tool-cache",
+            "test-output",
+            "tagged-cache"
+          ]
+        }
+      }
+    },
+    "warningCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "warning"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "safetyCategoryCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "safety-category"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "actionKindCatalogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "description"
+      ],
+      "properties": {
+        "kind": {
+          "const": "action-kind"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cacheNamespace": {
+      "type": "string",
+      "enum": [
+        "all",
+        "scan-cache",
+        "ntfs-volume-index"
+      ]
+    },
+    "cacheInventoryEntryKind": {
+      "type": "string",
+      "enum": [
+        "scan-cache-record",
+        "ntfs-volume-index-manifest",
+        "ntfs-volume-index-payload"
+      ]
+    },
+    "cacheInventoryEntryStatus": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "stale",
+        "corrupt",
+        "unreadable",
+        "missing-payload",
+        "payload",
+        "unknown"
+      ]
+    },
+    "cacheInventorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_entries",
+        "scan_cache_records",
+        "ntfs_volume_index_manifests",
+        "ntfs_volume_index_payloads",
+        "bytes",
+        "valid_entries",
+        "stale_entries",
+        "corrupt_entries",
+        "missing_payloads",
+        "prunable_entries",
+        "diagnostics"
+      ],
+      "properties": {
+        "total_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "scan_cache_records": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "ntfs_volume_index_manifests": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "ntfs_volume_index_payloads": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "valid_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "stale_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "corrupt_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "missing_payloads": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "prunable_entries": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "cacheInventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "kind",
+        "status",
+        "prunable",
+        "absolute_path",
+        "display_path",
+        "bytes"
+      ],
+      "properties": {
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "kind": {
+          "$ref": "#/$defs/cacheInventoryEntryKind"
+        },
+        "status": {
+          "$ref": "#/$defs/cacheInventoryEntryStatus"
+        },
+        "prunable": {
+          "type": "boolean"
+        },
+        "absolute_path": {
+          "type": "string"
+        },
+        "display_path": {
+          "type": "string"
+        },
+        "bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "record_root": {
+          "type": "string"
+        },
+        "record_root_display": {
+          "type": "string"
+        },
+        "backend": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend_source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "age_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload_file_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cacheInventoryDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "absolute_path",
+        "display_path",
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "absolute_path": {
+          "type": "string"
+        },
+        "display_path": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cacheInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache_dir",
+        "namespace",
+        "summary",
+        "entries"
+      ],
+      "properties": {
+        "cache_dir": {
+          "type": "string"
+        },
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "summary": {
+          "$ref": "#/$defs/cacheInventorySummary"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheInventoryEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheInventoryDiagnostic"
+          }
+        }
+      }
+    },
+    "cacheDoctorSeverity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning"
+      ]
+    },
+    "cacheDoctorRecommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "reason_code",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "$ref": "#/$defs/cacheDoctorSeverity"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suggested_command": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "cacheDoctor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory",
+        "recommendations"
+      ],
+      "properties": {
+        "inventory": {
+          "$ref": "#/$defs/cacheInventory"
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheDoctorRecommendation"
+          }
+        }
+      }
+    },
+    "cachePruneReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cache_dir",
+        "namespace",
+        "stale_only",
+        "limit",
+        "dry_run",
+        "selected_entries",
+        "execution_report"
+      ],
+      "properties": {
+        "cache_dir": {
+          "type": "string"
+        },
+        "namespace": {
+          "$ref": "#/$defs/cacheNamespace"
+        },
+        "stale_only": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "selected_entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cacheInventoryEntry"
+          }
+        },
+        "execution_report": {
+          "type": "object"
+        }
+      }
+    },
+    "spaceInsightMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "estimated_bytes",
+        "files",
+        "directories"
+      ],
+      "properties": {
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "spaceInsightRootStatus": {
+      "type": "string",
+      "enum": [
+        "scanned",
+        "skipped"
+      ]
+    },
+    "spaceInsightEntryKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "directory",
+        "other"
+      ]
+    },
+    "spaceInsightDiagnosticKind": {
+      "type": "string",
+      "enum": [
+        "root-missing",
+        "root-metadata-read-skipped",
+        "root-not-directory",
+        "reparse-point-skipped",
+        "directory-read-skipped",
+        "directory-entry-read-skipped",
+        "metadata-read-skipped",
+        "scan-failed"
+      ]
+    },
+    "spaceInsightRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "metrics"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/spaceInsightRootStatus"
+        },
+        "metrics": {
+          "$ref": "#/$defs/spaceInsightMetrics"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "spaceInsightEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "kind",
+        "estimated_bytes",
+        "files",
+        "directories",
+        "estimate_source"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/spaceInsightEntryKind"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
+        },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
+        }
+      }
+    },
+    "spaceInsightDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/spaceInsightDiagnosticKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "spaceInsightDiagnosticKindSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "count"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/spaceInsightDiagnosticKind"
+        },
+        "count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "spaceInsightDiagnosticSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "retained",
+        "truncated",
+        "by_kind"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "retained": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "truncated": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "by_kind": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightDiagnosticKindSummary"
+          }
+        }
+      }
+    },
+    "inspectSpace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "totals",
+        "top_entries",
+        "diagnostic_summary",
+        "diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightRoot"
+          }
+        },
+        "totals": {
+          "$ref": "#/$defs/spaceInsightMetrics"
+        },
+        "top_entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightEntry"
+          }
+        },
+        "diagnostic_summary": {
+          "$ref": "#/$defs/spaceInsightDiagnosticSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightDiagnostic"
+          }
+        }
+      }
+    },
+    "diskMapMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_bytes",
+        "allocated_bytes",
+        "unique_logical_bytes",
+        "unique_allocated_bytes",
+        "files",
+        "directories"
+      ],
+      "properties": {
+        "logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_logical_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "diskMapRootStatus": {
+      "type": "string",
+      "enum": [
+        "scanned",
+        "skipped"
+      ]
+    },
+    "diskMapEntryKind": {
+      "type": "string",
+      "enum": [
+        "file",
+        "directory",
+        "other"
+      ]
+    },
+    "cleanupAdviceStatus": {
+      "type": "string",
+      "enum": [
+        "cleanable",
+        "maybe-cleanable",
+        "contains-cleanable",
+        "protected",
+        "unknown"
+      ]
+    },
+    "cleanupAdviceSource": {
+      "type": "string",
+      "enum": [
+        "cleanup-rule",
+        "project-artifact",
+        "app-leftover",
+        "protection"
+      ]
+    },
+    "cleanupAdviceRelation": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "descendant",
+        "ancestor"
+      ]
+    },
+    "cleanupAdviceCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "args"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "appLeftoverSource": {
+      "type": "string",
+      "enum": [
+        "local-app-data",
+        "roaming-app-data",
+        "local-low-app-data"
+      ]
+    },
+    "appLeftoverDeletionStyle": {
+      "type": "string",
+      "enum": [
+        "preserve-root-contents"
+      ]
+    },
+    "appLeftoverAppContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stable_id",
+        "display_name"
+      ],
+      "properties": {
+        "stable_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publisher": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "appLeftoverAdviceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app",
+        "source",
+        "target_leaf",
+        "deletion_style"
+      ],
+      "properties": {
+        "app": {
+          "$ref": "#/$defs/appLeftoverAppContext"
+        },
+        "source": {
+          "$ref": "#/$defs/appLeftoverSource"
+        },
+        "target_leaf": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deletion_style": {
+          "$ref": "#/$defs/appLeftoverDeletionStyle"
+        },
+        "modified_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "cleanupAdvice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/cleanupAdviceStatus"
+        },
+        "source": {
+          "$ref": "#/$defs/cleanupAdviceSource"
+        },
+        "relation": {
+          "$ref": "#/$defs/cleanupAdviceRelation"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "required_flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "protection_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "matched_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suggested_command": {
+          "$ref": "#/$defs/cleanupAdviceCommand"
+        },
+        "app_leftover": {
+          "$ref": "#/$defs/appLeftoverAdviceContext"
+        }
+      }
+    },
+    "diskMapDiagnosticKind": {
+      "type": "string",
+      "enum": [
+        "root-missing",
+        "root-metadata-read-skipped",
+        "reparse-point-skipped",
+        "directory-read-skipped",
+        "directory-entry-read-skipped",
+        "metadata-read-skipped",
+        "fallback",
+        "scan-failed"
+      ]
+    },
+    "diskMapGroupKind": {
+      "type": "string",
+      "enum": [
+        "extension",
+        "depth",
+        "age"
+      ]
+    },
+    "diskMapRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "metrics",
+        "estimate_source"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/diskMapRootStatus"
+        },
+        "metrics": {
+          "$ref": "#/$defs/diskMapMetrics"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
+        },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "diskMapEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "kind",
+        "depth",
+        "logical_bytes",
+        "allocated_bytes",
+        "unique_logical_bytes",
+        "unique_allocated_bytes",
+        "files",
+        "directories",
+        "estimate_source"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/diskMapEntryKind"
+        },
+        "depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_logical_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unique_allocated_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
+        },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
+        },
+        "cleanup_advice": {
+          "$ref": "#/$defs/cleanupAdvice"
+        }
+      }
+    },
+    "diskMapGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "key",
+        "label",
+        "metrics"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/diskMapGroupKind"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metrics": {
+          "$ref": "#/$defs/diskMapMetrics"
+        }
+      }
+    },
+    "inspectMapEntryEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rank",
+        "entry"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "entry": {
+          "$ref": "#/$defs/diskMapEntry"
+        }
+      }
+    },
+    "inspectMapGroupEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rank",
+        "group"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group": {
+          "$ref": "#/$defs/diskMapGroup"
+        }
+      }
+    },
+    "diskMapDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/diskMapDiagnosticKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "diskMapDiagnosticKindSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "count"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/diskMapDiagnosticKind"
+        },
+        "count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "diskMapDiagnosticSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "retained",
+        "truncated",
+        "by_kind"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "retained": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "truncated": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "by_kind": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapDiagnosticKindSummary"
+          }
+        }
+      }
+    },
+    "inspectMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "totals",
+        "top_entries",
+        "groups",
+        "diagnostic_summary",
+        "diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapRoot"
+          }
+        },
+        "totals": {
+          "$ref": "#/$defs/diskMapMetrics"
+        },
+        "top_entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapEntry"
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapGroup"
+          }
+        },
+        "diagnostic_summary": {
+          "$ref": "#/$defs/diskMapDiagnosticSummary"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapDiagnostic"
+          }
+        }
+      }
+    },
+    "lintReportSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files_scanned",
+        "directories_scanned",
+        "duplicate_groups",
+        "duplicate_files",
+        "large_files",
+        "empty_files",
+        "empty_directories",
+        "conservative_reclaim_bytes"
+      ],
+      "properties": {
+        "files_scanned": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "directories_scanned": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "duplicate_groups": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "duplicate_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "large_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "empty_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "empty_directories": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conservative_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "lintFileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "size_bytes",
+        "modified_at_unix_seconds",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "modified_at_unix_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "role": {
+          "$ref": "#/$defs/inventoryEntryRole"
+        }
+      }
+    },
+    "lintDirectoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "depth",
+        "role"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "role": {
+          "$ref": "#/$defs/inventoryEntryRole"
+        }
+      }
+    },
+    "duplicateFileGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size_bytes",
+        "total_files",
+        "keep_candidates",
+        "conservative_reclaim_bytes",
+        "hash",
+        "files"
+      ],
+      "properties": {
+        "size_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "total_files": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "keep_candidates": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conservative_reclaim_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        }
+      }
+    },
+    "inventoryDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/inventoryDiagnosticKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "inspectLint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "reference_roots",
+        "summary",
+        "duplicate_groups",
+        "large_files",
+        "empty_files",
+        "empty_directories",
+        "diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reference_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/lintReportSummary"
+        },
+        "duplicate_groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/duplicateFileGroup"
+          }
+        },
+        "large_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        },
+        "empty_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintFileEntry"
+          }
+        },
+        "empty_directories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lintDirectoryEntry"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/inventoryDiagnostic"
+          }
+        }
+      }
+    },
+    "projectArtifactDiscoveryDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "root-missing",
+            "root-metadata-read-skipped",
+            "root-not-directory",
+            "reparse-point-skipped",
+            "directory-read-skipped",
+            "directory-entry-read-skipped",
+            "metadata-read-skipped"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "projectArtifactInsightTotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "targets",
+        "estimated_bytes"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "projectArtifactInsightTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "artifact",
+        "path",
+        "project_root",
+        "status",
+        "estimated_bytes",
+        "estimate_source",
+        "reason"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/targetStatus"
+        },
+        "estimated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "estimate_source": {
+          "$ref": "#/$defs/estimateSource"
+        },
+        "estimate_backend": {
+          "$ref": "#/$defs/estimateBackend"
+        },
+        "estimate_backend_source": {
+          "$ref": "#/$defs/estimateBackendSource"
+        },
+        "estimate_confidence": {
+          "$ref": "#/$defs/estimateConfidence"
+        },
+        "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/estimateCaveat"
+          }
+        },
+        "estimate_backend_evidence": {
+          "$ref": "#/$defs/estimateBackendEvidence"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "inspectArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roots",
+        "summary",
+        "totals_by_root",
+        "totals_by_project",
+        "totals_by_artifact",
+        "top_targets",
+        "discovery_diagnostics"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/cleanupSummary"
+        },
+        "totals_by_root": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "totals_by_project": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "totals_by_artifact": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTotal"
+          }
+        },
+        "top_targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactInsightTarget"
+          }
+        },
+        "discovery_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/projectArtifactDiscoveryDiagnostic"
+          }
+        }
+      }
+    }
+  }
+}

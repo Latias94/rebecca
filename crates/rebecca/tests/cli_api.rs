@@ -1,6 +1,7 @@
 mod common;
 
 const API_DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api/cli/v1");
+const PACKAGED_API_SCHEMAS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/schemas/api/cli/v1");
 
 fn parse_json(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).unwrap()
@@ -9,6 +10,14 @@ fn parse_json(bytes: &[u8]) -> serde_json::Value {
 fn read_doc_json(relative: &str) -> serde_json::Value {
     let path = std::path::Path::new(API_DOCS).join(relative);
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+fn read_schema_doc_bytes(relative: &str) -> Vec<u8> {
+    std::fs::read(std::path::Path::new(API_DOCS).join(relative)).unwrap()
+}
+
+fn read_packaged_schema_bytes(relative: &str) -> Vec<u8> {
+    std::fs::read(std::path::Path::new(PACKAGED_API_SCHEMAS).join(relative)).unwrap()
 }
 
 fn validator_for_payload_def(def_name: &str) -> jsonschema::Validator {
@@ -1356,6 +1365,24 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         .collect::<Vec<_>>();
     assert!(!payload_kinds.contains(&"project-artifact-insight"));
     assert!(payload_kinds.contains(&"active-process-diagnostic"));
+}
+
+#[test]
+fn packaged_cli_api_schemas_match_documented_schemas() {
+    for relative in [
+        "envelope.schema.json",
+        "error.schema.json",
+        "event.schema.json",
+        "payloads.schema.json",
+        "config.schema.json",
+        "cleaner-manifest-v1.schema.json",
+    ] {
+        assert_eq!(
+            read_packaged_schema_bytes(relative),
+            read_schema_doc_bytes(relative),
+            "{relative} packaged schema should match docs/api/cli/v1"
+        );
+    }
 }
 
 #[test]

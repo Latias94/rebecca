@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rebecca.local/schemas/cli/v1/event.schema.json",
+  "title": "Rebecca CLI API v1 NDJSON event",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "api_version",
+    "kind",
+    "command",
+    "sequence",
+    "event_kind",
+    "generated_at_unix_seconds"
+  ],
+  "properties": {
+    "api_version": {
+      "const": "rebecca.cli.v1"
+    },
+    "kind": {
+      "const": "event"
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "event_kind": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "generated_at_unix_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload_kind": {
+      "$ref": "payloads.schema.json#/$defs/payloadKind"
+    },
+    "data": true,
+    "error": {
+      "$ref": "error.schema.json#/$defs/error"
+    }
+  }
+}

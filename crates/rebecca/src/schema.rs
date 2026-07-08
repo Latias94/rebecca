@@ -56,16 +56,16 @@ fn document_name(document: SchemaDocumentArg) -> &'static str {
 fn schema_raw(document: SchemaDocumentArg) -> &'static str {
     match document {
         SchemaDocumentArg::Envelope => {
-            include_str!("../../../docs/api/cli/v1/envelope.schema.json")
+            include_str!("../schemas/api/cli/v1/envelope.schema.json")
         }
-        SchemaDocumentArg::Event => include_str!("../../../docs/api/cli/v1/event.schema.json"),
-        SchemaDocumentArg::Error => include_str!("../../../docs/api/cli/v1/error.schema.json"),
+        SchemaDocumentArg::Event => include_str!("../schemas/api/cli/v1/event.schema.json"),
+        SchemaDocumentArg::Error => include_str!("../schemas/api/cli/v1/error.schema.json"),
         SchemaDocumentArg::Payloads => {
-            include_str!("../../../docs/api/cli/v1/payloads.schema.json")
+            include_str!("../schemas/api/cli/v1/payloads.schema.json")
         }
-        SchemaDocumentArg::Config => include_str!("../../../docs/api/cli/v1/config.schema.json"),
+        SchemaDocumentArg::Config => include_str!("../schemas/api/cli/v1/config.schema.json"),
         SchemaDocumentArg::CleanerManifestV1 => {
-            include_str!("../../../docs/api/cli/v1/cleaner-manifest-v1.schema.json")
+            include_str!("../schemas/api/cli/v1/cleaner-manifest-v1.schema.json")
         }
     }
 }
