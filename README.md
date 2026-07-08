@@ -1,346 +1,174 @@
-<div align="center">
-  <h1>Rebecca</h1>
-  <p><em>Cross-platform cleanup CLI for caches, app leftovers, and project artifacts.</em></p>
-</div>
+# Rebecca
+
+Rebecca is a cleanup CLI for caches, app leftovers, project artifacts, and disk usage inspection.
+
+It is built around one simple habit: look first, delete second. `clean`, `purge`, `apps clean`, and the TUI all use the same planner, warning gates, protected path checks, recoverable trash backend, and history log.
 
 <p align="center">
-  <a href="docs/security-audit.md">Safety audit</a> ·
-  <a href="docs/api/cli/v1/README.md">CLI API v1</a> ·
-  <a href="docs/release.md">Release integrity</a> ·
+  <a href="docs/security-audit.md">Safety audit</a> |
+  <a href="docs/api/cli/v1/README.md">CLI API</a> |
+  <a href="docs/release.md">Release integrity</a> |
   <a href="docs/rule-authoring.md">Rule authoring</a>
 </p>
 
-> Rebecca is built to preview first and execute second. The same planner, protection policy, and history model cover the supported cleanup surfaces.
+## Install
 
-## Features
-
-- Safe cleanup planning: `scan` and `clean` share the same plan builder, so dry-run output and real execution stay aligned.
-- Cleanup intelligence: `catalog` and `inspect` expose rules, warnings, safety categories, space reports, ranked disk maps, project artifact reports, and lint-style opportunities without deleting files.
-- Interactive cleanup workbench: `rebecca tui` and the short alias `rebecca i` open a terminal UI for root picking, ranked disk navigation, Treemap drilldown, type and extension distribution, path-stable scoped refresh, cleanup advice, rule staging, persisted display preferences, live task progress, target-boundary cancellation, preview, and recoverable-trash execution.
-- Windows app leftovers: `apps scan` and `apps clean` discover installed apps and target leftover cache data without uninstalling anything.
-- Project artifact purge: `purge` targets heavy build output such as `node_modules`, `target`, `build`, `dist`, and `CACHEDIR.TAG` directories after verifying project context.
-- Machine-readable output: JSON and NDJSON modes are available for wrappers, scripts, and automation, with CSV/TSV table export for disk maps.
-- Recoverable trash by default: allowed targets are moved to the platform trash instead of being deleted permanently.
-- Release integrity: release assets are checksum-backed and generated through cargo-dist.
-
-## Quick Start
-
-**Install from a GitHub release on Windows**
+Windows users can install the latest GitHub release with the PowerShell installer:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/download/v0.2.0/rebecca-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Latias94/rebecca/releases/latest/download/rebecca-installer.ps1 | iex"
 ```
 
-The cargo-dist installer downloads the matching Windows artifact and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` to override the install directory. Linux and macOS users should install from crates.io until Unix release archives are published.
+The installer downloads the matching release archive and installs `rebecca.exe`. Set `REBECCA_INSTALL_DIR` if you want a different install directory.
 
-**Install from crates.io**
+You can also install from crates.io:
 
 ```shell
 cargo install rebecca --locked
 ```
 
-**Use as a Rust library**
+Linux and macOS currently use `cargo install` or a source build until release archives are published for those platforms.
+
+Use Rebecca as a Rust library:
 
 ```toml
 [dependencies]
 rebecca = "0.2"
 ```
 
-`rebecca` is the user-facing package. It exposes the curated library surface and the CLI binary while the implementation remains split across `rebecca-core`, `rebecca-rules`, `rebecca-safety`, `rebecca-ntfs`, and `rebecca-windows`.
+The public `rebecca` crate exposes the supported API. The workspace crates under `crates/` are implementation packages and may move faster.
 
-**Run from source**
+## Use it
 
-```powershell
-cargo run -p rebecca -- scan
-cargo run -p rebecca -- catalog
-cargo run -p rebecca -- catalog --kind cleanup-rule --platform linux
-cargo run -p rebecca -- catalog --kind cleanup-rule --platform macos
-cargo run -p rebecca -- inspect space --root .
-cargo run -p rebecca -- inspect map --root . --top 20 --max-depth 3
-cargo run -p rebecca -- inspect map --root . --top 20 --full-path --bar-width 32
-cargo run -p rebecca -- inspect map --root . --top 20 --cleanup-advice
-cargo run -p rebecca -- tui --root .
-cargo run -p rebecca -- i
-cargo run -p rebecca -- inspect map --root . --table csv --table-row entry --top 20 --group-by extension
-cargo run -p rebecca -- inspect artifacts --root .
-cargo run -p rebecca -- inspect lint --root .
-cargo run -p rebecca -- clean --dry-run
-cargo run -p rebecca -- clean --dry-run --rule linux.pip-cache --allow-moderate
-cargo run -p rebecca -- clean --dry-run --rule macos.chrome-cache --allow-warning active-process
-cargo run -p rebecca -- clean --dry-run --rule macos.xcode-cache --allow-moderate --allow-warning active-process --allow-warning permission-sensitive
-cargo run -p rebecca -- doctor active-processes
-cargo run -p rebecca -- apps scan
-cargo run -p rebecca -- catalog --kind project-artifact
-cargo run -p rebecca -- cache doctor
-cargo run -p rebecca -- capabilities --format json
-cargo run -p rebecca -- schema export --document payloads --format json
-```
-
-**Preview safely**
+Start with read-only commands:
 
 ```powershell
-cargo run -p rebecca -- clean --dry-run
-cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.slack-cache --allow-warning active-process
-cargo run -p rebecca -- clean --dry-run --no-progress --rule linux.slack-cache --allow-warning active-process
-cargo run -p rebecca -- clean --dry-run --rule linux.apt-cache --allow-moderate --allow-warning permission-sensitive
-cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
-cargo run -p rebecca -- doctor active-processes
-cargo run -p rebecca -- apps clean --dry-run
-cargo run -p rebecca -- purge --dry-run
-cargo run -p rebecca -- history --limit 10
-cargo run -p rebecca -- history --format json
+rebecca inspect map --root . --top 20
+rebecca inspect space --root .
+rebecca inspect artifacts --root .
+rebecca catalog --kind cleanup-rule
 ```
 
-## Human Output Examples
-
-Rebecca's human output is optimized for previewing risk, deciding the next command, and spotting the largest space users without opening a separate UI.
-
-**Dry-run decision and active-process guidance**
+Preview cleanup before execution:
 
 ```powershell
-cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.slack-cache --allow-warning active-process
+rebecca clean --dry-run
+rebecca clean --dry-run --category browser
+rebecca clean --dry-run --rule windows.slack-cache --allow-warning active-process
+rebecca purge --dry-run --root .
 ```
 
-```text
-Decision: preview only; no files were deleted.
-Reclaimable now: 9 (9 B)
-Execution: would move allowed targets to recoverable trash.
-Next command: rebecca clean --yes --rule windows.slack-cache --allow-warning active-process
-Required opt-ins in next command: --allow-warning active-process.
-Warning gates in plan: active-process.
-Doctor hint: rebecca doctor active-processes
-
-Target details:
-allowed (3)
-  - windows.slack-cache [...\Slack\Cache] 9 bytes (9 B) [warnings: active-process]
-```
-
-When a selected rule is not eligible yet, the preview explains what must change before execution:
-
-```text
-Execution: no eligible target would be deleted.
-Resolve before execution:
-- skipped safety-opt-in-required: add --allow-moderate or --allow-risky after reviewing the rule.
-
-Issue matrix:
-- skipped safety-opt-in-required: 2 targets, 0 (0 B)
-```
-
-**Ranked disk map**
+Execute only after the preview looks right:
 
 ```powershell
-cargo run -p rebecca -- inspect map --root . --top 2 --entry-kind file --group-by extension
+rebecca clean --yes --category browser
+rebecca purge --yes --root . --artifact target
 ```
 
-```text
-Disk map
-Roots: 1
-Logical bytes: 10 (10 B)
-Files: 2
-Directories: 0
-Diagnostics: 0
-
-Top map entries:
-  #1  8 bytes (8 B)  80.0% [################----] ...\workspace\large.bin [file depth=1] - 1 file, 0 dirs
-  #2  2 bytes (2 B)  20.0% [####----------------] ...\workspace\small.txt [file depth=1] - 1 file, 0 dirs
-
-Map groups:
-  #1  8 bytes (8 B)  80.0% [################----] .bin [extension] - 1 file
-  #2  2 bytes (2 B)  20.0% [####----------------] .txt [extension] - 1 file
-```
-
-Use `--full-path` for exact paths, `--no-bars` for plain logs, `--bar-width <COLUMNS>` for denser terminals, and `--screen-reader` for semicolon-separated lines without visual bars.
-
-**Interactive TUI workbench**
+Open the interactive workbench when you want to browse and decide from the terminal:
 
 ```powershell
-cargo run -p rebecca -- tui --root .
-cargo run -p rebecca -- i
+rebecca tui --root .
+rebecca i
 ```
 
-The TUI is for humans at a terminal. It keeps Rebecca's preview-first model:
-choose a root, navigate the ranked map, press `4`/`w` for a proportional
-treemap, press `2`/`t` for file type distribution, press `3`/`x` for extension
-distribution, or use `Tab` to cycle between map, treemap, types, and
-extensions. Press `Enter`/`l` on a directory or treemap tile to drill into that
-scope, and press `h`/`Esc` to move back. Press `Enter` on a type or extension
-row to filter the map and treemap by that group, and press `Backspace` to clear
-the group filter. The header and status line show the active scope, selected
-filter, sort, basket state, and current background task. Mouse-capable terminals
-can click view tabs, rows, and treemap tiles to select and can use the wheel to
-move selection; mouse input never executes cleanup. Press `r` to patch-refresh
-the active directory in place, `R` to refresh the scan root, `Space` to stage
-the cleanup rule behind an advised entry, and `c` to preview all matching rule
-targets. Execution still requires typing the `CLEAN <bytes>` confirmation.
-Press `Esc` on the working screen to request cancellation: scan and preview stop
-at cooperative checkpoints, while cleanup execution stops before the next target
-or after the current recoverable-trash operation returns. Press `g` to view
-recent cleanup history. Interactive human runs remember private display
-preferences such as the last workbench view, sort, entry limit, scan backend,
-screen-reader mode, and color mode; hidden `--once` and replay smoke runs do not
-write preferences. Real TUI cleanup uses recoverable trash; use
-`inspect map --format json`, `--format ndjson`, or table export for automation. Use
-`--screen-reader` to omit visual bars, `--visual-bars` to override a saved
-screen-reader preference, `--no-color` when the terminal or capture environment
-should rely only on text cues, and `--color` to override a saved no-color
-preference.
+The TUI shows a ranked disk map, treemap, type distribution, extension distribution, cleanup advice, staged rules, preview, execution, and history. Mouse input selects and navigates; cleanup still requires an explicit confirmation.
 
-**Cache doctor**
+## What Rebecca cleans
+
+Rebecca ships conservative built-in rules for:
+
+- User cache and temp directories on Windows, Linux, and macOS.
+- Browser caches for Chromium-family browsers, Firefox-family browsers, and Edge.
+- Developer caches for Rust, Node.js, Python, Java, .NET, Android, JetBrains IDEs, VS Code, and common ML tooling.
+- Desktop app caches and logs for chat, meeting, design, media, office, and download apps.
+- Steam client cache and library cache leaves.
+- Project artifacts such as `node_modules`, `target`, `build`, `dist`, Python virtual environments, coverage output, `.next`, Gradle output, Composer `vendor`, CocoaPods `Pods`, and .NET `bin` / `obj`.
+- Windows app leftovers discovered from installed-app inventory.
+
+Rules are discoverable:
 
 ```powershell
-cargo run -p rebecca -- cache doctor
+rebecca catalog --kind cleanup-rule --platform windows
+rebecca catalog --kind cleanup-rule --platform linux
+rebecca catalog --kind cleanup-rule --platform macos
+rebecca catalog --kind project-artifact
 ```
 
-```text
-Cache health: review recommended
-Prunable records: 0
+Rule authoring and external cleaner manifests are documented in [docs/rule-authoring.md](docs/rule-authoring.md).
 
-Rebecca cache: ...\rebecca-cache
-Namespace: all
-Entries: 0, valid: 0, stale: 0, corrupt: 0, missing payloads: 0, prunable: 0
-Cache bytes: 0 (0 B)
-No cache records found.
-Recommendations:
-- Info: No Rebecca cache records were found.
-```
+## Disk usage
 
-## Security & Safety Design
-
-Rebecca is a local cleanup tool, and the highest-risk behavior is unintended local data loss.
-
-- `clean` previews by default; `clean --dry-run` makes that preview explicit, and `clean --yes` uses the same plan builder before moving allowed targets.
-- `apps scan` and `apps clean` share the same planner. `apps clean` previews by default and requires `--yes` before moving leftover cache data to the recoverable trash.
-- `purge` uses a dedicated project-artifacts workflow. It scans configured roots when present, otherwise the current directory, and previews by default before moving project artifacts to the platform trash.
-- `--dry-run` and `--yes` are mutually exclusive on cleanup-capable commands. Preview with `--dry-run`; execute by replacing it with `--yes`.
-- `catalog`, `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` are read-only surfaces and never write cleanup history.
-- `tui` is a human terminal surface. It refuses non-terminal execution unless the hidden CI `--once` path is used, runs scan/refresh/preview/execute work through a shared background task runtime with live progress snapshots, exposes ranked map, drilldown treemap, type distribution, and extension distribution views, treats mouse input as selection/navigation only, stores only private display preferences, and executes cleanup only through the same planner, protection policy, recoverable trash backend, cancellation boundaries, and history model as `clean`.
-- Default execution uses the platform trash through the shared recoverable backend.
-- On Linux, user-scoped rules follow XDG cache/state/data defaults from `HOME`; package-manager archive rules under `/var/cache` are moderate, permission-sensitive, preview-first targets and may fail as a standard user instead of falling back to permanent deletion.
-- Execution can batch already revalidated, non-overlapping targets into fewer recoverable trash operations, but status, reason codes, pending bytes, and history remain per target.
-- `clean --scan-backend windows-native` opts into the Windows native directory enumeration backend for plan estimates, and `inspect map --scan-backend windows-native` uses the same native entry metadata for ranked disk inventory on supported local paths; `windows-ntfs-mft-experimental` is available only in builds compiled with the `ntfs` Cargo feature, attempts read-only live NTFS/MFT metadata on supported local NTFS volumes, tries a sequential `$MFT` source before the per-record FSCTL source where a full index is explicitly requested, expands valid stream-backed `$INDEX_ALLOCATION:$I30` directory indexes through Rebecca's sequence-aware parser/index model, and falls back to a safe directory scanner with provenance when the feature is disabled, unsupported, unprivileged, too slow to index within the live build budget, or too ambiguous to trust. Set `REBECCA_NTFS_MFT_INDEX_TIMEOUT_SECONDS` to tune the default 20 second experimental MFT build budget, or `0` to disable that guard for dogfood; set `REBECCA_NTFS_MFT_INDEX_TIMINGS=1` to capture stage timings while profiling the experimental backend. `inspect space` and `inspect map` accept the same backend selector for read-only estimates or inventory. The default remains the portable cleanup walker.
-- Directory targets keep the target directory and move direct child entries.
-- Permanent deletion and administrator auto-elevation are not part of the MVP.
-- Junctions, symlinks, and other reparse-point traversal are blocked by default.
-- Moderate rules require `--allow-moderate`; risky and dangerous rules require `--allow-risky`.
-- Do not start with `sudo rebecca clean --yes`; first preview as the current user. Use elevated permissions only for reviewed permission-sensitive Linux system cache rules. On macOS, grant Full Disk Access to the terminal only when privacy controls block reviewed user-owned cache paths; do not use `sudo` as a TCC workaround.
-- Use `--exclude <PATH>` or `[protection].protected_paths` to keep a path out of a run.
-- Dry-run human output highlights the largest estimated targets first, groups the full target list by status, prints a copyable next command, lists required opt-ins already present in that command, explains skipped or blocked pre-execution issues, and points active-process warning runs at `rebecca doctor active-processes`.
-- `clean --scan-cache` explicitly enables the rebuildable scan cache for eligible targets.
-- Human `clean` runs show target-level progress by default and honor `Ctrl+C` for cancellation; use `--no-progress` for quiet logs. TTY progress stays on stderr with compact `plan | ...`, `scan | ...`, and `cache | ...` messages; `--progress-detail file` adds throttled file and byte throughput for long scans.
-- Human `inspect space` and `inspect map` runs also keep progress on stderr, with compact root, fallback, cache, traversal, and backend-stage messages. Use `--no-progress` for quiet human logs; JSON, NDJSON, and raw table stdout never receive spinner text.
-- `--format ndjson` keeps machine output clean for long-running cleanup and inspect workflows. Cleanup emits target-level progress by default. Inspect emits `started`, bounded `inspect-progress`, final report rows or payloads, and `completed`; add `--progress-detail file` only when a wrapper needs per-file scan events.
-- Warning-bearing cleanup rules are blocked until their named gate is selected with `--allow-warning <WARNING>`; `--allow-moderate` and `--allow-risky` still control safety-level admission.
-- The recoverable trash backend performs a final lstat-style reparse-point check before handing paths to the platform trash adapter. If a planned path is replaced with a symlink or other reparse point between preview and execution, that target is blocked with `safety-policy-blocked` instead of being deleted.
-
-For the current destructive-operation boundary and known safety gaps, see [Rebecca Cleanup Safety Audit](docs/security-audit.md).
-
-Security reporting guidance lives in [SECURITY.md](SECURITY.md).
-
-Reference material under `repo-ref/` is for behavior research only; Rebecca owns its rule catalog and implementation.
-
-## Tips
-
-- `clean`, `apps clean`, `purge`, and `cache purge` all preview first; `cache purge --yes` moves Rebecca cache entries to the recoverable trash, and `cache purge --yes --permanent` opts into irreversible deletion.
-- Use `catalog` before adding wrappers or scripts; it lists supported cleanup rules, project artifact selectors, warning gates, safety categories, and action kinds from one API. Add `--platform windows`, `--platform linux`, or `--platform macos` when a wrapper needs a host-specific cleanup catalog.
-- Use `inspect space`, `inspect map`, `inspect artifacts`, and `inspect lint` when you need reports rather than cleanup plans.
-- Use `cache inspect`, `cache doctor`, and `cache prune` when you need Rebecca cache inventory, recommendations, or targeted stale-record cleanup.
-- Use `apps scan` when you want to inspect installed-app leftovers, and `apps clean` when you are ready to move them to the recoverable trash.
-- Use `--format json` or `--format ndjson` when Rebecca is being driven by another tool.
-- `history` is the fastest way to review what was planned and what actually happened.
-
-## Usage
+`inspect map` answers "what is using space here?" without creating a cleanup plan.
 
 ```powershell
-cargo run -p rebecca -- scan
-cargo run -p rebecca -- scan --format json
-cargo run -p rebecca -- scan --category browser
-cargo run -p rebecca -- scan --rule windows.thumbnail-cache
-
-cargo run -p rebecca -- catalog
-cargo run -p rebecca -- catalog --format json --kind warning
-cargo run -p rebecca -- catalog --format json --kind cleanup-rule --platform linux
-cargo run -p rebecca -- catalog --format json --kind cleanup-rule --platform macos
-cargo run -p rebecca -- catalog --format json --kind project-artifact --artifact node-modules
-
-cargo run -p rebecca -- inspect space --root .
-cargo run -p rebecca -- inspect space --root . --format json --top 20
-cargo run -p rebecca -- inspect map --root . --format json --top 20 --max-depth 3
-cargo run -p rebecca -- inspect map --root . --top 20 --full-path --bar-width 32
-cargo run -p rebecca -- inspect map --root . --top 20 --no-bars
-cargo run -p rebecca -- inspect map --root . --top 20 --screen-reader
-cargo run -p rebecca -- inspect map --root . --format json --top 20 --cleanup-advice
-cargo run -p rebecca -- inspect map --root . --format ndjson --top 20 --advice-status cleanable
-cargo run -p rebecca -- inspect map --root . --format ndjson --top 20 --group-by extension
-cargo run -p rebecca -- inspect map --root . --table tsv --table-row entry --table-row group --top 20 --group-by extension
-cargo run -p rebecca -- inspect artifacts --root . --format json
-cargo run -p rebecca -- inspect artifacts --root . --artifact target --reclaim-limit-bytes 1073741824
-cargo run -p rebecca -- inspect lint --root . --reference "$PWD\archive" --format json
-
-cargo run -p rebecca -- clean --dry-run
-cargo run -p rebecca -- clean --dry-run --format json --category system
-cargo run -p rebecca -- clean --dry-run --no-progress --rule windows.edge-cache
-cargo run -p rebecca -- clean --dry-run --no-progress --rule linux.chrome-cache --allow-warning active-process
-cargo run -p rebecca -- clean --dry-run --no-progress --rule macos.chrome-cache --allow-warning active-process
-cargo run -p rebecca -- clean --dry-run --format json --rule linux.pip-cache --allow-moderate
-cargo run -p rebecca -- clean --dry-run --format json --rule macos.pip-cache --allow-moderate
-cargo run -p rebecca -- clean --dry-run --rule linux.apt-cache --allow-moderate --allow-warning permission-sensitive
-cargo run -p rebecca -- clean --dry-run --format json --scan-cache --rule windows.thumbnail-cache
-cargo run -p rebecca -- clean --dry-run --no-scan-cache --scan-backend windows-native --category system
-cargo run -p rebecca --features ntfs -- clean --dry-run --no-scan-cache --scan-backend windows-ntfs-mft-experimental --category system
-cargo run -p rebecca -- clean --dry-run --format json --allow-moderate --rule windows.npm-cache
-cargo run -p rebecca -- clean --dry-run --format json --allow-risky --rule windows.npm-cache
-cargo run -p rebecca -- clean --dry-run --exclude "$env:APPDATA\Slack\Cache"
-cargo run -p rebecca -- clean --yes --category system
-
-cargo run -p rebecca -- apps scan
-cargo run -p rebecca -- apps scan --format json
-cargo run -p rebecca -- apps scan --exclude "$env:LOCALAPPDATA\Example App\Cache"
-cargo run -p rebecca -- apps clean
-cargo run -p rebecca -- apps clean --format json --dry-run
-cargo run -p rebecca -- apps clean --yes
-
-cargo run -p rebecca -- purge
-cargo run -p rebecca -- inspect artifacts --root . --format json
-cargo run -p rebecca -- catalog --kind project-artifact
-cargo run -p rebecca -- catalog --kind project-artifact --format json
-cargo run -p rebecca -- purge --format json --root . --max-depth 6
-cargo run -p rebecca -- purge --root . --min-age-days 0
-cargo run -p rebecca -- purge --root . --artifact target
-cargo run -p rebecca -- purge --root . --reclaim-limit-bytes 1073741824
-cargo run -p rebecca -- purge --exclude "$PWD\target"
-cargo run -p rebecca -- purge --yes --root . --scan-cache
-
-cargo run -p rebecca -- completion powershell
-cargo run -p rebecca -- completion bash
-cargo run -p rebecca -- completion zsh
-cargo run -p rebecca -- completion fish
-cargo run -p rebecca -- completion elvish
-
-cargo run -p rebecca -- history
-cargo run -p rebecca -- history --limit 10
-cargo run -p rebecca -- history --format json
-
-cargo run -p rebecca -- config paths
-cargo run -p rebecca -- cache inspect --format json
-cargo run -p rebecca -- cache doctor
-cargo run -p rebecca -- cache doctor --format json
-cargo run -p rebecca -- cache prune --format json --namespace scan-cache --stale-only
-cargo run -p rebecca -- cache purge --format json
-cargo run -p rebecca -- cache purge --yes
-cargo run -p rebecca -- cache purge --yes --permanent
-cargo run -p rebecca -- doctor permissions
-cargo run -p rebecca -- doctor active-processes
+rebecca inspect map --root . --top 20
+rebecca inspect map --root . --top 20 --group-by extension
+rebecca inspect map --root . --top 20 --cleanup-advice
+rebecca inspect map --root . --table csv --table-row entry --group-by extension
 ```
 
-On macOS, `doctor permissions` also performs read-only privacy probes for Mail,
-Messages, and Safari paths. A `likely-blocked` result means Full Disk Access may
-be needed for the terminal before cleaning reviewed user-owned cache paths;
-`sudo` is not a TCC workaround.
+Human output is compact by default. Use `--full-path` for exact paths, `--no-bars` for plain logs, `--bar-width <COLUMNS>` for narrow or wide terminals, and `--screen-reader` for semicolon-separated lines without visual bars.
 
-## Shell Completions
+On Windows, `--scan-backend windows-native` can use native directory enumeration and allocation metadata. Builds compiled with the `ntfs` Cargo feature also expose the experimental `windows-ntfs-mft-experimental` backend for read-only NTFS/MFT inventory. Unsupported or ambiguous cases fall back to the portable scanner with provenance.
 
-Rebecca generates shell completion scripts from the live clap parser, so subcommands,
-flags, enum values, and path-aware arguments stay aligned with the binary.
+## Project cleanup
+
+`purge` is for build output and dependency directories. It checks project context before accepting broad names like `build`, `dist`, `bin`, or `obj`, so a random directory name is not enough.
+
+```powershell
+rebecca purge --dry-run --root .
+rebecca purge --dry-run --root . --artifact node_modules
+rebecca purge --dry-run --root . --min-age-days 0
+rebecca purge --yes --root . --artifact target
+```
+
+By default, recent artifacts are skipped for 7 days. Use `--min-age-days 0` when you intentionally want to include fresh build output.
+
+## Safety defaults
+
+Rebecca is a local deletion tool, so the defaults are intentionally boring:
+
+- Cleanup-capable commands preview first. Use `--dry-run` to make that explicit and `--yes` to execute.
+- Allowed targets move to the platform trash by default.
+- Moderate rules need `--allow-moderate`; risky and dangerous rules need `--allow-risky`.
+- Warning-bearing rules stay blocked until you pass the named `--allow-warning <WARNING>` gate.
+- Junctions, symlinks, and other reparse points are blocked by default.
+- `--exclude <PATH>` and `[protection].protected_paths` keep paths out of a run.
+- Permanent deletion and administrator auto-elevation are not part of normal cleanup.
+
+Do not start by running `sudo rebecca clean --yes`. Preview as the current user, review permission-sensitive targets, then elevate only for the specific system cache you intend to clean.
+
+The longer destructive-operation boundary lives in [docs/security-audit.md](docs/security-audit.md). Report security issues through [SECURITY.md](SECURITY.md).
+
+## Output for scripts
+
+Use JSON when a caller needs one final result:
+
+```powershell
+rebecca clean --dry-run --format json
+rebecca inspect map --root . --format json --top 20
+```
+
+Use NDJSON for long-running work that needs progress events:
+
+```powershell
+rebecca clean --dry-run --format ndjson
+rebecca inspect map --root . --format ndjson --top 20
+```
+
+Use table export when the next tool is Excel, PowerShell, DuckDB, or a shell pipeline:
+
+```powershell
+rebecca inspect map --root . --table csv --table-row entry --top 100
+rebecca inspect map --root . --table tsv --table-row group --group-by extension
+```
+
+The CLI contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
+
+## Shell completions
+
+Rebecca generates completions from the live clap parser:
 
 ```powershell
 rebecca completion powershell > rebecca.ps1
@@ -350,162 +178,31 @@ rebecca completion fish > rebecca.fish
 rebecca completion elvish > rebecca.elv
 ```
 
-GitHub Releases also publish the same standalone completion assets with
-`rebecca-completions.sha256`. The repository PowerShell installer copies
-packaged completions to `<install-dir>\completions` when the archive contains
-them, but it does not edit shell profiles. Install the generated file through
-the shell-specific completion path you already manage.
+GitHub Releases also publish standalone completion assets with checksums. The Windows installer copies packaged completions to `<install-dir>\completions` when the archive contains them; it does not edit shell profiles.
 
-## CLI API
+## Local state
 
-Use `--format json` when a caller needs one final result.
-Use `--format ndjson` for long-running cleanup and inspect workflows that need progress events. Cleanup NDJSON defaults to target-level progress; inspect NDJSON emits `started`, bounded `inspect-progress`, final report events, and `completed` with monotonic sequence numbers. Use `--progress-detail file` for verbose per-file scan events. Use `inspect map --table csv|tsv` when a caller needs flat disk-map rows for Excel, PowerShell, DuckDB, or other table-first tools; add repeated `--table-row total|root|entry|group` when the caller only wants selected row kinds. Add `inspect map --cleanup-advice` when ranked entries should include read-only cleanup guidance grounded in Rebecca's rule catalog, project artifact policy, app-leftover discovery, and protection policy; `--advice-status cleanable|maybe-cleanable|contains-cleanable|protected|unknown` narrows ranked entries by that guidance without changing root totals.
-
-Machine-readable success responses use the unified `rebecca.cli.v1` envelope. Every envelope includes `command`, `payload_kind`, `generated_at_unix_seconds`, and `data`. Fatal failures in JSON mode write a structured error envelope to stderr and exit non-zero. When `--format json` or `--format ndjson` is already discoverable, argument parse failures also use the machine error contract with `invalid-arguments`; invalid `--format` values still use clap's native message so users can see the accepted values.
-
-Cleanup, purge, `inspect space`, and `inspect map` targets expose estimate provenance. `estimate_source` remains stable, while `estimate_backend`, optional `estimate_backend_source`, `estimate_confidence`, `estimate_fallback_reason`, and `estimate_caveats` explain backend selection, cache reuse, actual NTFS source selection, parser caveats, and fallback without changing deletion safety. `inspect map` reports path-ranked `logical_bytes`, nullable `allocated_bytes`, and nullable `unique_logical_bytes` / `unique_allocated_bytes` when a backend can deduplicate stable file identities. It can also emit bounded distribution `groups` when requested with `--group-by type`, `--group-by extension`, `--group-by depth`, or `--group-by age`; use `--sort logical|allocated|files|unique` and `--group-sort logical|allocated|files|unique` when the most useful ordering is not logical bytes. In NDJSON mode, `inspect map` streams ranked `map-entry` and `map-group` events before the final full `inspect-map` completed event, which makes the same bounded map useful for scripts and future TUI views. With `--cleanup-advice`, ranked map entries include `cleanup_advice` with `cleanable`, `maybe-cleanable`, `contains-cleanable`, `protected`, or `unknown` status plus matched rule, project artifact, app-leftover, or protection facts and a dry-run command hint; actual deletion still goes through `clean`, `apps clean`, or `purge` planning. In table mode, `inspect map --table csv|tsv` writes flat `total`, `root`, `entry`, and `group` rows with one header and no JSON envelope; empty cells mean the column is not applicable to that row type or the metric is unknown, repeated `--table-row` flags can narrow the row set, and `--cleanup-advice` appends cleanup advice columns plus `cleanup_app_*` columns for app-leftover context. Unix portable map inventory fills allocation from `st_blocks`, deduplicates hardlinked files by `(st_dev, st_ino)`, and uses backend-neutral `compressed-file`, `sparse-file`, `hardlink-file`, and `reparse-skipped` caveats when filesystem semantics can affect interpretation. Windows native map inventory fills `allocated_bytes` from Windows file allocation metadata when available and deduplicates hardlinked files by native file id for the unique fields. Experimental NTFS/MFT map inventory fills logical, allocated, unique logical, and unique allocated values from parser-backed record and stream evidence when available, keeps unknowns nullable, preserves directory-edge provenance from `$FILE_NAME` and `$I30`, and reports parser caveats instead of treating ambiguous metadata as deletion authority.
-
-Human `inspect map` output ranks top entries and requested groups with logical-size share and ASCII usage bars. Use `--full-path` when terminal width is less important than exact paths, `--no-bars` for plain logs, `--bar-width <COLUMNS>` for denser or wider maps, and `--screen-reader` for semicolon-separated lines without visual bars.
-
-The CLI API contract, schemas, and examples live in [docs/api/cli/v1](docs/api/cli/v1/README.md).
-
-## Built-In Rules
-
-Rebecca ships conservative cleanup rule families under `crates/rebecca-rules/rules/cleanup/`. Each TOML file owns shared metadata and one or more platform blocks; the compiler expands those blocks into runtime rule ids such as `windows.user-temp`, `linux.user-temp`, and `macos.user-temp`. Windows, Linux, and macOS rules are discoverable through `rebecca catalog --kind cleanup-rule --platform <platform>`; Linux ships system, browser, application, Steam, and developer-cache rules, while macOS ships user-scoped cache/log rules for browsers, developer tools, desktop apps, Steam, thumbnails, and temp files.
-
-- System and browser caches: user temp files, Linux package-manager archives, thumbnail caches, Edge, Chrome, Chromium, Brave, Firefox, Waterfox, Zen Browser, DirectX shader cache, and Windows Error Reporting data.
-- App caches and diagnostics: Discord, Slack, Postman, Notion, Figma, Zoom logs, TeamViewer logs, VLC media cache, Thunderbird cache, Adobe Reader cache, WeChat, Enterprise WeChat, QQ, Feishu, DingTalk, WPS, Baidu Netdisk, Tencent Meeting, QQ Music, and Tencent Video. Linux app rules include native XDG paths plus bounded Flatpak or Snap cache locations where the app id is known; macOS app rules target narrow `Library/Application Support/<App>/Cache`-style leaves and avoid durable app state.
-- Developer caches: pip, uv, Poetry, Conda, Go, Cargo, ccache, rustup, sccache, JetBrains, npm, pnpm, yarn, bun, corepack, Gradle, Android, NuGet, Maven, Hugging Face, PyTorch, and VS Code.
-- macOS developer caches: Homebrew download/API/cask cache leaves, CocoaPods cache data, and Xcode DerivedData plus Xcode/SwiftPM cache leaves. Rebecca keeps Homebrew taps, Xcode Archives, device support payloads, provisioning profiles, preferences, and project data out of built-in cache rules.
-- Steam caches: the Steam client cache plus Windows, Linux, and macOS install-root/library-root cache leaves discovered under readable user Steam roots.
-
-Linux XDG variables are resolved by the planner: `XDG_CACHE_HOME` falls back to `$HOME/.cache`, `XDG_CONFIG_HOME` to `$HOME/.config`, `XDG_DATA_HOME` to `$HOME/.local/share`, and `XDG_STATE_HOME` to `$HOME/.local/state` when those variables are unset. macOS rule variables are also semantic: `MACOS_CACHE_HOME` falls back to `$HOME/Library/Caches`, `MACOS_APPLICATION_SUPPORT_HOME` to `$HOME/Library/Application Support`, and `MACOS_LOG_HOME` to `$HOME/Library/Logs`. Package-manager rules such as `linux.apt-cache`, `linux.dnf-cache`, `linux.pacman-cache`, and `linux.zypper-cache` require `--allow-moderate` and the `permission-sensitive` warning gate because they target bounded archive leaves under `/var/cache`.
-
-Rule metadata includes generated platform rule ids, category, safety level, restore hint, warnings, and provenance. Built-in rules use `source = "owned"` with `license = "project-owned"`. Human `scan`, `clean`, and `history` views surface restore hints when available, and `--format json` preserves those fields under the CLI API envelope.
-
-External Cleaner Manifest v1 rules are managed explicitly. `rebecca rules validate` checks a manifest without importing it. `rebecca rules import --file <PATH>` copies a validated manifest into Rebecca state with provenance, hash, rule ids, platforms, and `enabled=false`; imported rules do not affect planning until `rebecca rules enable <IMPORT_ID>` revalidates the stored manifest. Use `rules list`, `rules disable`, and `rules remove` for the rest of the lifecycle.
-
-GUI wrappers should start with `rebecca capabilities --format json`, then export the needed schemas with `schema export --document envelope|event|error|payloads|config|cleaner-manifest-v1`, run `doctor permissions --format json` and `config validate --format json`, and keep cleanup destructive commands behind preview plus explicit `--yes`.
-
-Rule authoring notes live in [docs/rule-authoring.md](docs/rule-authoring.md).
-
-## App Leftovers
-
-`rebecca apps scan` and `rebecca apps clean` provide a bounded app-residue workflow. Rebecca reads installed-app inventory from Windows uninstall registry locations and uses the display name only to derive conservative user-scoped leftover cache targets under `AppData\Local`, `AppData\Roaming`, and `AppData\LocalLow`.
-
-The workflow does not uninstall applications, execute vendor uninstallers, remove uninstall metadata, write registry keys, kill processes, or delete broad `Program Files` or application data roots. It only routes discovered app leftover cache directories such as `Cache`, `Code Cache`, `GPUCache`, and `CachedData` through the same protection policy, dry-run summary, issue matrix, recoverable trash backend, and JSON/history model used by regular cleanup.
-
-## Project Artifacts
-
-`rebecca purge` provides a license-aware project cleanup workflow, inspired by tools such as Mole, for heavy build artifacts and dependency caches.
-
-The current scope is context-sensitive rather than basename-only: `node_modules`, `target`, `build`, `dist`, Python virtual environments and tool caches, frontend framework caches, coverage output, Gradle caches, Zig/Dart/Expo build caches, CocoaPods `Pods`, Composer `vendor`, .NET `bin`/`obj`, plus directories carrying a valid `CACHEDIR.TAG` cache marker. Each built-in artifact is backed by an explicit project-context rule, such as JavaScript workspace markers for `node_modules`, Rust or Maven markers for `target`, Composer `composer.json` for `vendor`, and sibling `.csproj`, `.fsproj`, or `.vbproj` files for .NET `bin`/`obj`; generic names such as `build`, `dist`, `coverage`, `bin`, and `obj` are ignored without that context.
-
-Rebecca does not auto-scan every common project directory under the user profile. By default it scans configured `[purge].roots` when present and falls back to the current directory when no roots are configured; pass repeated `--root <PATH>` values to override configured roots for one run. Explicit `--root` values are strict and fail if the path is missing, not a directory, or a reparse point. Configured roots are resolved as long-lived workspace intent, so a missing or unreadable configured root is reported as a project-artifact discovery diagnostic instead of aborting the whole run. Known artifact directory names are traversal boundaries even when the directory is not accepted as a cleanup target, which prevents embedded toolchains or installed products from leaking nested `build`, `dist`, `node_modules`, or bytecode caches into the plan. Execution uses the same plan-first model as `clean`: preview is the default, `--yes` is required to move targets to the platform trash, and `--exclude` plus `[protection].protected_paths` can block paths before size scanning or deletion.
-
-Machine-readable purge targets include a `project_artifact` explanation object with the matched context, project root, and anchor path that made the target eligible. For example, a `node_modules` target matched by `package.json` reports `matched_context = "node-project"` and the concrete `project_anchor` path rather than a confidence score.
-
-Project artifact plans may also include `discovery_diagnostics` for partial discovery failures such as missing configured roots, unreadable directories, metadata errors, or skipped reparse points. These diagnostics are plan-level observations; they do not create fake cleanup targets or change target counts.
-
-To avoid immediately cleaning active build output, `purge` skips artifact directories modified within the last 7 days by default; pass `--min-age-days 0` to include recent artifacts explicitly. Use repeated `--artifact <NAME>` values to include only selected artifact kinds, using either the directory name such as `node_modules`, a rule id suffix such as `target`, or the full portable rule id; run `rebecca catalog --kind project-artifact` for the canonical selector catalog. Pass `--reclaim-limit-bytes <BYTES>` when you want Rebecca to measure ranked eligible artifacts until a reclaim target is met, leaving later candidates unmeasured. Human output groups artifact targets by project path and labels each artifact type so large purge plans are easier to scan.
-
-Use `rebecca inspect artifacts` when you want a read-only project artifact report rather than a cleanup plan. It uses the same selectors, roots, excludes, depth, age window, scan-cache estimation, warning gates, reclaim limit, and diagnostics as `purge`, but it has no `--yes`, never prompts, and never writes cleanup history. Its machine payload is `inspect-artifacts`, grouped by scan root, project root, and artifact kind with a largest-targets list for dashboards or wrappers.
-
-`rebecca inspect space` provides read-only top-level disk usage insight with bounded top entries and no cleanup authorization. Raw diagnostic samples are bounded by `--diagnostic-limit` while `diagnostic_summary` keeps complete counts; use `--diagnostic-limit 0` for summary-only machine output.
-
-`rebecca inspect lint` provides report-only duplicate, large-file, empty-file, and empty-directory findings. It computes conservative reclaim estimates, treats `--reference` roots and protected paths as keep candidates, and intentionally does not perform duplicate remediation or write cleanup history.
-
-`rebecca inspect map` provides a read-only ranked disk map for a requested root. It is designed for "what is using space here?" questions, returns bounded top entries with `--top` and optional `--max-depth`, and never creates cleanup plans or authorizes deletion. The default portable inventory streams directory aggregation into a bounded top-entry heap instead of building a full report tree in memory, and it returns conservative partial diagnostics when child entries disappear, child directories are unreadable, or child reparse points are skipped. Raw diagnostic samples are bounded by `--diagnostic-limit` while `diagnostic_summary` keeps complete counts; use `--diagnostic-limit 0` for summary-only machine output. Use `--min-logical-bytes`, `--entry-kind file|directory|other`, and `--path-contains` to filter ranked entries without changing root totals. Use `--cleanup-advice` to annotate ranked entries with read-only cleanup status from the rule catalog, project artifact policy, app-leftover discovery, and protection policy; use `--advice-status cleanable|maybe-cleanable|contains-cleanable|protected|unknown` to keep only entries with one status. Use `--sort logical|allocated|files|unique` when file count, allocation, or unique logical usage is a better top-entry ordering than logical bytes. Use repeated `--group-by type|extension|depth|age` plus `--group-limit` to add bounded distribution groups without running a second scan, and `--group-sort logical|allocated|files|unique` to rank those groups. Human output compacts long top-entry paths by default and can be tuned with `--full-path`, `--no-bars`, `--bar-width <COLUMNS>`, or `--screen-reader`. Use `--table csv|tsv` to export one flat table containing `total`, `root`, `entry`, and `group` rows for spreadsheet or query tooling; use repeated `--table-row total|root|entry|group` to export only selected row kinds. Use `--scan-backend windows-native` when you want Windows native directory enumeration provenance, file allocation bytes, and file-id-deduplicated unique bytes when the host API exposes them. Use `--scan-backend windows-ntfs-mft-experimental` in a binary compiled with the `ntfs` Cargo feature when you want read-only NTFS/MFT provenance and MFT-native grouped disk maps; scoped roots use targeted traversal, while drive roots or explicit full-index diagnostics may use full-volume MFT inventory. Builds without `ntfs` keep the selector but report portable fallback provenance.
-
-Long-lived purge defaults belong in `config.toml`:
-
-```toml
-[purge]
-roots = ['D:\SourceCodes', 'D:\Work']
-max_depth = 6
-min_age_days = 7
-```
-
-Reference source trees such as this repository's `repo-ref` directory should be protected by configuration or a one-off exclude instead of product-specific hardcoding:
-
-```powershell
-rebecca purge --root . --exclude "$PWD\repo-ref"
-```
-
-```toml
-[protection]
-protected_paths = ['D:\SourceCodes\Rust\rebecca\repo-ref'] # replace with your checkout path
-```
-
-## Local State
-
-By default, Rebecca uses the platform's standard user directories through the `directories` crate:
+Rebecca stores config, history, and rebuildable cache data in the platform user directories:
 
 - Windows config: `%APPDATA%\Rebecca\config.toml`
 - Windows state/cache: `%LOCALAPPDATA%\Rebecca\state`, `%LOCALAPPDATA%\Rebecca\cache`
 - Linux config: `$XDG_CONFIG_HOME/Rebecca/config.toml` or `$HOME/.config/Rebecca/config.toml`
-- Linux state/cache: `$XDG_DATA_HOME/Rebecca/state` or `$HOME/.local/share/Rebecca/state`, and `$XDG_CACHE_HOME/Rebecca/cache` or `$HOME/.cache/Rebecca/cache`
-- History: `<state-dir>/history.jsonl`
+- Linux state/cache: `$XDG_DATA_HOME/Rebecca/state`, `$XDG_CACHE_HOME/Rebecca/cache`, or their standard home-directory fallbacks
+- macOS config/state/cache: platform user directories under `Library`
 
-The full schema, path precedence, migration, and local-state ownership contract is documented in [Configuration And Local State Contract](docs/configuration.md).
+Inspect the resolved paths:
 
-`rebecca config paths --format json` also reports lifecycle metadata for these paths inside the CLI API v1 `data` payload:
-
-| Path | Lifecycle | Retention |
-|------|-----------|-----------|
-| config file / config dir | configuration | preserve |
-| state dir | durable-state | preserve |
-| history file | append-only-history | preserve |
-| cache dir | rebuildable-cache | rebuildable |
-
-`rebecca cache inspect` inventories Rebecca-owned rebuildable cache metadata without deleting anything. Use `--namespace scan-cache`, `--namespace ntfs-volume-index`, or `--namespace all` to narrow the report. `rebecca cache doctor` adds stale/corrupt/missing-payload recommendations, and `rebecca cache prune --stale-only` previews targeted cache metadata cleanup before `--yes` executes it through the same cleanup execution report model as other deletion workflows. JSON inventory entries include `absolute_path` for local authority and `display_path` for safer reports; review absolute local paths before sharing diagnostics.
-
-`rebecca cache purge` operates only on Rebecca's configured rebuildable cache directory. It previews by default, moves direct cache contents to the recoverable trash with `--yes`, permanently deletes them only with `--yes --permanent`, keeps the cache directory itself, reports lifecycle, entry-status, pending-reclaim, reclaimed-byte, and issue-matrix details in human output and `--format json`, and refuses to run if the cache path overlaps preserved configuration, state, or history paths.
-
-Scan-cache records use a versioned JSON format under the rebuildable cache directory's `scan` subdirectory. The current v1 record stores the scanned root path, root metadata fingerprint, scan report, write time, scan backend, optional backend source, estimate confidence, metric semantics, and optional filesystem identity fields for USN-based invalidation. `clean --scan-cache` explicitly enables planner use of eligible regular-file records and freshness-bounded directory records. Exact records from the portable, Windows native, and experimental NTFS/MFT backends can be reused only when the root fingerprint and identity still match and the requested backend plus logical-byte semantics are compatible. Directory freshness is governed by a policy seam with a current 5-minute default, so the window can evolve without changing user configuration. Missing USN support falls back to the normal fingerprint and identity policy; mismatched journal ids, unavailable journal ranges, or target-subtree changes conservatively invalidate the cache. Missing, corrupted, stale, expired, incompatible, older-format, or unsupported-version records are treated as cache misses and can be rebuilt. Stale or corrupted cache files are pruned when lookup discovers them, while incompatible cache files are retained for a compatible future request. Plan builds also run a best-effort cache prune pass that reports pruned record counts in human output.
-
-The config file can override that directory freshness window:
-
-```toml
-[scan_cache]
-directory_record_max_age_seconds = 300
+```powershell
+rebecca config paths
+rebecca cache doctor
+rebecca history --limit 10
 ```
 
-The config file is human-editable TOML. The current schema version is `1`; if `version` is omitted, Rebecca treats the file as version `1`. Unsupported versions fail clearly instead of being partially interpreted.
+The full local state contract is in [docs/configuration.md](docs/configuration.md).
 
-```toml
-version = 1
+## Release integrity
 
-[app_paths]
-state_dir = 'D:\Rebecca\state'
-cache_dir = 'D:\Rebecca\cache'
-history_file = 'D:\Rebecca\state\history.jsonl'
-
-[scan_cache]
-directory_record_max_age_seconds = 300
-
-[protection]
-protected_paths = ['D:\Keep\Cache']
-```
-
-Every `app_paths` field is optional. Omitted fields keep the default Windows user-directory location. Omitted `scan_cache` fields keep the default directory-record freshness policy. Omitted `protection.protected_paths` means no additional user-protected paths beyond Rebecca's built-in safety policy.
-
-For tests or constrained environments, these paths can also be overridden:
-
-- `REBECCA_CONFIG_DIR`
-- `REBECCA_STATE_DIR`
-- `REBECCA_CACHE_DIR`
-- `REBECCA_HISTORY_FILE`
-
-## Release Integrity
-
-Rebecca's release workflow publishes a cargo-dist Windows x86_64 ZIP artifact, a PowerShell installer, and SHA-256 checksum files. A separate crates.io workflow publishes the workspace crates in dependency order, including the user-facing `rebecca` package. Users installing from GitHub Releases should verify the checksum when downloading artifacts manually.
-
-See [Release Integrity](docs/release.md) for the exact verification commands.
-
-## License
-
-Rebecca is dual-licensed under MIT OR Apache-2.0. See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
+GitHub releases publish the Windows x86_64 archive, installer, completions, and SHA-256 checksums. Manual verification commands and maintainer release steps are in [docs/release.md](docs/release.md).
 
 ## Development
 
@@ -516,8 +213,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 .\scripts\ci\run-linux-target-clippy.ps1
 cargo nextest run --workspace
 cargo bench -p rebecca-core --bench scan_baseline
-.\scripts\release\build-release.ps1 -Tag v0.2.0 -OutDir target\release-smoke
-.\scripts\release\write-sbom.ps1 -Tag v0.2.0 -DistDir target\release-smoke
-.\scripts\release\write-checksums.ps1 -DistDir target\release-smoke
-.\scripts\install.ps1 -AssetPath target\release-smoke\rebecca-0.2.0-windows-x86_64-msvc.zip -ChecksumsPath target\release-smoke\SHA256SUMS -InstallDir target\install-smoke -SkipAttestation
 ```
+
+## License
+
+Rebecca is dual-licensed under MIT OR Apache-2.0. See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
