@@ -9,7 +9,6 @@ use rebecca::core::executor::{
     PermanentDeleteBackend, execute_cleanup_plan_parallel_with_policy_and_cancellation,
 };
 use rebecca::core::external_rules::ExternalRuleStore;
-use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::planner::{
     PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
@@ -34,6 +33,7 @@ use crate::progress::{
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
 use crate::trash_backend::recoverable_trash_backend;
+use crate::workflow_artifacts::WorkflowArtifacts;
 use crate::{info, output, render};
 
 #[derive(Debug)]
@@ -160,12 +160,13 @@ pub(crate) fn run_workflow_with_runtime_config(
     runtime_config: AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<()> {
-    if options.save_plan.is_some() && !options.request.mode.is_dry_run() {
-        return Err(anyhow!("--save-plan only works with preview plans"));
-    }
-    if options.receipt.is_some() && options.request.mode.is_dry_run() {
-        return Err(anyhow!("--receipt requires --yes"));
-    }
+    let artifacts = WorkflowArtifacts::new(
+        options.output_contract.command,
+        options.output_mode,
+        options.save_plan.as_deref(),
+        options.receipt.as_deref(),
+    );
+    artifacts.validate_for_mode(options.request.mode)?;
 
     let safety_knowledge =
         rebecca::rules::builtin_safety_knowledge_for_platform(options.request.platform)?;
@@ -254,9 +255,7 @@ pub(crate) fn run_workflow_with_runtime_config(
     let event_writer = progress.into_event_writer();
 
     if options.request.mode.is_dry_run() {
-        if let Some(path) = &options.save_plan {
-            crate::saved_plan::write_saved_plan(&plan, path)?;
-        }
+        artifacts.write_preview_plan(&plan)?;
         (options.success_renderer)(
             &plan,
             options.output_contract,
@@ -265,22 +264,12 @@ pub(crate) fn run_workflow_with_runtime_config(
             scan_cache_summary,
             event_writer,
         )?;
-        if options.output_mode.is_human()
-            && let Some(path) = &options.save_plan
-        {
-            print_saved_plan_guidance(path);
-        }
+        artifacts.print_preview_guidance();
         return Ok(());
     }
 
     if plan.summary.allowed_targets == 0 {
-        if let Some(path) = &options.receipt {
-            crate::cleanup_receipt::write_cleanup_receipt(
-                &plan,
-                options.output_contract.command,
-                path,
-            )?;
-        }
+        artifacts.write_execution_receipt(&plan)?;
         (options.success_renderer)(
             &plan,
             options.output_contract,
@@ -289,11 +278,7 @@ pub(crate) fn run_workflow_with_runtime_config(
             scan_cache_summary,
             event_writer,
         )?;
-        if options.output_mode.is_human()
-            && let Some(path) = &options.receipt
-        {
-            crate::cleanup_receipt::print_receipt_guidance(path, &plan);
-        }
+        artifacts.print_execution_guidance(&plan);
         return Ok(());
     }
 
@@ -315,7 +300,7 @@ pub(crate) fn run_workflow_with_runtime_config(
     if !protected_paths.is_empty() {
         execution_policy = execution_policy.with_protected_paths(&protected_paths);
     }
-    let mut execution_report = match execute_plan(
+    let execution_report = match execute_plan(
         &mut plan,
         execution_policy,
         cancellation,
@@ -328,20 +313,11 @@ pub(crate) fn run_workflow_with_runtime_config(
         Err(err) => return finish_stream_with_error(event_writer, err.into()),
     };
 
-    let history_append =
-        HistoryStore::new(runtime_config.app_paths.history_file).append_plan_report(&plan);
-    if let Some(warning) = history_append.warning {
-        eprintln!("Warning: {}", warning.message);
-        execution_report.push_warning(warning);
-    }
-    plan.execution_report = Some(execution_report);
-    if let Some(path) = &options.receipt {
-        crate::cleanup_receipt::write_cleanup_receipt(
-            &plan,
-            options.output_contract.command,
-            path,
-        )?;
-    }
+    artifacts.record_execution(
+        &mut plan,
+        execution_report,
+        runtime_config.app_paths.history_file,
+    )?;
 
     (options.success_renderer)(
         &plan,
@@ -351,11 +327,7 @@ pub(crate) fn run_workflow_with_runtime_config(
         scan_cache_summary,
         event_writer,
     )?;
-    if options.output_mode.is_human()
-        && let Some(path) = &options.receipt
-    {
-        crate::cleanup_receipt::print_receipt_guidance(path, &plan);
-    }
+    artifacts.print_execution_guidance(&plan);
     Ok(())
 }
 
@@ -615,34 +587,6 @@ fn target_scanning_message(next_target: u64, rule_id: &str, path: &Path) -> Stri
         "plan | target {next_target} | scanning {rule_id} | {} | Ctrl+C cancels",
         compact_progress_path(path, PROGRESS_PATH_MAX_CHARS)
     )
-}
-
-fn print_saved_plan_guidance(path: &Path) {
-    println!();
-    println!("Saved plan: {}", path.display());
-    println!(
-        "Review later: {}",
-        crate::output::format_shell_command(
-            "rebecca",
-            &[
-                "plan".to_string(),
-                "inspect".to_string(),
-                path.display().to_string()
-            ],
-        )
-    );
-    println!(
-        "Execute later: {}",
-        crate::output::format_shell_command(
-            "rebecca",
-            &[
-                "plan".to_string(),
-                "run".to_string(),
-                path.display().to_string(),
-                "--yes".to_string(),
-            ],
-        )
-    );
 }
 
 fn target_finished_message(

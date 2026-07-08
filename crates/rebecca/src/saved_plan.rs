@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::history::HistoryStore;
+use rebecca::core::execution::ExecutionReport;
 use rebecca::core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
 use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::safety::{PATH_DOES_NOT_EXIST_REASON, is_reparse_like};
@@ -18,6 +18,7 @@ use crate::output::{
     CliApiContract, HumanPlanRenderer, WorkflowOutputContract, format_bytes, format_shell_command,
 };
 use crate::runtime::CliRuntime;
+use crate::workflow_artifacts::WorkflowArtifacts;
 use crate::{output, render};
 
 const SAVED_PLAN_SCHEMA: &str = "rebecca.saved-cleanup-plan.v1";
@@ -107,11 +108,7 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
     if options.permanent && !options.yes {
         return Err(anyhow!("--permanent requires --yes"));
     }
-    if options.receipt.is_some() && !options.yes {
-        return Err(anyhow!("--receipt requires --yes"));
-    }
 
-    let saved = read_saved_plan(&options.file)?;
     let mode = if options.yes {
         if options.permanent {
             DeleteMode::PermanentDelete
@@ -121,6 +118,15 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
     } else {
         DeleteMode::DryRun
     };
+    let artifacts = WorkflowArtifacts::new(
+        "plan run",
+        options.output_mode,
+        None,
+        options.receipt.as_deref(),
+    );
+    artifacts.validate_for_mode(mode)?;
+
+    let saved = read_saved_plan(&options.file)?;
     let mut plan = saved.revalidated_plan(mode)?;
     let contract = plan_run_contract(plan.request.workflow);
     let human_renderer = human_renderer_for_workflow(plan.request.workflow);
@@ -141,9 +147,7 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
     }
 
     if plan.summary.allowed_targets == 0 {
-        if let Some(path) = &options.receipt {
-            crate::cleanup_receipt::write_cleanup_receipt(&plan, contract.command, path)?;
-        }
+        artifacts.write_execution_receipt(&plan)?;
         output::print_plan_with_events(
             &plan,
             contract,
@@ -152,19 +156,17 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
             None,
             None,
         )?;
-        if options.output_mode.is_human()
-            && let Some(path) = &options.receipt
-        {
-            crate::cleanup_receipt::print_receipt_guidance(path, &plan);
-        }
+        artifacts.print_execution_guidance(&plan);
         return Ok(());
     }
 
     let runtime_config = load_runtime_config()?;
-    execute_saved_plan(&mut plan, &runtime_config, runtime, mode)?;
-    if let Some(path) = &options.receipt {
-        crate::cleanup_receipt::write_cleanup_receipt(&plan, contract.command, path)?;
-    }
+    let execution_report = execute_saved_plan(&mut plan, &runtime_config, runtime, mode)?;
+    artifacts.record_execution(
+        &mut plan,
+        execution_report,
+        runtime_config.app_paths.history_file.clone(),
+    )?;
     output::print_plan_with_events(
         &plan,
         contract,
@@ -173,11 +175,7 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
         None,
         None,
     )?;
-    if options.output_mode.is_human()
-        && let Some(path) = &options.receipt
-    {
-        crate::cleanup_receipt::print_receipt_guidance(path, &plan);
-    }
+    artifacts.print_execution_guidance(&plan);
     Ok(())
 }
 
@@ -193,7 +191,7 @@ fn execute_saved_plan(
     runtime_config: &AppRuntimeConfig,
     runtime: &CliRuntime,
     mode: DeleteMode,
-) -> Result<()> {
+) -> Result<ExecutionReport> {
     let safety_knowledge =
         rebecca::rules::builtin_safety_knowledge_for_platform(plan.request.platform)?;
     let protected_storage = runtime_config.app_paths.storage_entries();
@@ -205,15 +203,7 @@ fn execute_saved_plan(
         execution_policy = execution_policy.with_protected_paths(&protected_paths);
     }
 
-    let mut report = execute_plan(plan, execution_policy, runtime.cancellation(), mode)?;
-    let history_append =
-        HistoryStore::new(runtime_config.app_paths.history_file.clone()).append_plan_report(plan);
-    if let Some(warning) = history_append.warning {
-        eprintln!("Warning: {}", warning.message);
-        report.push_warning(warning);
-    }
-    plan.execution_report = Some(report);
-    Ok(())
+    execute_plan(plan, execution_policy, runtime.cancellation(), mode).map_err(Into::into)
 }
 
 impl SavedCleanupPlan {

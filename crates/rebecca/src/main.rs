@@ -33,6 +33,7 @@ mod trash;
 mod trash_backend;
 mod tui;
 mod workbench;
+mod workflow_artifacts;
 
 use cli::{
     AppsCommand, CacheCommand, CatalogArgs, CatalogCommand, CleanArgs, Cli, Command,
