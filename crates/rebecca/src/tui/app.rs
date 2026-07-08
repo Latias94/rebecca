@@ -14,6 +14,7 @@ use crate::tui::basket::{
     CleanupBasket, CleanupBasketSource, confirmation_phrase, toggle_advice, workbench_request,
 };
 use crate::tui::effect::TuiEffect;
+use crate::tui::frame_projection::TuiFrameProjection;
 use crate::tui::input::{TuiKey, TuiMouseAction};
 use crate::tui::model::{TuiGroupFilter, TuiScreen};
 use crate::tui::navigation::{
@@ -237,7 +238,11 @@ impl TuiApp {
         (!filters.is_empty()).then(|| filters.join(", "))
     }
 
-    pub(crate) fn visible_rows(&self) -> Vec<DiskMapVisibleRow> {
+    pub(crate) fn frame_projection(&self) -> TuiFrameProjection {
+        TuiFrameProjection::new(self.visible_rows(), self.distribution_rows(), self.selected)
+    }
+
+    fn visible_rows(&self) -> Vec<DiskMapVisibleRow> {
         let Some(session) = self.session.as_ref() else {
             return Vec::new();
         };
@@ -260,41 +265,14 @@ impl TuiApp {
         self.visible_rows().get(self.selected).cloned()
     }
 
-    pub(crate) fn treemap_selection_summary(&self) -> Option<TuiTreemapSelectionSummary> {
-        self.selected_row().map(|row| {
-            let drillable = is_drillable_row(&row);
-            let non_drillable_reason = (!drillable).then(|| {
-                format!(
-                    "{} is a {} and cannot be opened as a scope.",
-                    row.name,
-                    row.kind.label()
-                )
-            });
-            TuiTreemapSelectionSummary {
-                name: row.name,
-                kind: row.kind.label(),
-                drillable,
-                non_drillable_reason,
-                primary_action: if drillable {
-                    "Enter/l opens this scope"
-                } else {
-                    "Select a directory tile"
-                },
-            }
-        })
-    }
-
-    pub(crate) fn distribution_rows(&self) -> Vec<DiskMapDistributionRow> {
+    fn distribution_rows(&self) -> Vec<DiskMapDistributionRow> {
         let Some(kind) = self.active_distribution_kind() else {
             return Vec::new();
         };
         self.distribution_rows_for(kind)
     }
 
-    pub(crate) fn distribution_rows_for(
-        &self,
-        kind: DiskMapGroupKind,
-    ) -> Vec<DiskMapDistributionRow> {
+    fn distribution_rows_for(&self, kind: DiskMapGroupKind) -> Vec<DiskMapDistributionRow> {
         let query = match kind {
             DiskMapGroupKind::Type => self.type_search_query.as_str(),
             DiskMapGroupKind::Extension => self.extension_search_query.as_str(),

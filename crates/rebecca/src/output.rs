@@ -330,9 +330,9 @@ fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
         };
     }
 
-    let (code, title) = if detail.contains("invalid protected path")
-        || detail.contains("--dry-run cannot be combined with --yes")
-    {
+    let (code, title) = if detail.contains("invalid protected path") {
+        ("invalid-protected-path", "Invalid protected path")
+    } else if detail.contains("--dry-run cannot be combined with --yes") {
         ("validation-error", "Validation failed")
     } else if detail.contains("purge root") {
         ("invalid-purge-root", "Invalid purge root")

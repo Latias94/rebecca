@@ -2,11 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::executor::{
-    PermanentDeleteBackend, execute_cleanup_plan_parallel_with_policy_and_cancellation,
-};
 use rebecca::core::plan::CleanupPlan;
-use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::{DeleteMode, PlanRequest, Platform, RebeccaError};
 
@@ -17,8 +13,8 @@ use crate::output::{
 };
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
-use crate::trash_backend::recoverable_trash_backend;
 use crate::workflow_artifacts::WorkflowArtifacts;
+use crate::workflow_execution::execute_plan;
 use crate::workflow_planner::{
     WorkflowPlanBuildOptions, WorkflowPlanBuildOutcome, WorkflowRuleSource, build_workflow_plan,
 };
@@ -156,11 +152,16 @@ pub(crate) fn run_workflow_with_runtime_config(
     })? {
         WorkflowPlanBuildOutcome::Built(build) => build,
         WorkflowPlanBuildOutcome::PlannerError { err, event_writer } => {
-            if matches!(&err, rebecca::core::RebeccaError::OperationCancelled(_)) {
+            if err
+                .downcast_ref::<rebecca::core::RebeccaError>()
+                .is_some_and(|err| {
+                    matches!(err, rebecca::core::RebeccaError::OperationCancelled(_))
+                })
+            {
                 return finish_stream_with_cancellation(event_writer, options.cancellation_message);
             }
 
-            return finish_stream_with_error(event_writer, err.into());
+            return finish_stream_with_error(event_writer, err);
         }
     };
     let mut plan = build.plan;
@@ -237,35 +238,6 @@ pub(crate) fn run_workflow_with_runtime_config(
     )?;
     artifacts.print_execution_guidance(&plan);
     Ok(())
-}
-
-pub(crate) fn execute_plan(
-    plan: &mut CleanupPlan,
-    execution_policy: ProtectionPolicy<'_>,
-    cancellation: &rebecca::core::scan::ScanCancellationToken,
-    mode: DeleteMode,
-) -> std::result::Result<rebecca::core::execution::ExecutionReport, RebeccaError> {
-    match mode {
-        DeleteMode::RecoverableDelete => {
-            let backend = recoverable_trash_backend();
-            execute_cleanup_plan_parallel_with_policy_and_cancellation(
-                plan,
-                &backend,
-                execution_policy,
-                cancellation,
-            )
-        }
-        DeleteMode::PermanentDelete => {
-            let backend = PermanentDeleteBackend;
-            execute_cleanup_plan_parallel_with_policy_and_cancellation(
-                plan,
-                &backend,
-                execution_policy,
-                cancellation,
-            )
-        }
-        DeleteMode::DryRun => unreachable!("dry-run returns before execution"),
-    }
 }
 
 fn finish_stream_with_error(

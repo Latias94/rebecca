@@ -7,19 +7,18 @@ use anyhow::{Context, Result, anyhow};
 use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca::core::execution::ExecutionReport;
 use rebecca::core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
-use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::safety::{PATH_DOES_NOT_EXIST_REASON, is_reparse_like};
 use rebecca::core::{CleanupWorkflow, DeleteMode, Platform, TargetStatus};
 use serde::{Deserialize, Serialize};
 
-use crate::clean::execute_plan;
 use crate::cli::OutputMode;
 use crate::output::{
     CliApiContract, HumanPlanRenderer, WorkflowOutputContract, format_bytes, format_shell_command,
 };
 use crate::runtime::CliRuntime;
 use crate::workflow_artifacts::WorkflowArtifacts;
-use crate::workflow_planner::merged_protected_paths;
+use crate::workflow_execution::execute_plan;
+use crate::workflow_planner::WorkflowExecutionGuards;
 use crate::{output, render};
 
 const SAVED_PLAN_SCHEMA: &str = "rebecca.saved-cleanup-plan.v1";
@@ -193,16 +192,8 @@ fn execute_saved_plan(
     runtime: &CliRuntime,
     mode: DeleteMode,
 ) -> Result<ExecutionReport> {
-    let safety_knowledge =
-        rebecca::rules::builtin_safety_knowledge_for_platform(plan.request.platform)?;
-    let protected_storage = runtime_config.app_paths.storage_entries();
-    let protected_paths = merged_protected_paths(runtime_config.protected_paths.as_slice(), &[])?;
-    let mut execution_policy = ProtectionPolicy::new()
-        .with_safety_knowledge(&safety_knowledge)
-        .with_protected_storage(&protected_storage);
-    if !protected_paths.is_empty() {
-        execution_policy = execution_policy.with_protected_paths(&protected_paths);
-    }
+    let guards = WorkflowExecutionGuards::for_request(&plan.request, runtime_config, &[])?;
+    let execution_policy = guards.protection_policy();
 
     execute_plan(plan, execution_policy, runtime.cancellation(), mode).map_err(Into::into)
 }

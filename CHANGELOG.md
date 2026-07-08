@@ -13,6 +13,7 @@ All notable changes to Rebecca will be documented in this file.
 ### Changed
 - Help, README examples, `clean`/`purge` summaries, `inspect map`, and the TUI result screen now start with the action a user can take next: preview, move to trash, permanently delete, or empty trash.
 - Long-running inspect and cleanup progress now shows clearer scan counters, rates, current scope, and cancellation hints; the TUI cleanup basket is now presented as a Reclaim Basket with selected-scope sizes before preview.
+- The TUI cleanup workbench, saved-plan execution, and inspect cleanup advice now share the same rule loading, protected-path checks, scan-cache wiring, and cleanup execution safeguards as the CLI. TUI rendering, snapshots, mouse hit-testing, and replay also share one frame view of the disk map, so what users see and what actions select stay aligned.
 
 ## [0.3.0] - 2026-07-08
 

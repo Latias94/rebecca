@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::scan::ScanBackendKind;
+use rebecca::core::warnings::normalize_warning_gate;
 
 use crate::workbench::CleanupWorkbenchRequest;
 
@@ -70,11 +71,36 @@ pub(crate) fn workbench_request(
     basket: &CleanupBasket,
     scan_backend: ScanBackendKind,
 ) -> CleanupWorkbenchRequest {
+    let mut allowed_warnings: Vec<String> = Vec::new();
+    let mut allow_moderate = false;
+    let mut allow_risky = false;
+    for item in basket.values() {
+        for flag in &item.required_flags {
+            match flag.as_str() {
+                "--allow-moderate" => allow_moderate = true,
+                "--allow-risky" => allow_risky = true,
+                _ => {}
+            }
+        }
+        for warning in &item.required_warnings {
+            let warning = normalize_warning_gate(warning);
+            if warning.is_empty() {
+                continue;
+            }
+            if allowed_warnings
+                .iter()
+                .all(|existing| !existing.eq_ignore_ascii_case(&warning))
+            {
+                allowed_warnings.push(warning);
+            }
+        }
+    }
+
     CleanupWorkbenchRequest {
         selected_rule_ids: basket.keys().cloned().collect(),
-        allow_moderate: false,
-        allow_risky: false,
-        allowed_warnings: Vec::new(),
+        allow_moderate,
+        allow_risky,
+        allowed_warnings,
         scan_cache: true,
         scan_backend,
         exclude_paths: Vec::new(),
@@ -204,6 +230,42 @@ mod tests {
         let mut basket = CleanupBasket::new();
         basket.insert(item.rule_id.clone(), item);
         assert_eq!(total_source_logical_bytes(&basket), 42);
+    }
+
+    #[test]
+    fn workbench_request_carries_supported_safety_gates_from_basket() {
+        let mut basket = CleanupBasket::new();
+        basket.insert(
+            "linux.user-temp".to_string(),
+            CleanupBasketItem {
+                rule_id: "linux.user-temp".to_string(),
+                status: CleanupAdviceStatus::MaybeCleanable,
+                reason: "temporary files".to_string(),
+                required_flags: vec![
+                    "--allow-moderate".to_string(),
+                    "--allow-risky".to_string(),
+                    "--min-age-days 0".to_string(),
+                ],
+                required_warnings: vec![
+                    " Active-Process ".to_string(),
+                    "browser-profile".to_string(),
+                    "active-process".to_string(),
+                ],
+                source_path: PathBuf::from("/tmp/cache"),
+                source_logical_bytes: 42,
+                source_files: 2,
+                source_directories: 1,
+            },
+        );
+
+        let request = workbench_request(&basket, ScanBackendKind::PortableRecursive);
+
+        assert!(request.allow_moderate);
+        assert!(request.allow_risky);
+        assert_eq!(
+            request.allowed_warnings,
+            ["active-process".to_string(), "browser-profile".to_string()]
+        );
     }
 
     fn source() -> CleanupBasketSource {

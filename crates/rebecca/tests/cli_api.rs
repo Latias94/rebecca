@@ -1219,6 +1219,44 @@ fn clean_format_ndjson_unknown_rule_terminates_with_error_event() {
 }
 
 #[test]
+fn clean_format_ndjson_planner_anyhow_error_keeps_lifecycle_sequence() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "clean".to_string(),
+            "--dry-run".to_string(),
+            "--format".to_string(),
+            "ndjson".to_string(),
+            "--rule".to_string(),
+            common::support::current_platform_user_temp_rule_id().to_string(),
+            "--exclude".to_string(),
+            "relative/cache".to_string(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert!(events.windows(2).all(|pair| {
+        pair[0]["sequence"].as_u64().unwrap() < pair[1]["sequence"].as_u64().unwrap()
+    }));
+
+    let error = events.last().unwrap();
+    assert_event_schema(error);
+    assert_eq!(error["event_kind"], "error");
+    assert_eq!(error["error"]["code"], "invalid-protected-path");
+    assert_eq!(error["error"]["exit_code"], 1);
+}
+
+#[test]
 fn inspect_artifacts_format_ndjson_invalid_root_returns_error_event() {
     let temp = tempfile::tempdir().unwrap();
     let missing = temp.path().join("missing-workspace");

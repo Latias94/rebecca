@@ -16,21 +16,27 @@ use crate::tui::effect::TuiEffect;
 use crate::tui::input::TuiInput;
 use crate::tui::navigation::RootChoice;
 use crate::tui::preferences::{TuiPreferences, preferences_path};
+use crate::tui::task_outcome::{TaskOutcome, TuiRefreshResult, apply_outcome, task_failure};
 
 mod app;
 mod basket;
 mod effect;
+mod frame_projection;
 mod hit_test;
 mod input;
 mod layout;
 mod model;
 mod navigation;
 mod preferences;
+mod presentation;
 mod progress;
 mod projection;
 mod replay;
 mod snapshot;
 mod task;
+mod task_outcome;
+mod task_progress;
+mod task_worker;
 mod terminal;
 mod treemap;
 mod view;
@@ -226,7 +232,7 @@ fn initial_app(
         return Ok(app);
     }
 
-    let session = task::scan_session(
+    let session = task_worker::scan_session(
         options.roots.clone(),
         resolved_options.entry_limit,
         resolved_options.scan_backend,
@@ -249,46 +255,71 @@ pub(super) fn handle_effect(
     runtime_config: &AppRuntimeConfig,
     runtime: &CliRuntime,
 ) -> Result<()> {
-    match effect {
+    match effect.clone() {
         TuiEffect::None | TuiEffect::CancelTask | TuiEffect::Quit => {}
-        TuiEffect::Scan(roots) => match task::scan_session(
+        TuiEffect::Scan(roots) => match task_worker::scan_session(
             roots,
             app.entry_limit,
             app.scan_backend,
             runtime_config,
             runtime,
         ) {
-            Ok(session) => app.apply_scan_result(session),
-            Err(err) => app.apply_error(err.to_string()),
+            Ok(session) => {
+                apply_outcome(app, TaskOutcome::Scan(Ok(session)), runtime_config, effect)?
+            }
+            Err(err) => apply_outcome(
+                app,
+                TaskOutcome::Scan(Err(task_failure(err))),
+                runtime_config,
+                effect,
+            )?,
         },
         TuiEffect::Refresh { anchor } => {
-            let retry = TuiEffect::Refresh {
-                anchor: anchor.clone(),
-            };
-            match task::scan_session(
+            match task_worker::scan_session(
                 vec![anchor.clone()],
                 app.entry_limit,
                 app.scan_backend,
                 runtime_config,
                 runtime,
             ) {
-                Ok(session) => app.apply_refresh_result(anchor, session),
-                Err(err) => app.apply_task_error(err.to_string(), retry),
+                Ok(session) => apply_outcome(
+                    app,
+                    TaskOutcome::Refresh(Ok(TuiRefreshResult { anchor, session })),
+                    runtime_config,
+                    effect,
+                )?,
+                Err(err) => apply_outcome(
+                    app,
+                    TaskOutcome::Refresh(Err(task_failure(err))),
+                    runtime_config,
+                    effect,
+                )?,
             }
         }
         TuiEffect::Preview(request) => {
             match crate::workbench::preview_cleanup_plan(&request, runtime_config, runtime) {
-                Ok(plan) => app.apply_preview(plan),
-                Err(err) => app.apply_error(err.to_string()),
+                Ok(plan) => {
+                    apply_outcome(app, TaskOutcome::Preview(Ok(plan)), runtime_config, effect)?
+                }
+                Err(err) => apply_outcome(
+                    app,
+                    TaskOutcome::Preview(Err(task_failure(err))),
+                    runtime_config,
+                    effect,
+                )?,
             }
         }
         TuiEffect::Execute(request) => {
             match crate::workbench::execute_recoverable_cleanup(&request, runtime_config, runtime) {
                 Ok(plan) => {
-                    app.apply_execution(plan);
-                    app.set_history(load_recent_history(runtime_config)?);
+                    apply_outcome(app, TaskOutcome::Execute(Ok(plan)), runtime_config, effect)?
                 }
-                Err(err) => app.apply_error(err.to_string()),
+                Err(err) => apply_outcome(
+                    app,
+                    TaskOutcome::Execute(Err(task_failure(err))),
+                    runtime_config,
+                    effect,
+                )?,
             }
         }
     }

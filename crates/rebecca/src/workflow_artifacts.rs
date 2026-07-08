@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use rebecca::core::DeleteMode;
 use rebecca::core::execution::ExecutionReport;
-use rebecca::core::history::HistoryStore;
 use rebecca::core::plan::CleanupPlan;
 
 use crate::cli::OutputMode;
 use crate::output::format_shell_command;
+use crate::workflow_execution::record_execution_report;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WorkflowArtifacts<'a> {
@@ -80,12 +80,10 @@ impl<'a> WorkflowArtifacts<'a> {
         mut execution_report: ExecutionReport,
         history_file: PathBuf,
     ) -> Result<()> {
-        let history_append = HistoryStore::new(history_file).append_plan_report(plan);
-        if let Some(warning) = history_append.warning {
+        let warning = record_execution_report(plan, &mut execution_report, history_file);
+        if let Some(warning) = warning {
             eprintln!("Warning: {}", warning.message);
-            execution_report.push_warning(warning);
         }
-        plan.execution_report = Some(execution_report);
         self.write_execution_receipt(plan)
     }
 }

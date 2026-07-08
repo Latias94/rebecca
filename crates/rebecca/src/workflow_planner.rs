@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use indicatif::ProgressBar;
 use rebecca::core::config::{AppRuntimeConfig, AppStorageEntry};
 use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::external_rules::ExternalRuleStore;
+use rebecca::core::external_rules::{ExternalRuleStore, ExternalRuleStoreDiagnostic};
 use rebecca::core::plan::CleanupPlan;
 use rebecca::core::planner::{
     PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
@@ -14,7 +14,7 @@ use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::safety_catalog::SafetyKnowledge;
 use rebecca::core::scan::ScanBackendKind;
 use rebecca::core::scan_cache::ScanCacheStore;
-use rebecca::core::{PlanRequest, RebeccaError, RuleDefinition, TargetStatus};
+use rebecca::core::{PlanRequest, RuleDefinition, TargetStatus};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::{OutputMode, ProgressDetail};
@@ -28,17 +28,9 @@ use crate::text::format_count;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum WorkflowRuleSource<'a> {
+    BuiltInCatalog,
     RuleCatalog(&'a [RuleDefinition]),
     NativeWorkflow,
-}
-
-impl<'a> WorkflowRuleSource<'a> {
-    fn rules(self) -> &'a [RuleDefinition] {
-        match self {
-            Self::RuleCatalog(rules) => rules,
-            Self::NativeWorkflow => &[],
-        }
-    }
 }
 
 pub(crate) struct WorkflowPlanBuildOptions<'a> {
@@ -55,10 +47,20 @@ pub(crate) struct WorkflowPlanBuildOptions<'a> {
     pub(crate) output_contract: WorkflowOutputContract,
 }
 
+pub(crate) struct WorkflowPlanCoreOptions<'a> {
+    pub(crate) request: &'a PlanRequest,
+    pub(crate) rule_source: WorkflowRuleSource<'a>,
+    pub(crate) runtime_config: &'a AppRuntimeConfig,
+    pub(crate) runtime: &'a CliRuntime,
+    pub(crate) scan_cache: bool,
+    pub(crate) scan_backend: ScanBackendKind,
+    pub(crate) exclude_paths: &'a [PathBuf],
+}
+
 pub(crate) enum WorkflowPlanBuildOutcome {
     Built(Box<WorkflowPlanBuild>),
     PlannerError {
-        err: RebeccaError,
+        err: anyhow::Error,
         event_writer: Option<NdjsonEventWriter>,
     },
 }
@@ -68,6 +70,31 @@ pub(crate) struct WorkflowPlanBuild {
     pub(crate) scan_cache_summary: Option<ScanCacheProgressSummary>,
     pub(crate) event_writer: Option<NdjsonEventWriter>,
     pub(crate) execution_guards: WorkflowExecutionGuards,
+}
+
+pub(crate) struct WorkflowPlanCoreBuild {
+    pub(crate) plan: CleanupPlan,
+    pub(crate) execution_guards: WorkflowExecutionGuards,
+    pub(crate) rule_diagnostics: Vec<ExternalRuleStoreDiagnostic>,
+}
+
+pub(crate) struct ResolvedWorkflowRules {
+    rules: Vec<RuleDefinition>,
+    diagnostics: Vec<ExternalRuleStoreDiagnostic>,
+}
+
+impl ResolvedWorkflowRules {
+    pub(crate) fn rules(&self) -> &[RuleDefinition] {
+        &self.rules
+    }
+
+    pub(crate) fn diagnostics(&self) -> &[ExternalRuleStoreDiagnostic] {
+        &self.diagnostics
+    }
+
+    fn into_diagnostics(self) -> Vec<ExternalRuleStoreDiagnostic> {
+        self.diagnostics
+    }
 }
 
 pub(crate) struct WorkflowExecutionGuards {
@@ -103,16 +130,40 @@ impl WorkflowExecutionGuards {
         }
         policy
     }
+
+    pub(crate) fn plan_context<'a>(
+        &'a self,
+        runtime: &'a CliRuntime,
+        scan_backend: ScanBackendKind,
+    ) -> PlanBuildContext<'a> {
+        let mut context = PlanBuildContext::new(runtime.cancellation())
+            .with_scan_backend(scan_backend)
+            .with_safety_knowledge(&self.safety_knowledge)
+            .with_protected_storage(&self.protected_storage);
+        if !self.protected_paths.is_empty() {
+            context = context.with_protected_paths(&self.protected_paths);
+        }
+        context
+    }
+
+    pub(crate) fn protected_roots(&self) -> Vec<PathBuf> {
+        let mut roots = self
+            .protected_storage
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect::<Vec<_>>();
+        for path in &self.protected_paths {
+            if roots.iter().all(|existing| existing != path) {
+                roots.push(path.clone());
+            }
+        }
+        roots
+    }
 }
 
 pub(crate) fn build_workflow_plan(
     options: WorkflowPlanBuildOptions<'_>,
 ) -> Result<WorkflowPlanBuildOutcome> {
-    let execution_guards = WorkflowExecutionGuards::for_request(
-        options.request,
-        options.runtime_config,
-        options.exclude_paths,
-    )?;
     let mut progress = PlanProgressReporter::new(
         options.output_mode.is_human() && !options.no_progress,
         options.progress_detail,
@@ -121,53 +172,17 @@ pub(crate) fn build_workflow_plan(
             .is_ndjson()
             .then(|| NdjsonEventWriter::with_contract(options.output_contract)),
     );
-    let applications = crate::info::application_discovery();
-    let scan_cache_store = options
-        .scan_cache
-        .then(|| ScanCacheStore::from_app_paths(&options.runtime_config.app_paths));
-    let mut context = PlanBuildContext::new(options.runtime.cancellation())
-        .with_scan_backend(options.scan_backend)
-        .with_safety_knowledge(&execution_guards.safety_knowledge)
-        .with_protected_storage(&execution_guards.protected_storage);
-    if !execution_guards.protected_paths.is_empty() {
-        context = context.with_protected_paths(&execution_guards.protected_paths);
-    }
-    if options.scan_cache {
-        context = context.with_scan_cache_policy(options.runtime_config.scan_cache_policy);
-        if let Some(store) = &scan_cache_store {
-            context = context.with_scan_cache(store);
-        }
-    }
     progress.started()?;
-    let combined_rules;
-    let rules = match options.rule_source {
-        WorkflowRuleSource::RuleCatalog(rules) => {
-            let external_rules = ExternalRuleStore::default_for_state_dir(
-                &options.runtime_config.app_paths.state_dir,
-            )
-            .load_enabled_rules();
-            for diagnostic in &external_rules.diagnostics {
-                eprintln!("Warning: external rule skipped: {}", diagnostic.message);
-            }
-            if external_rules.rules.is_empty() {
-                rules
-            } else {
-                combined_rules = rules
-                    .iter()
-                    .cloned()
-                    .chain(external_rules.rules)
-                    .collect::<Vec<_>>();
-                &combined_rules
-            }
-        }
-        WorkflowRuleSource::NativeWorkflow => options.rule_source.rules(),
-    };
-    let plan_result = build_cleanup_plan_with_context(
-        options.request,
-        rules,
-        &SystemEnvironment,
-        applications.as_ref(),
-        context,
+    let plan_result = build_workflow_plan_core(
+        WorkflowPlanCoreOptions {
+            request: options.request,
+            rule_source: options.rule_source,
+            runtime_config: options.runtime_config,
+            runtime: options.runtime,
+            scan_cache: options.scan_cache,
+            scan_backend: options.scan_backend,
+            exclude_paths: options.exclude_paths,
+        },
         |event| progress.on_event(event),
     );
     progress.finish();
@@ -182,16 +197,83 @@ pub(crate) fn build_workflow_plan(
     let event_writer = progress.into_event_writer();
 
     match plan_result {
-        Ok(plan) => Ok(WorkflowPlanBuildOutcome::Built(Box::new(
-            WorkflowPlanBuild {
-                plan,
-                scan_cache_summary,
-                event_writer,
-                execution_guards,
-            },
-        ))),
+        Ok(build) => {
+            for diagnostic in &build.rule_diagnostics {
+                eprintln!("Warning: external rule skipped: {}", diagnostic.message);
+            }
+            Ok(WorkflowPlanBuildOutcome::Built(Box::new(
+                WorkflowPlanBuild {
+                    plan: build.plan,
+                    scan_cache_summary,
+                    event_writer,
+                    execution_guards: build.execution_guards,
+                },
+            )))
+        }
         Err(err) => Ok(WorkflowPlanBuildOutcome::PlannerError { err, event_writer }),
     }
+}
+
+pub(crate) fn build_workflow_plan_core<F>(
+    options: WorkflowPlanCoreOptions<'_>,
+    progress: F,
+) -> Result<WorkflowPlanCoreBuild>
+where
+    F: for<'event> FnMut(PlanProgressEvent<'event>),
+{
+    let execution_guards = WorkflowExecutionGuards::for_request(
+        options.request,
+        options.runtime_config,
+        options.exclude_paths,
+    )?;
+    let applications = crate::info::application_discovery();
+    let resolved_rules = resolve_workflow_rules(options.rule_source, options.runtime_config)?;
+    let scan_cache_store = options
+        .scan_cache
+        .then(|| ScanCacheStore::from_app_paths(&options.runtime_config.app_paths));
+    let mut context = execution_guards.plan_context(options.runtime, options.scan_backend);
+    if options.scan_cache {
+        context = context.with_scan_cache_policy(options.runtime_config.scan_cache_policy);
+        if let Some(store) = &scan_cache_store {
+            context = context.with_scan_cache(store);
+        }
+    }
+
+    let plan = build_cleanup_plan_with_context(
+        options.request,
+        resolved_rules.rules(),
+        &SystemEnvironment,
+        applications.as_ref(),
+        context,
+        progress,
+    )?;
+
+    Ok(WorkflowPlanCoreBuild {
+        plan,
+        execution_guards,
+        rule_diagnostics: resolved_rules.into_diagnostics(),
+    })
+}
+
+pub(crate) fn resolve_workflow_rules(
+    source: WorkflowRuleSource<'_>,
+    runtime_config: &AppRuntimeConfig,
+) -> Result<ResolvedWorkflowRules> {
+    let mut rules = match source {
+        WorkflowRuleSource::BuiltInCatalog => rebecca::rules::builtin_rules()?,
+        WorkflowRuleSource::RuleCatalog(rules) => rules.to_vec(),
+        WorkflowRuleSource::NativeWorkflow => Vec::new(),
+    };
+    let mut diagnostics = Vec::new();
+    if !matches!(source, WorkflowRuleSource::NativeWorkflow) {
+        let external_rules =
+            ExternalRuleStore::default_for_state_dir(&runtime_config.app_paths.state_dir)
+                .load_enabled_rules();
+        diagnostics = external_rules.diagnostics;
+        rules.extend(external_rules.rules);
+    }
+
+    Ok(ResolvedWorkflowRules { rules, diagnostics })
 }
 
 pub(crate) fn merged_protected_paths(
@@ -493,6 +575,11 @@ impl ProgressDetail {
 
 #[cfg(test)]
 mod tests {
+    use rebecca::core::config::{AppPaths, PurgeRuntimeConfig};
+    use rebecca::core::scan::ScanCancellationToken;
+    use rebecca::core::scan_cache::ScanCachePolicy;
+    use rebecca::core::{DeleteMode, Platform};
+
     use super::*;
 
     #[test]
@@ -557,5 +644,54 @@ mod tests {
     fn compact_progress_text_handles_tiny_widths() {
         assert_eq!(crate::progress::compact_progress_text("abcdef", 2), "..");
         assert_eq!(crate::progress::compact_progress_text("abcdef", 4), "...f");
+    }
+
+    #[test]
+    fn ndjson_planner_error_preserves_event_writer_for_non_rebecca_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut runtime_config = runtime_config_fixture(temp.path());
+        runtime_config.protected_paths = vec![PathBuf::from("relative-protected")];
+        let runtime = CliRuntime::new(ScanCancellationToken::new());
+        let request = PlanRequest::for_platform(Platform::current(), DeleteMode::DryRun);
+
+        let outcome = build_workflow_plan(WorkflowPlanBuildOptions {
+            request: &request,
+            rule_source: WorkflowRuleSource::NativeWorkflow,
+            runtime_config: &runtime_config,
+            runtime: &runtime,
+            output_mode: OutputMode::Ndjson,
+            no_progress: true,
+            progress_detail: ProgressDetail::Target,
+            scan_cache: false,
+            scan_backend: ScanBackendKind::PortableRecursive,
+            exclude_paths: &[],
+            output_contract: WorkflowOutputContract::v1("clean", "cleanup-plan"),
+        })
+        .unwrap();
+
+        let WorkflowPlanBuildOutcome::PlannerError { err, event_writer } = outcome else {
+            panic!("invalid protected path should be returned as a planner error");
+        };
+        assert!(event_writer.is_some());
+        assert!(err.to_string().contains("invalid protected path"));
+    }
+
+    fn runtime_config_fixture(root: &Path) -> AppRuntimeConfig {
+        AppRuntimeConfig {
+            app_paths: AppPaths {
+                config_dir: root.join("config"),
+                config_file: root.join("config").join("config.toml"),
+                state_dir: root.join("state"),
+                cache_dir: root.join("cache"),
+                history_file: root.join("state").join("history.jsonl"),
+            },
+            scan_cache_policy: ScanCachePolicy::new(60),
+            protected_paths: Vec::new(),
+            purge: PurgeRuntimeConfig {
+                roots: Vec::new(),
+                max_depth: rebecca::core::DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH,
+                min_age_days: rebecca::core::DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
+            },
+        }
     }
 }

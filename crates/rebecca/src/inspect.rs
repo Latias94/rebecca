@@ -24,7 +24,6 @@ use rebecca::core::progress::{InspectProgressEvent, InspectProgressOptions};
 use rebecca::core::project_artifacts::{
     ProjectArtifactScanOptions, discover_project_artifacts_with_diagnostics,
 };
-use rebecca::core::protection::ProtectionPolicy;
 use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
 use rebecca::core::scan_cache::ScanCacheStore;
 use rebecca::core::{
@@ -49,7 +48,9 @@ use crate::purge_view::ProjectArtifactInsightReport;
 use crate::render;
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
-use crate::workflow_planner::WorkflowRuleSource;
+use crate::workflow_planner::{
+    WorkflowExecutionGuards, WorkflowRuleSource, resolve_workflow_rules,
+};
 
 const NTFS_MFT_VOLUME_INDEX_CACHE_ENV: &str = "REBECCA_NTFS_MFT_VOLUME_INDEX_CACHE";
 
@@ -701,22 +702,21 @@ pub(crate) fn annotate_map_report_with_cleanup_advice(
     advice_status: Option<CleanupAdviceStatus>,
     cancellation: &ScanCancellationToken,
 ) -> Result<()> {
-    let rules = rebecca::rules::builtin_rules()?;
     let request = PlanRequest::for_platform(Platform::current(), DeleteMode::DryRun);
-    let safety_knowledge = rebecca::rules::builtin_safety_knowledge_for_platform(request.platform)?;
+    let guards = WorkflowExecutionGuards::for_request(&request, runtime_config, &[])?;
+    let resolved_rules =
+        resolve_workflow_rules(WorkflowRuleSource::BuiltInCatalog, runtime_config)?;
+    for diagnostic in resolved_rules.diagnostics() {
+        tracing::warn!(
+            message = %diagnostic.message,
+            "external cleanup rule skipped during inspect cleanup advice"
+        );
+    }
     let applications = crate::info::application_discovery();
     let env = PlatformEnvironment::current(SystemEnvironment);
-    let protected_storage = runtime_config.app_paths.storage_entries();
-    let protected_paths = runtime_config.protected_paths.clone();
-    let mut protection_policy = ProtectionPolicy::new()
-        .with_safety_knowledge(&safety_knowledge)
-        .with_protected_storage(&protected_storage);
-    if !protected_paths.is_empty() {
-        protection_policy = protection_policy.with_protected_paths(&protected_paths);
-    }
     let mut index = CleanupAdviceIndex::build(
-        CleanupAdviceBuildRequest::new(request, protection_policy),
-        &rules,
+        CleanupAdviceBuildRequest::new(request, guards.protection_policy()),
+        resolved_rules.rules(),
         &env,
         applications.as_ref(),
     )?;
@@ -823,13 +823,10 @@ pub(crate) fn lint_with_runtime(options: InspectLintOptions, runtime: &CliRuntim
         reference_roots.as_slice(),
     );
     let exclude_paths = resolve_optional_roots(options.exclude_paths)?;
-    let protected_roots = runtime_config
-        .app_paths
-        .storage_entries()
-        .into_iter()
-        .map(|entry| entry.path)
-        .chain(runtime_config.protected_paths)
-        .collect::<Vec<_>>();
+    let protected_request = PlanRequest::for_platform(Platform::current(), DeleteMode::DryRun);
+    let protected_roots =
+        WorkflowExecutionGuards::for_request(&protected_request, &runtime_config, &[])?
+            .protected_roots();
 
     let request = LintReportRequest::new(roots)
         .with_reference_roots(reference_roots)

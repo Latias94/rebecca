@@ -110,9 +110,9 @@ fn tile_action(
         bail!("tile replay actions are only available on the treemap screen");
     }
 
-    let rows = app.visible_rows();
+    let projection = app.frame_projection();
     let tile_area = replay_treemap_area(terminal_width);
-    let tiles = layout::treemap_tiles(&rows, tile_area);
+    let tiles = layout::treemap_tiles(projection.visible_rows(), tile_area);
     let Some(tile) = tiles.get(index) else {
         bail!("tui replay tile index {index} is outside the visible treemap");
     };

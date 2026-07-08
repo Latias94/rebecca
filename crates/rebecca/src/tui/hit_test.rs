@@ -1,6 +1,7 @@
 use ratatui::layout::Rect;
 
 use crate::tui::app::TuiApp;
+use crate::tui::frame_projection::TuiFrameProjection;
 use crate::tui::input::{TuiMouseAction, TuiMouseEvent, TuiMouseEventKind};
 use crate::tui::layout;
 use crate::tui::model::TuiScreen;
@@ -13,6 +14,7 @@ pub(crate) fn hit_test(
     mouse: TuiMouseEvent,
 ) -> Option<TuiMouseAction> {
     let layout = layout::frame(area);
+    let projection = app.frame_projection();
     let point = (mouse.column, mouse.row);
     if matches!(mouse.kind, TuiMouseEventKind::LeftDown)
         && layout::rect_contains(layout.header, point)
@@ -28,10 +30,10 @@ pub(crate) fn hit_test(
         TuiMouseEventKind::ScrollUp => Some(TuiMouseAction::ScrollUp),
         TuiMouseEventKind::ScrollDown => Some(TuiMouseAction::ScrollDown),
         TuiMouseEventKind::LeftDown => match app.screen {
-            TuiScreen::Map => hit_map_row(app, layout.body, point),
-            TuiScreen::Treemap => hit_treemap_tile(app, layout.body, point),
+            TuiScreen::Map => hit_map_row(&projection, layout.body, point),
+            TuiScreen::Treemap => hit_treemap_tile(&projection, layout.body, point),
             TuiScreen::Types | TuiScreen::Extensions => {
-                hit_distribution_row(app, layout.body, point)
+                hit_distribution_row(&projection, layout.body, point)
             }
             _ => None,
         },
@@ -46,26 +48,37 @@ fn hit_header_tab(area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
         })
 }
 
-fn hit_map_row(app: &TuiApp, area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
+fn hit_map_row(
+    projection: &TuiFrameProjection,
+    area: Rect,
+    point: (u16, u16),
+) -> Option<TuiMouseAction> {
     let chunks = layout::workbench_body(area);
-    layout::table_row_at(chunks.primary, point, app.visible_rows().len())
+    layout::table_row_at(chunks.primary, point, projection.visible_rows().len())
         .map(TuiMouseAction::SelectMapRow)
 }
 
-fn hit_distribution_row(app: &TuiApp, area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
+fn hit_distribution_row(
+    projection: &TuiFrameProjection,
+    area: Rect,
+    point: (u16, u16),
+) -> Option<TuiMouseAction> {
     let chunks = layout::workbench_body(area);
-    layout::table_row_at(chunks.primary, point, app.distribution_rows().len())
+    layout::table_row_at(chunks.primary, point, projection.distribution_rows().len())
         .map(TuiMouseAction::SelectDistributionRow)
 }
 
-fn hit_treemap_tile(app: &TuiApp, area: Rect, point: (u16, u16)) -> Option<TuiMouseAction> {
+fn hit_treemap_tile(
+    projection: &TuiFrameProjection,
+    area: Rect,
+    point: (u16, u16),
+) -> Option<TuiMouseAction> {
     let chunks = layout::workbench_body(area);
     let tile_area = layout::bordered_inner(chunks.primary);
     if !layout::rect_contains(tile_area, point) {
         return None;
     }
-    let rows = app.visible_rows();
-    layout::treemap_tiles(&rows, tile_area)
+    layout::treemap_tiles(projection.visible_rows(), tile_area)
         .into_iter()
         .find_map(|tile| {
             layout::rect_contains(tile.rect, point)
