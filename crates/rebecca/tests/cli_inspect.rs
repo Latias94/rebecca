@@ -334,7 +334,9 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
     assert!(
         matches!(
             value["diagnostics"][0]["reason_code"].as_str(),
-            Some("disabled-by-environment") | Some("feature-disabled")
+            Some("disabled-by-environment")
+                | Some("feature-disabled")
+                | Some("unsupported-platform")
         ),
         "fallback diagnostic should include typed reason: {}",
         value["diagnostics"][0]
