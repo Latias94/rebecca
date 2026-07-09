@@ -73,6 +73,41 @@ Run the pure parser/report tests without invoking Cargo:
 pwsh -File scripts/dogfood/run-inspect-map-report.ps1 -SelfTest
 ```
 
+## Disk Governance Dogfood
+
+`run-disk-governance-dogfood.ps1` runs the guided `rebecca inspect drive`
+workflow in JSON and NDJSON mode against an explicit root. It is read-only and
+captures the evidence a nearly-full-disk investigation needs: backend choice,
+progress kinds, logical/allocated/unique totals, volume context, diagnostics,
+cleanup-advice counts, review-only workspace insight counts, and raw stdout /
+stderr under the report directory.
+
+Example:
+
+```powershell
+pwsh -File scripts/dogfood/run-disk-governance-dogfood.ps1 `
+  -Root docs\plans `
+  -Top 20 `
+  -NoDelete
+```
+
+Outputs are written under `target/disk-governance-dogfood/<timestamp-pid>/` by
+default:
+
+- `disk-governance-dogfood-report.json`
+- `disk-governance-dogfood-summary.md`
+- `raw/inspect-drive.stdout.json`
+- `raw/inspect-drive-progress.stdout.ndjson`
+- matching stderr captures
+
+Drive roots are refused unless `-AllowDriveRoot` is passed. Output directories
+inside the scanned root are refused unless `-AllowOutputInsideRoot` is passed.
+Run the wrapper self-test without invoking Cargo:
+
+```powershell
+pwsh -File scripts/dogfood/run-disk-governance-dogfood.ps1 -SelfTest
+```
+
 ## NTFS Fixture Dogfood
 
 `run-ntfs-fixture-dogfood.ps1` creates a local fixture tree under

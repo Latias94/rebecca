@@ -1,9 +1,13 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
+#[cfg(windows)]
+use std::ffi::OsStr;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 #[cfg(windows)]
-use std::os::windows::fs::MetadataExt;
+use std::os::windows::{ffi::OsStrExt, fs::MetadataExt};
+#[cfg(windows)]
+use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -25,7 +29,8 @@ use crate::progress::{
 };
 use crate::safety::is_reparse_like;
 use crate::scan::{
-    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanEstimateCaveat, ScanEstimateConfidence,
+    ScanBackendFallbackKind, ScanBackendKind, ScanCancellationToken, ScanEngine,
+    ScanEstimateCaveat, ScanEstimateConfidence,
 };
 
 pub const DEFAULT_DISK_MAP_TOP_LIMIT: usize = 20;
@@ -318,10 +323,61 @@ impl DiskMapEntryFilter {
 pub struct DiskMapReport {
     pub roots: Vec<DiskMapRoot>,
     pub totals: DiskMapMetrics,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volume_contexts: Vec<DiskMapVolumeContext>,
     pub top_entries: Vec<DiskMapEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspace_insights: Vec<DiskMapWorkspaceInsight>,
     pub groups: Vec<DiskMapGroup>,
     pub diagnostic_summary: DiskMapDiagnosticSummary,
     pub diagnostics: Vec<DiskMapDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskMapVolumeContext {
+    pub root: PathBuf,
+    pub volume_root: PathBuf,
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+    pub available_bytes: u64,
+    pub used_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_system: Option<String>,
+    pub provenance: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskMapWorkspaceInsight {
+    pub path: PathBuf,
+    pub root: PathBuf,
+    pub kind: DiskMapWorkspaceInsightKind,
+    pub metrics: DiskMapMetrics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskMapWorkspaceInsightKind {
+    GitObjectStore,
+    SvnPristineStore,
+    UnityLibraryCache,
+    VcpkgBuildCache,
+    ReferenceRepositoryCache,
+    GeneratedOutputTree,
+    LocalMirrorData,
+}
+
+impl DiskMapWorkspaceInsightKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::GitObjectStore => "git-object-store",
+            Self::SvnPristineStore => "svn-pristine-store",
+            Self::UnityLibraryCache => "unity-library-cache",
+            Self::VcpkgBuildCache => "vcpkg-build-cache",
+            Self::ReferenceRepositoryCache => "reference-repository-cache",
+            Self::GeneratedOutputTree => "generated-output-tree",
+            Self::LocalMirrorData => "local-mirror-data",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -468,6 +524,7 @@ fn scan_engine_for_disk_map(request: &DiskMapRequest) -> ScanEngine {
 struct DiskMapInspectionState {
     report: DiskMapReport,
     top_entries: DiskMapTopEntries,
+    workspace_insights: DiskMapWorkspaceInsightCollector,
     groups: DiskMapGroupCollector,
     diagnostics: DiskMapDiagnostics,
     metadata_profile: DiskMapMetadataProfile,
@@ -475,13 +532,24 @@ struct DiskMapInspectionState {
 
 impl DiskMapInspectionState {
     fn new(request: &DiskMapRequest) -> Self {
+        let mut report = DiskMapReport {
+            volume_contexts: collect_volume_contexts(&request.roots),
+            ..DiskMapReport::default()
+        };
+        report.volume_contexts.sort_by(|left, right| {
+            left.volume_root
+                .cmp(&right.volume_root)
+                .then_with(|| left.root.cmp(&right.root))
+        });
+
         Self {
-            report: DiskMapReport::default(),
+            report,
             top_entries: DiskMapTopEntries::new(
                 request.top_limit,
                 request.top_sort,
                 request.entry_filter.clone(),
             ),
+            workspace_insights: DiskMapWorkspaceInsightCollector::default(),
             groups: DiskMapGroupCollector::new(
                 request.group_kinds.clone(),
                 request.group_limit,
@@ -498,6 +566,7 @@ impl DiskMapInspectionState {
         self.metadata_profile
             .apply_to_metrics(&mut self.report.totals);
         self.report.top_entries = self.top_entries.into_sorted_entries();
+        self.report.workspace_insights = self.workspace_insights.into_sorted_insights();
         self.report.groups = self.groups.finish();
         self.diagnostics.finish(&mut self.report);
         self.report
@@ -648,11 +717,17 @@ where
                 backend: self.request.scan_backend,
                 reason,
             })?;
-            self.state.diagnostics.push_priority(DiskMapDiagnostic::new(
+            let fallback_kind = ScanBackendFallbackKind::from_reason(reason);
+            let mut diagnostic = DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::Fallback,
                 root.to_path_buf(),
                 reason.clone(),
-            ));
+            )
+            .with_reason_code(fallback_kind.label());
+            if let Some(guidance) = fallback_kind.guidance() {
+                diagnostic = diagnostic.with_guidance(guidance);
+            }
+            self.state.diagnostics.push_priority(diagnostic);
         }
 
         let metadata = match self.walker.symlink_metadata(root) {
@@ -711,7 +786,8 @@ where
 
         let mut semantic_caveats = DiskMapSemanticCaveats::default();
         let max_depth = self.request.max_depth.unwrap_or(usize::MAX);
-        let root_result = match self.walker.metadata_kind(&metadata) {
+        let root_kind = self.walker.metadata_kind(&metadata);
+        let root_result = match root_kind {
             DiskMapMetadataKind::File => {
                 let semantics = profiled_metadata_semantics(
                     self.walker,
@@ -766,6 +842,7 @@ where
                 max_depth,
                 estimate_provenance: &provenance,
                 top_entries: &mut self.state.top_entries,
+                workspace_insights: &mut self.state.workspace_insights,
                 diagnostics: &mut self.state.diagnostics,
                 walker: self.walker,
                 semantic_caveats: &mut semantic_caveats,
@@ -795,6 +872,12 @@ where
         };
 
         let provenance = semantic_caveats.apply_to_root_provenance(provenance);
+        self.state.workspace_insights.record(
+            root,
+            root,
+            disk_map_entry_kind_for_metadata_kind(root_kind),
+            root_result.metrics,
+        );
         self.state.report.totals.add(root_result.metrics);
         self.state.report.roots.push(DiskMapRoot {
             path: root.to_path_buf(),
@@ -1742,6 +1825,7 @@ where
     max_depth: usize,
     estimate_provenance: &'a EstimateProvenance,
     top_entries: &'a mut DiskMapTopEntries,
+    workspace_insights: &'a mut DiskMapWorkspaceInsightCollector,
     diagnostics: &'a mut DiskMapDiagnostics,
     walker: &'a W,
     semantic_caveats: &'a mut DiskMapSemanticCaveats,
@@ -2000,6 +2084,8 @@ where
         metrics: DiskMapMetrics,
         estimate_provenance: &EstimateProvenance,
     ) {
+        self.workspace_insights
+            .record(self.root, path, kind, metrics);
         push_portable_entry_if_visible(
             self.root,
             path.to_path_buf(),
@@ -2362,6 +2448,50 @@ impl DiskMapTopEntries {
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct DiskMapWorkspaceInsightCollector {
+    insights: BTreeMap<(DiskMapWorkspaceInsightKind, PathBuf), DiskMapWorkspaceInsight>,
+}
+
+impl DiskMapWorkspaceInsightCollector {
+    fn record(
+        &mut self,
+        root: &Path,
+        path: &Path,
+        kind: DiskMapEntryKind,
+        metrics: DiskMapMetrics,
+    ) {
+        if kind != DiskMapEntryKind::Directory {
+            return;
+        }
+        let Some(insight_kind) = workspace_insight_kind_for_directory(path) else {
+            return;
+        };
+        let insight = DiskMapWorkspaceInsight {
+            path: path.to_path_buf(),
+            root: root.to_path_buf(),
+            kind: insight_kind,
+            metrics,
+        };
+        self.insights
+            .insert((insight_kind, path.to_path_buf()), insight);
+    }
+
+    fn into_sorted_insights(self) -> Vec<DiskMapWorkspaceInsight> {
+        let mut insights = self.insights.into_values().collect::<Vec<_>>();
+        insights.sort_by(|left, right| {
+            right
+                .metrics
+                .logical_bytes
+                .cmp(&left.metrics.logical_bytes)
+                .then_with(|| right.metrics.files.cmp(&left.metrics.files))
+                .then_with(|| left.kind.cmp(&right.kind))
+                .then_with(|| left.path.cmp(&right.path))
+        });
+        insights
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DiskMapTopCandidate {
     rank: DiskMapTopRank,
@@ -2407,6 +2537,149 @@ impl DiskMapTopRank {
             reverse_path: Reverse(entry.path.clone()),
         }
     }
+}
+
+fn disk_map_entry_kind_for_metadata_kind(kind: DiskMapMetadataKind) -> DiskMapEntryKind {
+    match kind {
+        DiskMapMetadataKind::File => DiskMapEntryKind::File,
+        DiskMapMetadataKind::Directory => DiskMapEntryKind::Directory,
+        DiskMapMetadataKind::Other => DiskMapEntryKind::Other,
+    }
+}
+
+fn workspace_insight_kind_for_directory(path: &Path) -> Option<DiskMapWorkspaceInsightKind> {
+    let file_name = path.file_name()?.to_string_lossy();
+    if file_name.eq_ignore_ascii_case(".git") {
+        return Some(DiskMapWorkspaceInsightKind::GitObjectStore);
+    }
+    if file_name.eq_ignore_ascii_case(".svn") {
+        return Some(DiskMapWorkspaceInsightKind::SvnPristineStore);
+    }
+    if file_name.eq_ignore_ascii_case("Library")
+        && path.parent().is_some_and(|project_root| {
+            project_root.join("Assets").exists() && project_root.join("ProjectSettings").exists()
+        })
+    {
+        return Some(DiskMapWorkspaceInsightKind::UnityLibraryCache);
+    }
+    if ["buildtrees", "packages", "downloads"]
+        .iter()
+        .any(|name| file_name.eq_ignore_ascii_case(name))
+        && path
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|parent| parent.to_string_lossy().eq_ignore_ascii_case("vcpkg"))
+    {
+        return Some(DiskMapWorkspaceInsightKind::VcpkgBuildCache);
+    }
+    if file_name.eq_ignore_ascii_case("repo-ref") {
+        return Some(DiskMapWorkspaceInsightKind::ReferenceRepositoryCache);
+    }
+    if file_name.eq_ignore_ascii_case("out") {
+        return Some(DiskMapWorkspaceInsightKind::GeneratedOutputTree);
+    }
+    if file_name.eq_ignore_ascii_case("mirrors") || file_name.eq_ignore_ascii_case("mirror") {
+        return Some(DiskMapWorkspaceInsightKind::LocalMirrorData);
+    }
+
+    None
+}
+
+fn collect_volume_contexts(roots: &[PathBuf]) -> Vec<DiskMapVolumeContext> {
+    let mut contexts = BTreeMap::new();
+    for root in roots {
+        let Some(context) = volume_context_for_root(root) else {
+            continue;
+        };
+        contexts
+            .entry(context.volume_root.clone())
+            .or_insert(context);
+    }
+    contexts.into_values().collect()
+}
+
+#[cfg(windows)]
+fn volume_context_for_root(root: &Path) -> Option<DiskMapVolumeContext> {
+    use windows::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetVolumeInformationW};
+    use windows::core::PCWSTR;
+
+    let volume_root = windows_volume_root(root)?;
+    let wide_root = wide_null(volume_root.as_os_str());
+    let mut available_bytes = 0_u64;
+    let mut total_bytes = 0_u64;
+    let mut free_bytes = 0_u64;
+    unsafe {
+        GetDiskFreeSpaceExW(
+            PCWSTR(wide_root.as_ptr()),
+            Some(&mut available_bytes),
+            Some(&mut total_bytes),
+            Some(&mut free_bytes),
+        )
+    }
+    .ok()?;
+
+    let mut file_system = [0_u16; 32];
+    let file_system = unsafe {
+        GetVolumeInformationW(
+            PCWSTR(wide_root.as_ptr()),
+            None,
+            None,
+            None,
+            None,
+            Some(&mut file_system),
+        )
+    }
+    .ok()
+    .map(|()| wide_buffer_to_string(&file_system))
+    .filter(|value| !value.is_empty());
+
+    Some(DiskMapVolumeContext {
+        root: root.to_path_buf(),
+        volume_root,
+        total_bytes,
+        free_bytes,
+        available_bytes,
+        used_bytes: total_bytes.saturating_sub(free_bytes),
+        file_system,
+        provenance: "windows-get-disk-free-space-ex".to_string(),
+    })
+}
+
+#[cfg(not(windows))]
+fn volume_context_for_root(_root: &Path) -> Option<DiskMapVolumeContext> {
+    None
+}
+
+#[cfg(windows)]
+fn windows_volume_root(root: &Path) -> Option<PathBuf> {
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(root)
+    };
+    let Component::Prefix(prefix) = absolute.components().next()? else {
+        return None;
+    };
+    let drive = match prefix.kind() {
+        Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => drive,
+        _ => return None,
+    };
+    let drive = char::from(drive).to_ascii_uppercase();
+    Some(PathBuf::from(format!("{drive}:\\")))
+}
+
+#[cfg(windows)]
+fn wide_null(value: &OsStr) -> Vec<u16> {
+    value.encode_wide().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(windows)]
+fn wide_buffer_to_string(buffer: &[u16]) -> String {
+    let end = buffer
+        .iter()
+        .position(|ch| *ch == 0)
+        .unwrap_or(buffer.len());
+    String::from_utf16_lossy(&buffer[..end])
 }
 
 fn push_root_skip(
@@ -2469,6 +2742,11 @@ fn portable_estimate_provenance(fallback_reason: Option<String>) -> EstimateProv
         ScanBackendKind::PortableRecursive,
         ScanEstimateConfidence::Exact,
     );
+    if let Some(reason) = &fallback_reason {
+        let kind = ScanBackendFallbackKind::from_reason(reason);
+        provenance.estimate_fallback_kind = Some(kind);
+        provenance.estimate_fallback_guidance = kind.guidance().map(str::to_string);
+    }
     provenance.estimate_fallback_reason = fallback_reason;
     provenance
 }

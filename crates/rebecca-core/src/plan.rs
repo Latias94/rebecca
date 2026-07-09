@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::project_artifacts::{ProjectArtifactContextMatch, ProjectArtifactDiscoveryDiagnostic};
 use crate::scan::{
-    MeasuredScan, ScanBackendEvidence, ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence,
+    MeasuredScan, ScanBackendEvidence, ScanBackendFallbackKind, ScanBackendKind,
+    ScanEstimateCaveat, ScanEstimateConfidence,
 };
 use crate::warnings::WarningSummary;
 use crate::{DeleteMode, PlanRequest, TargetStatus};
@@ -49,6 +50,10 @@ pub struct EstimateProvenance {
     pub estimate_confidence: Option<ScanEstimateConfidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimate_fallback_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate_fallback_kind: Option<ScanBackendFallbackKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate_fallback_guidance: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub estimate_caveats: Vec<ScanEstimateCaveat>,
     #[serde(default, skip_serializing_if = "ScanBackendEvidence::is_empty")]
@@ -62,6 +67,8 @@ impl EstimateProvenance {
             estimate_backend_source: scan.backend_source.clone(),
             estimate_confidence: Some(scan.confidence),
             estimate_fallback_reason: scan.fallback_reason.clone(),
+            estimate_fallback_kind: scan.fallback_kind,
+            estimate_fallback_guidance: scan.fallback_guidance.clone(),
             estimate_caveats: scan.caveats.clone(),
             estimate_backend_evidence: scan.backend_evidence.clone(),
         }
@@ -84,6 +91,8 @@ impl EstimateProvenance {
             estimate_backend_source: source,
             estimate_confidence: Some(confidence),
             estimate_fallback_reason: None,
+            estimate_fallback_kind: None,
+            estimate_fallback_guidance: None,
             estimate_caveats: Vec::new(),
             estimate_backend_evidence: ScanBackendEvidence::default(),
         }
@@ -99,6 +108,8 @@ impl EstimateProvenance {
             && self.estimate_backend_source.is_none()
             && self.estimate_confidence.is_none()
             && self.estimate_fallback_reason.is_none()
+            && self.estimate_fallback_kind.is_none()
+            && self.estimate_fallback_guidance.is_none()
             && self.estimate_caveats.is_empty()
             && self.estimate_backend_evidence.is_empty()
     }
@@ -111,9 +122,13 @@ impl EstimateProvenance {
             backend != ScanBackendKind::PortableRecursive
                 || !self.estimate_caveats.is_empty()
                 || self.estimate_fallback_reason.is_some()
+                || self.estimate_fallback_kind.is_some()
+                || self.estimate_fallback_guidance.is_some()
                 || self.estimate_backend_source.is_some()
                 || !self.estimate_backend_evidence.is_empty()
         }) || self.estimate_fallback_reason.is_some()
+            || self.estimate_fallback_kind.is_some()
+            || self.estimate_fallback_guidance.is_some()
             || self.estimate_backend_source.is_some()
             || !self.estimate_caveats.is_empty()
             || !self.estimate_backend_evidence.is_empty()

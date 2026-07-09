@@ -33,6 +33,12 @@ pub(crate) fn estimate_provenance_suffix(
     if let Some(reason) = &provenance.estimate_fallback_reason {
         parts.push(reason.clone());
     }
+    if let Some(kind) = provenance.estimate_fallback_kind {
+        parts.push(format!("fallback-kind={}", kind.label()));
+    }
+    if let Some(guidance) = &provenance.estimate_fallback_guidance {
+        parts.push(format!("guidance={guidance}"));
+    }
     if !provenance.estimate_caveats.is_empty() {
         parts.extend(
             provenance

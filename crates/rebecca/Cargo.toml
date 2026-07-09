@@ -14,7 +14,7 @@ keywords = ["windows", "cleanup", "cache", "cli"]
 categories = ["command-line-utilities", "filesystem"]
 
 [features]
-default = ["rules", "windows"]
+default = ["ntfs", "rules", "windows"]
 ntfs = ["rebecca-core/ntfs"]
 rules = ["dep:rebecca-rules"]
 windows = ["dep:rebecca-windows"]

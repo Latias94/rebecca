@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use rebecca_core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
+use rebecca_core::cleanup_advice::{
+    CleanupAdvice, CleanupAdviceCommand, CleanupAdviceEvidence, CleanupAdviceStatus,
+};
 use rebecca_core::disk_map::{DiskMapEntry, DiskMapMetrics, DiskMapReport};
 use rebecca_core::inspect::SpaceInsightReport;
 use rebecca_core::lint::LintReport;
@@ -137,6 +139,8 @@ pub(crate) fn print_map_report(
             format_bytes(unique_allocated_bytes)
         );
     }
+    print_disk_usage_semantics(report);
+    print_volume_contexts(report);
     println!("Files: {}", report.totals.files);
     println!("Directories: {}", report.totals.directories);
     println!("Diagnostics: {}", report.diagnostic_summary.total);
@@ -205,6 +209,51 @@ pub(crate) fn print_map_report(
     Ok(())
 }
 
+fn print_disk_usage_semantics(report: &DiskMapReport) {
+    println!(
+        "Usage semantics: logical bytes are path-ranked inventory, not guaranteed free-space delta."
+    );
+    if report.totals.allocated_bytes.is_none() {
+        println!(
+            "Allocated bytes: unavailable for this backend or metadata profile; rerun with --metadata-profile allocated or full-evidence when supported."
+        );
+    }
+    if report.totals.unique_logical_bytes.is_none() {
+        println!(
+            "Unique bytes: unavailable for this backend or metadata profile; hardlinks, sparse files, compression, and skipped reparse points can make logical totals differ from physical disk usage."
+        );
+    }
+}
+
+fn print_volume_contexts(report: &DiskMapReport) {
+    if report.volume_contexts.is_empty() {
+        return;
+    }
+
+    println!("Volume context:");
+    for context in &report.volume_contexts {
+        let file_system = context
+            .file_system
+            .as_deref()
+            .map(|value| format!(" {value}"))
+            .unwrap_or_default();
+        println!(
+            "- {}{}: used {} ({}), free {} ({}), available {} ({}), total {} ({}) [{}]",
+            context.volume_root.display(),
+            file_system,
+            context.used_bytes,
+            format_bytes(context.used_bytes),
+            context.free_bytes,
+            format_bytes(context.free_bytes),
+            context.available_bytes,
+            format_bytes(context.available_bytes),
+            context.total_bytes,
+            format_bytes(context.total_bytes),
+            context.provenance
+        );
+    }
+}
+
 fn print_map_summary(report: &DiskMapReport, options: InspectMapRenderOptions) {
     println!("Summary:");
     if let Some(entry) = report.top_entries.first() {
@@ -225,6 +274,8 @@ fn print_map_summary(report: &DiskMapReport, options: InspectMapRenderOptions) {
         cleanup_advice_totals(&advised_entries, CleanupAdviceStatus::MaybeCleanable);
     let candidate_entries = clean_entries.saturating_add(maybe_entries);
     let candidate_bytes = clean_bytes.saturating_add(maybe_bytes);
+    let (review_entries, review_bytes) =
+        cleanup_advice_totals(&advised_entries, CleanupAdviceStatus::ReviewOnly);
     if candidate_entries > 0 {
         println!(
             "- Cleanup candidates in ranked entries: {}, {} ({})",
@@ -237,12 +288,22 @@ fn print_map_summary(report: &DiskMapReport, options: InspectMapRenderOptions) {
     } else {
         println!("- Cleanup candidates in ranked entries: none directly cleanable.");
     }
+    if review_entries > 0 {
+        println!(
+            "- Manual-review findings in ranked entries: {}, {} ({})",
+            format_count(review_entries, "entry", "entries"),
+            review_bytes,
+            format_bytes(review_bytes)
+        );
+    }
 
     if let Some(command) = advised_entries
         .iter()
         .find_map(|(advice, _)| cleanup_advice_command(advice))
     {
         println!("- Next cleanup preview: {command}");
+    } else if review_entries > 0 {
+        println!("- Next cleanup preview: none; review-only findings require manual checks.");
     } else {
         println!("- Next cleanup preview: rerun with --cleanup-advice.");
     }
@@ -522,6 +583,7 @@ fn print_cleanup_advice_summary(report: &DiskMapReport) {
     for status in [
         CleanupAdviceStatus::Cleanable,
         CleanupAdviceStatus::MaybeCleanable,
+        CleanupAdviceStatus::ReviewOnly,
         CleanupAdviceStatus::ContainsCleanable,
         CleanupAdviceStatus::Protected,
         CleanupAdviceStatus::Unknown,
@@ -551,7 +613,37 @@ fn print_cleanup_advice_summary(report: &DiskMapReport) {
         println!("Cleanup advice is read-only; rerun a suggested command to preview cleanup.");
     } else {
         println!("Suggested cleanup commands: none");
-        println!("Cleanup advice is read-only; no cleanup rule matched the ranked entries.");
+        println!(
+            "Cleanup advice is read-only; no automatic cleanup command matched the ranked entries."
+        );
+    }
+
+    let manual_guidance = advised_entries
+        .iter()
+        .filter_map(|(advice, _)| {
+            let guidance = advice.manual_guidance.as_ref()?;
+            let path = guidance
+                .evidence_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "unknown path".to_string());
+            let external = guidance
+                .external_tool_hint
+                .as_deref()
+                .map(|hint| format!(" Tool hint: {hint}"))
+                .unwrap_or_default();
+            Some(format!(
+                "{}: {} {}{}",
+                path, guidance.reason, guidance.manual_review_hint, external
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+
+    if !manual_guidance.is_empty() {
+        println!("Manual review guidance:");
+        for guidance in manual_guidance {
+            println!("- {guidance}");
+        }
     }
 }
 
@@ -584,16 +676,52 @@ fn cleanup_advice_totals(
 }
 
 fn cleanup_advice_command(advice: &CleanupAdvice) -> Option<String> {
-    let command = advice.suggested_command.as_ref()?;
+    if let Some(command) = advice.suggested_command.as_ref() {
+        return Some(format_cleanup_command(
+            command,
+            &advice.required_flags,
+            &advice.required_warnings,
+        ));
+    }
+    advice
+        .evidence
+        .iter()
+        .filter(|evidence| cleanup_evidence_can_preview(evidence))
+        .find_map(cleanup_evidence_command)
+}
+
+fn cleanup_evidence_can_preview(evidence: &CleanupAdviceEvidence) -> bool {
+    matches!(
+        evidence.status,
+        CleanupAdviceStatus::Cleanable
+            | CleanupAdviceStatus::MaybeCleanable
+            | CleanupAdviceStatus::ContainsCleanable
+    )
+}
+
+fn cleanup_evidence_command(evidence: &CleanupAdviceEvidence) -> Option<String> {
+    let command = evidence.suggested_command.as_ref()?;
+    Some(format_cleanup_command(
+        command,
+        &evidence.required_flags,
+        &evidence.required_warnings,
+    ))
+}
+
+fn format_cleanup_command(
+    command: &CleanupAdviceCommand,
+    required_flags: &[String],
+    required_warnings: &[String],
+) -> String {
     let mut args = command.args.clone();
-    for flag in &advice.required_flags {
+    for flag in required_flags {
         args.extend(flag.split_whitespace().map(str::to_string));
     }
-    for warning in &advice.required_warnings {
+    for warning in required_warnings {
         args.push("--allow-warning".to_string());
         args.push(warning.clone());
     }
-    Some(format_shell_command(&command.command, &args))
+    format_shell_command(&command.command, &args)
 }
 
 fn cleanup_advice_suffix(advice: Option<&CleanupAdvice>) -> String {
@@ -610,7 +738,7 @@ fn cleanup_advice_suffix(advice: Option<&CleanupAdvice>) -> String {
         .as_ref()
         .map(|rule_id| format!(" {rule_id}"))
         .unwrap_or_default();
-    format!(" - cleanup: {}{}{}", advice.status.label(), source, rule)
+    format!(" - advice: {}{}{}", advice.status.label(), source, rule)
 }
 
 pub(crate) fn print_lint_report(report: &LintReport) -> Result<()> {

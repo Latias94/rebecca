@@ -172,6 +172,24 @@ pub struct InspectMapOptions {
     pub max_depth: Option<usize>,
 }
 
+#[derive(Debug)]
+pub struct InspectDriveOptions {
+    pub output_mode: OutputMode,
+    pub no_progress: bool,
+    pub progress_detail: ProgressDetail,
+    pub scan_backend: Option<ScanBackendArg>,
+    pub metadata_profile: DiskMapMetadataProfile,
+    pub root: PathBuf,
+    pub top_limit: usize,
+    pub no_cleanup_advice: bool,
+    pub screen_reader: bool,
+    pub full_path: bool,
+    pub no_bars: bool,
+    pub bar_width: Option<usize>,
+    pub diagnostic_limit: usize,
+    pub max_depth: Option<usize>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InspectMapTableFormat {
     Csv,
@@ -560,7 +578,70 @@ pub(crate) fn space_with_runtime(options: InspectSpaceOptions, runtime: &CliRunt
 }
 
 pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime) -> Result<()> {
-    let contract = CliApiContract::v1("inspect map", "inspect-map");
+    map_with_contract(
+        options,
+        runtime,
+        CliApiContract::v1("inspect map", "inspect-map"),
+        "map",
+    )
+}
+
+pub(crate) fn drive_with_runtime(options: InspectDriveOptions, runtime: &CliRuntime) -> Result<()> {
+    let map_options = InspectMapOptions {
+        output_mode: options.output_mode,
+        no_progress: options.no_progress,
+        progress_detail: options.progress_detail,
+        scan_backend: options
+            .scan_backend
+            .unwrap_or_else(default_drive_scan_backend),
+        metadata_profile: options.metadata_profile,
+        roots: vec![options.root],
+        top_limit: options.top_limit,
+        sort: DiskMapSortField::Logical,
+        min_logical_bytes: None,
+        entry_kind: None,
+        path_contains: None,
+        cleanup_advice: !options.no_cleanup_advice,
+        screen_reader: options.screen_reader,
+        full_path: options.full_path,
+        no_bars: options.no_bars,
+        bar_width: options.bar_width,
+        advice_status: None,
+        group_kinds: vec![
+            DiskMapGroupKind::Type,
+            DiskMapGroupKind::Extension,
+            DiskMapGroupKind::Depth,
+        ],
+        group_limit: rebecca_core::disk_map::DEFAULT_DISK_MAP_GROUP_LIMIT,
+        group_sort: DiskMapSortField::Logical,
+        table_format: None,
+        table_row_kinds: Vec::new(),
+        diagnostic_limit: options.diagnostic_limit,
+        max_depth: options.max_depth,
+    };
+
+    map_with_contract(
+        map_options,
+        runtime,
+        CliApiContract::v1("inspect drive", "inspect-map"),
+        "drive",
+    )
+}
+
+fn default_drive_scan_backend() -> ScanBackendArg {
+    if cfg!(windows) {
+        ScanBackendArg::WindowsNtfsMftExperimental
+    } else {
+        ScanBackendArg::PortableRecursive
+    }
+}
+
+fn map_with_contract(
+    options: InspectMapOptions,
+    runtime: &CliRuntime,
+    contract: CliApiContract,
+    progress_label: &'static str,
+) -> Result<()> {
     if !options.table_row_kinds.is_empty() {
         ensure!(
             options.table_format.is_some(),
@@ -610,7 +691,7 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
     }
 
     let mut progress = InspectProgressReporter::new(
-        "map",
+        progress_label,
         options.output_mode.is_human() && !options.no_progress && options.table_format.is_none(),
         options.progress_detail,
         options
@@ -918,7 +999,7 @@ fn print_map_report_ndjson(
     writer.emit_completed(contract.payload_kind, report)
 }
 
-const INSPECT_MAP_TABLE_HEADER: [&str; 23] = [
+const INSPECT_MAP_TABLE_HEADER: [&str; 25] = [
     "row_kind",
     "rank",
     "path",
@@ -940,11 +1021,13 @@ const INSPECT_MAP_TABLE_HEADER: [&str; 23] = [
     "estimate_backend_source",
     "estimate_confidence",
     "estimate_fallback_reason",
+    "estimate_fallback_kind",
+    "estimate_fallback_guidance",
     "estimate_caveats",
     "reason",
 ];
 
-const INSPECT_MAP_ADVICE_TABLE_HEADER: [&str; 12] = [
+const INSPECT_MAP_ADVICE_TABLE_HEADER: [&str; 16] = [
     "cleanup_status",
     "cleanup_relation",
     "cleanup_source",
@@ -957,6 +1040,10 @@ const INSPECT_MAP_ADVICE_TABLE_HEADER: [&str; 12] = [
     "cleanup_matched_path",
     "cleanup_reason",
     "cleanup_command",
+    "cleanup_manual_guidance_reason",
+    "cleanup_manual_review_hint",
+    "cleanup_external_tool_hint",
+    "cleanup_guidance_evidence_path",
 ];
 
 const INSPECT_MAP_APP_LEFTOVER_ADVICE_TABLE_HEADER: [&str; 7] = [
@@ -1126,6 +1213,27 @@ fn push_advice_cells(row: &mut Vec<String>, advice: Option<&CleanupAdvice>) {
             .unwrap_or_default(),
         advice.reason.clone(),
         format_advice_command(advice),
+        advice
+            .manual_guidance
+            .as_ref()
+            .map(|guidance| guidance.reason.clone())
+            .unwrap_or_default(),
+        advice
+            .manual_guidance
+            .as_ref()
+            .map(|guidance| guidance.manual_review_hint.clone())
+            .unwrap_or_default(),
+        advice
+            .manual_guidance
+            .as_ref()
+            .and_then(|guidance| guidance.external_tool_hint.clone())
+            .unwrap_or_default(),
+        advice
+            .manual_guidance
+            .as_ref()
+            .and_then(|guidance| guidance.evidence_path.as_ref())
+            .map(|path| path.display().to_string())
+            .unwrap_or_default(),
     ]);
     push_app_leftover_advice_cells(row, advice);
 }
@@ -1254,6 +1362,14 @@ fn push_provenance(
             .clone()
             .unwrap_or_default(),
         provenance
+            .estimate_fallback_kind
+            .map(|kind| kind.label().to_string())
+            .unwrap_or_default(),
+        provenance
+            .estimate_fallback_guidance
+            .clone()
+            .unwrap_or_default(),
+        provenance
             .estimate_caveats
             .iter()
             .map(|caveat| caveat.code.as_str())
@@ -1263,7 +1379,7 @@ fn push_provenance(
 }
 
 fn push_empty_provenance(row: &mut Vec<String>) {
-    row.extend(std::iter::repeat_n(String::new(), 6));
+    row.extend(std::iter::repeat_n(String::new(), 8));
 }
 
 fn optional_usize(value: Option<usize>) -> String {

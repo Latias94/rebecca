@@ -399,6 +399,8 @@ mod tests {
                     metrics(20, 1, 0),
                 ),
             ],
+            volume_contexts: Vec::new(),
+            workspace_insights: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         })

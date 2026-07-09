@@ -56,6 +56,102 @@ impl ScanMetricSemantics {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScanBackendFallbackKind {
+    FeatureDisabled,
+    UnsupportedPlatform,
+    DisabledByEnvironment,
+    PermissionDenied,
+    NonLocalVolume,
+    NonNtfsVolume,
+    Timeout,
+    ScanFailed,
+    SafetyBlocked,
+    BackendUnavailable,
+    Unknown,
+}
+
+impl ScanBackendFallbackKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::FeatureDisabled => "feature-disabled",
+            Self::UnsupportedPlatform => "unsupported-platform",
+            Self::DisabledByEnvironment => "disabled-by-environment",
+            Self::PermissionDenied => "permission-denied",
+            Self::NonLocalVolume => "non-local-volume",
+            Self::NonNtfsVolume => "non-ntfs-volume",
+            Self::Timeout => "timeout",
+            Self::ScanFailed => "scan-failed",
+            Self::SafetyBlocked => "safety-blocked",
+            Self::BackendUnavailable => "backend-unavailable",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub const fn guidance(self) -> Option<&'static str> {
+        match self {
+            Self::FeatureDisabled => {
+                Some("Use a Rebecca build with NTFS support, or select a safe fallback backend.")
+            }
+            Self::UnsupportedPlatform => Some("Use a platform-supported backend for this host."),
+            Self::DisabledByEnvironment => {
+                Some("Unset the test override or select a safe fallback backend.")
+            }
+            Self::PermissionDenied => Some(
+                "Run from an elevated shell to use the NTFS/MFT backend, or use a safe fallback backend.",
+            ),
+            Self::NonLocalVolume => {
+                Some("Select a local fixed NTFS volume or use a fallback backend.")
+            }
+            Self::NonNtfsVolume => Some("Select an NTFS volume or use a fallback backend."),
+            Self::Timeout => {
+                Some("Increase the NTFS/MFT timeout or use a safe fallback backend for this scan.")
+            }
+            Self::ScanFailed => {
+                Some("Rebecca used a safe fallback backend after the selected scanner failed.")
+            }
+            Self::SafetyBlocked => {
+                Some("Rebecca used a safe fallback path because the selected scanner was blocked.")
+            }
+            Self::BackendUnavailable => Some(
+                "Rebecca used a safe fallback backend because the selected backend was unavailable.",
+            ),
+            Self::Unknown => None,
+        }
+    }
+
+    pub fn from_reason(reason: &str) -> Self {
+        let reason = reason.to_ascii_lowercase();
+        if reason.contains("ntfs feature is disabled") || reason.contains("feature is disabled") {
+            Self::FeatureDisabled
+        } else if reason.contains("disabled by") {
+            Self::DisabledByEnvironment
+        } else if reason.contains("requires windows")
+            || reason.contains("only available on windows")
+            || reason.contains("not available on this platform")
+        {
+            Self::UnsupportedPlatform
+        } else if reason.contains("permission denied") || reason.contains("access is denied") {
+            Self::PermissionDenied
+        } else if reason.contains("only indexes local fixed") {
+            Self::NonLocalVolume
+        } else if reason.contains("expected ntfs") || reason.contains("not ntfs") {
+            Self::NonNtfsVolume
+        } else if reason.contains("timed out") || reason.contains("timeout") {
+            Self::Timeout
+        } else if reason.contains("safety") && reason.contains("blocked") {
+            Self::SafetyBlocked
+        } else if reason.contains("scan failed") {
+            Self::ScanFailed
+        } else if reason.contains("unavailable") || reason.contains("not enabled") {
+            Self::BackendUnavailable
+        } else {
+            Self::Unknown
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanEstimateCaveat {
     pub code: String,
@@ -116,6 +212,10 @@ pub struct MeasuredScan {
     pub backend_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_kind: Option<ScanBackendFallbackKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_guidance: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub caveats: Vec<ScanEstimateCaveat>,
     #[serde(default, skip_serializing_if = "ScanBackendEvidence::is_empty")]
@@ -131,6 +231,8 @@ impl MeasuredScan {
             metric_semantics: ScanMetricSemantics::LogicalBytes,
             backend_source: None,
             fallback_reason: None,
+            fallback_kind: None,
+            fallback_guidance: None,
             caveats: Vec::new(),
             backend_evidence: ScanBackendEvidence::default(),
         }
@@ -149,6 +251,11 @@ impl MeasuredScan {
 
     pub(crate) fn with_fallback_reason(mut self, reason: impl Into<String>) -> Self {
         let reason = reason.into();
+        let kind = ScanBackendFallbackKind::from_reason(&reason);
+        self.fallback_kind.get_or_insert(kind);
+        if self.fallback_guidance.is_none() {
+            self.fallback_guidance = kind.guidance().map(str::to_string);
+        }
         self.fallback_reason = Some(match self.fallback_reason.take() {
             Some(existing) => format!("{reason}; {existing}"),
             None => reason,

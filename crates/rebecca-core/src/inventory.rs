@@ -245,6 +245,10 @@ pub struct InventoryDiagnostic {
     pub kind: InventoryDiagnosticKind,
     pub path: PathBuf,
     pub detail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guidance: Option<String>,
 }
 
 impl InventoryDiagnostic {
@@ -253,7 +257,19 @@ impl InventoryDiagnostic {
             kind,
             path,
             detail: detail.into(),
+            reason_code: None,
+            guidance: None,
         }
+    }
+
+    pub fn with_reason_code(mut self, reason_code: impl Into<String>) -> Self {
+        self.reason_code = Some(reason_code.into());
+        self
+    }
+
+    pub fn with_guidance(mut self, guidance: impl Into<String>) -> Self {
+        self.guidance = Some(guidance.into());
+        self
     }
 }
 

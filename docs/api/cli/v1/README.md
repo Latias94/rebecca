@@ -76,7 +76,8 @@ events include the rule id, path, status, estimate, freed bytes, pending trash
 bytes, and stable reason code when one applies.
 
 Inspect workflow NDJSON uses the same event envelope but a different progress
-payload. `inspect space --format ndjson` and `inspect map --format ndjson`
+payload. `inspect space --format ndjson`, `inspect map --format ndjson`, and
+the guided `inspect drive --format ndjson`
 start with `started`, emit bounded `inspect-progress` events while roots,
 entries, caches, fallbacks, traversal counters, and backend stages are observed,
 then emit the final report event(s), and finish with `completed`.
@@ -90,7 +91,14 @@ backend-metric granularity. The final `completed` payload remains the
 authoritative full report. Add `--progress-detail file` only when the caller
 needs per-file scan events and unsampled backend stage/metric events.
 
-`inspect map --format ndjson` emits bounded report events before the terminal
+`inspect drive` is a read-only guided wrapper over the `inspect-map` payload. It
+uses command name `inspect drive`, enables cleanup advice by default, adds
+bounded type/extension/depth groups, and applies backend defaults for large-root
+investigation. Machine consumers should parse it as `payload_kind =
+"inspect-map"` and use the `command` field when they need to distinguish the
+guided workflow from raw `inspect map`.
+
+`inspect map --format ndjson` and `inspect drive --format ndjson` emit bounded report events before the terminal
 `completed` event: after scan progress, one `map-entry` event per `top_entries`
 item with `payload_kind = "inspect-map-entry"`, then one `map-group` event per
 requested `groups` item with `payload_kind = "inspect-map-group"`. The final
@@ -117,8 +125,11 @@ flags can limit the export to selected row kinds; omitting them preserves the
 full table. When `--cleanup-advice` or `--advice-status` is enabled, the table
 appends cleanup columns for entry rows: status, relation, source, rule id,
 category, safety level, required flags, required warnings, protection kind,
-matched path, reason, a PowerShell-quoted dry-run command hint, and optional
-`cleanup_app_*` context columns for app-leftover advice.
+matched path, reason, a PowerShell-quoted dry-run command hint, manual-guidance
+reason, manual-review hint, external-tool hint, guidance evidence path, and
+optional `cleanup_app_*` context columns for app-leftover advice. Review-only
+advice never has a Rebecca cleanup command; consumers should render its
+`manual_guidance` fields as human review instructions.
 
 ## Payload Kinds
 
@@ -184,6 +195,9 @@ When known, targets also include:
   `windows-ntfs-mft-experimental-fsctl-record`;
 - `estimate_confidence`: estimate confidence, currently `exact`;
 - `estimate_fallback_reason`: why Rebecca fell back from a requested backend;
+- `estimate_fallback_kind`: typed fallback reason such as `feature-disabled`,
+  `unsupported-platform`, `permission-denied`, or `non-ntfs-volume`;
+- `estimate_fallback_guidance`: short user-facing next step for the fallback;
 - `estimate_caveats`: structured caveats with `code` and `message`;
 - `estimate_backend_evidence`: optional structured evidence with `timings_ms`,
   `counters`, and `cache_events`. Consumers should prefer this object over
@@ -320,6 +334,13 @@ inventory fills file allocation bytes and file-id-deduplicated unique bytes when
 the host API exposes them; NTFS/MFT inventory fills allocation from parsed stream
 metadata and uses NTFS record identity for unique metrics when all counted files
 have parser-backed evidence.
+When the OS exposes volume usage, `inspect-map` also includes optional
+`volume_contexts` entries with `root`, `volume_root`, `total_bytes`,
+`free_bytes`, `available_bytes`, `used_bytes`, optional `file_system`, and
+`provenance`. Consumers should show these as disk-pressure context, not as
+cleanup estimates. Logical inventory can exceed or differ from OS used bytes
+because hardlinks, sparse files, compression, reparse skips, permissions, and
+profile choices change what each number means.
 When callers pass one or more `--group-by type|extension|depth|age` flags,
 `inspect-map` includes `groups`: bounded distribution summaries with
 `kind`, stable `key`, human `label`, and the same `metrics` object used by roots
@@ -341,13 +362,21 @@ entries, groups, or root summaries.
 When callers pass `--cleanup-advice`, each ranked entry may include
 `cleanup_advice`. Advice is read-only guidance derived from Rebecca's cleanup
 rule catalog, project artifact policy, app-leftover discovery, and protection
-policy; it is not deletion authority. Status values are `cleanable`, `maybe-cleanable`,
-`contains-cleanable`, `protected`, and `unknown`. Rule-backed and
+policy; it is not deletion authority. Status values are `cleanable`,
+`maybe-cleanable`, `contains-cleanable`, `review-only`, `protected`, and
+`unknown`. Rule-backed and
 project-artifact-backed advice can include `rule_id`, `category`,
 `safety_level`, `required_flags`, `required_warnings`, `matched_path`, `reason`,
 and a structured `suggested_command`. App-leftover advice can also include an
 `app_leftover` object with the installed app identity, app-data source, target
-leaf, deletion style, and optional modification time. `--advice-status <status>` implies
+leaf, deletion style, and optional modification time. Review-only advice has no
+Rebecca command. It may include `manual_guidance` with reason, manual review
+hint, optional external tool hint, and an evidence path; render those fields as
+human instructions and never convert them into cleanup, purge, basket, or saved
+plan targets. `cleanup_advice.evidence` preserves secondary matches. If a
+review-only primary result also contains cleanable evidence, automation may show
+the evidence `suggested_command` as a preview command, but it must still treat
+the review-only result itself as non-executable. `--advice-status <status>` implies
 `--cleanup-advice` and filters only the ranked entries, not root totals or
 diagnostic summaries. CSV/TSV `cleanup_command` cells are PowerShell-quoted
 human hints derived from the structured command, and app-leftover rows append

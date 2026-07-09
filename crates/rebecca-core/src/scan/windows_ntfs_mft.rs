@@ -4622,10 +4622,15 @@ fn volume_open_error(device_path: &str, err: &WindowsError) -> RebeccaError {
     } else {
         "could not open the live volume read-only"
     };
-    RebeccaError::PlatformUnavailable(format!(
-        "{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {reason} for {device_path}: {}",
-        err.message()
+    RebeccaError::PlatformUnavailable(format_volume_open_error_message(
+        device_path,
+        reason,
+        &err.message(),
     ))
+}
+
+fn format_volume_open_error_message(device_path: &str, reason: &str, detail: &str) -> String {
+    format!("{EXPERIMENTAL_NTFS_MFT_BACKEND_LABEL} {reason} for {device_path}; {detail}")
 }
 
 fn low_file_reference_number(file_reference_number: u64) -> u64 {
@@ -4709,9 +4714,10 @@ mod tests {
         TargetedMftRecordResolver, TargetedMftTraversal, TargetedMftTraversalLimits, USN_RECORD_V2,
         VolumePaths, build_mft_index_from_records, cache_checksum, check_mft_build_progress,
         collect_mft_disk_map_entry, file_reference_from_number, file_reference_number,
-        is_transient_persistent_cache_caveat, low_file_reference_number, mft_mirror_read_plan,
-        mirror_for_primary_records, next_mft_chunk_len, parse_retrieval_pointer_extents,
-        parse_sequential_mft_chunks, parse_usn_journal_read_buffer, persistent_cache_miss_caveat,
+        format_volume_open_error_message, is_transient_persistent_cache_caveat,
+        low_file_reference_number, mft_mirror_read_plan, mirror_for_primary_records,
+        next_mft_chunk_len, parse_retrieval_pointer_extents, parse_sequential_mft_chunks,
+        parse_usn_journal_read_buffer, persistent_cache_miss_caveat,
         persistent_cache_write_skipped_caveat, read_mft_records_from_sources,
         stable_ntfs_volume_index_checkpoint, validate_ntfs_volume_index_replay,
         validate_ntfs_volume_index_replay_range, with_bounded_mft_caveats,
@@ -4740,6 +4746,18 @@ mod tests {
         let err = VolumePaths::from_path(std::path::Path::new("Temp\\Cache")).unwrap_err();
 
         assert!(err.to_string().contains("absolute local path"));
+    }
+
+    #[test]
+    fn volume_open_error_message_does_not_double_colon_device_paths() {
+        let message = format_volume_open_error_message(
+            "\\\\.\\E:",
+            "permission denied while opening the volume",
+            "access denied",
+        );
+
+        assert!(message.contains("for \\\\.\\E:; access denied"));
+        assert!(!message.contains("\\\\.\\E::"));
     }
 
     #[test]

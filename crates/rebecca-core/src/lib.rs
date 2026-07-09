@@ -36,6 +36,7 @@ pub mod warnings;
 pub use cleanup_advice::{
     CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceCommand, CleanupAdviceEvidence,
     CleanupAdviceIndex, CleanupAdviceRelation, CleanupAdviceSource, CleanupAdviceStatus,
+    CleanupManualGuidance, WorkspaceInsightCandidate,
 };
 pub use error::{RebeccaError, Result, ScanFailure, ScanFailureKind, ScanFailurePhase};
 pub use execution::{

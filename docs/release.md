@@ -124,10 +124,11 @@ pwsh -File scripts\release\run-release-gates.ps1 -SelfTest
 
 The wrapper runs formatting, clippy, workspace tests, dependency policy,
 `catalog validate`, `cache inspect`, a dry-run cleanup preview, the benchmark
-comparator self-test, the benchmark matrix smoke/full path, and inspect-map
-dogfood according to its parameters. It is the preferred local release-facing
-gate; use the lower-level commands below when diagnosing a single surface or
-collecting additional evidence.
+comparator self-test, the benchmark matrix smoke/full path, guided disk
+governance dogfood, and inspect-map backend dogfood according to its
+parameters. It is the preferred local release-facing gate; use the lower-level
+commands below when diagnosing a single surface or collecting additional
+evidence.
 
 The same gate can be run from GitHub Actions with the manual `Release Gates`
 workflow. Its default `benchmark=smoke` and `dogfood=stable` inputs are the
@@ -169,6 +170,15 @@ pass, regression, improvement, skipped, missing-baseline, or missing-current
 with a default 10% threshold. Use `-SkipRun` for report-generation smoke checks
 that should not execute Criterion; missing benchmark artifacts should produce a
 `skipped` or `partial` report instead of a script failure.
+
+Collect a read-only "what is filling this disk?" workflow with the guided disk
+governance dogfood script. It runs `inspect drive` in JSON and NDJSON modes,
+captures progress kinds, byte semantics, volume context, cleanup-advice counts,
+review-only workspace insight counts, diagnostics, and raw command output.
+
+```powershell
+pwsh -File scripts\dogfood\run-disk-governance-dogfood.ps1 -Root docs\plans -Top 20 -NoDelete
+```
 
 Collect live NTFS/MFT evidence with the inspect-map dogfood script. It isolates
 Rebecca config, state, cache, and history under

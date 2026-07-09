@@ -59,7 +59,20 @@ Rebecca command.
      rules, preview targets, and execute only after typed confirmation. Mouse
      input selects and navigates; it never authorizes cleanup. Do not script or
      scrape TUI output.
-   - For a size map:
+   - For a whole drive, mount point, user profile, or large unknown root, start
+     with the guided read-only workflow:
+
+     ```powershell
+     rebecca inspect drive <PATH>
+     ```
+
+     This enables cleanup advice by default and separates Rebecca preview
+     commands from manual-review findings such as Git object stores, SVN
+     pristine stores, Unity Library caches, vcpkg build caches, `repo-ref`,
+     generated output, and local mirrors. Do not turn review-only findings into
+     deletion commands.
+   - For a lower-level size map with custom filters, groups, table export, or
+     machine wrappers:
 
      ```powershell
      rebecca inspect map --root <PATH> --top 20 --cleanup-advice
@@ -72,9 +85,12 @@ Rebecca command.
    - For flat exports, scripts, wrappers, or non-terminal sessions, use
      `--format json`, `--format ndjson`, or `--table csv|tsv`; do not drive the
      TUI as a machine API.
-   - On large local Windows NTFS roots, consider `--scan-backend windows-native`;
-     use `windows-ntfs-mft-experimental` only for read-only inspection when the
-     user wants maximum NTFS provenance and accepts that it is experimental.
+   - On large local Windows NTFS roots, `inspect drive` tries the experimental
+     NTFS/MFT inventory by default when the build supports it. If Rebecca
+     reports a typed fallback, follow the guidance: feature-disabled means the
+     binary lacks NTFS support, permission-denied means the terminal likely
+     needs elevation for raw-volume metadata, and unsupported or non-NTFS roots
+     should use the portable scanner.
    - On Linux and macOS, the portable scanner is the default. Use
      `rebecca catalog --kind cleanup-rule --platform linux` or
      `rebecca catalog --kind cleanup-rule --platform macos` before selecting

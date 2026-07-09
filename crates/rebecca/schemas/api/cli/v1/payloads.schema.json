@@ -730,6 +730,22 @@
         "exact"
       ]
     },
+    "estimateFallbackKind": {
+      "type": "string",
+      "enum": [
+        "feature-disabled",
+        "unsupported-platform",
+        "disabled-by-environment",
+        "permission-denied",
+        "non-local-volume",
+        "non-ntfs-volume",
+        "timeout",
+        "scan-failed",
+        "safety-blocked",
+        "backend-unavailable",
+        "unknown"
+      ]
+    },
     "estimateCaveat": {
       "type": "object",
       "additionalProperties": false,
@@ -2294,6 +2310,13 @@
           "type": "string",
           "minLength": 1
         },
+        "estimate_fallback_kind": {
+          "$ref": "#/$defs/estimateFallbackKind"
+        },
+        "estimate_fallback_guidance": {
+          "type": "string",
+          "minLength": 1
+        },
         "estimate_caveats": {
           "type": "array",
           "items": {
@@ -2321,6 +2344,12 @@
           "type": "string"
         },
         "detail": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "guidance": {
           "type": "string"
         }
       }
@@ -2456,6 +2485,47 @@
         "skipped"
       ]
     },
+    "diskMapVolumeContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "volume_root",
+        "total_bytes",
+        "free_bytes",
+        "available_bytes",
+        "used_bytes",
+        "provenance"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "volume_root": {
+          "type": "string"
+        },
+        "total_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "free_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "available_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "used_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "file_system": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "diskMapEntryKind": {
       "type": "string",
       "enum": [
@@ -2469,6 +2539,7 @@
       "enum": [
         "cleanable",
         "maybe-cleanable",
+        "review-only",
         "contains-cleanable",
         "protected",
         "unknown"
@@ -2480,6 +2551,7 @@
         "cleanup-rule",
         "project-artifact",
         "app-leftover",
+        "workspace-insight",
         "protection"
       ]
     },
@@ -2508,6 +2580,32 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "cleanupManualGuidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "manual_review_hint"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manual_review_hint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "external_tool_hint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_path": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -2575,6 +2673,68 @@
         }
       }
     },
+    "cleanupAdviceEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/cleanupAdviceStatus"
+        },
+        "source": {
+          "$ref": "#/$defs/cleanupAdviceSource"
+        },
+        "relation": {
+          "$ref": "#/$defs/cleanupAdviceRelation"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safety_level": {
+          "$ref": "#/$defs/safetyLevel"
+        },
+        "required_flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "protection_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "matched_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app_leftover": {
+          "$ref": "#/$defs/appLeftoverAdviceContext"
+        },
+        "suggested_command": {
+          "$ref": "#/$defs/cleanupAdviceCommand"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "cleanupAdvice": {
       "type": "object",
       "additionalProperties": false,
@@ -2632,8 +2792,17 @@
         "suggested_command": {
           "$ref": "#/$defs/cleanupAdviceCommand"
         },
+        "manual_guidance": {
+          "$ref": "#/$defs/cleanupManualGuidance"
+        },
         "app_leftover": {
           "$ref": "#/$defs/appLeftoverAdviceContext"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupAdviceEvidence"
+          }
         }
       }
     },
@@ -2653,10 +2822,64 @@
     "diskMapGroupKind": {
       "type": "string",
       "enum": [
+        "type",
         "extension",
         "depth",
         "age"
       ]
+    },
+    "diskMapWorkspaceInsightKind": {
+      "type": "string",
+      "enum": [
+        "git-object-store",
+        "svn-pristine-store",
+        "unity-library-cache",
+        "vcpkg-build-cache",
+        "reference-repository-cache",
+        "generated-output-tree",
+        "local-mirror-data"
+      ]
+    },
+    "diskMapVolumeContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "volume_root",
+        "total_bytes",
+        "free_bytes",
+        "available_bytes",
+        "used_bytes",
+        "provenance"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "volume_root": {
+          "type": "string"
+        },
+        "total_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "free_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "available_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "used_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "file_system": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "diskMapRoot": {
       "type": "object",
@@ -2690,6 +2913,13 @@
           "$ref": "#/$defs/estimateConfidence"
         },
         "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_fallback_kind": {
+          "$ref": "#/$defs/estimateFallbackKind"
+        },
+        "estimate_fallback_guidance": {
           "type": "string",
           "minLength": 1
         },
@@ -2782,6 +3012,13 @@
           "type": "string",
           "minLength": 1
         },
+        "estimate_fallback_kind": {
+          "$ref": "#/$defs/estimateFallbackKind"
+        },
+        "estimate_fallback_guidance": {
+          "type": "string",
+          "minLength": 1
+        },
         "estimate_caveats": {
           "type": "array",
           "items": {
@@ -2793,6 +3030,30 @@
         },
         "cleanup_advice": {
           "$ref": "#/$defs/cleanupAdvice"
+        }
+      }
+    },
+    "diskMapWorkspaceInsight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "root",
+        "kind",
+        "metrics"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/diskMapWorkspaceInsightKind"
+        },
+        "metrics": {
+          "$ref": "#/$defs/diskMapMetrics"
         }
       }
     },
@@ -2871,6 +3132,12 @@
         },
         "detail": {
           "type": "string"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "guidance": {
+          "type": "string"
         }
       }
     },
@@ -2938,10 +3205,22 @@
         "totals": {
           "$ref": "#/$defs/diskMapMetrics"
         },
+        "volume_contexts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapVolumeContext"
+          }
+        },
         "top_entries": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/diskMapEntry"
+          }
+        },
+        "workspace_insights": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapWorkspaceInsight"
           }
         },
         "groups": {
@@ -3282,6 +3561,13 @@
           "$ref": "#/$defs/estimateConfidence"
         },
         "estimate_fallback_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "estimate_fallback_kind": {
+          "$ref": "#/$defs/estimateFallbackKind"
+        },
+        "estimate_fallback_guidance": {
           "type": "string",
           "minLength": 1
         },

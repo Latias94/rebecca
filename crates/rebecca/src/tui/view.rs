@@ -319,6 +319,18 @@ fn render_details(
                     advice.required_warnings.join(", ")
                 )));
             }
+            if let Some(guidance) = advice.manual_guidance.as_ref() {
+                lines.push(Line::from(format!(
+                    "Manual review: {}",
+                    guidance.manual_review_hint
+                )));
+                if let Some(tool_hint) = guidance.external_tool_hint.as_ref() {
+                    lines.push(Line::from(format!("Tool hint: {tool_hint}")));
+                }
+                if let Some(evidence_path) = guidance.evidence_path.as_ref() {
+                    lines.push(Line::from(format!("Evidence: {}", evidence_path.display())));
+                }
+            }
         } else {
             lines.push(Line::from("Advice: none"));
         }

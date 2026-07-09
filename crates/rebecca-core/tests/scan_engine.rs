@@ -2,8 +2,8 @@ use std::fs;
 
 use rebecca_core::error::{ScanFailureKind, ScanFailurePhase};
 use rebecca_core::scan::{
-    ScanBackendKind, ScanCancellationToken, ScanEngine, ScanEstimateConfidence, ScanProgressEvent,
-    ScanTargetRequest,
+    ScanBackendFallbackKind, ScanBackendKind, ScanCancellationToken, ScanEngine,
+    ScanEstimateConfidence, ScanProgressEvent, ScanTargetRequest,
 };
 use rebecca_core::{DeleteMode, RebeccaError, TargetStatus};
 
@@ -146,6 +146,16 @@ fn windows_ntfs_mft_experimental_selection_falls_back_with_caveat() {
     assert!(fallback_reason.contains("windows-ntfs-mft-experimental"));
     if !cfg!(feature = "ntfs") {
         assert!(fallback_reason.contains("ntfs feature is disabled"));
+        assert_eq!(
+            measured.fallback_kind,
+            Some(ScanBackendFallbackKind::FeatureDisabled)
+        );
+        assert!(
+            measured
+                .fallback_guidance
+                .as_deref()
+                .is_some_and(|guidance| guidance.contains("NTFS support"))
+        );
     }
     assert!(
         measured

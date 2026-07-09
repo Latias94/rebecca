@@ -354,6 +354,7 @@ const COMMAND_API_SPECS: &[CommandApiSpec] = &[
     CommandApiSpec::new(&["i"], "tui", COMMAND_ERROR_PAYLOAD_KIND),
     CommandApiSpec::new(&["inspect", "space"], "inspect space", "inspect-space"),
     CommandApiSpec::new(&["inspect", "map"], "inspect map", "inspect-map"),
+    CommandApiSpec::new(&["inspect", "drive"], "inspect drive", "inspect-map"),
     CommandApiSpec::new(
         &["inspect", "artifacts"],
         "inspect artifacts",
@@ -550,6 +551,25 @@ fn run_inspect(
                         }
                     })
                     .collect(),
+                diagnostic_limit: args.diagnostic_limit,
+                max_depth: args.max_depth,
+            },
+            runtime,
+        ),
+        InspectCommand::Drive(args) => inspect::drive_with_runtime(
+            inspect::InspectDriveOptions {
+                output_mode: global_mode,
+                no_progress: args.no_progress,
+                progress_detail: args.progress_detail,
+                scan_backend: args.scan_backend,
+                metadata_profile: args.metadata_profile.into(),
+                root: args.root,
+                top_limit: args.top_limit,
+                no_cleanup_advice: args.no_cleanup_advice,
+                screen_reader: args.screen_reader,
+                full_path: args.full_path,
+                no_bars: args.no_bars,
+                bar_width: args.bar_width,
                 diagnostic_limit: args.diagnostic_limit,
                 max_depth: args.max_depth,
             },
@@ -761,6 +781,7 @@ fn command_api_contract(command: &Command) -> output::CliApiContract {
         Command::Inspect { command } => match command {
             InspectCommand::Space(_) => command_api_contract_for_path(&["inspect", "space"]),
             InspectCommand::Map(_) => command_api_contract_for_path(&["inspect", "map"]),
+            InspectCommand::Drive(_) => command_api_contract_for_path(&["inspect", "drive"]),
             InspectCommand::Artifacts(_) => {
                 command_api_contract_for_path(&["inspect", "artifacts"])
             }

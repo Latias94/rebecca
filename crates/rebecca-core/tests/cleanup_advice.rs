@@ -5,7 +5,7 @@ use rebecca_core::applications::InstalledApplication;
 use rebecca_core::applications::NoopApplicationDiscovery;
 use rebecca_core::cleanup_advice::{
     CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceRelation, CleanupAdviceSource,
-    CleanupAdviceStatus,
+    CleanupAdviceStatus, WorkspaceInsightCandidate,
 };
 use rebecca_core::environment::MapEnvironment;
 use rebecca_core::model::{
@@ -287,6 +287,99 @@ fn app_leftover_parent_contains_cleanable_without_durable_data_overblock() {
     assert_eq!(advice.relation, Some(CleanupAdviceRelation::Ancestor));
     assert_eq!(advice.matched_path.as_deref(), Some(target.as_path()));
     assert!(advice.app_leftover.is_some());
+}
+
+#[test]
+fn workspace_insight_is_review_only_without_cleanup_command() {
+    let temp = tempfile::tempdir().unwrap();
+    let git_dir = temp.path().join("workspace").join(".git");
+    let mut index = build_index(&[], ProtectionPolicy::new());
+    index.add_workspace_insight_candidates([WorkspaceInsightCandidate {
+        path: git_dir.clone(),
+        rule_id: "workspace.git-object-store",
+        reason: "Git history needs manual review.",
+        manual_review_hint: "Review Git history before deleting.",
+        external_tool_hint: Some("git gc can help after review."),
+        priority: 100,
+        logical_bytes: 6,
+    }]);
+
+    let advice = index.advise_path(&git_dir);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::ReviewOnly);
+    assert_eq!(advice.source, Some(CleanupAdviceSource::WorkspaceInsight));
+    assert_eq!(advice.relation, Some(CleanupAdviceRelation::Exact));
+    assert_eq!(
+        advice.rule_id.as_deref(),
+        Some("workspace.git-object-store")
+    );
+    assert_eq!(advice.category.as_deref(), Some("workspace-review"));
+    assert_eq!(advice.reason, "Git history needs manual review.");
+    assert_eq!(advice.suggested_command, None);
+    let guidance = advice.manual_guidance.as_ref().unwrap();
+    assert_eq!(guidance.reason, "Git history needs manual review.");
+    assert_eq!(
+        guidance.manual_review_hint,
+        "Review Git history before deleting."
+    );
+    assert_eq!(
+        guidance.external_tool_hint.as_deref(),
+        Some("git gc can help after review.")
+    );
+    assert_eq!(guidance.evidence_path.as_deref(), Some(git_dir.as_path()));
+}
+
+#[test]
+fn workspace_insight_outranks_small_contains_cleanable_parent_match() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let small_cache = root.join("tools").join("__pycache__");
+    let git_dir = root.join(".git");
+    let mut index = build_index(
+        &[rule(
+            "portable.project-artifact-python-bytecode",
+            &small_cache,
+            SafetyLevel::Safe,
+        )],
+        ProtectionPolicy::new(),
+    );
+    index.add_workspace_insight_candidates([WorkspaceInsightCandidate {
+        path: git_dir.clone(),
+        rule_id: "workspace.git-object-store",
+        reason: "Git history needs manual review.",
+        manual_review_hint: "Review Git history before deleting.",
+        external_tool_hint: Some("git gc can help after review."),
+        priority: 100,
+        logical_bytes: 6,
+    }]);
+
+    let advice = index.advise_path(&root);
+
+    assert_eq!(advice.status, CleanupAdviceStatus::ReviewOnly);
+    assert_eq!(advice.source, Some(CleanupAdviceSource::WorkspaceInsight));
+    assert_eq!(advice.relation, Some(CleanupAdviceRelation::Ancestor));
+    assert_eq!(advice.matched_path.as_deref(), Some(git_dir.as_path()));
+    assert_eq!(advice.suggested_command, None);
+    assert!(advice.manual_guidance.is_some());
+    assert!(
+        advice
+            .evidence
+            .iter()
+            .any(|evidence| evidence.status == CleanupAdviceStatus::ContainsCleanable)
+    );
+    let cleanup_evidence = advice
+        .evidence
+        .iter()
+        .find(|evidence| evidence.status == CleanupAdviceStatus::ContainsCleanable)
+        .expect("contains-cleanable evidence should remain visible");
+    let command = cleanup_evidence
+        .suggested_command
+        .as_ref()
+        .expect("cleanable evidence should retain its preview command");
+    assert_eq!(command.command, "rebecca");
+    assert!(command.args.contains(&"clean".to_string()));
+    assert!(command.args.contains(&"--dry-run".to_string()));
+    assert!(command.args.contains(&"--rule".to_string()));
 }
 
 #[test]

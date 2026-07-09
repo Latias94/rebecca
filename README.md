@@ -51,6 +51,7 @@ The default target is `~/.agents/skills`. Use `--agent codex` for `$CODEX_HOME/s
 Find where space went:
 
 ```powershell
+rebecca inspect drive E:
 rebecca inspect map --root . --top 20
 rebecca inspect map --root . --top 20 --cleanup-advice
 rebecca tui --root .
@@ -139,7 +140,15 @@ Rule authoring and external cleaner manifests are documented in [docs/rule-autho
 
 ## Disk usage
 
-`inspect map` answers "what is using space here?" without creating a cleanup plan.
+`inspect drive` is the safest first answer for "what is filling this disk?" It is read-only, enables cleanup advice, adds useful grouping, and keeps deletion in later `clean` or `purge` commands.
+
+```powershell
+rebecca inspect drive E:
+rebecca inspect drive . --scan-backend portable-recursive
+rebecca inspect drive C:\ --scan-backend windows-ntfs-mft-experimental
+```
+
+`inspect map` is the lower-level inventory command when you want exact filters, tables, or custom grouping without the guided defaults.
 
 ```powershell
 rebecca inspect map --root . --top 20
@@ -153,7 +162,11 @@ Human output is compact by default. Use `--full-path` for exact paths, `--no-bar
 
 The default metadata profile is `full-evidence`, which asks the backend for the richest accounting it can provide. Use `--metadata-profile logical-only` for the quickest "what is big?" pass, `allocated` when physical disk usage matters, `unique` when hardlink deduplication matters, and `age-and-grouping` when you need grouping and cleanup-advice context without every backend evidence field.
 
-On Windows, `--scan-backend windows-native` can use native directory enumeration and allocation metadata. Builds compiled with the `ntfs` Cargo feature also expose the experimental `windows-ntfs-mft-experimental` backend for read-only NTFS/MFT inventory. Unsupported or ambiguous cases fall back to the portable scanner with provenance.
+The report separates logical bytes, allocated bytes, unique bytes, and OS volume context when those numbers are available. Logical bytes are path-ranked inventory; they are not guaranteed free-space delta because hardlinks, sparse files, compression, and skipped reparse points can change physical usage.
+
+Cleanup advice is still read-only. Entries with a Rebecca command can be previewed with `clean --dry-run` or `purge --dry-run`. Review-only entries, such as large Git object stores, SVN pristine stores, Unity Library caches, vcpkg build caches, `repo-ref`, generated output, or local mirrors, are manual findings and do not become cleanup targets.
+
+On Windows, `--scan-backend windows-native` can use native directory enumeration and allocation metadata. Builds compiled with the `ntfs` Cargo feature also expose the experimental `windows-ntfs-mft-experimental` backend for read-only NTFS/MFT inventory. `inspect drive` chooses that backend by default on Windows and reports a typed fallback with guidance when the feature, filesystem, or privileges are not available. Unsupported or ambiguous cases fall back to the portable scanner with provenance.
 
 ## Project cleanup
 

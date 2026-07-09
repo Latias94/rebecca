@@ -269,6 +269,15 @@ try {
         ) | Out-Null
     }
     elseif ($Dogfood -eq "stable" -or $Dogfood -eq "all") {
+        Invoke-GateCommand -Report $report -OutputRoot $outputRoot -Name "disk governance dogfood" -Command @(
+            "pwsh", "-File", "scripts\dogfood\run-disk-governance-dogfood.ps1",
+            "-Root", $DogfoodRoot,
+            "-Top", "20",
+            "-DiagnosticLimit", "0",
+            "-OutputDirectory", (Join-Path $outputRoot "disk-governance-dogfood"),
+            "-NoDelete"
+        ) | Out-Null
+
         $backends = if ($Dogfood -eq "all") {
             "portable-recursive,windows-native,windows-ntfs-mft-experimental"
         }

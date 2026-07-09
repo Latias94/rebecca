@@ -36,6 +36,7 @@ fn root_help_shows_completion_and_rejects_hidden_default_scan() {
 fn inspect_help_shows_canonical_read_only_commands() {
     let stdout = help_stdout(&["inspect", "--help"]);
     assert!(stdout.contains("space"));
+    assert!(stdout.contains("drive"));
     assert!(stdout.contains("artifacts"));
     assert!(stdout.contains("lint"));
 }
@@ -121,6 +122,18 @@ fn inspect_map_help_preserves_human_output_controls() {
     assert!(stdout.contains("--table <FORMAT>"));
     assert!(stdout.contains("--cleanup-advice"));
     assert!(stdout.contains("rebecca inspect map --root . --top 20 --cleanup-advice"));
+}
+
+#[test]
+fn inspect_drive_help_explains_guided_read_only_workflow() {
+    let stdout = help_stdout(&["inspect", "drive", "--help"]);
+
+    assert!(stdout.contains("Explain what is filling a drive or large root"));
+    assert!(stdout.contains("--metadata-profile <METADATA_PROFILE>"));
+    assert!(stdout.contains("logical-only"));
+    assert!(stdout.contains("--no-cleanup-advice"));
+    assert!(stdout.contains("rebecca inspect drive"));
+    assert!(stdout.contains("read-only"));
 }
 
 #[test]

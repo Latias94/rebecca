@@ -4,6 +4,7 @@ use rebecca_core::execution::ExecutionProgressEvent;
 use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan};
 use rebecca_core::planner::PlanProgressEvent;
 use rebecca_core::progress::InspectProgressEvent;
+use rebecca_core::scan::ScanBackendFallbackKind;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::fmt;
@@ -719,12 +720,17 @@ impl NdjsonEventWriter {
                 root,
                 backend,
                 reason,
-            } => json!({
-                "progress_kind": "backend-fallback",
-                "root": root,
-                "backend": backend.label(),
-                "reason": reason,
-            }),
+            } => {
+                let reason_kind = ScanBackendFallbackKind::from_reason(reason);
+                json!({
+                    "progress_kind": "backend-fallback",
+                    "root": root,
+                    "backend": backend.label(),
+                    "reason": reason,
+                    "reason_kind": reason_kind.label(),
+                    "guidance": reason_kind.guidance(),
+                })
+            }
             InspectProgressEvent::BackendStageStarted {
                 root,
                 backend,

@@ -47,6 +47,17 @@ Examples:
 Use inspect map when you want to understand where space went. Use clean or
 purge for deletion.";
 
+const INSPECT_DRIVE_AFTER_LONG_HELP: &str = "\
+Examples:
+  rebecca inspect drive E:
+  rebecca inspect drive / --scan-backend portable-recursive
+  rebecca inspect drive . --top 40 --no-cleanup-advice
+  rebecca inspect drive C:\\ --scan-backend windows-ntfs-mft-experimental
+
+Use inspect drive when you want the safest first answer to \"what is filling this
+disk?\" It is read-only, enables cleanup advice by default, separates Rebecca
+commands from manual-review findings, and keeps deletion in clean or purge.";
+
 const TUI_AFTER_LONG_HELP: &str = "\
 Examples:
   rebecca tui
@@ -220,6 +231,7 @@ impl From<DiskMapMetadataProfileArg> for rebecca_core::disk_map::DiskMapMetadata
 pub enum CleanupAdviceStatusArg {
     Cleanable,
     MaybeCleanable,
+    ReviewOnly,
     ContainsCleanable,
     Protected,
     Unknown,
@@ -230,6 +242,7 @@ impl From<CleanupAdviceStatusArg> for rebecca_core::cleanup_advice::CleanupAdvic
         match value {
             CleanupAdviceStatusArg::Cleanable => Self::Cleanable,
             CleanupAdviceStatusArg::MaybeCleanable => Self::MaybeCleanable,
+            CleanupAdviceStatusArg::ReviewOnly => Self::ReviewOnly,
             CleanupAdviceStatusArg::ContainsCleanable => Self::ContainsCleanable,
             CleanupAdviceStatusArg::Protected => Self::Protected,
             CleanupAdviceStatusArg::Unknown => Self::Unknown,
@@ -459,6 +472,8 @@ pub enum InspectCommand {
     Space(InspectSpaceArgs),
     /// Inspect ranked disk usage below one or more roots.
     Map(InspectMapArgs),
+    /// Explain what is filling a drive or large root with safe follow-up commands.
+    Drive(InspectDriveArgs),
     /// Inspect rebuildable project artifact space.
     Artifacts(InspectArtifactsArgs),
     /// Report duplicate, large, empty-file, and empty-directory cleanup opportunities.
@@ -560,6 +575,50 @@ pub struct InspectMapArgs {
     #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca_core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
     pub diagnostic_limit: usize,
     /// Maximum rendered depth below each root. Direct children are depth 1.
+    #[arg(long = "max-depth", value_name = "N")]
+    pub max_depth: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+#[command(after_long_help = INSPECT_DRIVE_AFTER_LONG_HELP)]
+pub struct InspectDriveArgs {
+    /// Root, mount point, or drive to inspect.
+    #[arg(value_name = "ROOT", value_hint = ValueHint::AnyPath)]
+    pub root: PathBuf,
+    /// Disable the stderr progress spinner; useful for scripts and captured logs.
+    #[arg(long)]
+    pub no_progress: bool,
+    /// Select target-level or throttled file-level progress detail.
+    #[arg(long, value_enum, default_value_t = ProgressDetail::Target)]
+    pub progress_detail: ProgressDetail,
+    /// Select the scan backend used for disk-map inventory. Defaults to NTFS/MFT on Windows and portable elsewhere.
+    #[arg(long = "scan-backend", value_enum)]
+    pub scan_backend: Option<ScanBackendArg>,
+    /// Select how much metadata disk-map inventory collects; logical-only keeps large first-pass scans faster.
+    #[arg(long = "metadata-profile", value_enum, default_value_t = DiskMapMetadataProfileArg::LogicalOnly)]
+    pub metadata_profile: DiskMapMetadataProfileArg,
+    /// Maximum number of largest entries to include.
+    #[arg(long = "top", value_name = "N", default_value_t = 40)]
+    pub top_limit: usize,
+    /// Disable read-only cleanup and manual-review advice.
+    #[arg(long = "no-cleanup-advice")]
+    pub no_cleanup_advice: bool,
+    /// Render ranked entries without visual bars, optimized for screen readers and logs.
+    #[arg(long = "screen-reader")]
+    pub screen_reader: bool,
+    /// Print full paths in human ranked output instead of compacting long paths.
+    #[arg(long = "full-path")]
+    pub full_path: bool,
+    /// Hide visual usage bars in human ranked output.
+    #[arg(long = "no-bars")]
+    pub no_bars: bool,
+    /// Set the visual usage bar width for human ranked output.
+    #[arg(long = "bar-width", value_name = "COLUMNS")]
+    pub bar_width: Option<usize>,
+    /// Maximum number of raw diagnostics to include. Use 0 for summary only.
+    #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca_core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
+    pub diagnostic_limit: usize,
+    /// Maximum rendered depth below the root. Direct children are depth 1.
     #[arg(long = "max-depth", value_name = "N")]
     pub max_depth: Option<usize>,
 }

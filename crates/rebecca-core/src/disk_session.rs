@@ -1014,6 +1014,7 @@ mod tests {
             evidence: Vec::new(),
             reason: "fixture cache".to_string(),
             suggested_command: None,
+            manual_guidance: None,
         }
     }
 

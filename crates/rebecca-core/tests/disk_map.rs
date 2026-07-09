@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use rebecca_core::disk_map::{
     DiskMapDiagnosticKind, DiskMapEntryKind, DiskMapGroupKind, DiskMapRequest, DiskMapSortField,
-    inspect_map,
+    DiskMapWorkspaceInsightKind, inspect_map,
 };
 use rebecca_core::inventory::{
     InventoryDiagnosticKind, InventoryEntryKind, InventoryGroupKind, InventoryMetrics,
@@ -109,6 +109,47 @@ fn disk_map_reports_ranked_entries_in_deterministic_order() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn disk_map_reports_windows_volume_context_when_available() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("entry.bin"), b"abc");
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(1);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    let context = report
+        .volume_contexts
+        .first()
+        .expect("Windows disk map should report volume context for local temp roots");
+    assert_eq!(context.root, root);
+    assert!(context.total_bytes >= context.free_bytes);
+    assert!(context.total_bytes >= context.available_bytes);
+    assert_eq!(
+        context.used_bytes,
+        context.total_bytes.saturating_sub(context.free_bytes)
+    );
+    assert_eq!(context.provenance, "windows-get-disk-free-space-ex");
+}
+
+#[cfg(not(windows))]
+#[test]
+fn disk_map_keeps_volume_context_nullable_on_non_windows() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("entry.bin"), b"abc");
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(1);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert!(report.volume_contexts.is_empty());
+}
+
 #[cfg(unix)]
 #[test]
 fn disk_map_portable_unix_reports_allocated_and_unique_hardlinks() {
@@ -164,6 +205,36 @@ fn disk_map_sorts_top_entries_by_requested_field() {
     assert_eq!(report.top_entries[0].files, 2);
     assert_eq!(report.top_entries[1].path, root.join("large.bin"));
     assert_eq!(report.top_entries[1].logical_bytes, 10);
+}
+
+#[test]
+fn disk_map_collects_workspace_insights_outside_top_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("large").join("data.bin"), b"abcdefghijklmnop");
+    write_file(
+        root.join(".git")
+            .join("objects")
+            .join("pack")
+            .join("pack-small.pack"),
+        b"abc",
+    );
+
+    let request = DiskMapRequest::new(vec![root.clone()])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(1);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert_eq!(report.top_entries.len(), 1);
+    assert_eq!(report.top_entries[0].path, root.join("large"));
+    let git_insight = report
+        .workspace_insights
+        .iter()
+        .find(|insight| insight.kind == DiskMapWorkspaceInsightKind::GitObjectStore)
+        .expect("git workspace insight should not depend on top_entries");
+    assert_eq!(git_insight.path, root.join(".git"));
+    assert_eq!(git_insight.metrics.logical_bytes, 3);
+    assert_eq!(git_insight.metrics.files, 1);
 }
 
 #[test]
@@ -420,7 +491,39 @@ fn disk_map_experimental_backend_records_portable_fallback() {
             .as_deref()
             .is_some_and(|reason| reason.contains("windows-ntfs-mft-experimental"))
     );
+    assert_eq!(
+        report.roots[0]
+            .estimate_provenance
+            .estimate_fallback_kind
+            .map(|kind| kind.label()),
+        Some(if cfg!(all(windows, feature = "ntfs")) {
+            "disabled-by-environment"
+        } else {
+            "feature-disabled"
+        })
+    );
+    assert!(
+        report.roots[0]
+            .estimate_provenance
+            .estimate_fallback_guidance
+            .as_deref()
+            .is_some_and(|guidance| !guidance.is_empty())
+    );
     assert_eq!(report.diagnostics[0].kind, DiskMapDiagnosticKind::Fallback);
+    assert_eq!(
+        report.diagnostics[0].reason_code.as_deref(),
+        Some(if cfg!(all(windows, feature = "ntfs")) {
+            "disabled-by-environment"
+        } else {
+            "feature-disabled"
+        })
+    );
+    assert!(
+        report.diagnostics[0]
+            .guidance
+            .as_deref()
+            .is_some_and(|guidance| !guidance.is_empty())
+    );
 }
 
 #[test]

@@ -9,7 +9,8 @@ use rebecca_core::project_artifacts::{
     ProjectArtifactDiscoveryDiagnostic, ProjectArtifactDiscoveryDiagnosticKind,
 };
 use rebecca_core::scan::{
-    ScanBackendEvidence, ScanBackendKind, ScanEstimateCaveat, ScanEstimateConfidence,
+    ScanBackendEvidence, ScanBackendFallbackKind, ScanBackendKind, ScanEstimateCaveat,
+    ScanEstimateConfidence,
 };
 use rebecca_core::{
     CleanupWorkflow, DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance,
@@ -401,6 +402,11 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
             estimate_backend_source: Some("windows-native-usn".to_string()),
             estimate_confidence: Some(ScanEstimateConfidence::Exact),
             estimate_fallback_reason: Some("windows-native: unavailable".to_string()),
+            estimate_fallback_kind: Some(ScanBackendFallbackKind::BackendUnavailable),
+            estimate_fallback_guidance: Some(
+                "Rebecca used a safe fallback backend because the selected backend was unavailable."
+                    .to_string(),
+            ),
             estimate_caveats: vec![ScanEstimateCaveat {
                 code: "native-fallback".to_string(),
                 message: "native backend fell back to portable scanning".to_string(),
@@ -421,6 +427,14 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
     assert_eq!(
         json["targets"][0]["estimate_fallback_reason"],
         "windows-native: unavailable"
+    );
+    assert_eq!(
+        json["targets"][0]["estimate_fallback_kind"],
+        "backend-unavailable"
+    );
+    assert_eq!(
+        json["targets"][0]["estimate_fallback_guidance"],
+        "Rebecca used a safe fallback backend because the selected backend was unavailable."
     );
     assert_eq!(
         json["targets"][0]["estimate_caveats"][0]["code"],
@@ -457,6 +471,12 @@ fn cleanup_plan_serialization_preserves_estimate_provenance_contract() {
             .estimate_fallback_reason
             .as_deref(),
         Some("windows-native: unavailable")
+    );
+    assert_eq!(
+        decoded.targets[0]
+            .estimate_provenance
+            .estimate_fallback_kind,
+        Some(ScanBackendFallbackKind::BackendUnavailable)
     );
     assert_eq!(
         decoded.targets[0].estimate_provenance.estimate_caveats[0].code,

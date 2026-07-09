@@ -331,6 +331,36 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
     );
     assert_eq!(value["diagnostic_summary"]["by_kind"][0]["count"], 1);
     assert_eq!(value["diagnostics"][0]["kind"], "fallback");
+    assert!(
+        matches!(
+            value["diagnostics"][0]["reason_code"].as_str(),
+            Some("disabled-by-environment") | Some("feature-disabled")
+        ),
+        "fallback diagnostic should include typed reason: {}",
+        value["diagnostics"][0]
+    );
+    assert!(
+        value["diagnostics"][0]["guidance"]
+            .as_str()
+            .is_some_and(|guidance| !guidance.is_empty()),
+        "fallback diagnostic should include user guidance: {}",
+        value["diagnostics"][0]
+    );
+    if cfg!(windows) {
+        let volume_contexts = value["volume_contexts"]
+            .as_array()
+            .expect("Windows map output should include volume context");
+        assert!(!volume_contexts.is_empty());
+        let context = &volume_contexts[0];
+        assert_eq!(context["provenance"], "windows-get-disk-free-space-ex");
+        let total_bytes = context["total_bytes"].as_u64().unwrap();
+        let free_bytes = context["free_bytes"].as_u64().unwrap();
+        let used_bytes = context["used_bytes"].as_u64().unwrap();
+        assert!(total_bytes >= free_bytes);
+        assert_eq!(used_bytes, total_bytes.saturating_sub(free_bytes));
+    } else {
+        assert!(value["volume_contexts"].is_null());
+    }
 }
 
 #[test]
@@ -658,6 +688,10 @@ fn inspect_map_json_reports_cleanup_advice_for_rule_targets() {
         advice["evidence"][0]["required_flags"],
         advice["required_flags"]
     );
+    assert_eq!(
+        advice["evidence"][0]["suggested_command"],
+        advice["suggested_command"]
+    );
     assert_eq!(advice["suggested_command"]["command"], "rebecca");
     assert_eq!(
         advice["suggested_command"]["args"],
@@ -714,6 +748,103 @@ fn inspect_map_human_summarizes_cleanup_advice_and_next_command() {
 }
 
 #[test]
+fn inspect_map_human_keeps_cleanup_preview_when_review_only_is_primary() {
+    let temp = tempfile::tempdir().unwrap();
+    let Some((root, target, rule_id)) = npm_cache_rule_fixture(&temp) else {
+        return;
+    };
+    write_fixture_file(target.join("content.bin"), b"abcdef");
+    write_fixture_file(
+        root.join(".git")
+            .join("objects")
+            .join("pack")
+            .join("pack-small.pack"),
+        b"abc",
+    );
+    let scan_root = root.parent().unwrap();
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            scan_root.to_str().unwrap(),
+            "--top",
+            "1",
+            "--entry-kind",
+            "directory",
+            "--cleanup-advice",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("- review-only: 1 entry"));
+    assert!(stdout.contains(&format!(
+        "- Next cleanup preview: rebecca clean --dry-run --rule {rule_id} --allow-moderate"
+    )));
+    assert!(stdout.contains(&format!(
+        "rebecca clean --dry-run --rule {rule_id} --allow-moderate"
+    )));
+    assert!(stdout.contains("Manual review guidance:"));
+}
+
+#[test]
+fn inspect_drive_json_uses_guided_map_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("package.json"), b"{}");
+    write_fixture_file(
+        root.join("node_modules").join(".cache").join("data.bin"),
+        b"abcdef",
+    );
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "drive",
+            "--format",
+            "json",
+            root.to_str().unwrap(),
+            "--scan-backend",
+            "portable-recursive",
+            "--top",
+            "10",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    assert_eq!(envelope["command"], "inspect drive");
+    assert_eq!(envelope["payload_kind"], "inspect-map");
+    let data = &envelope["data"];
+    assert!(data["totals"]["allocated_bytes"].is_null());
+    assert!(data["totals"]["unique_logical_bytes"].is_null());
+    assert!(data["top_entries"].as_array().unwrap().iter().any(|entry| {
+        entry["cleanup_advice"]["source"] == "project-artifact"
+            && entry["cleanup_advice"]["suggested_command"]["args"][0] == "purge"
+    }));
+    let groups = data["groups"].as_array().unwrap();
+    assert!(groups.iter().any(|group| group["kind"] == "type"));
+    assert!(groups.iter().any(|group| group["kind"] == "extension"));
+    assert!(groups.iter().any(|group| group["kind"] == "depth"));
+}
+
+#[test]
 fn inspect_map_json_reports_project_artifact_cleanup_advice() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
@@ -763,6 +894,168 @@ fn inspect_map_json_reports_project_artifact_cleanup_advice() {
     assert_eq!(advice["suggested_command"]["args"][0], "purge");
     assert_eq!(advice["suggested_command"]["args"][4], "--artifact");
     assert_eq!(advice["suggested_command"]["args"][5], "node_modules");
+}
+
+#[test]
+fn inspect_map_json_reports_workspace_insight_as_review_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let git_dir = root.join(".git");
+    write_fixture_file(
+        git_dir.join("objects").join("pack").join("pack-big.pack"),
+        b"abcdef",
+    );
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "10",
+            "--max-depth",
+            "3",
+            "--entry-kind",
+            "directory",
+            "--path-contains",
+            ".git",
+            "--cleanup-advice",
+            "--advice-status",
+            "review-only",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let entries = envelope["data"]["top_entries"].as_array().unwrap();
+    let entry = entries
+        .iter()
+        .find(|entry| Path::new(entry["path"].as_str().unwrap()) == git_dir.as_path())
+        .expect("git directory entry should be present");
+    let advice = &entry["cleanup_advice"];
+    assert_eq!(advice["status"], "review-only");
+    assert_eq!(advice["source"], "workspace-insight");
+    assert_eq!(advice["relation"], "exact");
+    assert_eq!(advice["rule_id"], "workspace.git-object-store");
+    assert_eq!(advice["category"], "workspace-review");
+    assert!(advice["reason"].as_str().unwrap().contains("Git"));
+    assert!(advice["suggested_command"].is_null());
+    assert!(
+        advice["manual_guidance"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Git")
+    );
+    assert!(
+        advice["manual_guidance"]["manual_review_hint"]
+            .as_str()
+            .unwrap()
+            .contains("Review")
+    );
+    assert!(
+        advice["manual_guidance"]["external_tool_hint"]
+            .as_str()
+            .unwrap()
+            .contains("git gc")
+    );
+    assert_eq!(
+        PathBuf::from(advice["manual_guidance"]["evidence_path"].as_str().unwrap()),
+        git_dir
+    );
+}
+
+#[test]
+fn inspect_map_json_uses_workspace_insights_beyond_top_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let scan_root = temp.path().join("scan-root");
+    let workspace = scan_root.join("workspace");
+    let git_dir = workspace.join(".git");
+    write_fixture_file(
+        git_dir.join("objects").join("pack").join("pack-small.pack"),
+        b"abc",
+    );
+    write_fixture_file(workspace.join("src").join("main.rs"), b"abcdefghijklmnop");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--root",
+            scan_root.to_str().unwrap(),
+            "--top",
+            "1",
+            "--entry-kind",
+            "directory",
+            "--cleanup-advice",
+            "--advice-status",
+            "review-only",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let data = &envelope["data"];
+    let entries = data["top_entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        PathBuf::from(entries[0]["path"].as_str().unwrap()),
+        workspace
+    );
+    assert_eq!(entries[0]["cleanup_advice"]["status"], "review-only");
+    assert_eq!(entries[0]["cleanup_advice"]["relation"], "ancestor");
+    assert_eq!(
+        PathBuf::from(
+            entries[0]["cleanup_advice"]["matched_path"]
+                .as_str()
+                .unwrap()
+        ),
+        git_dir
+    );
+    assert!(entries[0]["cleanup_advice"]["suggested_command"].is_null());
+    assert_eq!(
+        PathBuf::from(
+            entries[0]["cleanup_advice"]["manual_guidance"]["evidence_path"]
+                .as_str()
+                .unwrap()
+        ),
+        git_dir
+    );
+    assert!(
+        entries[0]["cleanup_advice"]["manual_guidance"]["manual_review_hint"]
+            .as_str()
+            .unwrap()
+            .contains("Review")
+    );
+
+    let insight = data["workspace_insights"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|insight| insight["kind"] == "git-object-store")
+        .expect("git workspace insight should be reported separately");
+    assert_eq!(PathBuf::from(insight["path"].as_str().unwrap()), git_dir);
+    assert_eq!(insight["metrics"]["logical_bytes"], 3);
 }
 
 #[test]
@@ -1213,9 +1506,9 @@ fn assert_json_group_directories(
     assert_eq!(group["metrics"]["directories"], directories);
 }
 
-const INSPECT_MAP_TABLE_HEADER_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason";
-const INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_caveats,reason,cleanup_status,cleanup_relation,cleanup_source,cleanup_rule_id,cleanup_category,cleanup_safety_level,cleanup_required_flags,cleanup_required_warnings,cleanup_protection_kind,cleanup_matched_path,cleanup_reason,cleanup_command,cleanup_app_stable_id,cleanup_app_display_name,cleanup_app_publisher,cleanup_app_leftover_source,cleanup_app_leftover_target_leaf,cleanup_app_leftover_deletion_style,cleanup_app_leftover_modified_at_unix_seconds";
-const INSPECT_MAP_TABLE_HEADER_TSV: &str = "row_kind\trank\tpath\troot\tstatus\tentry_kind\tgroup_kind\tgroup_key\tgroup_label\tdepth\tlogical_bytes\tallocated_bytes\tunique_logical_bytes\tunique_allocated_bytes\tfiles\tdirectories\testimate_source\testimate_backend\testimate_backend_source\testimate_confidence\testimate_fallback_reason\testimate_caveats\treason";
+const INSPECT_MAP_TABLE_HEADER_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_fallback_kind,estimate_fallback_guidance,estimate_caveats,reason";
+const INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_fallback_kind,estimate_fallback_guidance,estimate_caveats,reason,cleanup_status,cleanup_relation,cleanup_source,cleanup_rule_id,cleanup_category,cleanup_safety_level,cleanup_required_flags,cleanup_required_warnings,cleanup_protection_kind,cleanup_matched_path,cleanup_reason,cleanup_command,cleanup_manual_guidance_reason,cleanup_manual_review_hint,cleanup_external_tool_hint,cleanup_guidance_evidence_path,cleanup_app_stable_id,cleanup_app_display_name,cleanup_app_publisher,cleanup_app_leftover_source,cleanup_app_leftover_target_leaf,cleanup_app_leftover_deletion_style,cleanup_app_leftover_modified_at_unix_seconds";
+const INSPECT_MAP_TABLE_HEADER_TSV: &str = "row_kind\trank\tpath\troot\tstatus\tentry_kind\tgroup_kind\tgroup_key\tgroup_label\tdepth\tlogical_bytes\tallocated_bytes\tunique_logical_bytes\tunique_allocated_bytes\tfiles\tdirectories\testimate_source\testimate_backend\testimate_backend_source\testimate_confidence\testimate_fallback_reason\testimate_fallback_kind\testimate_fallback_guidance\testimate_caveats\treason";
 
 #[cfg(windows)]
 #[test]
@@ -1802,13 +2095,34 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
         event["event_kind"] == "inspect-progress"
             && event["data"]["progress_kind"] == "root-started"
     }));
-    assert!(events.iter().any(|event| {
-        event["event_kind"] == "inspect-progress"
-            && event["data"]["progress_kind"] == "backend-fallback"
-    }));
+    let fallback_event = events
+        .iter()
+        .find(|event| {
+            event["event_kind"] == "inspect-progress"
+                && event["data"]["progress_kind"] == "backend-fallback"
+        })
+        .expect("backend fallback progress event");
+    assert!(
+        matches!(
+            fallback_event["data"]["reason_kind"].as_str(),
+            Some("disabled-by-environment")
+                | Some("feature-disabled")
+                | Some("unsupported-platform")
+        ),
+        "backend fallback should include typed reason: {fallback_event}"
+    );
+    assert!(
+        fallback_event["data"]["guidance"]
+            .as_str()
+            .is_some_and(|guidance| !guidance.is_empty()),
+        "backend fallback should include user guidance: {fallback_event}"
+    );
     assert!(events.iter().any(|event| {
         event["event_kind"] == "inspect-progress"
             && event["data"]["progress_kind"] == "root-finished"
+    }));
+    assert!(events.iter().any(|event| {
+        event["event_kind"] == "inspect-progress" && event["data"]["progress_kind"] == "finalizing"
     }));
 
     let entry = events

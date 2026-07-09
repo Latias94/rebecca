@@ -1760,6 +1760,7 @@ mod tests {
                         command: "rebecca".to_string(),
                         args: vec!["clean".to_string(), "--rule".to_string()],
                     }),
+                    manual_guidance: None,
                 }),
             }],
             groups: vec![
@@ -1803,6 +1804,8 @@ mod tests {
                     },
                 },
             ],
+            volume_contexts: Vec::new(),
+            workspace_insights: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }
@@ -1851,6 +1854,8 @@ mod tests {
                 cleanup_advice: None,
             }],
             groups: Vec::new(),
+            volume_contexts: Vec::new(),
+            workspace_insights: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }
@@ -1914,6 +1919,8 @@ mod tests {
                     test_metrics(20, 1, 0),
                 ),
             ],
+            volume_contexts: Vec::new(),
+            workspace_insights: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }
@@ -1979,6 +1986,8 @@ mod tests {
                 },
             ],
             groups: Vec::new(),
+            volume_contexts: Vec::new(),
+            workspace_insights: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }
@@ -2075,6 +2084,8 @@ mod tests {
                 cleanup_advice: None,
             }],
             groups: Vec::new(),
+            volume_contexts: Vec::new(),
+            workspace_insights: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }

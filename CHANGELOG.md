@@ -9,11 +9,15 @@ All notable changes to Rebecca will be documented in this file.
 - The Rust API surface is narrower before the first stable release: the `rebecca` crate exposes a curated facade, while implementation crates and NTFS parser internals no longer leak broad modules for downstream use.
 
 ### Added
+- `inspect drive <root>` is now the guided read-only answer for "what is filling this disk?" It enables cleanup advice, emits disk-map payloads, separates Rebecca preview commands from manual-review findings, and defaults to NTFS/MFT inspection on Windows with typed fallback guidance when that backend cannot run.
+- `inspect map --cleanup-advice` now reports review-only workspace insights for large Git/SVN stores, Unity Library caches, vcpkg build caches, and reference repository folders. These findings explain what to review manually but never become Rebecca cleanup commands.
+- Inspect cleanup advice now keeps preview commands on cleanable evidence even when a larger review-only finding is the primary result, so users still see the safe next Rebecca command without making review-only data executable.
 - Executed `clean`, `purge`, `apps clean`, and `plan run` commands can write a cleanup receipt with `--receipt <FILE>`. Receipts now include the command, request, selected gates, destination, source plan, revalidation result, target provenance, restore hints, and next steps for pending trash space.
 - `clean`, `purge`, and `apps clean` can save dry-run cleanup plans with `--save-plan <FILE>`. New `rebecca plan inspect` and `rebecca plan run` commands let users review a saved plan, revalidate target metadata, and execute it later with `--yes`; stale targets are skipped with `saved-plan-target-changed`.
 - `rebecca skills install`, `skills path`, and `skills remove` manage the packaged `rebecca-disk-cleaner` agent skill. The default install root is `~/.agents/skills`, with `--agent codex`, `--destination`, `--dry-run`, `--force`, and `delete`/`uninstall` aliases for other agent setups.
 - `rebecca trash empty` previews or empties the system trash from Rebecca. On Windows it uses the Recycle Bin and supports `--drive C` or `--drive E`; normal cleanup still moves files to trash by default, and `--permanent` bypasses trash for `clean`, `purge`, or `apps clean`.
 - `inspect map` now has `--metadata-profile` for choosing between a fast logical-byte inventory and fuller allocated-byte, unique-byte, age, grouping, and evidence collection.
+- Disk-map reports now include typed backend fallback reasons, fallback guidance, workspace insights beyond the visible top entries, and Windows volume context when the OS exposes it.
 - NDJSON execution now reports `execution-started`, per-target execution start/finish events, and `execution-completed` for confirmed cleanup runs.
 
 ### Changed

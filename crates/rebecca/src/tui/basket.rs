@@ -300,6 +300,7 @@ mod tests {
                     rule_id.unwrap_or("linux.user-temp").to_string(),
                 ],
             }),
+            manual_guidance: None,
         }
     }
 }

@@ -256,6 +256,8 @@ mod tests {
                 label: ".tmp".to_string(),
                 metrics: metrics(40, 1, 0),
             }],
+            volume_contexts: Vec::new(),
+            workspace_insights: Vec::new(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }
