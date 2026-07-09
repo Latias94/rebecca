@@ -39,10 +39,10 @@ pub(crate) fn toggle_advice(
     let Some(advice) = advice else {
         return "Selected entry has no cleanup advice to add.".to_string();
     };
-    if !stageable_advice(advice) {
+    let Some(stageable) = stageable_advice(advice) else {
         return format!("{} entries cannot be added.", advice.status.label());
-    }
-    let Some(rule_id) = advice.rule_id.as_ref() else {
+    };
+    let Some(rule_id) = stageable.rule_id else {
         return "This advice is not backed by a cleanup rule yet.".to_string();
     };
 
@@ -54,10 +54,10 @@ pub(crate) fn toggle_advice(
         rule_id.clone(),
         CleanupBasketItem {
             rule_id: rule_id.clone(),
-            status: advice.status,
-            reason: advice.reason.clone(),
-            required_flags: advice.required_flags.clone(),
-            required_warnings: advice.required_warnings.clone(),
+            status: stageable.status,
+            reason: stageable.reason.to_string(),
+            required_flags: stageable.required_flags.to_vec(),
+            required_warnings: stageable.required_warnings.to_vec(),
             source_path: source.path,
             source_logical_bytes: source.logical_bytes,
             source_files: source.files,
@@ -143,9 +143,31 @@ pub(crate) fn total_source_logical_bytes(basket: &CleanupBasket) -> u64 {
     basket.values().map(|item| item.source_logical_bytes).sum()
 }
 
-fn stageable_advice(advice: &CleanupAdvice) -> bool {
+struct StageableAdvice<'a> {
+    status: CleanupAdviceStatus,
+    rule_id: Option<&'a String>,
+    reason: &'a str,
+    required_flags: &'a [String],
+    required_warnings: &'a [String],
+}
+
+fn stageable_advice(advice: &CleanupAdvice) -> Option<StageableAdvice<'_>> {
+    if stageable_status(advice.status) {
+        return Some(StageableAdvice {
+            status: advice.status,
+            rule_id: advice.rule_id.as_ref(),
+            reason: &advice.reason,
+            required_flags: &advice.required_flags,
+            required_warnings: &advice.required_warnings,
+        });
+    }
+
+    None
+}
+
+fn stageable_status(status: CleanupAdviceStatus) -> bool {
     matches!(
-        advice.status,
+        status,
         CleanupAdviceStatus::Cleanable
             | CleanupAdviceStatus::MaybeCleanable
             | CleanupAdviceStatus::ContainsCleanable
@@ -156,7 +178,9 @@ fn stageable_advice(advice: &CleanupAdvice) -> bool {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca_core::cleanup_advice::{CleanupAdviceCommand, CleanupAdviceSource};
+    use rebecca_core::cleanup_advice::{
+        CleanupAdviceCommand, CleanupAdviceEvidence, CleanupAdviceSource,
+    };
 
     use super::*;
 
@@ -205,6 +229,34 @@ mod tests {
             ),
             "This advice is not backed by a cleanup rule yet."
         );
+        assert!(basket.is_empty());
+    }
+
+    #[test]
+    fn toggle_advice_rejects_review_only_even_when_evidence_is_cleanable() {
+        let mut basket = CleanupBasket::new();
+        let mut advice = advice(CleanupAdviceStatus::ReviewOnly, Some("workspace.git"));
+        advice.evidence.push(CleanupAdviceEvidence {
+            status: CleanupAdviceStatus::MaybeCleanable,
+            source: Some(CleanupAdviceSource::CleanupRule),
+            relation: None,
+            rule_id: Some("linux.user-temp".to_string()),
+            category: None,
+            safety_level: None,
+            required_flags: vec!["--allow-moderate".to_string()],
+            required_warnings: Vec::new(),
+            protection_kind: None,
+            matched_path: None,
+            app_leftover: None,
+            suggested_command: None,
+            reason: "temporary files".to_string(),
+        });
+
+        assert_eq!(
+            toggle_advice(&mut basket, Some(&advice), source()),
+            "review-only entries cannot be added."
+        );
+
         assert!(basket.is_empty());
     }
 

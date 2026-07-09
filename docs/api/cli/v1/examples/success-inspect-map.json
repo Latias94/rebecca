@@ -75,6 +75,48 @@
         }
       }
     ],
+    "cleanup_actions": [
+      {
+        "id": "rebecca-command-0123456789abcdef",
+        "kind": "rebecca-command",
+        "status": "cleanable",
+        "source": "app-leftover",
+        "rule_id": "windows.app-leftover-local-cache",
+        "category": "app-leftover",
+        "owner_path": "C:/Users/example/AppData/Local/Example App/Cache",
+        "sample_paths": [
+          "C:/Users/example/AppData/Local/Example App/Cache"
+        ],
+        "sample_path_count": 1,
+        "omitted_sample_path_count": 0,
+        "covered_path_count": 1,
+        "logical_bytes": 4,
+        "suggested_command": {
+          "command": "rebecca",
+          "args": [
+            "apps",
+            "clean",
+            "--dry-run"
+          ]
+        },
+        "reason": "path is a rebuildable Cache app leftover for Example App"
+      }
+    ],
+    "manual_review_items": [],
+    "cleanup_advice_summary": {
+      "total_items": 1,
+      "cleanup_actions": 1,
+      "manual_review_items": 0,
+      "protected_items": 0,
+      "cleanable_actions": 1,
+      "maybe_cleanable_actions": 0,
+      "contains_cleanable_actions": 0,
+      "cleanable_logical_bytes": 4,
+      "maybe_cleanable_logical_bytes": 0,
+      "contains_cleanable_logical_bytes": 0,
+      "manual_review_logical_bytes": 0,
+      "protected_logical_bytes": 0
+    },
     "groups": [],
     "diagnostic_summary": {
       "total": 0,

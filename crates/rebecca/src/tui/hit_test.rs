@@ -258,6 +258,9 @@ mod tests {
             }],
             volume_contexts: Vec::new(),
             workspace_insights: Vec::new(),
+            cleanup_actions: Vec::new(),
+            manual_review_items: Vec::new(),
+            cleanup_advice_summary: Default::default(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
         }

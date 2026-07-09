@@ -9,8 +9,10 @@ All notable changes to Rebecca will be documented in this file.
 - The Rust API surface is narrower before the first stable release: the `rebecca` crate exposes a curated facade, while implementation crates and NTFS parser internals no longer leak broad modules for downstream use.
 
 ### Added
+- `inspect drive` and `inspect map --cleanup-advice` now show report-level cleanup actions, manual-review items, and non-overlapping reclaim totals so users can see what Rebecca can preview separately from what needs human judgment.
 - `inspect drive <root>` is now the guided read-only answer for "what is filling this disk?" It enables cleanup advice, emits disk-map payloads, separates Rebecca preview commands from manual-review findings, and defaults to NTFS/MFT inspection on Windows with typed fallback guidance when that backend cannot run.
-- `inspect map --cleanup-advice` now reports review-only workspace insights for large Git/SVN stores, Unity Library caches, vcpkg build caches, and reference repository folders. These findings explain what to review manually but never become Rebecca cleanup commands.
+- `inspect map --cleanup-advice` now reports review-only workspace insights for large Git/SVN stores, Unity Library caches, vcpkg build caches, reference repository folders, local mirrors, generated output trees, and installed game library data. These findings explain what to review manually but never become Rebecca cleanup commands.
+- Inspect diagnostics now keep compact top reasons with representative paths and guidance, even when raw diagnostic samples are disabled with `--diagnostic-limit 0`.
 - Inspect cleanup advice now keeps preview commands on cleanable evidence even when a larger review-only finding is the primary result, so users still see the safe next Rebecca command without making review-only data executable.
 - Executed `clean`, `purge`, `apps clean`, and `plan run` commands can write a cleanup receipt with `--receipt <FILE>`. Receipts now include the command, request, selected gates, destination, source plan, revalidation result, target provenance, restore hints, and next steps for pending trash space.
 - `clean`, `purge`, and `apps clean` can save dry-run cleanup plans with `--save-plan <FILE>`. New `rebecca plan inspect` and `rebecca plan run` commands let users review a saved plan, revalidate target metadata, and execute it later with `--yes`; stale targets are skipped with `saved-plan-target-changed`.
@@ -22,6 +24,7 @@ All notable changes to Rebecca will be documented in this file.
 
 ### Changed
 - Help, README examples, `clean`/`purge` summaries, `inspect map`, and the TUI result screen now start with the action a user can take next: preview, move to trash, permanently delete, or empty trash.
+- CSV and TSV disk-map exports now include compact cleanup action and manual-review identifiers before row-level advice details, making table exports easier to join back to the JSON rollups.
 - Cleanup summaries, receipts, and the TUI now tell users to preview the system trash or Windows Recycle Bin before running the confirmed empty command.
 - Long-running inspect and cleanup progress now shows clearer scan counters, rates, current scope, and cancellation hints; the TUI cleanup basket is now presented as a Reclaim Basket with selected-scope sizes before preview.
 - The TUI cleanup workbench, saved-plan execution, and inspect cleanup advice now share the same rule loading, protected-path checks, scan-cache wiring, and cleanup execution safeguards as the CLI. TUI rendering, snapshots, mouse hit-testing, and replay also share one frame view of the disk map, so what users see and what actions select stay aligned.

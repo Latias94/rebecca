@@ -7,17 +7,19 @@ use std::os::unix::fs::MetadataExt;
 #[cfg(windows)]
 use std::os::windows::{ffi::OsStrExt, fs::MetadataExt};
 #[cfg(windows)]
-use std::path::{Component, Prefix};
-use std::path::{Path, PathBuf};
+use std::path::Prefix;
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::cleanup_advice::CleanupAdvice;
+use crate::cleanup_advice::{CleanupAdvice, CleanupAdviceAction, CleanupAdviceActionSummary};
 use crate::error::{RebeccaError, Result, ScanFailureKind};
 pub use crate::inventory::{
-    InventoryDiagnostic as DiskMapDiagnostic, InventoryDiagnosticKind as DiskMapDiagnosticKind,
+    INVENTORY_DIAGNOSTIC_REASON_SUMMARY_LIMIT, InventoryDiagnostic as DiskMapDiagnostic,
+    InventoryDiagnosticKind as DiskMapDiagnosticKind,
     InventoryDiagnosticKindSummary as DiskMapDiagnosticKindSummary,
+    InventoryDiagnosticReasonSummary as DiskMapDiagnosticReasonSummary,
     InventoryDiagnosticSummary as DiskMapDiagnosticSummary, InventoryEntryKind as DiskMapEntryKind,
     InventoryGroup as DiskMapGroup, InventoryGroupKind as DiskMapGroupKind,
     InventoryMetrics as DiskMapMetrics, InventorySortField as DiskMapSortField,
@@ -328,6 +330,12 @@ pub struct DiskMapReport {
     pub top_entries: Vec<DiskMapEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workspace_insights: Vec<DiskMapWorkspaceInsight>,
+    #[serde(default)]
+    pub cleanup_actions: Vec<CleanupAdviceAction>,
+    #[serde(default)]
+    pub manual_review_items: Vec<CleanupAdviceAction>,
+    #[serde(default)]
+    pub cleanup_advice_summary: CleanupAdviceActionSummary,
     pub groups: Vec<DiskMapGroup>,
     pub diagnostic_summary: DiskMapDiagnosticSummary,
     pub diagnostics: Vec<DiskMapDiagnostic>,
@@ -349,6 +357,7 @@ pub struct DiskMapVolumeContext {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiskMapWorkspaceInsight {
     pub path: PathBuf,
+    pub owner_path: PathBuf,
     pub root: PathBuf,
     pub kind: DiskMapWorkspaceInsightKind,
     pub metrics: DiskMapMetrics,
@@ -364,6 +373,7 @@ pub enum DiskMapWorkspaceInsightKind {
     ReferenceRepositoryCache,
     GeneratedOutputTree,
     LocalMirrorData,
+    GameLibraryData,
 }
 
 impl DiskMapWorkspaceInsightKind {
@@ -376,6 +386,7 @@ impl DiskMapWorkspaceInsightKind {
             Self::ReferenceRepositoryCache => "reference-repository-cache",
             Self::GeneratedOutputTree => "generated-output-tree",
             Self::LocalMirrorData => "local-mirror-data",
+            Self::GameLibraryData => "game-library-data",
         }
     }
 }
@@ -593,6 +604,7 @@ struct DiskMapDiagnostics {
     limit: usize,
     total: u64,
     counts_by_kind: BTreeMap<DiskMapDiagnosticKind, u64>,
+    reasons: BTreeMap<DiskMapDiagnosticReasonKey, DiskMapDiagnosticReasonSummary>,
     samples: Vec<DiskMapDiagnosticSample>,
     sequence: u64,
 }
@@ -603,6 +615,7 @@ impl DiskMapDiagnostics {
             limit,
             total: 0,
             counts_by_kind: BTreeMap::new(),
+            reasons: BTreeMap::new(),
             samples: Vec::new(),
             sequence: 0,
         }
@@ -626,6 +639,18 @@ impl DiskMapDiagnostics {
     fn push_with_priority(&mut self, diagnostic: DiskMapDiagnostic, priority: bool) {
         self.total = self.total.saturating_add(1);
         *self.counts_by_kind.entry(diagnostic.kind).or_default() += 1;
+        let reason_key = DiskMapDiagnosticReasonKey::from_diagnostic(&diagnostic);
+        self.reasons
+            .entry(reason_key)
+            .and_modify(|summary| summary.count = summary.count.saturating_add(1))
+            .or_insert_with(|| DiskMapDiagnosticReasonSummary {
+                kind: diagnostic.kind,
+                count: 1,
+                reason_code: diagnostic.reason_code.clone(),
+                detail: diagnostic.detail.clone(),
+                guidance: diagnostic.guidance.clone(),
+                sample_path: diagnostic.path.clone(),
+            });
 
         if self.limit == 0 {
             return;
@@ -662,6 +687,17 @@ impl DiskMapDiagnostics {
             .map(|sample| sample.diagnostic)
             .collect();
         let retained = report.diagnostics.len() as u64;
+        let mut top_reasons = self.reasons.into_values().collect::<Vec<_>>();
+        top_reasons.sort_by(|left, right| {
+            right
+                .count
+                .cmp(&left.count)
+                .then_with(|| left.kind.cmp(&right.kind))
+                .then_with(|| left.reason_code.cmp(&right.reason_code))
+                .then_with(|| left.detail.cmp(&right.detail))
+                .then_with(|| left.sample_path.cmp(&right.sample_path))
+        });
+        top_reasons.truncate(INVENTORY_DIAGNOSTIC_REASON_SUMMARY_LIMIT);
         report.diagnostic_summary = DiskMapDiagnosticSummary {
             total: self.total,
             retained,
@@ -671,7 +707,27 @@ impl DiskMapDiagnostics {
                 .into_iter()
                 .map(|(kind, count)| DiskMapDiagnosticKindSummary { kind, count })
                 .collect(),
+            top_reasons,
         };
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DiskMapDiagnosticReasonKey {
+    kind: DiskMapDiagnosticKind,
+    reason_code: Option<String>,
+    detail: String,
+    guidance: Option<String>,
+}
+
+impl DiskMapDiagnosticReasonKey {
+    fn from_diagnostic(diagnostic: &DiskMapDiagnostic) -> Self {
+        Self {
+            kind: diagnostic.kind,
+            reason_code: diagnostic.reason_code.clone(),
+            detail: diagnostic.detail.clone(),
+            guidance: diagnostic.guidance.clone(),
+        }
     }
 }
 
@@ -2464,17 +2520,36 @@ impl DiskMapWorkspaceInsightCollector {
         if kind != DiskMapEntryKind::Directory {
             return;
         }
-        let Some(insight_kind) = workspace_insight_kind_for_directory(path) else {
+        let Some((insight_kind, owner_path)) =
+            workspace_insight_kind_for_directory(path, metrics.logical_bytes)
+        else {
             return;
         };
         let insight = DiskMapWorkspaceInsight {
             path: path.to_path_buf(),
+            owner_path: owner_path.clone(),
             root: root.to_path_buf(),
             kind: insight_kind,
             metrics,
         };
-        self.insights
-            .insert((insight_kind, path.to_path_buf()), insight);
+        self.record_insight(insight_kind, owner_path, insight);
+    }
+
+    fn record_insight(
+        &mut self,
+        insight_kind: DiskMapWorkspaceInsightKind,
+        owner_path: PathBuf,
+        insight: DiskMapWorkspaceInsight,
+    ) {
+        match self.insights.get_mut(&(insight_kind, owner_path.clone())) {
+            Some(existing) if insight.metrics.logical_bytes > existing.metrics.logical_bytes => {
+                *existing = insight;
+            }
+            Some(_) => {}
+            None => {
+                self.insights.insert((insight_kind, owner_path), insight);
+            }
+        }
     }
 
     fn into_sorted_insights(self) -> Vec<DiskMapWorkspaceInsight> {
@@ -2547,20 +2622,34 @@ fn disk_map_entry_kind_for_metadata_kind(kind: DiskMapMetadataKind) -> DiskMapEn
     }
 }
 
-fn workspace_insight_kind_for_directory(path: &Path) -> Option<DiskMapWorkspaceInsightKind> {
+const WEAK_WORKSPACE_INSIGHT_MIN_LOGICAL_BYTES: u64 = 64 * 1024 * 1024;
+
+fn workspace_insight_kind_for_directory(
+    path: &Path,
+    logical_bytes: u64,
+) -> Option<(DiskMapWorkspaceInsightKind, PathBuf)> {
     let file_name = path.file_name()?.to_string_lossy();
     if file_name.eq_ignore_ascii_case(".git") {
-        return Some(DiskMapWorkspaceInsightKind::GitObjectStore);
+        return Some((
+            DiskMapWorkspaceInsightKind::GitObjectStore,
+            path.to_path_buf(),
+        ));
     }
     if file_name.eq_ignore_ascii_case(".svn") {
-        return Some(DiskMapWorkspaceInsightKind::SvnPristineStore);
+        return Some((
+            DiskMapWorkspaceInsightKind::SvnPristineStore,
+            path.to_path_buf(),
+        ));
     }
     if file_name.eq_ignore_ascii_case("Library")
         && path.parent().is_some_and(|project_root| {
             project_root.join("Assets").exists() && project_root.join("ProjectSettings").exists()
         })
     {
-        return Some(DiskMapWorkspaceInsightKind::UnityLibraryCache);
+        return Some((
+            DiskMapWorkspaceInsightKind::UnityLibraryCache,
+            path.to_path_buf(),
+        ));
     }
     if ["buildtrees", "packages", "downloads"]
         .iter()
@@ -2570,19 +2659,92 @@ fn workspace_insight_kind_for_directory(path: &Path) -> Option<DiskMapWorkspaceI
             .and_then(Path::file_name)
             .is_some_and(|parent| parent.to_string_lossy().eq_ignore_ascii_case("vcpkg"))
     {
-        return Some(DiskMapWorkspaceInsightKind::VcpkgBuildCache);
+        return Some((
+            DiskMapWorkspaceInsightKind::VcpkgBuildCache,
+            path.to_path_buf(),
+        ));
     }
     if file_name.eq_ignore_ascii_case("repo-ref") {
-        return Some(DiskMapWorkspaceInsightKind::ReferenceRepositoryCache);
+        return Some((
+            DiskMapWorkspaceInsightKind::ReferenceRepositoryCache,
+            path.to_path_buf(),
+        ));
     }
-    if file_name.eq_ignore_ascii_case("out") {
-        return Some(DiskMapWorkspaceInsightKind::GeneratedOutputTree);
+    if let Some(owner_path) = steam_game_library_owner_path(path) {
+        return Some((DiskMapWorkspaceInsightKind::GameLibraryData, owner_path));
     }
-    if file_name.eq_ignore_ascii_case("mirrors") || file_name.eq_ignore_ascii_case("mirror") {
-        return Some(DiskMapWorkspaceInsightKind::LocalMirrorData);
+    if let Some(owner_path) = world_of_warcraft_owner_path(path) {
+        return Some((DiskMapWorkspaceInsightKind::GameLibraryData, owner_path));
+    }
+    if file_name.eq_ignore_ascii_case("out")
+        && logical_bytes >= WEAK_WORKSPACE_INSIGHT_MIN_LOGICAL_BYTES
+    {
+        return Some((
+            DiskMapWorkspaceInsightKind::GeneratedOutputTree,
+            path.to_path_buf(),
+        ));
+    }
+    if (file_name.eq_ignore_ascii_case("mirrors") || file_name.eq_ignore_ascii_case("mirror"))
+        && logical_bytes >= WEAK_WORKSPACE_INSIGHT_MIN_LOGICAL_BYTES
+    {
+        return Some((
+            DiskMapWorkspaceInsightKind::LocalMirrorData,
+            path.to_path_buf(),
+        ));
     }
 
     None
+}
+
+fn steam_game_library_owner_path(path: &Path) -> Option<PathBuf> {
+    let segments = normalized_path_segments(path);
+    find_sequence(&segments, &["steamapps", "common"])
+        .or_else(|| find_sequence(&segments, &["steamapps", "workshop"]))
+        .map(|index| path_prefix_through_normal_segment(path, index + 1))
+}
+
+fn world_of_warcraft_owner_path(path: &Path) -> Option<PathBuf> {
+    let segments = normalized_path_segments(path);
+    segments
+        .iter()
+        .position(|segment| segment == "world of warcraft")
+        .map(|index| path_prefix_through_normal_segment(path, index))
+}
+
+fn normalized_path_segments(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_string_lossy().to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn find_sequence(segments: &[String], sequence: &[&str]) -> Option<usize> {
+    if sequence.is_empty() || segments.len() < sequence.len() {
+        return None;
+    }
+    segments.windows(sequence.len()).position(|window| {
+        window
+            .iter()
+            .zip(sequence)
+            .all(|(left, right)| left == right)
+    })
+}
+
+fn path_prefix_through_normal_segment(path: &Path, target_normal_index: usize) -> PathBuf {
+    let mut prefix = PathBuf::new();
+    let mut normal_index = 0_usize;
+    for component in path.components() {
+        prefix.push(component.as_os_str());
+        if matches!(component, Component::Normal(_)) {
+            if normal_index == target_normal_index {
+                break;
+            }
+            normal_index = normal_index.saturating_add(1);
+        }
+    }
+    prefix
 }
 
 fn collect_volume_contexts(roots: &[PathBuf]) -> Vec<DiskMapVolumeContext> {
@@ -3451,6 +3613,12 @@ mod tests {
                 (DiskMapDiagnosticKind::Fallback, 1),
             ]
         );
+        assert_eq!(report.diagnostic_summary.top_reasons.len(), 2);
+        assert_eq!(
+            report.diagnostic_summary.top_reasons[0].kind,
+            DiskMapDiagnosticKind::MetadataReadSkipped
+        );
+        assert_eq!(report.diagnostic_summary.top_reasons[0].count, 1);
     }
 
     #[test]
@@ -3468,6 +3636,15 @@ mod tests {
         assert_eq!(report.diagnostic_summary.total, 1);
         assert_eq!(report.diagnostic_summary.retained, 0);
         assert_eq!(report.diagnostic_summary.truncated, 1);
+        assert_eq!(report.diagnostic_summary.top_reasons.len(), 1);
+        assert_eq!(
+            report.diagnostic_summary.top_reasons[0].kind,
+            DiskMapDiagnosticKind::MetadataReadSkipped
+        );
+        assert_eq!(
+            report.diagnostic_summary.top_reasons[0].detail,
+            "child failed"
+        );
     }
 
     #[test]

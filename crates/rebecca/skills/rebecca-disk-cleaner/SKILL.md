@@ -82,6 +82,12 @@ Rebecca command.
      trees. Use the default `full-evidence` profile when the user needs
      allocated bytes, hardlink-aware unique bytes, detailed provenance, or
      cleanup-advice confidence.
+   - When parsing JSON or NDJSON inspect output, prefer report-level
+     `cleanup_actions`, `manual_review_items`, and `cleanup_advice_summary`.
+     Entry-level `cleanup_advice` explains visible rows; it is not the action
+     list. Treat `manual_review_items` as findings only, especially Git object
+     stores, game libraries, local mirrors, generated output trees, and
+     reference repositories.
    - For flat exports, scripts, wrappers, or non-terminal sessions, use
      `--format json`, `--format ndjson`, or `--table csv|tsv`; do not drive the
      TUI as a machine API.
@@ -175,6 +181,9 @@ Rebecca command.
    - Do not invent rule IDs, artifact selectors, warning IDs, or categories.
      Read them from `rebecca catalog`, `inspect map --cleanup-advice`, or the
      preview output.
+   - If the inspect report includes `diagnostic_summary.top_reasons`, include
+     those reasons when explaining fallback or permission limits, even when the
+     raw `diagnostics` array is empty.
    - Completion criterion: every proposed cleanup action has a Rebecca dry-run
      result and an estimated reclaim amount or a reason it is unknown.
 
@@ -182,6 +191,8 @@ Rebecca command.
    - For each option, include the command, estimated reclaim, safety level,
      warning gates, and whether it moves data to the system trash or Windows
      Recycle Bin. Say "permanent" only when the command uses `--permanent`.
+   - Separate Rebecca cleanup actions from manual-review findings. Manual
+     review can be useful advice, but it is not an executable option.
    - If a command needs `--allow-warning <WARNING>`, explain the named warning
      and keep it out of the execution command unless the user confirms it.
    - Completion criterion: the user can choose by number without reading raw
@@ -258,3 +269,6 @@ Rebecca command.
   distribution, extension distribution, refresh, mouse-selection, and cleanup
   workbench views are not stable machine contracts. For automation, use the
   typed CLI API instead of replaying TUI output.
+- Do not stage or execute `manual_review_items`, `review-only`, or `protected`
+  advice. Only run commands that Rebecca produced as a cleanup preview or as a
+  confirmed `cleanup_actions[].suggested_command`.

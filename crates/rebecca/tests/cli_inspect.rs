@@ -172,6 +172,14 @@ fn inspect_space_json_diagnostic_limit_zero_keeps_summary_only() {
         value["diagnostic_summary"]["by_kind"][0]["kind"],
         "root-missing"
     );
+    assert_eq!(
+        value["diagnostic_summary"]["top_reasons"][0]["kind"],
+        "root-missing"
+    );
+    assert_eq!(
+        value["diagnostic_summary"]["top_reasons"][0]["detail"],
+        "space inspection root does not exist"
+    );
     assert!(value["diagnostics"].as_array().unwrap().is_empty());
 }
 
@@ -206,6 +214,9 @@ fn inspect_space_human_diagnostic_limit_zero_keeps_summary_count() {
     assert!(stdout.contains("Diagnostics: 1"));
     assert!(stdout.contains("Space diagnostics: 1 observation"));
     assert!(stdout.contains("  - root-missing: 1 observation"));
+    assert!(
+        stdout.contains("    - root-missing: 1 observation - space inspection root does not exist")
+    );
     assert!(stdout.contains("  - truncated: 1 observation not shown"));
     assert!(!stdout.contains("Space diagnostic samples:"));
 }
@@ -738,7 +749,7 @@ fn inspect_map_human_summarizes_cleanup_advice_and_next_command() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Cleanup advice summary:"));
-    assert!(stdout.contains("- maybe-cleanable: 1 entry, 6 (6 B)"));
+    assert!(stdout.contains("- maybe-cleanable: 1 action, 6 (6 B) non-overlapping"));
     assert!(stdout.contains("Suggested cleanup commands:"));
     assert!(stdout.contains(&format!(
         "rebecca clean --dry-run --rule {rule_id} --allow-moderate"
@@ -789,7 +800,7 @@ fn inspect_map_human_keeps_cleanup_preview_when_review_only_is_primary() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("- review-only: 1 entry"));
+    assert!(stdout.contains("- review-only: 1 item"));
     assert!(stdout.contains(&format!(
         "- Next cleanup preview: rebecca clean --dry-run --rule {rule_id} --allow-moderate"
     )));
@@ -840,6 +851,19 @@ fn inspect_drive_json_uses_guided_map_defaults() {
         entry["cleanup_advice"]["source"] == "project-artifact"
             && entry["cleanup_advice"]["suggested_command"]["args"][0] == "purge"
     }));
+    let actions = data["cleanup_actions"].as_array().unwrap();
+    assert!(actions.iter().any(|action| {
+        action["source"] == "project-artifact"
+            && action["suggested_command"]["args"][0] == "purge"
+            && action["sample_path_count"].as_u64().unwrap() >= 1
+    }));
+    assert_eq!(data["manual_review_items"].as_array().unwrap().len(), 0);
+    assert!(
+        data["cleanup_advice_summary"]["cleanup_actions"]
+            .as_u64()
+            .unwrap()
+            >= 1
+    );
     let groups = data["groups"].as_array().unwrap();
     assert!(groups.iter().any(|group| group["kind"] == "type"));
     assert!(groups.iter().any(|group| group["kind"] == "extension"));
@@ -975,6 +999,28 @@ fn inspect_map_json_reports_workspace_insight_as_review_only() {
         PathBuf::from(advice["manual_guidance"]["evidence_path"].as_str().unwrap()),
         git_dir
     );
+    assert!(
+        envelope["data"]["cleanup_actions"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let review_items = envelope["data"]["manual_review_items"].as_array().unwrap();
+    assert_eq!(review_items.len(), 1);
+    let item = &review_items[0];
+    assert_eq!(item["status"], "review-only");
+    assert_eq!(item["source"], "workspace-insight");
+    assert_eq!(item["rule_id"], "workspace.git-object-store");
+    assert!(item["suggested_command"].is_null());
+    assert_eq!(PathBuf::from(item["owner_path"].as_str().unwrap()), git_dir);
+    assert_eq!(
+        PathBuf::from(item["sample_paths"][0].as_str().unwrap()),
+        git_dir
+    );
+    assert_eq!(
+        envelope["data"]["cleanup_advice_summary"]["manual_review_items"],
+        1
+    );
 }
 
 #[test]
@@ -1057,7 +1103,13 @@ fn inspect_map_json_uses_workspace_insights_beyond_top_entries() {
         .find(|insight| insight["kind"] == "git-object-store")
         .expect("git workspace insight should be reported separately");
     assert_eq!(PathBuf::from(insight["path"].as_str().unwrap()), git_dir);
+    assert_eq!(
+        PathBuf::from(insight["owner_path"].as_str().unwrap()),
+        git_dir
+    );
     assert_eq!(insight["metrics"]["logical_bytes"], 3);
+    assert!(data["cleanup_actions"].as_array().unwrap().is_empty());
+    assert_eq!(data["manual_review_items"].as_array().unwrap().len(), 1);
 }
 
 #[test]
@@ -1171,6 +1223,7 @@ fn inspect_map_table_appends_cleanup_advice_columns_when_enabled() {
     let lines = stdout.lines().collect::<Vec<_>>();
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0], INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV);
+    assert!(lines[1].contains("rebecca-command-"));
     assert!(lines[1].contains("maybe-cleanable"));
     assert!(lines[1].contains("cleanup-rule"));
     assert!(lines[1].contains(rule_id));
@@ -1509,7 +1562,7 @@ fn assert_json_group_directories(
 }
 
 const INSPECT_MAP_TABLE_HEADER_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_fallback_kind,estimate_fallback_guidance,estimate_caveats,reason";
-const INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_fallback_kind,estimate_fallback_guidance,estimate_caveats,reason,cleanup_status,cleanup_relation,cleanup_source,cleanup_rule_id,cleanup_category,cleanup_safety_level,cleanup_required_flags,cleanup_required_warnings,cleanup_protection_kind,cleanup_matched_path,cleanup_reason,cleanup_command,cleanup_manual_guidance_reason,cleanup_manual_review_hint,cleanup_external_tool_hint,cleanup_guidance_evidence_path,cleanup_app_stable_id,cleanup_app_display_name,cleanup_app_publisher,cleanup_app_leftover_source,cleanup_app_leftover_target_leaf,cleanup_app_leftover_deletion_style,cleanup_app_leftover_modified_at_unix_seconds";
+const INSPECT_MAP_TABLE_HEADER_WITH_ADVICE_CSV: &str = "row_kind,rank,path,root,status,entry_kind,group_kind,group_key,group_label,depth,logical_bytes,allocated_bytes,unique_logical_bytes,unique_allocated_bytes,files,directories,estimate_source,estimate_backend,estimate_backend_source,estimate_confidence,estimate_fallback_reason,estimate_fallback_kind,estimate_fallback_guidance,estimate_caveats,reason,cleanup_action_id,cleanup_review_id,cleanup_status,cleanup_relation,cleanup_source,cleanup_rule_id,cleanup_category,cleanup_safety_level,cleanup_required_flags,cleanup_required_warnings,cleanup_protection_kind,cleanup_matched_path,cleanup_reason,cleanup_command,cleanup_manual_guidance_reason,cleanup_manual_review_hint,cleanup_external_tool_hint,cleanup_guidance_evidence_path,cleanup_app_stable_id,cleanup_app_display_name,cleanup_app_publisher,cleanup_app_leftover_source,cleanup_app_leftover_target_leaf,cleanup_app_leftover_deletion_style,cleanup_app_leftover_modified_at_unix_seconds";
 const INSPECT_MAP_TABLE_HEADER_TSV: &str = "row_kind\trank\tpath\troot\tstatus\tentry_kind\tgroup_kind\tgroup_key\tgroup_label\tdepth\tlogical_bytes\tallocated_bytes\tunique_logical_bytes\tunique_allocated_bytes\tfiles\tdirectories\testimate_source\testimate_backend\testimate_backend_source\testimate_confidence\testimate_fallback_reason\testimate_fallback_kind\testimate_fallback_guidance\testimate_caveats\treason";
 
 #[cfg(windows)]
@@ -1977,6 +2030,20 @@ fn inspect_map_json_diagnostic_limit_zero_keeps_summary_only() {
     assert_eq!(value["diagnostic_summary"]["total"], 1);
     assert_eq!(value["diagnostic_summary"]["retained"], 0);
     assert_eq!(value["diagnostic_summary"]["truncated"], 1);
+    assert_eq!(
+        value["diagnostic_summary"]["top_reasons"][0]["kind"],
+        "fallback"
+    );
+    assert_eq!(
+        value["diagnostic_summary"]["top_reasons"][0]["reason_code"],
+        "disabled-by-environment"
+    );
+    assert!(
+        value["diagnostic_summary"]["top_reasons"][0]["guidance"]
+            .as_str()
+            .unwrap()
+            .contains("fallback backend")
+    );
     assert!(value["diagnostics"].as_array().unwrap().is_empty());
 }
 
@@ -2043,6 +2110,8 @@ fn inspect_map_human_diagnostic_limit_zero_keeps_summary_count() {
     assert!(stdout.contains("Diagnostics: 1"));
     assert!(stdout.contains("Disk map diagnostics: 1 observation"));
     assert!(stdout.contains("  - fallback: 1 observation"));
+    assert!(stdout.contains("    - fallback (disabled-by-environment): 1 observation"));
+    assert!(stdout.contains("guidance: Unset the test override"));
     assert!(stdout.contains("  - truncated: 1 observation not shown"));
     assert!(!stdout.contains("Disk map diagnostic samples:"));
 }
@@ -2164,6 +2233,14 @@ fn inspect_map_ndjson_uses_v1_completed_event() {
     assert_eq!(completed["data"]["diagnostic_summary"]["total"], 1);
     assert_eq!(completed["data"]["diagnostic_summary"]["retained"], 0);
     assert_eq!(completed["data"]["diagnostic_summary"]["truncated"], 1);
+    assert_eq!(
+        completed["data"]["diagnostic_summary"]["top_reasons"][0]["kind"],
+        "fallback"
+    );
+    assert_eq!(
+        completed["data"]["diagnostic_summary"]["top_reasons"][0]["reason_code"],
+        "disabled-by-environment"
+    );
     assert!(
         completed["data"]["diagnostics"]
             .as_array()

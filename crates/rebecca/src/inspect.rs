@@ -8,7 +8,8 @@ use anyhow::{Context, Result, anyhow, ensure};
 use indicatif::ProgressBar;
 use rebecca_core::app_leftovers::derive_app_leftover_candidates;
 use rebecca_core::cleanup_advice::{
-    CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceStatus,
+    CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceCommand, CleanupAdviceIndex,
+    CleanupAdviceSource, CleanupAdviceStatus, summarize_cleanup_advice_items,
 };
 use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
 use rebecca_core::disk_map::{
@@ -846,6 +847,14 @@ pub(crate) fn annotate_map_report_with_cleanup_advice(
                 .as_ref()
                 .is_some_and(|advice| advice.status == status)
         });
+        report
+            .cleanup_actions
+            .retain(|action| action.status == status);
+        report
+            .manual_review_items
+            .retain(|item| item.status == status);
+        report.cleanup_advice_summary =
+            summarize_cleanup_advice_items(&report.cleanup_actions, &report.manual_review_items);
     }
 
     Ok(())
@@ -1027,7 +1036,9 @@ const INSPECT_MAP_TABLE_HEADER: [&str; 25] = [
     "reason",
 ];
 
-const INSPECT_MAP_ADVICE_TABLE_HEADER: [&str; 16] = [
+const INSPECT_MAP_ADVICE_TABLE_HEADER: [&str; 18] = [
+    "cleanup_action_id",
+    "cleanup_review_id",
     "cleanup_status",
     "cleanup_relation",
     "cleanup_source",
@@ -1064,6 +1075,8 @@ fn print_map_report_table(
 ) -> Result<()> {
     let stdout = io::stdout();
     let mut writer = stdout.lock();
+    let cleanup_rollup_index =
+        include_cleanup_advice.then(|| CleanupRollupTableIndex::from_report(report));
 
     write_table_row(
         &mut writer,
@@ -1074,7 +1087,13 @@ fn print_map_report_table(
         write_table_row(
             &mut writer,
             format,
-            with_optional_advice_cells(total_table_row(report), include_cleanup_advice, None),
+            with_optional_advice_cells(
+                total_table_row(report),
+                include_cleanup_advice,
+                None,
+                None,
+                cleanup_rollup_index.as_ref(),
+            ),
         )?;
     }
 
@@ -1097,7 +1116,13 @@ fn print_map_report_table(
             write_table_row(
                 &mut writer,
                 format,
-                with_optional_advice_cells(row, include_cleanup_advice, None),
+                with_optional_advice_cells(
+                    row,
+                    include_cleanup_advice,
+                    None,
+                    None,
+                    cleanup_rollup_index.as_ref(),
+                ),
             )?;
         }
     }
@@ -1127,6 +1152,8 @@ fn print_map_report_table(
                     row,
                     include_cleanup_advice,
                     entry.cleanup_advice.as_ref(),
+                    Some(&entry.path),
+                    cleanup_rollup_index.as_ref(),
                 ),
             )?;
         }
@@ -1148,7 +1175,13 @@ fn print_map_report_table(
             write_table_row(
                 &mut writer,
                 format,
-                with_optional_advice_cells(row, include_cleanup_advice, None),
+                with_optional_advice_cells(
+                    row,
+                    include_cleanup_advice,
+                    None,
+                    None,
+                    cleanup_rollup_index.as_ref(),
+                ),
             )?;
         }
     }
@@ -1170,14 +1203,21 @@ fn with_optional_advice_cells(
     mut row: Vec<String>,
     include_cleanup_advice: bool,
     advice: Option<&CleanupAdvice>,
+    entry_path: Option<&Path>,
+    rollup_index: Option<&CleanupRollupTableIndex>,
 ) -> Vec<String> {
     if include_cleanup_advice {
-        push_advice_cells(&mut row, advice);
+        push_advice_cells(&mut row, advice, entry_path, rollup_index);
     }
     row
 }
 
-fn push_advice_cells(row: &mut Vec<String>, advice: Option<&CleanupAdvice>) {
+fn push_advice_cells(
+    row: &mut Vec<String>,
+    advice: Option<&CleanupAdvice>,
+    entry_path: Option<&Path>,
+    rollup_index: Option<&CleanupRollupTableIndex>,
+) {
     let Some(advice) = advice else {
         row.extend(std::iter::repeat_n(
             String::new(),
@@ -1187,7 +1227,11 @@ fn push_advice_cells(row: &mut Vec<String>, advice: Option<&CleanupAdvice>) {
         return;
     };
 
+    let (cleanup_action_id, cleanup_review_id) =
+        cleanup_rollup_ids(rollup_index, advice, entry_path);
     row.extend([
+        cleanup_action_id,
+        cleanup_review_id,
         advice.status.label().to_string(),
         advice
             .relation
@@ -1236,6 +1280,165 @@ fn push_advice_cells(row: &mut Vec<String>, advice: Option<&CleanupAdvice>) {
             .unwrap_or_default(),
     ]);
     push_app_leftover_advice_cells(row, advice);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct CleanupActionLookupKey {
+    source: Option<CleanupAdviceSource>,
+    rule_id: Option<String>,
+    command: String,
+    args: Vec<String>,
+    owner_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct CleanupReviewLookupKey {
+    status: CleanupAdviceStatus,
+    source: Option<CleanupAdviceSource>,
+    rule_id: Option<String>,
+    owner_path: PathBuf,
+}
+
+#[derive(Debug, Default)]
+struct CleanupRollupTableIndex {
+    action_ids: BTreeMap<CleanupActionLookupKey, String>,
+    review_ids: BTreeMap<CleanupReviewLookupKey, String>,
+}
+
+impl CleanupRollupTableIndex {
+    fn from_report(report: &DiskMapReport) -> Self {
+        let mut index = Self::default();
+        for action in &report.cleanup_actions {
+            let Some(command) = action.suggested_command.as_ref() else {
+                continue;
+            };
+            index
+                .action_ids
+                .entry(CleanupActionLookupKey {
+                    source: action.source,
+                    rule_id: action.rule_id.clone(),
+                    command: command.command.clone(),
+                    args: command.args.clone(),
+                    owner_path: action.owner_path.clone(),
+                })
+                .or_insert_with(|| action.id.clone());
+        }
+        for item in &report.manual_review_items {
+            index
+                .review_ids
+                .entry(CleanupReviewLookupKey {
+                    status: item.status,
+                    source: item.source,
+                    rule_id: item.rule_id.clone(),
+                    owner_path: item.owner_path.clone(),
+                })
+                .or_insert_with(|| item.id.clone());
+        }
+        index
+    }
+
+    fn action_id_for(
+        &self,
+        source: Option<CleanupAdviceSource>,
+        rule_id: Option<&str>,
+        command: Option<&CleanupAdviceCommand>,
+        owner_path: Option<&Path>,
+    ) -> Option<&str> {
+        let command = command?;
+        let owner_path = owner_path?;
+        let key = CleanupActionLookupKey {
+            source,
+            rule_id: rule_id.map(str::to_string),
+            command: command.command.clone(),
+            args: command.args.clone(),
+            owner_path: owner_path.to_path_buf(),
+        };
+        self.action_ids.get(&key).map(String::as_str)
+    }
+
+    fn review_id_for(
+        &self,
+        status: CleanupAdviceStatus,
+        source: Option<CleanupAdviceSource>,
+        rule_id: Option<&str>,
+        owner_path: Option<&Path>,
+    ) -> Option<&str> {
+        let owner_path = owner_path?;
+        let key = CleanupReviewLookupKey {
+            status,
+            source,
+            rule_id: rule_id.map(str::to_string),
+            owner_path: owner_path.to_path_buf(),
+        };
+        self.review_ids.get(&key).map(String::as_str)
+    }
+}
+
+fn cleanup_rollup_ids(
+    rollup_index: Option<&CleanupRollupTableIndex>,
+    advice: &CleanupAdvice,
+    entry_path: Option<&Path>,
+) -> (String, String) {
+    let Some(rollup_index) = rollup_index else {
+        return (String::new(), String::new());
+    };
+    (
+        cleanup_action_id_for_advice(rollup_index, advice, entry_path)
+            .unwrap_or_default()
+            .to_string(),
+        cleanup_review_id_for_advice(rollup_index, advice, entry_path)
+            .unwrap_or_default()
+            .to_string(),
+    )
+}
+
+fn cleanup_action_id_for_advice<'a>(
+    rollup_index: &'a CleanupRollupTableIndex,
+    advice: &CleanupAdvice,
+    entry_path: Option<&Path>,
+) -> Option<&'a str> {
+    if let Some(command) = advice.suggested_command.as_ref() {
+        return rollup_index.action_id_for(
+            advice.source,
+            advice.rule_id.as_deref(),
+            Some(command),
+            advice.matched_path.as_deref().or(entry_path),
+        );
+    }
+
+    advice.evidence.iter().find_map(|evidence| {
+        rollup_index.action_id_for(
+            evidence.source,
+            evidence.rule_id.as_deref(),
+            evidence.suggested_command.as_ref(),
+            evidence.matched_path.as_deref().or(entry_path),
+        )
+    })
+}
+
+fn cleanup_review_id_for_advice<'a>(
+    rollup_index: &'a CleanupRollupTableIndex,
+    advice: &CleanupAdvice,
+    entry_path: Option<&Path>,
+) -> Option<&'a str> {
+    if !matches!(
+        advice.status,
+        CleanupAdviceStatus::ReviewOnly | CleanupAdviceStatus::Protected
+    ) {
+        return None;
+    }
+    let owner_path = advice
+        .manual_guidance
+        .as_ref()
+        .and_then(|guidance| guidance.evidence_path.as_deref())
+        .or(advice.matched_path.as_deref())
+        .or(entry_path);
+    rollup_index.review_id_for(
+        advice.status,
+        advice.source,
+        advice.rule_id.as_deref(),
+        owner_path,
+    )
 }
 
 fn push_app_leftover_advice_cells(row: &mut Vec<String>, advice: &CleanupAdvice) {

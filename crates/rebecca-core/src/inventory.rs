@@ -9,6 +9,8 @@ use crate::path_overlap::{path_is_same_or_child, paths_overlap};
 use crate::safety::is_reparse_like;
 use crate::scan::ScanCancellationToken;
 
+pub const INVENTORY_DIAGNOSTIC_REASON_SUMMARY_LIMIT: usize = 10;
+
 #[derive(Debug, Clone)]
 pub struct InventoryRequest {
     pub roots: Vec<PathBuf>,
@@ -279,12 +281,26 @@ pub struct InventoryDiagnosticSummary {
     pub retained: u64,
     pub truncated: u64,
     pub by_kind: Vec<InventoryDiagnosticKindSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub top_reasons: Vec<InventoryDiagnosticReasonSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryDiagnosticKindSummary {
     pub kind: InventoryDiagnosticKind,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventoryDiagnosticReasonSummary {
+    pub kind: InventoryDiagnosticKind,
+    pub count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    pub detail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guidance: Option<String>,
+    pub sample_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

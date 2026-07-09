@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,9 @@ use crate::applications::ApplicationDiscovery;
 use crate::discovery::{
     DiscoveryIndex, TargetResolution, resolve_rule_target_with_applications_and_index,
 };
-use crate::disk_map::{DiskMapReport, DiskMapWorkspaceInsight, DiskMapWorkspaceInsightKind};
+use crate::disk_map::{
+    DiskMapMetrics, DiskMapReport, DiskMapWorkspaceInsight, DiskMapWorkspaceInsightKind,
+};
 use crate::environment::Environment;
 use crate::error::Result;
 use crate::model::{PlanRequest, RuleDefinition, SafetyLevel};
@@ -17,6 +19,8 @@ use crate::project_artifacts::{ProjectArtifactCandidate, recently_modified_reaso
 use crate::protection::{
     ProtectedCategory, ProtectionAssessment, ProtectionBlock, ProtectionBlockKind, ProtectionPolicy,
 };
+
+const CLEANUP_ADVICE_SAMPLE_LIMIT: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -156,6 +160,158 @@ pub struct CleanupAdvice {
     pub suggested_command: Option<CleanupAdviceCommand>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual_guidance: Option<CleanupManualGuidance>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CleanupAdviceActionKind {
+    RebeccaCommand,
+    ManualReview,
+    Protected,
+}
+
+impl CleanupAdviceActionKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::RebeccaCommand => "rebecca-command",
+            Self::ManualReview => "manual-review",
+            Self::Protected => "protected",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupAdviceAction {
+    pub id: String,
+    pub kind: CleanupAdviceActionKind,
+    pub status: CleanupAdviceStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<CleanupAdviceSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    pub owner_path: PathBuf,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sample_paths: Vec<PathBuf>,
+    pub sample_path_count: u64,
+    pub omitted_sample_path_count: u64,
+    pub covered_path_count: u64,
+    pub logical_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allocated_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_logical_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_allocated_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_command: Option<CleanupAdviceCommand>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_guidance: Option<CleanupManualGuidance>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupAdviceActionSummary {
+    pub total_items: u64,
+    pub cleanup_actions: u64,
+    pub manual_review_items: u64,
+    pub protected_items: u64,
+    pub cleanable_actions: u64,
+    pub maybe_cleanable_actions: u64,
+    pub contains_cleanable_actions: u64,
+    pub cleanable_logical_bytes: u64,
+    pub maybe_cleanable_logical_bytes: u64,
+    pub contains_cleanable_logical_bytes: u64,
+    pub manual_review_logical_bytes: u64,
+    pub protected_logical_bytes: u64,
+}
+
+impl CleanupAdviceActionSummary {
+    pub fn is_empty(&self) -> bool {
+        self.total_items == 0
+    }
+
+    fn from_items(
+        cleanup_actions: &[CleanupAdviceAction],
+        manual_review_items: &[CleanupAdviceAction],
+    ) -> Self {
+        let mut summary = Self {
+            total_items: cleanup_actions
+                .len()
+                .saturating_add(manual_review_items.len()) as u64,
+            cleanup_actions: cleanup_actions.len() as u64,
+            manual_review_items: manual_review_items
+                .iter()
+                .filter(|action| action.kind == CleanupAdviceActionKind::ManualReview)
+                .count() as u64,
+            protected_items: manual_review_items
+                .iter()
+                .filter(|action| action.kind == CleanupAdviceActionKind::Protected)
+                .count() as u64,
+            ..Self::default()
+        };
+        for action in cleanup_actions {
+            match action.status {
+                CleanupAdviceStatus::Cleanable => {
+                    summary.cleanable_actions += 1;
+                    summary.cleanable_logical_bytes = summary
+                        .cleanable_logical_bytes
+                        .saturating_add(action.logical_bytes);
+                }
+                CleanupAdviceStatus::MaybeCleanable => {
+                    summary.maybe_cleanable_actions += 1;
+                    summary.maybe_cleanable_logical_bytes = summary
+                        .maybe_cleanable_logical_bytes
+                        .saturating_add(action.logical_bytes);
+                }
+                CleanupAdviceStatus::ReviewOnly => {
+                    summary.manual_review_logical_bytes = summary
+                        .manual_review_logical_bytes
+                        .saturating_add(action.logical_bytes);
+                }
+                CleanupAdviceStatus::ContainsCleanable => {
+                    summary.contains_cleanable_actions += 1;
+                    summary.contains_cleanable_logical_bytes = summary
+                        .contains_cleanable_logical_bytes
+                        .saturating_add(action.logical_bytes);
+                }
+                CleanupAdviceStatus::Protected => {
+                    summary.protected_logical_bytes = summary
+                        .protected_logical_bytes
+                        .saturating_add(action.logical_bytes);
+                }
+                CleanupAdviceStatus::Unknown => {}
+            }
+        }
+        for action in manual_review_items {
+            match action.status {
+                CleanupAdviceStatus::ReviewOnly => {
+                    summary.manual_review_logical_bytes = summary
+                        .manual_review_logical_bytes
+                        .saturating_add(action.logical_bytes);
+                }
+                CleanupAdviceStatus::Protected => {
+                    summary.protected_logical_bytes = summary
+                        .protected_logical_bytes
+                        .saturating_add(action.logical_bytes);
+                }
+                _ => {}
+            }
+        }
+        summary
+    }
+}
+
+pub fn summarize_cleanup_advice_items(
+    cleanup_actions: &[CleanupAdviceAction],
+    manual_review_items: &[CleanupAdviceAction],
+) -> CleanupAdviceActionSummary {
+    CleanupAdviceActionSummary::from_items(cleanup_actions, manual_review_items)
 }
 
 impl CleanupAdvice {
@@ -429,6 +585,11 @@ impl<'a> CleanupAdviceIndex<'a> {
         for entry in &mut report.top_entries {
             entry.cleanup_advice = Some(index.advise_path(&entry.path));
         }
+
+        let (actions, manual_review_items, summary) = build_disk_map_cleanup_advice_actions(report);
+        report.cleanup_actions = actions;
+        report.manual_review_items = manual_review_items;
+        report.cleanup_advice_summary = summary;
     }
 
     pub fn add_workspace_insight_candidates(
@@ -915,12 +1076,511 @@ fn comparable_path_key(path: &Path) -> String {
     }
 }
 
+pub fn build_disk_map_cleanup_advice_actions(
+    report: &DiskMapReport,
+) -> (
+    Vec<CleanupAdviceAction>,
+    Vec<CleanupAdviceAction>,
+    CleanupAdviceActionSummary,
+) {
+    let mut builder = CleanupAdviceActionBuilder::default();
+    for entry in &report.top_entries {
+        if let Some(advice) = entry.cleanup_advice.as_ref() {
+            builder.add_entry_advice(advice, &entry.path, entry_metrics(entry));
+        }
+    }
+    for insight in &report.workspace_insights {
+        builder.add_workspace_insight(insight);
+    }
+
+    let (actions, manual_review_items) = builder.finish();
+    let summary = CleanupAdviceActionSummary::from_items(&actions, &manual_review_items);
+    (actions, manual_review_items, summary)
+}
+
+#[derive(Default)]
+struct CleanupAdviceActionBuilder {
+    actions: BTreeMap<String, CleanupAdviceActionAccumulator>,
+}
+
+impl CleanupAdviceActionBuilder {
+    fn add_entry_advice(
+        &mut self,
+        advice: &CleanupAdvice,
+        entry_path: &Path,
+        metrics: DiskMapMetrics,
+    ) {
+        let Some(kind) = action_kind_for_advice(advice) else {
+            return;
+        };
+        let owner_path = advice_owner_path(advice, entry_path);
+        let evidence_path = advice
+            .manual_guidance
+            .as_ref()
+            .and_then(|guidance| guidance.evidence_path.as_deref())
+            .or(advice.matched_path.as_deref())
+            .unwrap_or(entry_path);
+        let (suggested_command, required_flags, required_warnings) =
+            if kind == CleanupAdviceActionKind::RebeccaCommand {
+                action_command_and_gates(advice)
+            } else {
+                (None, Vec::new(), Vec::new())
+            };
+        let id = cleanup_action_id(
+            kind,
+            advice.source,
+            advice.rule_id.as_deref(),
+            suggested_command.as_ref(),
+            &owner_path,
+        );
+        let mut accumulator = CleanupAdviceActionAccumulator::new(
+            id.clone(),
+            kind,
+            advice.status,
+            advice.source,
+            advice.rule_id.clone(),
+            advice.category.clone(),
+            owner_path,
+            required_flags,
+            required_warnings,
+            suggested_command,
+            advice.manual_guidance.clone(),
+            advice.reason.clone(),
+        );
+        accumulator.add_evidence_path(evidence_path);
+        if advice_can_measure_entry(advice, entry_path, &accumulator.owner_path) {
+            accumulator.add_measured_path(entry_path, metrics);
+        }
+        self.merge_accumulator(id, accumulator);
+        self.add_entry_evidence_actions(advice, entry_path, metrics);
+    }
+
+    fn add_entry_evidence_actions(
+        &mut self,
+        advice: &CleanupAdvice,
+        entry_path: &Path,
+        metrics: DiskMapMetrics,
+    ) {
+        for evidence in &advice.evidence {
+            if !cleanup_evidence_can_be_action(evidence) {
+                continue;
+            }
+            let Some(suggested_command) = evidence.suggested_command.clone() else {
+                continue;
+            };
+            let owner_path = evidence
+                .matched_path
+                .clone()
+                .unwrap_or_else(|| entry_path.to_path_buf());
+            let id = cleanup_action_id(
+                CleanupAdviceActionKind::RebeccaCommand,
+                evidence.source,
+                evidence.rule_id.as_deref(),
+                Some(&suggested_command),
+                &owner_path,
+            );
+            let mut accumulator = CleanupAdviceActionAccumulator::new(
+                id.clone(),
+                CleanupAdviceActionKind::RebeccaCommand,
+                evidence.status,
+                evidence.source,
+                evidence.rule_id.clone(),
+                evidence.category.clone(),
+                owner_path,
+                evidence.required_flags.clone(),
+                evidence.required_warnings.clone(),
+                Some(suggested_command),
+                None,
+                evidence.reason.clone(),
+            );
+            accumulator.add_evidence_path(evidence.matched_path.as_deref().unwrap_or(entry_path));
+            if evidence_can_measure_entry(evidence, entry_path, &accumulator.owner_path) {
+                accumulator.add_measured_path(entry_path, metrics);
+            }
+            self.merge_accumulator(id, accumulator);
+        }
+    }
+
+    fn add_workspace_insight(&mut self, insight: &DiskMapWorkspaceInsight) {
+        let metadata = workspace_insight_metadata(insight.kind);
+        let guidance = CleanupManualGuidance {
+            reason: metadata.reason.to_string(),
+            manual_review_hint: metadata.manual_review_hint.to_string(),
+            external_tool_hint: metadata.external_tool_hint.map(str::to_string),
+            evidence_path: Some(insight.path.clone()),
+        };
+        let id = cleanup_action_id(
+            CleanupAdviceActionKind::ManualReview,
+            Some(CleanupAdviceSource::WorkspaceInsight),
+            Some(metadata.rule_id),
+            None,
+            &insight.owner_path,
+        );
+        let mut accumulator = CleanupAdviceActionAccumulator::new(
+            id.clone(),
+            CleanupAdviceActionKind::ManualReview,
+            CleanupAdviceStatus::ReviewOnly,
+            Some(CleanupAdviceSource::WorkspaceInsight),
+            Some(metadata.rule_id.to_string()),
+            Some("workspace-review".to_string()),
+            insight.owner_path.clone(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            Some(guidance),
+            metadata.reason.to_string(),
+        );
+        accumulator.add_evidence_path(&insight.path);
+        accumulator.add_measured_path(&insight.path, insight.metrics);
+        self.merge_accumulator(id, accumulator);
+    }
+
+    fn merge_accumulator(&mut self, id: String, accumulator: CleanupAdviceActionAccumulator) {
+        if let Some(existing) = self.actions.get_mut(&id) {
+            existing.merge(accumulator);
+        } else {
+            self.actions.insert(id, accumulator);
+        }
+    }
+
+    fn finish(self) -> (Vec<CleanupAdviceAction>, Vec<CleanupAdviceAction>) {
+        let mut actions = self
+            .actions
+            .into_values()
+            .map(CleanupAdviceActionAccumulator::finish)
+            .collect::<Vec<_>>();
+        actions.sort_by(|left, right| {
+            action_sort_rank(right)
+                .cmp(&action_sort_rank(left))
+                .then_with(|| right.logical_bytes.cmp(&left.logical_bytes))
+                .then_with(|| left.owner_path.cmp(&right.owner_path))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let mut cleanup_actions = Vec::new();
+        let mut manual_review_items = Vec::new();
+        for action in actions {
+            if action.kind == CleanupAdviceActionKind::RebeccaCommand {
+                cleanup_actions.push(action);
+            } else {
+                manual_review_items.push(action);
+            }
+        }
+        (cleanup_actions, manual_review_items)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CleanupAdviceActionAccumulator {
+    id: String,
+    kind: CleanupAdviceActionKind,
+    status: CleanupAdviceStatus,
+    source: Option<CleanupAdviceSource>,
+    rule_id: Option<String>,
+    category: Option<String>,
+    owner_path: PathBuf,
+    evidence_paths: BTreeSet<PathBuf>,
+    measured_paths: Vec<(PathBuf, DiskMapMetrics)>,
+    required_flags: Vec<String>,
+    required_warnings: Vec<String>,
+    suggested_command: Option<CleanupAdviceCommand>,
+    manual_guidance: Option<CleanupManualGuidance>,
+    reason: String,
+}
+
+impl CleanupAdviceActionAccumulator {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        id: String,
+        kind: CleanupAdviceActionKind,
+        status: CleanupAdviceStatus,
+        source: Option<CleanupAdviceSource>,
+        rule_id: Option<String>,
+        category: Option<String>,
+        owner_path: PathBuf,
+        required_flags: Vec<String>,
+        required_warnings: Vec<String>,
+        suggested_command: Option<CleanupAdviceCommand>,
+        manual_guidance: Option<CleanupManualGuidance>,
+        reason: String,
+    ) -> Self {
+        Self {
+            id,
+            kind,
+            status,
+            source,
+            rule_id,
+            category,
+            owner_path,
+            evidence_paths: BTreeSet::new(),
+            measured_paths: Vec::new(),
+            required_flags,
+            required_warnings,
+            suggested_command,
+            manual_guidance,
+            reason,
+        }
+    }
+
+    fn add_evidence_path(&mut self, path: &Path) {
+        self.evidence_paths.insert(path.to_path_buf());
+    }
+
+    fn add_measured_path(&mut self, path: &Path, metrics: DiskMapMetrics) {
+        if metrics.logical_bytes == 0
+            && metrics.allocated_bytes.is_none()
+            && metrics.unique_logical_bytes.is_none()
+            && metrics.unique_allocated_bytes.is_none()
+        {
+            return;
+        }
+
+        let mut retained = Vec::new();
+        let mut existing_paths = std::mem::take(&mut self.measured_paths).into_iter();
+        while let Some((existing_path, existing_metrics)) = existing_paths.next() {
+            match path_relation(path, &existing_path) {
+                PathRelation::Same | PathRelation::Descendant => {
+                    retained.push((existing_path, existing_metrics));
+                    retained.extend(existing_paths);
+                    self.measured_paths = retained;
+                    return;
+                }
+                PathRelation::Ancestor => {}
+                PathRelation::Unrelated => retained.push((existing_path, existing_metrics)),
+            }
+        }
+        retained.push((path.to_path_buf(), metrics));
+        self.measured_paths = retained;
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.evidence_paths.extend(other.evidence_paths);
+        for (path, metrics) in other.measured_paths {
+            self.add_measured_path(&path, metrics);
+        }
+        if cleanup_status_rank(other.status) > cleanup_status_rank(self.status) {
+            self.status = other.status;
+            self.source = other.source;
+            self.rule_id = other.rule_id;
+            self.category = other.category;
+            self.reason = other.reason;
+        }
+        merge_strings(&mut self.required_flags, other.required_flags);
+        merge_strings(&mut self.required_warnings, other.required_warnings);
+        if self.suggested_command.is_none() {
+            self.suggested_command = other.suggested_command;
+        }
+        if self.manual_guidance.is_none() {
+            self.manual_guidance = other.manual_guidance;
+        }
+    }
+
+    fn finish(self) -> CleanupAdviceAction {
+        let metrics = sum_action_metrics(&self.measured_paths);
+        let sample_path_count = self.evidence_paths.len() as u64;
+        let mut sample_paths = self.evidence_paths.into_iter().collect::<Vec<_>>();
+        let omitted_sample_path_count = sample_paths
+            .len()
+            .saturating_sub(CLEANUP_ADVICE_SAMPLE_LIMIT)
+            as u64;
+        sample_paths.truncate(CLEANUP_ADVICE_SAMPLE_LIMIT);
+        CleanupAdviceAction {
+            id: self.id,
+            kind: self.kind,
+            status: self.status,
+            source: self.source,
+            rule_id: self.rule_id,
+            category: self.category,
+            owner_path: self.owner_path,
+            sample_paths,
+            sample_path_count,
+            omitted_sample_path_count,
+            covered_path_count: self.measured_paths.len() as u64,
+            logical_bytes: metrics.logical_bytes,
+            allocated_bytes: metrics.allocated_bytes,
+            unique_logical_bytes: metrics.unique_logical_bytes,
+            unique_allocated_bytes: metrics.unique_allocated_bytes,
+            required_flags: self.required_flags,
+            required_warnings: self.required_warnings,
+            suggested_command: self.suggested_command,
+            manual_guidance: self.manual_guidance,
+            reason: self.reason,
+        }
+    }
+}
+
+fn action_kind_for_advice(advice: &CleanupAdvice) -> Option<CleanupAdviceActionKind> {
+    match advice.status {
+        CleanupAdviceStatus::Cleanable
+        | CleanupAdviceStatus::MaybeCleanable
+        | CleanupAdviceStatus::ContainsCleanable => action_command_and_gates(advice)
+            .0
+            .as_ref()
+            .map(|_| CleanupAdviceActionKind::RebeccaCommand),
+        CleanupAdviceStatus::ReviewOnly => Some(CleanupAdviceActionKind::ManualReview),
+        CleanupAdviceStatus::Protected => Some(CleanupAdviceActionKind::Protected),
+        CleanupAdviceStatus::Unknown => None,
+    }
+}
+
+fn advice_owner_path(advice: &CleanupAdvice, entry_path: &Path) -> PathBuf {
+    advice
+        .manual_guidance
+        .as_ref()
+        .and_then(|guidance| guidance.evidence_path.clone())
+        .or_else(|| advice.matched_path.clone())
+        .unwrap_or_else(|| entry_path.to_path_buf())
+}
+
+fn advice_can_measure_entry(advice: &CleanupAdvice, entry_path: &Path, owner_path: &Path) -> bool {
+    if matches!(advice.relation, Some(CleanupAdviceRelation::Ancestor)) {
+        return false;
+    }
+    matches!(
+        path_relation(entry_path, owner_path),
+        PathRelation::Same | PathRelation::Descendant
+    )
+}
+
+fn action_command_and_gates(
+    advice: &CleanupAdvice,
+) -> (Option<CleanupAdviceCommand>, Vec<String>, Vec<String>) {
+    if let Some(command) = advice.suggested_command.clone() {
+        return (
+            Some(command),
+            advice.required_flags.clone(),
+            advice.required_warnings.clone(),
+        );
+    }
+
+    advice
+        .evidence
+        .iter()
+        .find_map(|evidence| {
+            if !matches!(
+                evidence.status,
+                CleanupAdviceStatus::Cleanable
+                    | CleanupAdviceStatus::MaybeCleanable
+                    | CleanupAdviceStatus::ContainsCleanable
+            ) {
+                return None;
+            }
+            let command = evidence.suggested_command.clone()?;
+            Some((
+                Some(command),
+                evidence.required_flags.clone(),
+                evidence.required_warnings.clone(),
+            ))
+        })
+        .unwrap_or((None, Vec::new(), Vec::new()))
+}
+
+fn cleanup_evidence_can_be_action(evidence: &CleanupAdviceEvidence) -> bool {
+    matches!(
+        evidence.status,
+        CleanupAdviceStatus::Cleanable
+            | CleanupAdviceStatus::MaybeCleanable
+            | CleanupAdviceStatus::ContainsCleanable
+    )
+}
+
+fn evidence_can_measure_entry(
+    evidence: &CleanupAdviceEvidence,
+    entry_path: &Path,
+    owner_path: &Path,
+) -> bool {
+    if matches!(evidence.relation, Some(CleanupAdviceRelation::Ancestor)) {
+        return false;
+    }
+    matches!(
+        path_relation(entry_path, owner_path),
+        PathRelation::Same | PathRelation::Descendant
+    )
+}
+
+fn entry_metrics(entry: &crate::disk_map::DiskMapEntry) -> DiskMapMetrics {
+    DiskMapMetrics {
+        logical_bytes: entry.logical_bytes,
+        allocated_bytes: entry.allocated_bytes,
+        unique_logical_bytes: entry.unique_logical_bytes,
+        unique_allocated_bytes: entry.unique_allocated_bytes,
+        files: entry.files,
+        directories: entry.directories,
+    }
+}
+
+fn sum_action_metrics(paths: &[(PathBuf, DiskMapMetrics)]) -> DiskMapMetrics {
+    let mut metrics = DiskMapMetrics::default();
+    for (_, path_metrics) in paths {
+        metrics.add(*path_metrics);
+    }
+    metrics
+}
+
+fn merge_strings(target: &mut Vec<String>, source: Vec<String>) {
+    for value in source {
+        if target.iter().all(|existing| existing != &value) {
+            target.push(value);
+        }
+    }
+}
+
+fn cleanup_action_id(
+    kind: CleanupAdviceActionKind,
+    source: Option<CleanupAdviceSource>,
+    rule_id: Option<&str>,
+    command: Option<&CleanupAdviceCommand>,
+    owner_path: &Path,
+) -> String {
+    let path_key = comparable_path_key(owner_path);
+    let command_key = command
+        .map(|command| format!("{} {}", command.command, command.args.join(" ")))
+        .unwrap_or_default();
+    let identity = format!(
+        "{}|{}|{}|{}|{}",
+        kind.label(),
+        source.map(CleanupAdviceSource::label).unwrap_or("unknown"),
+        rule_id.unwrap_or("none"),
+        command_key,
+        path_key
+    );
+    format!("{}-{:016x}", kind.label(), stable_hash64(&identity))
+}
+
+fn stable_hash64(value: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn action_sort_rank(action: &CleanupAdviceAction) -> (u8, u8) {
+    let kind_rank = match action.kind {
+        CleanupAdviceActionKind::RebeccaCommand => 3,
+        CleanupAdviceActionKind::ManualReview => 2,
+        CleanupAdviceActionKind::Protected => 1,
+    };
+    (kind_rank, cleanup_status_rank(action.status))
+}
+
+fn cleanup_status_rank(status: CleanupAdviceStatus) -> u8 {
+    match status {
+        CleanupAdviceStatus::Cleanable => 6,
+        CleanupAdviceStatus::MaybeCleanable => 5,
+        CleanupAdviceStatus::ReviewOnly => 4,
+        CleanupAdviceStatus::ContainsCleanable => 3,
+        CleanupAdviceStatus::Protected => 2,
+        CleanupAdviceStatus::Unknown => 1,
+    }
+}
+
 fn workspace_insight_candidate_from_disk_map(
     insight: &DiskMapWorkspaceInsight,
 ) -> WorkspaceInsightCandidate {
     let metadata = workspace_insight_metadata(insight.kind);
     WorkspaceInsightCandidate {
-        path: insight.path.clone(),
+        path: insight.owner_path.clone(),
         rule_id: metadata.rule_id,
         reason: metadata.reason,
         manual_review_hint: metadata.manual_review_hint,
@@ -997,6 +1657,15 @@ fn workspace_insight_metadata(kind: DiskMapWorkspaceInsightKind) -> WorkspaceIns
             manual_review_hint: "Review ownership, sync state, and regeneration cost before deleting mirrored data.",
             external_tool_hint: None,
             priority: 55,
+        },
+        DiskMapWorkspaceInsightKind::GameLibraryData => WorkspaceInsightMetadata {
+            rule_id: "workspace.game-library-data",
+            reason: "Game library data is durable application content; Rebecca does not delete installed games.",
+            manual_review_hint: "Review the owning launcher, uninstall unused games there, or move the library through the launcher before deleting files by hand.",
+            external_tool_hint: Some(
+                "Steam, Battle.net, and game launchers usually provide safer uninstall or move-library workflows.",
+            ),
+            priority: 85,
         },
     }
 }

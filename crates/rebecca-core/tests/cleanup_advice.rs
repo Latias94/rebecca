@@ -7,6 +7,10 @@ use rebecca_core::cleanup_advice::{
     CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceRelation, CleanupAdviceSource,
     CleanupAdviceStatus, WorkspaceInsightCandidate,
 };
+use rebecca_core::disk_map::{
+    DiskMapEntry, DiskMapEntryKind, DiskMapMetrics, DiskMapReport, DiskMapWorkspaceInsight,
+    DiskMapWorkspaceInsightKind,
+};
 use rebecca_core::environment::MapEnvironment;
 use rebecca_core::model::{
     DeleteMode, PlanRequest, Platform, RuleDefinition, RuleProvenance, RuleSource, RuleTargetSpec,
@@ -19,6 +23,7 @@ use rebecca_core::project_artifacts::{
 use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::safety_catalog::default_safety_knowledge_for_platform;
 use rebecca_core::scan::ScanCancellationToken;
+use rebecca_core::{EstimateProvenance, EstimateSource};
 
 fn rule(id: &str, target: impl AsRef<Path>, safety_level: SafetyLevel) -> RuleDefinition {
     RuleDefinition {
@@ -73,6 +78,44 @@ fn write_fixture_file(path: impl AsRef<Path>, bytes: &[u8]) {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(path, bytes).unwrap();
+}
+
+fn disk_map_entry(root: &Path, path: PathBuf, logical_bytes: u64) -> DiskMapEntry {
+    DiskMapEntry {
+        path,
+        root: root.to_path_buf(),
+        kind: DiskMapEntryKind::Directory,
+        depth: 1,
+        logical_bytes,
+        allocated_bytes: None,
+        unique_logical_bytes: None,
+        unique_allocated_bytes: None,
+        files: 1,
+        directories: 0,
+        estimate_source: EstimateSource::FreshScan,
+        estimate_provenance: EstimateProvenance::default(),
+        cleanup_advice: None,
+    }
+}
+
+fn workspace_insight(
+    root: &Path,
+    path: PathBuf,
+    kind: DiskMapWorkspaceInsightKind,
+    logical_bytes: u64,
+) -> DiskMapWorkspaceInsight {
+    DiskMapWorkspaceInsight {
+        path: path.clone(),
+        owner_path: path,
+        root: root.to_path_buf(),
+        kind,
+        metrics: DiskMapMetrics {
+            logical_bytes,
+            files: 1,
+            directories: 1,
+            ..DiskMapMetrics::default()
+        },
+    }
 }
 
 fn discover_artifacts(root: PathBuf) -> Vec<ProjectArtifactCandidate> {
@@ -380,6 +423,83 @@ fn workspace_insight_outranks_small_contains_cleanable_parent_match() {
     assert!(command.args.contains(&"clean".to_string()));
     assert!(command.args.contains(&"--dry-run".to_string()));
     assert!(command.args.contains(&"--rule".to_string()));
+}
+
+#[test]
+fn report_cleanup_actions_use_non_overlapping_bytes_for_nested_cleanable_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let target = root.join("target");
+    let target_debug = target.join("debug");
+    let mut report = DiskMapReport {
+        top_entries: vec![
+            disk_map_entry(&root, target_debug.clone(), 6),
+            disk_map_entry(&root, root.clone(), 16),
+            disk_map_entry(&root, target.clone(), 10),
+        ],
+        ..DiskMapReport::default()
+    };
+    let index = build_index(
+        &[rule("test.target", &target, SafetyLevel::Safe)],
+        ProtectionPolicy::new(),
+    );
+
+    index.annotate_disk_map_report(&mut report);
+
+    assert_eq!(report.cleanup_actions.len(), 1);
+    assert!(report.manual_review_items.is_empty());
+    let action = &report.cleanup_actions[0];
+    assert_eq!(action.status, CleanupAdviceStatus::Cleanable);
+    assert_eq!(action.rule_id.as_deref(), Some("test.target"));
+    assert_eq!(action.owner_path, target);
+    assert_eq!(action.logical_bytes, 10);
+    assert_eq!(action.covered_path_count, 1);
+    assert_eq!(action.sample_path_count, 1);
+    assert_eq!(action.omitted_sample_path_count, 0);
+    assert_eq!(
+        action.suggested_command.as_ref().unwrap().args,
+        ["clean", "--dry-run", "--rule", "test.target"]
+    );
+    assert_eq!(report.cleanup_advice_summary.cleanup_actions, 1);
+    assert_eq!(report.cleanup_advice_summary.cleanable_actions, 1);
+    assert_eq!(report.cleanup_advice_summary.cleanable_logical_bytes, 10);
+}
+
+#[test]
+fn report_manual_review_items_are_separate_and_non_executable() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let git_dir = root.join(".git");
+    let mut report = DiskMapReport {
+        top_entries: vec![disk_map_entry(&root, git_dir.clone(), 12)],
+        workspace_insights: vec![workspace_insight(
+            &root,
+            git_dir.clone(),
+            DiskMapWorkspaceInsightKind::GitObjectStore,
+            12,
+        )],
+        ..DiskMapReport::default()
+    };
+    let index = build_index(&[], ProtectionPolicy::new());
+
+    index.annotate_disk_map_report(&mut report);
+
+    assert!(report.cleanup_actions.is_empty());
+    assert_eq!(report.manual_review_items.len(), 1);
+    let item = &report.manual_review_items[0];
+    assert_eq!(item.status, CleanupAdviceStatus::ReviewOnly);
+    assert_eq!(item.source, Some(CleanupAdviceSource::WorkspaceInsight));
+    assert_eq!(item.rule_id.as_deref(), Some("workspace.git-object-store"));
+    assert_eq!(item.owner_path, git_dir);
+    assert_eq!(item.logical_bytes, 12);
+    assert!(item.suggested_command.is_none());
+    assert!(item.manual_guidance.is_some());
+    assert_eq!(report.cleanup_advice_summary.cleanup_actions, 0);
+    assert_eq!(report.cleanup_advice_summary.manual_review_items, 1);
+    assert_eq!(
+        report.cleanup_advice_summary.manual_review_logical_bytes,
+        12
+    );
 }
 
 #[test]

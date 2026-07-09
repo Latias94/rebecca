@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 use rebecca_core::cleanup_advice::{
-    CleanupAdvice, CleanupAdviceCommand, CleanupAdviceEvidence, CleanupAdviceStatus,
+    CleanupAdvice, CleanupAdviceAction, CleanupAdviceCommand, CleanupAdviceStatus,
 };
 use rebecca_core::disk_map::{DiskMapEntry, DiskMapMetrics, DiskMapReport};
 use rebecca_core::inspect::SpaceInsightReport;
@@ -69,6 +69,18 @@ pub(crate) fn print_space_report(report: &SpaceInsightReport) -> Result<()> {
                 summary.kind.label(),
                 format_count(summary.count, "observation", "observations")
             );
+        }
+        if !report.diagnostic_summary.top_reasons.is_empty() {
+            println!("  Reasons:");
+            for reason in &report.diagnostic_summary.top_reasons {
+                println!(
+                    "    - {}: {} - {} (sample: {})",
+                    reason.kind.label(),
+                    format_count(reason.count, "observation", "observations"),
+                    reason.detail,
+                    reason.sample_path.display()
+                );
+            }
         }
         if report.diagnostic_summary.truncated > 0 {
             println!(
@@ -174,6 +186,27 @@ pub(crate) fn print_map_report(
                 format_count(summary.count, "observation", "observations")
             );
         }
+        if !report.diagnostic_summary.top_reasons.is_empty() {
+            println!("  Reasons:");
+            for reason in &report.diagnostic_summary.top_reasons {
+                let reason_code = reason
+                    .reason_code
+                    .as_deref()
+                    .map(|code| format!(" ({code})"))
+                    .unwrap_or_default();
+                println!(
+                    "    - {}{}: {} - {} (sample: {})",
+                    reason.kind.label(),
+                    reason_code,
+                    format_count(reason.count, "observation", "observations"),
+                    reason.detail,
+                    reason.sample_path.display()
+                );
+                if let Some(guidance) = &reason.guidance {
+                    println!("      guidance: {guidance}");
+                }
+            }
+        }
         if report.diagnostic_summary.truncated > 0 {
             println!(
                 "  - truncated: {} not shown",
@@ -268,18 +301,20 @@ fn print_map_summary(report: &DiskMapReport, options: InspectMapRenderOptions) {
     }
 
     let advised_entries = cleanup_advised_entries(report);
-    let (clean_entries, clean_bytes) =
-        cleanup_advice_totals(&advised_entries, CleanupAdviceStatus::Cleanable);
-    let (maybe_entries, maybe_bytes) =
-        cleanup_advice_totals(&advised_entries, CleanupAdviceStatus::MaybeCleanable);
-    let candidate_entries = clean_entries.saturating_add(maybe_entries);
-    let candidate_bytes = clean_bytes.saturating_add(maybe_bytes);
-    let (review_entries, review_bytes) =
-        cleanup_advice_totals(&advised_entries, CleanupAdviceStatus::ReviewOnly);
-    if candidate_entries > 0 {
+    let candidate_actions = report.cleanup_advice_summary.cleanup_actions;
+    let candidate_bytes = report
+        .cleanup_advice_summary
+        .cleanable_logical_bytes
+        .saturating_add(report.cleanup_advice_summary.maybe_cleanable_logical_bytes)
+        .saturating_add(
+            report
+                .cleanup_advice_summary
+                .contains_cleanable_logical_bytes,
+        );
+    if candidate_actions > 0 {
         println!(
-            "- Cleanup candidates in ranked entries: {}, {} ({})",
-            format_count(candidate_entries, "entry", "entries"),
+            "- Cleanup actions: {}, {} ({}) non-overlapping",
+            format_count(candidate_actions, "action", "actions"),
             candidate_bytes,
             format_bytes(candidate_bytes)
         );
@@ -288,21 +323,23 @@ fn print_map_summary(report: &DiskMapReport, options: InspectMapRenderOptions) {
     } else {
         println!("- Cleanup candidates in ranked entries: none directly cleanable.");
     }
-    if review_entries > 0 {
+    let review_items = report.cleanup_advice_summary.manual_review_items;
+    if review_items > 0 {
         println!(
-            "- Manual-review findings in ranked entries: {}, {} ({})",
-            format_count(review_entries, "entry", "entries"),
-            review_bytes,
-            format_bytes(review_bytes)
+            "- Manual-review items: {}, {} ({}) non-overlapping",
+            format_count(review_items, "item", "items"),
+            report.cleanup_advice_summary.manual_review_logical_bytes,
+            format_bytes(report.cleanup_advice_summary.manual_review_logical_bytes)
         );
     }
 
-    if let Some(command) = advised_entries
+    if let Some(command) = report
+        .cleanup_actions
         .iter()
-        .find_map(|(advice, _)| cleanup_advice_command(advice))
+        .find_map(cleanup_action_command)
     {
         println!("- Next cleanup preview: {command}");
-    } else if review_entries > 0 {
+    } else if review_items > 0 {
         println!("- Next cleanup preview: none; review-only findings require manual checks.");
     } else {
         println!("- Next cleanup preview: rerun with --cleanup-advice.");
@@ -574,35 +611,58 @@ fn cleanup_advice_screen_reader_suffix(advice: Option<&CleanupAdvice>) -> String
 fn print_cleanup_advice_summary(report: &DiskMapReport) {
     let advised_entries = cleanup_advised_entries(report);
 
-    if advised_entries.is_empty() {
+    if advised_entries.is_empty() && report.cleanup_advice_summary.is_empty() {
         return;
     }
 
     println!();
     println!("Cleanup advice summary:");
-    for status in [
+    print_cleanup_action_status_summary(
         CleanupAdviceStatus::Cleanable,
+        report.cleanup_advice_summary.cleanable_actions,
+        report.cleanup_advice_summary.cleanable_logical_bytes,
+    );
+    print_cleanup_action_status_summary(
         CleanupAdviceStatus::MaybeCleanable,
-        CleanupAdviceStatus::ReviewOnly,
+        report.cleanup_advice_summary.maybe_cleanable_actions,
+        report.cleanup_advice_summary.maybe_cleanable_logical_bytes,
+    );
+    print_cleanup_action_status_summary(
         CleanupAdviceStatus::ContainsCleanable,
-        CleanupAdviceStatus::Protected,
-        CleanupAdviceStatus::Unknown,
-    ] {
-        let (entries, bytes) = cleanup_advice_totals(&advised_entries, status);
-        if entries > 0 {
-            println!(
-                "- {}: {}, {} ({})",
-                status.label(),
-                format_count(entries, "entry", "entries"),
-                bytes,
-                format_bytes(bytes)
-            );
-        }
+        report.cleanup_advice_summary.contains_cleanable_actions,
+        report
+            .cleanup_advice_summary
+            .contains_cleanable_logical_bytes,
+    );
+    if report.cleanup_advice_summary.manual_review_items > 0 {
+        println!(
+            "- review-only: {}, {} ({}) non-overlapping",
+            format_count(
+                report.cleanup_advice_summary.manual_review_items,
+                "item",
+                "items"
+            ),
+            report.cleanup_advice_summary.manual_review_logical_bytes,
+            format_bytes(report.cleanup_advice_summary.manual_review_logical_bytes)
+        );
+    }
+    if report.cleanup_advice_summary.protected_items > 0 {
+        println!(
+            "- protected: {}, {} ({}) non-overlapping",
+            format_count(
+                report.cleanup_advice_summary.protected_items,
+                "item",
+                "items"
+            ),
+            report.cleanup_advice_summary.protected_logical_bytes,
+            format_bytes(report.cleanup_advice_summary.protected_logical_bytes)
+        );
     }
 
-    let commands = advised_entries
+    let commands = report
+        .cleanup_actions
         .iter()
-        .filter_map(|(advice, _)| cleanup_advice_command(advice))
+        .filter_map(cleanup_action_command)
         .collect::<BTreeSet<_>>();
 
     if !commands.is_empty() {
@@ -618,10 +678,11 @@ fn print_cleanup_advice_summary(report: &DiskMapReport) {
         );
     }
 
-    let manual_guidance = advised_entries
+    let manual_guidance = report
+        .manual_review_items
         .iter()
-        .filter_map(|(advice, _)| {
-            let guidance = advice.manual_guidance.as_ref()?;
+        .filter_map(|item| {
+            let guidance = item.manual_guidance.as_ref()?;
             let path = guidance
                 .evidence_path
                 .as_ref()
@@ -647,6 +708,23 @@ fn print_cleanup_advice_summary(report: &DiskMapReport) {
     }
 }
 
+fn print_cleanup_action_status_summary(
+    status: CleanupAdviceStatus,
+    actions: u64,
+    logical_bytes: u64,
+) {
+    if actions == 0 {
+        return;
+    }
+    println!(
+        "- {}: {}, {} ({}) non-overlapping",
+        status.label(),
+        format_count(actions, "action", "actions"),
+        logical_bytes,
+        format_bytes(logical_bytes)
+    );
+}
+
 fn cleanup_advised_entries(report: &DiskMapReport) -> Vec<(&CleanupAdvice, u64)> {
     report
         .top_entries
@@ -660,52 +738,10 @@ fn cleanup_advised_entries(report: &DiskMapReport) -> Vec<(&CleanupAdvice, u64)>
         .collect()
 }
 
-fn cleanup_advice_totals(
-    advised_entries: &[(&CleanupAdvice, u64)],
-    status: CleanupAdviceStatus,
-) -> (u64, u64) {
-    advised_entries
-        .iter()
-        .filter(|(advice, _)| advice.status == status)
-        .fold((0_u64, 0_u64), |(entries, bytes), (_, entry_bytes)| {
-            (
-                entries.saturating_add(1),
-                bytes.saturating_add(*entry_bytes),
-            )
-        })
-}
-
-fn cleanup_advice_command(advice: &CleanupAdvice) -> Option<String> {
-    if let Some(command) = advice.suggested_command.as_ref() {
-        return Some(format_cleanup_command(
-            command,
-            &advice.required_flags,
-            &advice.required_warnings,
-        ));
-    }
-    advice
-        .evidence
-        .iter()
-        .filter(|evidence| cleanup_evidence_can_preview(evidence))
-        .find_map(cleanup_evidence_command)
-}
-
-fn cleanup_evidence_can_preview(evidence: &CleanupAdviceEvidence) -> bool {
-    matches!(
-        evidence.status,
-        CleanupAdviceStatus::Cleanable
-            | CleanupAdviceStatus::MaybeCleanable
-            | CleanupAdviceStatus::ContainsCleanable
-    )
-}
-
-fn cleanup_evidence_command(evidence: &CleanupAdviceEvidence) -> Option<String> {
-    let command = evidence.suggested_command.as_ref()?;
-    Some(format_cleanup_command(
-        command,
-        &evidence.required_flags,
-        &evidence.required_warnings,
-    ))
+fn cleanup_action_command(action: &CleanupAdviceAction) -> Option<String> {
+    action.suggested_command.as_ref().map(|command| {
+        format_cleanup_command(command, &action.required_flags, &action.required_warnings)
+    })
 }
 
 fn format_cleanup_command(

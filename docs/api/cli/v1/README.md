@@ -123,12 +123,13 @@ the report payload; empty cells mean the column is not applicable to that row
 type or the metric is unknown. Repeated `--table-row total|root|entry|group`
 flags can limit the export to selected row kinds; omitting them preserves the
 full table. When `--cleanup-advice` or `--advice-status` is enabled, the table
-appends cleanup columns for entry rows: status, relation, source, rule id,
-category, safety level, required flags, required warnings, protection kind,
-matched path, reason, a PowerShell-quoted dry-run command hint, manual-guidance
-reason, manual-review hint, external-tool hint, guidance evidence path, and
-optional `cleanup_app_*` context columns for app-leftover advice. Review-only
-advice never has a Rebecca cleanup command; consumers should render its
+appends cleanup columns for entry rows: report-level cleanup action id,
+report-level manual-review id, status, relation, source, rule id, category,
+safety level, required flags, required warnings, protection kind, matched path,
+reason, a PowerShell-quoted dry-run command hint, manual-guidance reason,
+manual-review hint, external-tool hint, guidance evidence path, and optional
+`cleanup_app_*` context columns for app-leftover advice. Review-only advice
+never has a Rebecca cleanup command; consumers should render its
 `manual_guidance` fields as human review instructions.
 
 ## Payload Kinds
@@ -359,12 +360,21 @@ For table-first tools, `--table csv|tsv` exports the same totals, roots, ranked
 entries, and requested groups as a flat row set outside the JSON API envelope.
 Repeated `--table-row` flags can narrow that row set when a caller only needs
 entries, groups, or root summaries.
-When callers pass `--cleanup-advice`, each ranked entry may include
-`cleanup_advice`. Advice is read-only guidance derived from Rebecca's cleanup
-rule catalog, project artifact policy, app-leftover discovery, and protection
-policy; it is not deletion authority. Status values are `cleanable`,
-`maybe-cleanable`, `contains-cleanable`, `review-only`, `protected`, and
-`unknown`. Rule-backed and
+When callers pass `--cleanup-advice`, ranked entries may still include
+`cleanup_advice`, but report-level `cleanup_actions`, `manual_review_items`, and
+`cleanup_advice_summary` are the user-facing rollups. `cleanup_actions` are the
+only items that may carry Rebecca preview commands. `manual_review_items`
+explain protected or review-only disk usage, such as Git object stores, game
+libraries, local mirrors, reference repositories, or generated output trees, and
+must not be converted into cleanup, purge, basket, or saved-plan targets. Rollup
+bytes are non-overlapping within each action/item set, and `sample_paths` is a
+bounded evidence preview with explicit sample and covered-path counts.
+
+Entry-level advice remains useful for explaining a visible row. Advice is
+read-only guidance derived from Rebecca's cleanup rule catalog, project artifact
+policy, app-leftover discovery, workspace insights, and protection policy; it is
+not deletion authority. Status values are `cleanable`, `maybe-cleanable`,
+`contains-cleanable`, `review-only`, `protected`, and `unknown`. Rule-backed and
 project-artifact-backed advice can include `rule_id`, `category`,
 `safety_level`, `required_flags`, `required_warnings`, `matched_path`, `reason`,
 and a structured `suggested_command`. App-leftover advice can also include an
@@ -372,16 +382,20 @@ and a structured `suggested_command`. App-leftover advice can also include an
 leaf, deletion style, and optional modification time. Review-only advice has no
 Rebecca command. It may include `manual_guidance` with reason, manual review
 hint, optional external tool hint, and an evidence path; render those fields as
-human instructions and never convert them into cleanup, purge, basket, or saved
-plan targets. `cleanup_advice.evidence` preserves secondary matches. If a
-review-only primary result also contains cleanable evidence, automation may show
-the evidence `suggested_command` as a preview command, but it must still treat
-the review-only result itself as non-executable. `--advice-status <status>` implies
-`--cleanup-advice` and filters only the ranked entries, not root totals or
-diagnostic summaries. CSV/TSV `cleanup_command` cells are PowerShell-quoted
-human hints derived from the structured command, and app-leftover rows append
-`cleanup_app_*` context columns; machine consumers should use JSON or NDJSON
-`suggested_command` and `app_leftover` fields instead of reparsing table cells.
+human instructions. `cleanup_advice.evidence` preserves secondary matches for
+explanation only. If a review-only primary result also contains cleanable
+evidence, automation should use the report-level `cleanup_actions` rollup for
+any executable preview command and must still treat the review-only result itself
+as non-executable. Action and review IDs are opaque report identifiers; do not
+parse identity from their string format. `--advice-status <status>`
+implies `--cleanup-advice` and filters ranked entries plus the report-level
+action/manual-review rollups, not root totals or diagnostic summaries. CSV/TSV
+exports include compact `cleanup_action_id` and `cleanup_review_id` columns
+before the entry-level advice details. CSV/TSV `cleanup_command` cells are
+PowerShell-quoted human hints derived from the structured command, and
+app-leftover rows append `cleanup_app_*` context columns; machine consumers
+should use JSON or NDJSON `cleanup_actions`, `manual_review_items`,
+`suggested_command`, and `app_leftover` fields instead of reparsing table cells.
 
 Project artifact cleanup targets include a `project_artifact` object when they
 were discovered by `rebecca purge`. The object explains why the target was
@@ -401,7 +415,9 @@ target counts.
 `inspect-space` and `inspect-map` reports include `diagnostic_summary` with
 complete diagnostic counts. The `diagnostics` array is a bounded raw sample list
 controlled by `--diagnostic-limit`; use the summary fields for authoritative
-totals and truncation detection.
+totals and truncation detection. `diagnostic_summary.top_reasons` keeps compact
+reason groups, representative paths, and guidance when available, even when
+`--diagnostic-limit 0` makes `diagnostics` empty.
 
 `config-view` and `config-validation` are emitted by `rebecca config show` and
 `rebecca config validate`. `config show` returns the loaded TOML config plus the

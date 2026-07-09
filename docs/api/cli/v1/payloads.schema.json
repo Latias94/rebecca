@@ -2370,6 +2370,32 @@
         }
       }
     },
+    "spaceInsightDiagnosticReasonSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "count",
+        "detail",
+        "sample_path"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/spaceInsightDiagnosticKind"
+        },
+        "count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sample_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "spaceInsightDiagnosticSummary": {
       "type": "object",
       "additionalProperties": false,
@@ -2393,6 +2419,12 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/spaceInsightDiagnosticKindSummary"
+          }
+        },
+        "top_reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceInsightDiagnosticReasonSummary"
           }
         }
       }
@@ -2806,17 +2838,177 @@
         }
       }
     },
+    "cleanupAdviceActionKind": {
+      "type": "string",
+      "enum": [
+        "rebecca-command",
+        "manual-review",
+        "protected"
+      ]
+    },
+    "cleanupAdviceAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "status",
+        "owner_path",
+        "sample_path_count",
+        "omitted_sample_path_count",
+        "covered_path_count",
+        "logical_bytes",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/cleanupAdviceActionKind"
+        },
+        "status": {
+          "$ref": "#/$defs/cleanupAdviceStatus"
+        },
+        "source": {
+          "$ref": "#/$defs/cleanupAdviceSource"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sample_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "sample_path_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "omitted_sample_path_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "covered_path_count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "allocated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "unique_logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "unique_allocated_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "required_flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required_warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "suggested_command": {
+          "$ref": "#/$defs/cleanupAdviceCommand"
+        },
+        "manual_guidance": {
+          "$ref": "#/$defs/cleanupManualGuidance"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cleanupAdviceActionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_items",
+        "cleanup_actions",
+        "manual_review_items",
+        "protected_items",
+        "cleanable_actions",
+        "maybe_cleanable_actions",
+        "contains_cleanable_actions",
+        "cleanable_logical_bytes",
+        "maybe_cleanable_logical_bytes",
+        "contains_cleanable_logical_bytes",
+        "manual_review_logical_bytes",
+        "protected_logical_bytes"
+      ],
+      "properties": {
+        "total_items": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "cleanup_actions": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "manual_review_items": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "protected_items": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "cleanable_actions": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "maybe_cleanable_actions": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "contains_cleanable_actions": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "cleanable_logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "maybe_cleanable_logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "contains_cleanable_logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "manual_review_logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "protected_logical_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
     "diskMapDiagnosticKind": {
       "type": "string",
       "enum": [
         "root-missing",
         "root-metadata-read-skipped",
+        "root-not-directory",
         "reparse-point-skipped",
         "directory-read-skipped",
         "directory-entry-read-skipped",
         "metadata-read-skipped",
         "fallback",
-        "scan-failed"
+        "scan-failed",
+        "excluded"
       ]
     },
     "diskMapGroupKind": {
@@ -2837,7 +3029,8 @@
         "vcpkg-build-cache",
         "reference-repository-cache",
         "generated-output-tree",
-        "local-mirror-data"
+        "local-mirror-data",
+        "game-library-data"
       ]
     },
     "diskMapVolumeContext": {
@@ -3038,12 +3231,16 @@
       "additionalProperties": false,
       "required": [
         "path",
+        "owner_path",
         "root",
         "kind",
         "metrics"
       ],
       "properties": {
         "path": {
+          "type": "string"
+        },
+        "owner_path": {
           "type": "string"
         },
         "root": {
@@ -3157,6 +3354,40 @@
         }
       }
     },
+    "diskMapDiagnosticReasonSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "count",
+        "detail",
+        "sample_path"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/diskMapDiagnosticKind"
+        },
+        "count": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "guidance": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sample_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "diskMapDiagnosticSummary": {
       "type": "object",
       "additionalProperties": false,
@@ -3180,6 +3411,12 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/diskMapDiagnosticKindSummary"
+          }
+        },
+        "top_reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diskMapDiagnosticReasonSummary"
           }
         }
       }
@@ -3222,6 +3459,21 @@
           "items": {
             "$ref": "#/$defs/diskMapWorkspaceInsight"
           }
+        },
+        "cleanup_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupAdviceAction"
+          }
+        },
+        "manual_review_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupAdviceAction"
+          }
+        },
+        "cleanup_advice_summary": {
+          "$ref": "#/$defs/cleanupAdviceActionSummary"
         },
         "groups": {
           "type": "array",

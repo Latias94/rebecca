@@ -164,9 +164,11 @@ The default metadata profile is `full-evidence`, which asks the backend for the 
 
 The report separates logical bytes, allocated bytes, unique bytes, and OS volume context when those numbers are available. Logical bytes are path-ranked inventory; they are not guaranteed free-space delta because hardlinks, sparse files, compression, and skipped reparse points can change physical usage.
 
-Cleanup advice is still read-only. Entries with a Rebecca command can be previewed with `clean --dry-run` or `purge --dry-run`. Review-only entries, such as large Git object stores, SVN pristine stores, Unity Library caches, vcpkg build caches, `repo-ref`, generated output, or local mirrors, are manual findings and do not become cleanup targets.
+Cleanup advice is still read-only. Human output separates `Cleanup actions`, which show the exact preview command Rebecca can run, from `Manual-review items`, which Rebecca will not delete for you. Use the suggested command from the action, such as `rebecca clean --dry-run`, `rebecca purge --dry-run`, or `rebecca apps clean --dry-run`, then add `--yes` only after the preview looks right. Manual-review findings include large Git object stores, SVN pristine stores, Unity Library caches, vcpkg build caches, `repo-ref`, generated output, local mirrors, and installed game library data such as Steam or World of Warcraft folders.
 
 On Windows, `--scan-backend windows-native` can use native directory enumeration and allocation metadata. Builds compiled with the `ntfs` Cargo feature also expose the experimental `windows-ntfs-mft-experimental` backend for read-only NTFS/MFT inventory. `inspect drive` chooses that backend by default on Windows and reports a typed fallback with guidance when the feature, filesystem, or privileges are not available. Unsupported or ambiguous cases fall back to the portable scanner with provenance.
+
+If a scan has permission or backend fallbacks, the report still keeps compact diagnostic reasons even when raw diagnostic samples are disabled with `--diagnostic-limit 0`.
 
 ## Project cleanup
 

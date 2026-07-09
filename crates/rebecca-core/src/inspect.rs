@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{RebeccaError, Result};
+use crate::inventory::INVENTORY_DIAGNOSTIC_REASON_SUMMARY_LIMIT;
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::progress::{
     InspectProgressCacheEvent, InspectProgressEvent, InspectProgressOptions, InspectProgressResult,
@@ -175,12 +176,22 @@ pub struct SpaceInsightDiagnosticSummary {
     pub retained: u64,
     pub truncated: u64,
     pub by_kind: Vec<SpaceInsightDiagnosticKindSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub top_reasons: Vec<SpaceInsightDiagnosticReasonSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceInsightDiagnosticKindSummary {
     pub kind: SpaceInsightDiagnosticKind,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceInsightDiagnosticReasonSummary {
+    pub kind: SpaceInsightDiagnosticKind,
+    pub count: u64,
+    pub detail: String,
+    pub sample_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -277,6 +288,7 @@ struct SpaceInsightDiagnostics {
     limit: usize,
     total: u64,
     counts_by_kind: BTreeMap<SpaceInsightDiagnosticKind, u64>,
+    reasons: BTreeMap<SpaceInsightDiagnosticReasonKey, SpaceInsightDiagnosticReasonSummary>,
     samples: Vec<SpaceInsightDiagnosticSample>,
     sequence: u64,
 }
@@ -287,6 +299,7 @@ impl SpaceInsightDiagnostics {
             limit,
             total: 0,
             counts_by_kind: BTreeMap::new(),
+            reasons: BTreeMap::new(),
             samples: Vec::new(),
             sequence: 0,
         }
@@ -295,6 +308,16 @@ impl SpaceInsightDiagnostics {
     fn push(&mut self, diagnostic: SpaceInsightDiagnostic) {
         self.total = self.total.saturating_add(1);
         *self.counts_by_kind.entry(diagnostic.kind).or_default() += 1;
+        let reason_key = SpaceInsightDiagnosticReasonKey::from_diagnostic(&diagnostic);
+        self.reasons
+            .entry(reason_key)
+            .and_modify(|summary| summary.count = summary.count.saturating_add(1))
+            .or_insert_with(|| SpaceInsightDiagnosticReasonSummary {
+                kind: diagnostic.kind,
+                count: 1,
+                detail: diagnostic.detail.clone(),
+                sample_path: diagnostic.path.clone(),
+            });
 
         if self.limit == 0 {
             return;
@@ -323,6 +346,16 @@ impl SpaceInsightDiagnostics {
             .map(|sample| sample.diagnostic)
             .collect();
         let retained = report.diagnostics.len() as u64;
+        let mut top_reasons = self.reasons.into_values().collect::<Vec<_>>();
+        top_reasons.sort_by(|left, right| {
+            right
+                .count
+                .cmp(&left.count)
+                .then_with(|| left.kind.cmp(&right.kind))
+                .then_with(|| left.detail.cmp(&right.detail))
+                .then_with(|| left.sample_path.cmp(&right.sample_path))
+        });
+        top_reasons.truncate(INVENTORY_DIAGNOSTIC_REASON_SUMMARY_LIMIT);
         report.diagnostic_summary = SpaceInsightDiagnosticSummary {
             total: self.total,
             retained,
@@ -332,7 +365,23 @@ impl SpaceInsightDiagnostics {
                 .into_iter()
                 .map(|(kind, count)| SpaceInsightDiagnosticKindSummary { kind, count })
                 .collect(),
+            top_reasons,
         };
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SpaceInsightDiagnosticReasonKey {
+    kind: SpaceInsightDiagnosticKind,
+    detail: String,
+}
+
+impl SpaceInsightDiagnosticReasonKey {
+    fn from_diagnostic(diagnostic: &SpaceInsightDiagnostic) -> Self {
+        Self {
+            kind: diagnostic.kind,
+            detail: diagnostic.detail.clone(),
+        }
     }
 }
 

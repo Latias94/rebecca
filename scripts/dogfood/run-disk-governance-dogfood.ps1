@@ -133,14 +133,14 @@ function Invoke-RebeccaCapture {
 function Read-NdjsonEvents {
     param([string]$Path)
 
-    $events = @()
+    $events = [System.Collections.Generic.List[object]]::new()
     foreach ($line in Get-Content -LiteralPath $Path) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
         }
-        $events += @($line | ConvertFrom-Json -Depth 64)
+        $events.Add(($line | ConvertFrom-Json -Depth 64))
     }
-    return @($events)
+    return $events.ToArray()
 }
 
 function Get-Property {
@@ -159,33 +159,44 @@ function Get-Property {
     return $property.Value
 }
 
-function Count-AdviceStatus {
+function Get-ArrayProperty {
     param(
-        [object[]]$Entries,
+        [object]$Object,
+        [string]$Name
+    )
+
+    $value = Get-Property -Object $Object -Name $Name
+    if ($null -eq $value) {
+        return
+    }
+    return @($value)
+}
+
+function Count-CleanupActionStatus {
+    param(
+        [object[]]$Actions,
         [string]$Status
     )
 
     return @(
-        $Entries | Where-Object {
-            $advice = Get-Property -Object $_ -Name "cleanup_advice"
-            $null -ne $advice -and (Get-Property -Object $advice -Name "status") -eq $Status
+        $Actions | Where-Object {
+            (Get-Property -Object $_ -Name "status") -eq $Status
         }
     ).Count
 }
 
-function Sum-AdviceBytes {
+function Sum-CleanupActionBytes {
     param(
-        [object[]]$Entries,
+        [object[]]$Actions,
         [string]$Status
     )
 
     $sum = [int64]0
-    foreach ($entry in $Entries) {
-        $advice = Get-Property -Object $entry -Name "cleanup_advice"
-        if ($null -eq $advice -or (Get-Property -Object $advice -Name "status") -ne $Status) {
+    foreach ($action in $Actions) {
+        if ((Get-Property -Object $action -Name "status") -ne $Status) {
             continue
         }
-        $logicalBytes = Get-Property -Object $entry -Name "logical_bytes"
+        $logicalBytes = Get-Property -Object $action -Name "logical_bytes"
         if ($null -ne $logicalBytes) {
             $sum += [int64]$logicalBytes
         }
@@ -254,8 +265,32 @@ try {
     if ($jsonEnvelope.kind -ne "success") {
         throw "inspect drive returned non-success envelope"
     }
+    if ($jsonEnvelope.payload_kind -ne "inspect-map") {
+        throw "inspect drive returned unexpected payload_kind '$($jsonEnvelope.payload_kind)'"
+    }
     $data = $jsonEnvelope.data
+    if ($null -eq $data) {
+        throw "inspect drive success envelope did not include data"
+    }
     $events = Read-NdjsonEvents -Path $ndjsonStdout
+    $completedEvents = @($events | Where-Object { $_.event_kind -eq "completed" })
+    if ($completedEvents.Count -lt 1) {
+        throw "inspect drive NDJSON output did not include a completed event"
+    }
+    $completedPayloadKinds = @(
+        $completedEvents |
+            ForEach-Object { Get-Property -Object $_ -Name "payload_kind" } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+            Select-Object -Unique
+    )
+    if ($completedPayloadKinds -notcontains "inspect-map") {
+        throw "inspect drive NDJSON completed event did not include payload_kind inspect-map"
+    }
+    foreach ($requiredProperty in @("top_entries", "roots", "cleanup_actions", "manual_review_items", "cleanup_advice_summary", "diagnostic_summary")) {
+        if ($null -eq $data.PSObject.Properties[$requiredProperty]) {
+            throw "inspect drive report is missing required property '$requiredProperty'"
+        }
+    }
     $progressKinds = @(
         $events |
             Where-Object { $_.event_kind -eq "inspect-progress" } |
@@ -263,13 +298,24 @@ try {
             Select-Object -Unique
     )
 
-    $topEntries = @(Get-Property -Object $data -Name "top_entries")
-    $roots = @(Get-Property -Object $data -Name "roots")
-    $volumeContexts = @(Get-Property -Object $data -Name "volume_contexts")
-    $workspaceInsights = @(Get-Property -Object $data -Name "workspace_insights")
-    $groups = @(Get-Property -Object $data -Name "groups")
+    $topEntries = @(Get-ArrayProperty -Object $data -Name "top_entries")
+    $roots = @(Get-ArrayProperty -Object $data -Name "roots")
+    $volumeContexts = @(Get-ArrayProperty -Object $data -Name "volume_contexts")
+    $workspaceInsights = @(Get-ArrayProperty -Object $data -Name "workspace_insights")
+    $cleanupActions = @(Get-ArrayProperty -Object $data -Name "cleanup_actions")
+    $manualReviewItems = @(Get-ArrayProperty -Object $data -Name "manual_review_items")
+    $cleanupAdviceSummary = Get-Property -Object $data -Name "cleanup_advice_summary"
+    $groups = @(Get-ArrayProperty -Object $data -Name "groups")
     $totals = Get-Property -Object $data -Name "totals"
     $diagnosticSummary = Get-Property -Object $data -Name "diagnostic_summary"
+    $diagnosticTopReasons = @(Get-ArrayProperty -Object $diagnosticSummary -Name "top_reasons")
+    $diagnosticTotal = Get-Property -Object $diagnosticSummary -Name "total"
+    if ($null -eq $diagnosticTotal) {
+        throw "diagnostic_summary is missing total"
+    }
+    if ([int64]$diagnosticTotal -gt 0 -and $diagnosticTopReasons.Count -eq 0) {
+        throw "diagnostic_summary reported diagnostics but no compact top_reasons"
+    }
     $backendFallbackEvents = @(
         $events | Where-Object {
             $_.event_kind -eq "inspect-progress" -and
@@ -314,6 +360,7 @@ try {
         root = $resolvedRoot
         output_directory = $outputRoot
         no_delete = $true
+        no_delete_requested = $NoDelete.IsPresent
         requested_backend = if ([string]::IsNullOrWhiteSpace($ScanBackend)) { "guided-default" } else { $ScanBackend }
         actual_backends = $actualBackends
         backend_fallback_events = $backendFallbackEvents.Count
@@ -331,12 +378,20 @@ try {
         workspace_insights = $workspaceInsights.Count
         diagnostics = Get-Property -Object $diagnosticSummary -Name "total"
         retained_diagnostics = Get-Property -Object $diagnosticSummary -Name "retained"
-        cleanable_entries = Count-AdviceStatus -Entries $topEntries -Status "cleanable"
-        maybe_cleanable_entries = Count-AdviceStatus -Entries $topEntries -Status "maybe-cleanable"
-        review_only_entries = Count-AdviceStatus -Entries $topEntries -Status "review-only"
-        cleanable_logical_bytes = Sum-AdviceBytes -Entries $topEntries -Status "cleanable"
-        maybe_cleanable_logical_bytes = Sum-AdviceBytes -Entries $topEntries -Status "maybe-cleanable"
-        review_only_logical_bytes = Sum-AdviceBytes -Entries $topEntries -Status "review-only"
+        diagnostic_top_reasons = $diagnosticTopReasons
+        cleanup_actions = $cleanupActions.Count
+        manual_review_items = $manualReviewItems.Count
+        cleanable_actions = Count-CleanupActionStatus -Actions $cleanupActions -Status "cleanable"
+        maybe_cleanable_actions = Count-CleanupActionStatus -Actions $cleanupActions -Status "maybe-cleanable"
+        contains_cleanable_actions = Count-CleanupActionStatus -Actions $cleanupActions -Status "contains-cleanable"
+        protected_items = Count-CleanupActionStatus -Actions $manualReviewItems -Status "protected"
+        cleanable_logical_bytes = Get-Property -Object $cleanupAdviceSummary -Name "cleanable_logical_bytes"
+        maybe_cleanable_logical_bytes = Get-Property -Object $cleanupAdviceSummary -Name "maybe_cleanable_logical_bytes"
+        contains_cleanable_logical_bytes = Get-Property -Object $cleanupAdviceSummary -Name "contains_cleanable_logical_bytes"
+        manual_review_logical_bytes = Get-Property -Object $cleanupAdviceSummary -Name "manual_review_logical_bytes"
+        protected_logical_bytes = Get-Property -Object $cleanupAdviceSummary -Name "protected_logical_bytes"
+        cleanable_action_logical_bytes = Sum-CleanupActionBytes -Actions $cleanupActions -Status "cleanable"
+        maybe_cleanable_action_logical_bytes = Sum-CleanupActionBytes -Actions $cleanupActions -Status "maybe-cleanable"
         ndjson_events = $events.Count
         progress_kinds = $progressKinds
         raw_json_stdout = $jsonStdout
@@ -356,7 +411,8 @@ try {
     $summary += "- Root: $resolvedRoot"
     $summary += "- Command: ``$($report["command"])``"
     $summary += "- Output directory: $outputRoot"
-    $summary += "- No-delete evidence: true"
+    $summary += "- Read-only inspect: true"
+    $summary += "- No-delete switch requested: $($report["no_delete_requested"])"
     $summary += "- Actual backend(s): $($actualBackends -join ', ')"
     if ($fallbackKinds.Count -gt 0) {
         $summary += "- Fallback kind(s): $($fallbackKinds -join ', ')"
@@ -372,12 +428,29 @@ try {
     $summary += "| Volume contexts | $($report["volume_contexts"]) |"
     $summary += "| Workspace insights | $($report["workspace_insights"]) |"
     $summary += "| Diagnostics | $($report["diagnostics"]) |"
-    $summary += "| Cleanable entries | $($report["cleanable_entries"]) |"
-    $summary += "| Maybe-cleanable entries | $($report["maybe_cleanable_entries"]) |"
-    $summary += "| Review-only entries | $($report["review_only_entries"]) |"
+    $summary += "| Cleanup actions | $($report["cleanup_actions"]) |"
+    $summary += "| Manual-review items | $($report["manual_review_items"]) |"
+    $summary += "| Cleanable actions | $($report["cleanable_actions"]) |"
+    $summary += "| Maybe-cleanable actions | $($report["maybe_cleanable_actions"]) |"
+    $summary += "| Contains-cleanable actions | $($report["contains_cleanable_actions"]) |"
+    $summary += "| Protected items | $($report["protected_items"]) |"
+    $summary += "| Cleanable logical bytes | $($report["cleanable_logical_bytes"]) |"
+    $summary += "| Manual-review logical bytes | $($report["manual_review_logical_bytes"]) |"
     $summary += "| Backend fallback events | $($report["backend_fallback_events"]) |"
     $summary += "| NDJSON events | $($report["ndjson_events"]) |"
     $summary += ""
+    if ($diagnosticTopReasons.Count -gt 0) {
+        $summary += "Diagnostic top reasons:"
+        foreach ($reason in $diagnosticTopReasons) {
+            $reasonKind = Get-Property -Object $reason -Name "kind"
+            $reasonCount = Get-Property -Object $reason -Name "count"
+            $reasonDetail = Get-Property -Object $reason -Name "detail"
+            $reasonCode = Get-Property -Object $reason -Name "reason_code"
+            $reasonCodeText = if ([string]::IsNullOrWhiteSpace([string]$reasonCode)) { "" } else { " ($reasonCode)" }
+            $summary += "- $($reasonKind)$($reasonCodeText): $reasonCount - $reasonDetail"
+        }
+        $summary += ""
+    }
     $summary += "Progress kinds: $($progressKinds -join ', ')"
     $summary | Set-Content -LiteralPath $summaryPath -Encoding utf8
 
@@ -392,6 +465,7 @@ catch {
         root = $resolvedRoot
         output_directory = $outputRoot
         no_delete = $true
+        no_delete_requested = $NoDelete.IsPresent
     }
     $failureReport | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath (Join-Path $outputRoot "disk-governance-dogfood-report.json") -Encoding utf8
     throw

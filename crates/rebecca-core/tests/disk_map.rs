@@ -233,8 +233,70 @@ fn disk_map_collects_workspace_insights_outside_top_entries() {
         .find(|insight| insight.kind == DiskMapWorkspaceInsightKind::GitObjectStore)
         .expect("git workspace insight should not depend on top_entries");
     assert_eq!(git_insight.path, root.join(".git"));
+    assert_eq!(git_insight.owner_path, root.join(".git"));
     assert_eq!(git_insight.metrics.logical_bytes, 3);
     assert_eq!(git_insight.metrics.files, 1);
+}
+
+#[test]
+fn disk_map_classifies_steam_game_library_data_as_review_only_insight() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let owner = root.join("SteamLibrary").join("steamapps").join("common");
+    write_file(owner.join("Example Game").join("game.exe"), b"abc");
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(20);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    let insight = report
+        .workspace_insights
+        .iter()
+        .find(|insight| insight.kind == DiskMapWorkspaceInsightKind::GameLibraryData)
+        .expect("Steam installed game data should be classified as review-only game data");
+    assert_eq!(insight.owner_path, owner);
+    assert_eq!(insight.metrics.logical_bytes, 3);
+}
+
+#[test]
+fn disk_map_classifies_world_of_warcraft_data_as_review_only_insight() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    let owner = root.join("Games").join("World of Warcraft");
+    write_file(owner.join("Data").join("data.001"), b"abcdef");
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(20);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    let insight = report
+        .workspace_insights
+        .iter()
+        .find(|insight| insight.kind == DiskMapWorkspaceInsightKind::GameLibraryData)
+        .expect("World of Warcraft data should be classified as review-only game data");
+    assert_eq!(insight.owner_path, owner);
+    assert_eq!(insight.metrics.logical_bytes, 6);
+}
+
+#[test]
+fn disk_map_ignores_small_weak_generated_output_directory_names() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_file(root.join("project").join("out").join("tiny.bin"), b"abc");
+
+    let request = DiskMapRequest::new(vec![root])
+        .with_scan_backend(ScanBackendKind::PortableRecursive)
+        .with_top_limit(20);
+    let report = inspect_map(&request, &ScanCancellationToken::new()).unwrap();
+
+    assert!(
+        report
+            .workspace_insights
+            .iter()
+            .all(|insight| insight.kind != DiskMapWorkspaceInsightKind::GeneratedOutputTree)
+    );
 }
 
 #[test]
