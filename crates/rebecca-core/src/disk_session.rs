@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::cleanup_advice::CleanupAdvice;
+use crate::cleanup_advice::{CleanupAdvice, CleanupAdviceAction};
 use crate::disk_map::{
     DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics, DiskMapReport,
     DiskMapRootStatus, DiskMapSortField,
@@ -23,6 +23,10 @@ pub struct DiskMapSession {
     totals: DiskMapMetrics,
     #[serde(default)]
     groups: Vec<DiskMapGroup>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    cleanup_actions: Vec<CleanupAdviceAction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    manual_review_items: Vec<CleanupAdviceAction>,
     #[serde(
         default,
         skip_serializing_if = "DiskMapSessionFreshness::is_fully_fresh"
@@ -37,6 +41,8 @@ impl DiskMapSession {
             totals,
             top_entries,
             groups,
+            cleanup_actions,
+            manual_review_items,
             ..
         } = report;
         let mut builder = DiskMapSessionBuilder::default();
@@ -56,7 +62,7 @@ impl DiskMapSession {
             builder.insert_entry(entry);
         }
 
-        builder.finish(totals, groups)
+        builder.finish(totals, groups, cleanup_actions, manual_review_items)
     }
 
     pub fn nodes(&self) -> &[DiskMapSessionNode] {
@@ -73,6 +79,14 @@ impl DiskMapSession {
 
     pub fn groups(&self) -> &[DiskMapGroup] {
         &self.groups
+    }
+
+    pub fn cleanup_actions(&self) -> &[CleanupAdviceAction] {
+        &self.cleanup_actions
+    }
+
+    pub fn manual_review_items(&self) -> &[CleanupAdviceAction] {
+        &self.manual_review_items
     }
 
     pub fn freshness(&self) -> &DiskMapSessionFreshness {
@@ -113,7 +127,12 @@ impl DiskMapSession {
             target_depth,
         );
 
-        let mut rebuilt = builder.finish(self.totals, self.groups.clone());
+        let mut rebuilt = builder.finish(
+            self.totals,
+            self.groups.clone(),
+            self.cleanup_actions.clone(),
+            self.manual_review_items.clone(),
+        );
         rebuilt.freshness = self.freshness.clone();
         let caveat = subtree_refresh_caveat(&anchor_path);
         rebuilt.freshness.add_caveat(caveat.clone());
@@ -659,12 +678,20 @@ impl DiskMapSessionBuilder {
         id
     }
 
-    fn finish(self, totals: DiskMapMetrics, groups: Vec<DiskMapGroup>) -> DiskMapSession {
+    fn finish(
+        self,
+        totals: DiskMapMetrics,
+        groups: Vec<DiskMapGroup>,
+        cleanup_actions: Vec<CleanupAdviceAction>,
+        manual_review_items: Vec<CleanupAdviceAction>,
+    ) -> DiskMapSession {
         DiskMapSession {
             nodes: self.nodes,
             root_ids: self.root_ids,
             totals,
             groups,
+            cleanup_actions,
+            manual_review_items,
             freshness: DiskMapSessionFreshness::default(),
         }
     }
@@ -773,8 +800,42 @@ fn windows_path_key(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cleanup_advice::{CleanupAdviceRelation, CleanupAdviceSource, CleanupAdviceStatus};
+    use crate::cleanup_advice::{
+        CleanupAdviceAction, CleanupAdviceActionKind, CleanupAdviceCommand, CleanupAdviceRelation,
+        CleanupAdviceSource, CleanupAdviceStatus,
+    };
     use crate::disk_map::DiskMapRoot;
+
+    #[test]
+    fn session_preserves_report_level_cleanup_rollups() {
+        let root = path("workspace");
+        let cache = root.join("cache");
+        let mut report = report(
+            &root,
+            metrics(42, 1, 1),
+            vec![entry(
+                &root,
+                &cache,
+                DiskMapEntryKind::Directory,
+                metrics(42, 1, 1),
+            )],
+        );
+        report.cleanup_actions.push(cleanup_action(&cache));
+        report.manual_review_items.push(manual_review_item(&root));
+
+        let session = DiskMapSession::from_report(report);
+
+        assert_eq!(session.cleanup_actions().len(), 1);
+        assert_eq!(
+            session.cleanup_actions()[0].rule_id.as_deref(),
+            Some("fixture.cache")
+        );
+        assert_eq!(session.manual_review_items().len(), 1);
+        assert_eq!(
+            session.manual_review_items()[0].rule_id.as_deref(),
+            Some("workspace.git-object-store")
+        );
+    }
 
     #[test]
     fn replace_subtree_updates_local_branch_and_preserves_siblings() {
@@ -1015,6 +1076,64 @@ mod tests {
             reason: "fixture cache".to_string(),
             suggested_command: None,
             manual_guidance: None,
+        }
+    }
+
+    fn cleanup_action(path: &Path) -> CleanupAdviceAction {
+        CleanupAdviceAction {
+            id: "rebecca-command-fixture".to_string(),
+            kind: CleanupAdviceActionKind::RebeccaCommand,
+            status: CleanupAdviceStatus::Cleanable,
+            source: Some(CleanupAdviceSource::CleanupRule),
+            rule_id: Some("fixture.cache".to_string()),
+            category: Some("fixture".to_string()),
+            owner_path: path.to_path_buf(),
+            sample_paths: vec![path.to_path_buf()],
+            sample_path_count: 1,
+            omitted_sample_path_count: 0,
+            covered_path_count: 1,
+            logical_bytes: 42,
+            allocated_bytes: Some(42),
+            unique_logical_bytes: Some(42),
+            unique_allocated_bytes: Some(42),
+            required_flags: Vec::new(),
+            required_warnings: Vec::new(),
+            suggested_command: Some(CleanupAdviceCommand {
+                command: "rebecca".to_string(),
+                args: vec![
+                    "clean".to_string(),
+                    "--dry-run".to_string(),
+                    "--rule".to_string(),
+                    "fixture.cache".to_string(),
+                ],
+            }),
+            manual_guidance: None,
+            reason: "fixture cache".to_string(),
+        }
+    }
+
+    fn manual_review_item(path: &Path) -> CleanupAdviceAction {
+        CleanupAdviceAction {
+            id: "manual-review-fixture".to_string(),
+            kind: CleanupAdviceActionKind::ManualReview,
+            status: CleanupAdviceStatus::ReviewOnly,
+            source: Some(CleanupAdviceSource::WorkspaceInsight),
+            rule_id: Some("workspace.git-object-store".to_string()),
+            category: Some("workspace-review".to_string()),
+            owner_path: path.to_path_buf(),
+            sample_paths: vec![path.to_path_buf()],
+            sample_path_count: 1,
+            omitted_sample_path_count: 0,
+            covered_path_count: 1,
+            logical_bytes: 42,
+            allocated_bytes: None,
+            unique_logical_bytes: None,
+            unique_allocated_bytes: None,
+            required_flags: Vec::new(),
+            required_warnings: Vec::new(),
+            suggested_command: None,
+            manual_guidance: None,
+            reason: "manual review".to_string(),
         }
     }
 

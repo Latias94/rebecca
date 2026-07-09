@@ -93,10 +93,9 @@ fn snapshot_map(
     let rows = projection.visible_rows();
     lines.push(trim_to_width(map_title(app, "Map"), width));
     for (index, row) in rows.iter().enumerate().take(20) {
-        let staged = row
-            .cleanup_advice
-            .as_ref()
-            .and_then(|advice| advice.rule_id.as_ref())
+        let staged = app
+            .cleanup_action_for_row(row)
+            .and_then(|action| action.rule_id.as_ref())
             .is_some_and(|rule_id| app.basket.contains_key(rule_id));
         lines.push(trim_to_width(
             format!(

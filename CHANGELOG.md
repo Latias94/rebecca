@@ -27,6 +27,7 @@ All notable changes to Rebecca will be documented in this file.
 - CSV and TSV disk-map exports now include compact cleanup action and manual-review identifiers before row-level advice details, making table exports easier to join back to the JSON rollups.
 - Cleanup summaries, receipts, and the TUI now tell users to preview the system trash or Windows Recycle Bin before running the confirmed empty command.
 - Long-running inspect and cleanup progress now shows clearer scan counters, rates, current scope, and cancellation hints; the TUI cleanup basket is now presented as a Reclaim Basket with selected-scope sizes before preview.
+- The TUI now stages cleanup from report-level cleanup actions instead of row-level advice shortcuts, so manual-review findings can be inspected but cannot slip into the Reclaim Basket.
 - The TUI cleanup workbench, saved-plan execution, and inspect cleanup advice now share the same rule loading, protected-path checks, scan-cache wiring, and cleanup execution safeguards as the CLI. TUI rendering, snapshots, mouse hit-testing, and replay also share one frame view of the disk map, so what users see and what actions select stay aligned.
 - Built-in cleanup rules are embedded from the `rules/cleanup` directory automatically, so adding or removing a rule file no longer requires a second hand-maintained include list.
 

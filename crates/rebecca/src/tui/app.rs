@@ -1,6 +1,9 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
+use rebecca_core::cleanup_advice::{
+    CleanupAdvice, CleanupAdviceAction, CleanupAdviceActionKind, CleanupAdviceStatus,
+};
 use rebecca_core::disk_map::{DiskMapEntryKind, DiskMapGroupKind, DiskMapSortField};
 use rebecca_core::disk_session::{
     DiskMapDistributionRow, DiskMapNodeId, DiskMapSession, DiskMapSubtreePatch, DiskMapVisibleRow,
@@ -10,9 +13,7 @@ use rebecca_core::plan::CleanupPlan;
 use rebecca_core::scan::ScanBackendKind;
 
 use crate::output::format_bytes;
-use crate::tui::basket::{
-    CleanupBasket, CleanupBasketSource, confirmation_phrase, toggle_advice, workbench_request,
-};
+use crate::tui::basket::{CleanupBasket, confirmation_phrase, toggle_action, workbench_request};
 use crate::tui::effect::TuiEffect;
 use crate::tui::frame_projection::TuiFrameProjection;
 use crate::tui::input::{TuiKey, TuiMouseAction};
@@ -263,6 +264,22 @@ impl TuiApp {
 
     pub(crate) fn selected_row(&self) -> Option<DiskMapVisibleRow> {
         self.visible_rows().get(self.selected).cloned()
+    }
+
+    pub(crate) fn cleanup_action_for_row(
+        &self,
+        row: &DiskMapVisibleRow,
+    ) -> Option<&CleanupAdviceAction> {
+        let advice = row.cleanup_advice.as_ref()?;
+        if !stageable_cleanup_status(advice.status) {
+            return None;
+        }
+        let owner_path = advice.matched_path.as_deref().unwrap_or(row.path.as_path());
+        self.session
+            .as_ref()?
+            .cleanup_actions()
+            .iter()
+            .find(|action| cleanup_action_matches_advice(action, advice, owner_path))
     }
 
     fn distribution_rows(&self) -> Vec<DiskMapDistributionRow> {
@@ -966,13 +983,8 @@ impl TuiApp {
         let Some(row) = self.selected_row() else {
             return;
         };
-        let source = CleanupBasketSource {
-            path: row.path.clone(),
-            logical_bytes: row.metrics.logical_bytes,
-            files: row.metrics.files,
-            directories: row.metrics.directories,
-        };
-        self.message = toggle_advice(&mut self.basket, row.cleanup_advice.as_ref(), source);
+        let action = self.cleanup_action_for_row(&row).cloned();
+        self.message = toggle_action(&mut self.basket, action.as_ref());
     }
 
     fn cycle_sort(&mut self) {
@@ -1221,12 +1233,42 @@ fn is_drillable_row(row: &DiskMapVisibleRow) -> bool {
     row.kind == DiskMapEntryKind::Directory || row.has_children
 }
 
+fn cleanup_action_matches_advice(
+    action: &CleanupAdviceAction,
+    advice: &CleanupAdvice,
+    owner_path: &Path,
+) -> bool {
+    if action.kind != CleanupAdviceActionKind::RebeccaCommand {
+        return false;
+    }
+    if action.source != advice.source || action.rule_id.as_deref() != advice.rule_id.as_deref() {
+        return false;
+    }
+    if !paths_equal(&action.owner_path, owner_path) {
+        return false;
+    }
+    if let Some(command) = advice.suggested_command.as_ref() {
+        return action.suggested_command.as_ref() == Some(command);
+    }
+    true
+}
+
+fn stageable_cleanup_status(status: CleanupAdviceStatus) -> bool {
+    matches!(
+        status,
+        CleanupAdviceStatus::Cleanable
+            | CleanupAdviceStatus::MaybeCleanable
+            | CleanupAdviceStatus::ContainsCleanable
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
 
     use rebecca_core::cleanup_advice::{
-        CleanupAdvice, CleanupAdviceCommand, CleanupAdviceSource, CleanupAdviceStatus,
+        CleanupAdvice, CleanupAdviceAction, CleanupAdviceActionKind, CleanupAdviceCommand,
+        CleanupAdviceSource, CleanupAdviceStatus,
     };
     use rebecca_core::disk_map::{
         DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics,
@@ -1246,7 +1288,7 @@ mod tests {
         assert!(app.basket.contains_key("linux.user-temp"));
         let item = app.basket.get("linux.user-temp").unwrap();
         assert_eq!(item.source_logical_bytes, 42);
-        assert_eq!(item.source_files, 1);
+        assert_eq!(item.covered_path_count, 1);
 
         let effect = app.handle_key(TuiKey::Char('c'));
         assert_eq!(
@@ -1730,7 +1772,7 @@ mod tests {
                 directories: 1,
             },
             top_entries: vec![DiskMapEntry {
-                path,
+                path: path.clone(),
                 root,
                 kind: DiskMapEntryKind::Directory,
                 depth: 1,
@@ -1806,7 +1848,7 @@ mod tests {
             ],
             volume_contexts: Vec::new(),
             workspace_insights: Vec::new(),
-            cleanup_actions: Vec::new(),
+            cleanup_actions: vec![cleanup_action(&path)],
             manual_review_items: Vec::new(),
             cleanup_advice_summary: Default::default(),
             diagnostic_summary: Default::default(),
@@ -1864,6 +1906,34 @@ mod tests {
             cleanup_advice_summary: Default::default(),
             diagnostic_summary: Default::default(),
             diagnostics: Vec::new(),
+        }
+    }
+
+    fn cleanup_action(path: &Path) -> CleanupAdviceAction {
+        CleanupAdviceAction {
+            id: "rebecca-command-fixture".to_string(),
+            kind: CleanupAdviceActionKind::RebeccaCommand,
+            status: CleanupAdviceStatus::Cleanable,
+            source: Some(CleanupAdviceSource::CleanupRule),
+            rule_id: Some("linux.user-temp".to_string()),
+            category: Some("system".to_string()),
+            owner_path: path.to_path_buf(),
+            sample_paths: vec![path.to_path_buf()],
+            sample_path_count: 1,
+            omitted_sample_path_count: 0,
+            covered_path_count: 1,
+            logical_bytes: 42,
+            allocated_bytes: None,
+            unique_logical_bytes: Some(42),
+            unique_allocated_bytes: None,
+            required_flags: Vec::new(),
+            required_warnings: Vec::new(),
+            suggested_command: Some(CleanupAdviceCommand {
+                command: "rebecca".to_string(),
+                args: vec!["clean".to_string(), "--rule".to_string()],
+            }),
+            manual_guidance: None,
+            reason: "test rule".to_string(),
         }
     }
 

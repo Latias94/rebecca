@@ -109,10 +109,9 @@ fn render_map(
     let rows = projection.visible_rows();
     let table_rows = rows.iter().enumerate().map(|(index, row)| {
         let marker = if index == app.selected { ">" } else { " " };
-        let staged = row
-            .cleanup_advice
-            .as_ref()
-            .and_then(|advice| advice.rule_id.as_ref())
+        let staged = app
+            .cleanup_action_for_row(row)
+            .and_then(|action| action.rule_id.as_ref())
             .is_some_and(|rule_id| app.basket.contains_key(rule_id));
         Row::new(vec![
             Cell::from(marker),
@@ -331,12 +330,26 @@ fn render_details(
                     lines.push(Line::from(format!("Evidence: {}", evidence_path.display())));
                 }
             }
+            if let Some(action) = app.cleanup_action_for_row(row) {
+                lines.push(Line::from(format!("Cleanup action: {}", action.id)));
+                if let Some(rule_id) = action.rule_id.as_ref() {
+                    lines.push(Line::from(format!("Action rule: {rule_id}")));
+                }
+                if let Some(command) = action.suggested_command.as_ref() {
+                    lines.push(Line::from(format!(
+                        "Preview: {}",
+                        cleanup_action_command_text(command)
+                    )));
+                }
+            }
         } else {
             lines.push(Line::from("Advice: none"));
         }
     } else {
         lines.push(Line::from("No entries"));
     }
+
+    push_cleanup_action_overview(&mut lines, app);
 
     lines.push(Line::from(""));
     lines.push(Line::from("Reclaim Basket"));
@@ -366,6 +379,46 @@ fn render_details(
             .block(Block::default().borders(Borders::ALL).title("Details")),
         area,
     );
+}
+
+fn push_cleanup_action_overview(lines: &mut Vec<Line<'_>>, app: &TuiApp) {
+    let Some(session) = app.session.as_ref() else {
+        return;
+    };
+    if session.cleanup_actions().is_empty() && session.manual_review_items().is_empty() {
+        return;
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(format!(
+        "Report actions: {} cleanup, {} manual-review",
+        session.cleanup_actions().len(),
+        session.manual_review_items().len()
+    )));
+    for action in session.cleanup_actions().iter().take(3) {
+        let rule = action.rule_id.as_deref().unwrap_or("unbacked");
+        lines.push(Line::from(format!(
+            "  {} [{}] {}",
+            rule,
+            action.status.label(),
+            format_bytes(action.logical_bytes)
+        )));
+    }
+    if session.cleanup_actions().len() > 3 {
+        lines.push(Line::from(format!(
+            "  +{} more cleanup actions",
+            session.cleanup_actions().len() - 3
+        )));
+    }
+}
+
+fn cleanup_action_command_text(
+    command: &rebecca_core::cleanup_advice::CleanupAdviceCommand,
+) -> String {
+    std::iter::once(command.command.as_str())
+        .chain(command.args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn render_distribution_details(

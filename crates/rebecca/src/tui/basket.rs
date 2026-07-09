@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
-use rebecca_core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
+use rebecca_core::cleanup_advice::{
+    CleanupAdviceAction, CleanupAdviceActionKind, CleanupAdviceStatus,
+};
 use rebecca_core::plan::CleanupPlan;
 use rebecca_core::scan::ScanBackendKind;
 use rebecca_core::warnings::normalize_warning_gate;
@@ -15,35 +16,27 @@ pub(crate) struct CleanupBasketItem {
     pub(crate) reason: String,
     pub(crate) required_flags: Vec<String>,
     pub(crate) required_warnings: Vec<String>,
-    pub(crate) source_path: PathBuf,
+    pub(crate) source_path: std::path::PathBuf,
     pub(crate) source_logical_bytes: u64,
     pub(crate) source_files: u64,
     pub(crate) source_directories: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CleanupBasketSource {
-    pub(crate) path: PathBuf,
-    pub(crate) logical_bytes: u64,
-    pub(crate) files: u64,
-    pub(crate) directories: u64,
+    pub(crate) covered_path_count: u64,
 }
 
 pub(crate) type CleanupBasket = BTreeMap<String, CleanupBasketItem>;
 
-pub(crate) fn toggle_advice(
+pub(crate) fn toggle_action(
     basket: &mut CleanupBasket,
-    advice: Option<&CleanupAdvice>,
-    source: CleanupBasketSource,
+    action: Option<&CleanupAdviceAction>,
 ) -> String {
-    let Some(advice) = advice else {
-        return "Selected entry has no cleanup advice to add.".to_string();
+    let Some(action) = action else {
+        return "Selected entry has no cleanup action to add.".to_string();
     };
-    let Some(stageable) = stageable_advice(advice) else {
-        return format!("{} entries cannot be added.", advice.status.label());
-    };
-    let Some(rule_id) = stageable.rule_id else {
-        return "This advice is not backed by a cleanup rule yet.".to_string();
+    if action.kind != CleanupAdviceActionKind::RebeccaCommand || !stageable_status(action.status) {
+        return format!("{} items cannot be added.", action.kind.label());
+    }
+    let Some(rule_id) = action.rule_id.as_ref() else {
+        return "This cleanup action is not backed by a cleanup rule yet.".to_string();
     };
 
     if basket.remove(rule_id).is_some() {
@@ -54,14 +47,15 @@ pub(crate) fn toggle_advice(
         rule_id.clone(),
         CleanupBasketItem {
             rule_id: rule_id.clone(),
-            status: stageable.status,
-            reason: stageable.reason.to_string(),
-            required_flags: stageable.required_flags.to_vec(),
-            required_warnings: stageable.required_warnings.to_vec(),
-            source_path: source.path,
-            source_logical_bytes: source.logical_bytes,
-            source_files: source.files,
-            source_directories: source.directories,
+            status: action.status,
+            reason: action.reason.clone(),
+            required_flags: action.required_flags.clone(),
+            required_warnings: action.required_warnings.clone(),
+            source_path: action.owner_path.clone(),
+            source_logical_bytes: action.logical_bytes,
+            source_files: 0,
+            source_directories: 0,
+            covered_path_count: action.covered_path_count,
         },
     );
     format!("Added {rule_id} to the Reclaim Basket; preview will expand matching targets.")
@@ -131,6 +125,13 @@ pub(crate) fn label(item: &CleanupBasketItem) -> String {
 }
 
 pub(crate) fn source_summary(item: &CleanupBasketItem) -> String {
+    if item.source_files == 0 && item.source_directories == 0 {
+        return format!(
+            "{} | {}",
+            item.source_path.display(),
+            crate::text::format_count(item.covered_path_count, "measured path", "measured paths")
+        );
+    }
     format!(
         "{} | {}, {}",
         item.source_path.display(),
@@ -141,28 +142,6 @@ pub(crate) fn source_summary(item: &CleanupBasketItem) -> String {
 
 pub(crate) fn total_source_logical_bytes(basket: &CleanupBasket) -> u64 {
     basket.values().map(|item| item.source_logical_bytes).sum()
-}
-
-struct StageableAdvice<'a> {
-    status: CleanupAdviceStatus,
-    rule_id: Option<&'a String>,
-    reason: &'a str,
-    required_flags: &'a [String],
-    required_warnings: &'a [String],
-}
-
-fn stageable_advice(advice: &CleanupAdvice) -> Option<StageableAdvice<'_>> {
-    if stageable_status(advice.status) {
-        return Some(StageableAdvice {
-            status: advice.status,
-            rule_id: advice.rule_id.as_ref(),
-            reason: &advice.reason,
-            required_flags: &advice.required_flags,
-            required_warnings: &advice.required_warnings,
-        });
-    }
-
-    None
 }
 
 fn stageable_status(status: CleanupAdviceStatus) -> bool {
@@ -178,83 +157,77 @@ fn stageable_status(status: CleanupAdviceStatus) -> bool {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca_core::cleanup_advice::{
-        CleanupAdviceCommand, CleanupAdviceEvidence, CleanupAdviceSource,
-    };
+    use rebecca_core::cleanup_advice::{CleanupAdviceCommand, CleanupAdviceSource};
 
     use super::*;
 
     #[test]
-    fn toggle_advice_stages_and_unstages_rule_backed_advice() {
+    fn toggle_action_stages_and_unstages_rule_backed_action() {
         let mut basket = CleanupBasket::new();
-        let advice = advice(CleanupAdviceStatus::Cleanable, Some("linux.user-temp"));
+        let action = action(
+            CleanupAdviceActionKind::RebeccaCommand,
+            CleanupAdviceStatus::Cleanable,
+            Some("linux.user-temp"),
+        );
 
         assert_eq!(
-            toggle_advice(&mut basket, Some(&advice), source()),
+            toggle_action(&mut basket, Some(&action)),
             "Added linux.user-temp to the Reclaim Basket; preview will expand matching targets."
         );
         assert!(basket.contains_key("linux.user-temp"));
 
         assert_eq!(
-            toggle_advice(&mut basket, Some(&advice), source()),
+            toggle_action(&mut basket, Some(&action)),
             "Removed linux.user-temp from the Reclaim Basket."
         );
         assert!(basket.is_empty());
     }
 
     #[test]
-    fn toggle_advice_rejects_missing_unstageable_or_unbacked_advice() {
+    fn toggle_action_rejects_missing_unstageable_or_unbacked_actions() {
         let mut basket = CleanupBasket::new();
 
         assert_eq!(
-            toggle_advice(&mut basket, None, source()),
-            "Selected entry has no cleanup advice to add."
+            toggle_action(&mut basket, None),
+            "Selected entry has no cleanup action to add."
         );
         assert_eq!(
-            toggle_advice(
+            toggle_action(
                 &mut basket,
-                Some(&advice(
+                Some(&action(
+                    CleanupAdviceActionKind::Protected,
                     CleanupAdviceStatus::Protected,
                     Some("linux.user-temp")
-                )),
-                source()
+                ))
             ),
-            "protected entries cannot be added."
+            "protected items cannot be added."
         );
         assert_eq!(
-            toggle_advice(
+            toggle_action(
                 &mut basket,
-                Some(&advice(CleanupAdviceStatus::Cleanable, None)),
-                source()
+                Some(&action(
+                    CleanupAdviceActionKind::RebeccaCommand,
+                    CleanupAdviceStatus::Cleanable,
+                    None
+                ))
             ),
-            "This advice is not backed by a cleanup rule yet."
+            "This cleanup action is not backed by a cleanup rule yet."
         );
         assert!(basket.is_empty());
     }
 
     #[test]
-    fn toggle_advice_rejects_review_only_even_when_evidence_is_cleanable() {
+    fn toggle_action_rejects_manual_review_even_when_rule_backed() {
         let mut basket = CleanupBasket::new();
-        let mut advice = advice(CleanupAdviceStatus::ReviewOnly, Some("workspace.git"));
-        advice.evidence.push(CleanupAdviceEvidence {
-            status: CleanupAdviceStatus::MaybeCleanable,
-            source: Some(CleanupAdviceSource::CleanupRule),
-            relation: None,
-            rule_id: Some("linux.user-temp".to_string()),
-            category: None,
-            safety_level: None,
-            required_flags: vec!["--allow-moderate".to_string()],
-            required_warnings: Vec::new(),
-            protection_kind: None,
-            matched_path: None,
-            app_leftover: None,
-            suggested_command: None,
-            reason: "temporary files".to_string(),
-        });
+        let action = action(
+            CleanupAdviceActionKind::ManualReview,
+            CleanupAdviceStatus::ReviewOnly,
+            Some("workspace.git"),
+        );
 
         assert_eq!(
-            toggle_advice(&mut basket, Some(&advice), source()),
-            "review-only entries cannot be added."
+            toggle_action(&mut basket, Some(&action)),
+            "manual-review items cannot be added."
         );
 
         assert!(basket.is_empty());
@@ -272,6 +245,7 @@ mod tests {
             source_logical_bytes: 42,
             source_files: 2,
             source_directories: 1,
+            covered_path_count: 1,
         };
 
         assert_eq!(
@@ -307,6 +281,7 @@ mod tests {
                 source_logical_bytes: 42,
                 source_files: 2,
                 source_directories: 1,
+                covered_path_count: 1,
             },
         );
 
@@ -320,39 +295,41 @@ mod tests {
         );
     }
 
-    fn source() -> CleanupBasketSource {
-        CleanupBasketSource {
-            path: PathBuf::from("/tmp/cache"),
-            logical_bytes: 42,
-            files: 2,
-            directories: 1,
-        }
-    }
-
-    fn advice(status: CleanupAdviceStatus, rule_id: Option<&str>) -> CleanupAdvice {
-        CleanupAdvice {
+    fn action(
+        kind: CleanupAdviceActionKind,
+        status: CleanupAdviceStatus,
+        rule_id: Option<&str>,
+    ) -> CleanupAdviceAction {
+        CleanupAdviceAction {
+            id: "fixture-action".to_string(),
+            kind,
             status,
             source: Some(CleanupAdviceSource::CleanupRule),
-            relation: None,
-            reason: "fixture".to_string(),
             rule_id: rule_id.map(str::to_string),
             category: None,
-            safety_level: None,
+            owner_path: PathBuf::from("/tmp/cache"),
+            sample_paths: vec![PathBuf::from("/tmp/cache")],
+            sample_path_count: 1,
+            omitted_sample_path_count: 0,
+            covered_path_count: 1,
+            logical_bytes: 42,
+            allocated_bytes: None,
+            unique_logical_bytes: None,
+            unique_allocated_bytes: None,
             required_flags: Vec::new(),
             required_warnings: Vec::new(),
-            protection_kind: None,
-            matched_path: None,
-            app_leftover: None,
-            evidence: Vec::new(),
-            suggested_command: Some(CleanupAdviceCommand {
-                command: "rebecca".to_string(),
-                args: vec![
-                    "clean".to_string(),
-                    "--rule".to_string(),
-                    rule_id.unwrap_or("linux.user-temp").to_string(),
-                ],
+            suggested_command: (kind == CleanupAdviceActionKind::RebeccaCommand).then(|| {
+                CleanupAdviceCommand {
+                    command: "rebecca".to_string(),
+                    args: vec![
+                        "clean".to_string(),
+                        "--rule".to_string(),
+                        rule_id.unwrap_or("linux.user-temp").to_string(),
+                    ],
+                }
             }),
             manual_guidance: None,
+            reason: "fixture".to_string(),
         }
     }
 }
