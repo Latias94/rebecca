@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use rebecca_core::RebeccaError;
 use serde::Serialize;
 
 use crate::cli::OutputMode;
@@ -113,7 +114,10 @@ fn trash_roots(drives: Vec<String>) -> Result<Vec<Option<String>>> {
         return Ok(vec![None]);
     }
     if !cfg!(windows) {
-        return Err(anyhow!("--drive is only supported on Windows"));
+        return Err(RebeccaError::PlatformUnavailable(
+            "--drive is only supported on Windows".to_string(),
+        )
+        .into());
     }
     drives
         .into_iter()
@@ -299,9 +303,10 @@ fn query_windows_recycle_bin(root: Option<&str>) -> Result<TrashState> {
 
 #[cfg(not(all(windows, feature = "windows")))]
 fn query_windows_recycle_bin(_root: Option<&str>) -> Result<TrashState> {
-    Err(anyhow!(
-        "--drive requires Rebecca's Windows adapter and is only available on Windows"
-    ))
+    Err(RebeccaError::PlatformUnavailable(
+        "--drive requires Rebecca's Windows adapter and is only available on Windows".to_string(),
+    )
+    .into())
 }
 
 #[cfg(all(windows, feature = "windows"))]
@@ -319,9 +324,10 @@ fn empty_windows_recycle_bin(root: Option<&str>) -> Result<TrashState> {
 
 #[cfg(not(all(windows, feature = "windows")))]
 fn empty_windows_recycle_bin(_root: Option<&str>) -> Result<TrashState> {
-    Err(anyhow!(
-        "--drive requires Rebecca's Windows adapter and is only available on Windows"
-    ))
+    Err(RebeccaError::PlatformUnavailable(
+        "--drive requires Rebecca's Windows adapter and is only available on Windows".to_string(),
+    )
+    .into())
 }
 
 #[cfg(any(
@@ -352,9 +358,10 @@ fn query_supported_system_trash() -> Result<TrashState> {
     ))
 ))]
 fn query_supported_system_trash() -> Result<TrashState> {
-    Err(anyhow!(
-        "system trash listing is not supported on this platform yet"
-    ))
+    Err(RebeccaError::PlatformUnavailable(
+        "system trash listing is not supported on this platform yet; use the platform Trash UI to review or empty it".to_string(),
+    )
+    .into())
 }
 
 #[cfg(any(
@@ -388,9 +395,10 @@ fn empty_supported_system_trash() -> Result<TrashState> {
     ))
 ))]
 fn empty_supported_system_trash() -> Result<TrashState> {
-    Err(anyhow!(
-        "system trash emptying is not supported on this platform yet"
-    ))
+    Err(RebeccaError::PlatformUnavailable(
+        "system trash emptying is not supported on this platform yet; use the platform Trash UI after reviewing what will be removed".to_string(),
+    )
+    .into())
 }
 
 #[cfg(any(

@@ -12,6 +12,10 @@ documentation = "https://docs.rs/rebecca-ntfs"
 keywords = ["windows", "ntfs", "mft", "filesystem"]
 categories = ["filesystem"]
 
+[features]
+default = []
+fuzzing = []
+
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true

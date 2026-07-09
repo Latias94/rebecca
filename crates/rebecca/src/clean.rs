@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
-use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::plan::CleanupPlan;
-use rebecca::core::scan::ScanBackendKind;
-use rebecca::core::{DeleteMode, PlanRequest, Platform, RebeccaError};
+use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
+use rebecca_core::plan::CleanupPlan;
+use rebecca_core::scan::ScanBackendKind;
+use rebecca_core::{DeleteMode, PlanRequest, Platform, RebeccaError};
 
 use crate::cli::{OutputMode, ProgressDetail};
 use crate::output::{
@@ -14,7 +14,7 @@ use crate::output::{
 use crate::runtime::CliRuntime;
 use crate::text::format_count;
 use crate::workflow_artifacts::WorkflowArtifacts;
-use crate::workflow_execution::execute_plan;
+use crate::workflow_execution::{ExecutionProgressReporter, execute_plan_with_progress};
 use crate::workflow_planner::{
     WorkflowPlanBuildOptions, WorkflowPlanBuildOutcome, WorkflowRuleSource, build_workflow_plan,
 };
@@ -95,7 +95,7 @@ pub(crate) fn run_with_runtime(options: CleanOptions, runtime: &CliRuntime) -> R
         request.add_allowed_warning(warning);
     }
 
-    let catalog = rebecca::rules::builtin_rules()?;
+    let catalog = rebecca_rules::builtin_rules()?;
     run_workflow(
         WorkflowRunOptions {
             request,
@@ -153,10 +153,8 @@ pub(crate) fn run_workflow_with_runtime_config(
         WorkflowPlanBuildOutcome::Built(build) => build,
         WorkflowPlanBuildOutcome::PlannerError { err, event_writer } => {
             if err
-                .downcast_ref::<rebecca::core::RebeccaError>()
-                .is_some_and(|err| {
-                    matches!(err, rebecca::core::RebeccaError::OperationCancelled(_))
-                })
+                .downcast_ref::<rebecca_core::RebeccaError>()
+                .is_some_and(|err| matches!(err, rebecca_core::RebeccaError::OperationCancelled(_)))
             {
                 return finish_stream_with_cancellation(event_writer, options.cancellation_message);
             }
@@ -209,18 +207,35 @@ pub(crate) fn run_workflow_with_runtime_config(
     }
 
     let execution_policy = build.execution_guards.protection_policy();
-    let execution_report = match execute_plan(
+    let mut execution_progress = ExecutionProgressReporter::new(
+        options.output_mode.is_human() && !options.no_progress,
+        event_writer,
+    );
+    let execution_report = match execute_plan_with_progress(
         &mut plan,
         execution_policy,
         runtime.cancellation(),
         options.request.mode,
+        |event| execution_progress.on_event(event),
     ) {
         Ok(report) => report,
         Err(RebeccaError::OperationCancelled(_)) => {
-            return finish_stream_with_cancellation(event_writer, options.cancellation_message);
+            execution_progress.finish();
+            return finish_stream_with_cancellation(
+                execution_progress.into_event_writer(),
+                options.cancellation_message,
+            );
         }
-        Err(err) => return finish_stream_with_error(event_writer, err.into()),
+        Err(err) => {
+            execution_progress.finish();
+            return finish_stream_with_error(execution_progress.into_event_writer(), err.into());
+        }
     };
+    execution_progress.finish();
+    if let Some(err) = execution_progress.take_event_error() {
+        return finish_stream_with_error(execution_progress.into_event_writer(), err);
+    }
+    let event_writer = execution_progress.into_event_writer();
 
     artifacts.record_execution(
         &mut plan,

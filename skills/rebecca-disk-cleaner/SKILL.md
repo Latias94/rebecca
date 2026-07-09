@@ -65,6 +65,10 @@ Rebecca command.
      rebecca inspect map --root <PATH> --top 20 --cleanup-advice
      ```
 
+     Use `--metadata-profile logical-only` for a fast first pass on very large
+     trees. Use the default `full-evidence` profile when the user needs
+     allocated bytes, hardlink-aware unique bytes, detailed provenance, or
+     cleanup-advice confidence.
    - For flat exports, scripts, wrappers, or non-terminal sessions, use
      `--format json`, `--format ndjson`, or `--table csv|tsv`; do not drive the
      TUI as a machine API.
@@ -171,11 +175,16 @@ Rebecca command.
    - Run the confirmed Rebecca command by replacing `--dry-run` with `--yes`.
    - Keep the command otherwise identical to the preview. Never combine
      `--dry-run` and `--yes`.
+   - When the user wants an audit trail, add `--receipt <FILE>` to the confirmed
+     command. Receipts record the destination, selected gates, target outcomes,
+     pending trash reclaim, and restore hints.
    - By default, `--yes` moves data to the system trash or Windows Recycle Bin.
      If the user wants to bypass trash, add `--permanent` only after they
      explicitly confirm irreversible deletion.
-   - If the user wants to free space after a normal cleanup, preview the trash
-     first, then ask before emptying it:
+   - If the user wants to free pending space after a normal cleanup, preview
+     the trash first, then ask before emptying it. Explain that `--yes` empties
+     the platform trash or Windows Recycle Bin scope, not only Rebecca's last
+     run:
 
      ```powershell
      rebecca trash empty

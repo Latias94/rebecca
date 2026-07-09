@@ -1,8 +1,9 @@
 use std::sync::mpsc::{SyncSender, TrySendError};
 
-use rebecca::core::RebeccaError;
-use rebecca::core::planner::PlanProgressEvent;
-use rebecca::core::progress::InspectProgressEvent;
+use rebecca_core::RebeccaError;
+use rebecca_core::execution::ExecutionProgressEvent;
+use rebecca_core::planner::PlanProgressEvent;
+use rebecca_core::progress::InspectProgressEvent;
 
 use crate::tui::progress::{TuiTaskId, TuiTaskProgressEvent};
 use crate::tui::task_worker::TaskMessage;
@@ -10,7 +11,7 @@ use crate::tui::task_worker::TaskMessage;
 pub(super) fn progress_sender(
     task_id: TuiTaskId,
     sender: SyncSender<TaskMessage>,
-) -> impl FnMut(TuiTaskProgressEvent) -> rebecca::core::Result<()> {
+) -> impl FnMut(TuiTaskProgressEvent) -> rebecca_core::Result<()> {
     move |event| {
         send_progress_message(&sender, TaskMessage::Progress { task_id, event })
             .map_err(|_| tui_receiver_closed())
@@ -27,6 +28,21 @@ pub(super) fn plan_progress_sender(
             TaskMessage::Progress {
                 task_id,
                 event: plan_progress_event(event),
+            },
+        );
+    }
+}
+
+pub(super) fn execution_progress_sender(
+    task_id: TuiTaskId,
+    sender: SyncSender<TaskMessage>,
+) -> impl for<'a> FnMut(ExecutionProgressEvent<'a>) {
+    move |event| {
+        let _ = send_progress_message(
+            &sender,
+            TaskMessage::Progress {
+                task_id,
+                event: execution_progress_event(event),
             },
         );
     }
@@ -166,14 +182,14 @@ pub(super) fn inspect_progress_event(event: InspectProgressEvent<'_>) -> TuiTask
             reason,
             estimated_bytes,
         } => match event {
-            rebecca::core::progress::InspectProgressCacheEvent::Hit => {
+            rebecca_core::progress::InspectProgressCacheEvent::Hit => {
                 TuiTaskProgressEvent::CleanupCacheHit {
                     rule_id: "inspect-map".to_string(),
                     path: path.to_path_buf(),
                     estimated_bytes: estimated_bytes.unwrap_or(0),
                 }
             }
-            rebecca::core::progress::InspectProgressCacheEvent::Miss => {
+            rebecca_core::progress::InspectProgressCacheEvent::Miss => {
                 TuiTaskProgressEvent::CleanupCacheMiss {
                     rule_id: "inspect-map".to_string(),
                     path: path.to_path_buf(),
@@ -181,7 +197,7 @@ pub(super) fn inspect_progress_event(event: InspectProgressEvent<'_>) -> TuiTask
                     pruned: false,
                 }
             }
-            rebecca::core::progress::InspectProgressCacheEvent::WriteSkipped => {
+            rebecca_core::progress::InspectProgressCacheEvent::WriteSkipped => {
                 TuiTaskProgressEvent::CleanupCacheWriteSkipped {
                     rule_id: "inspect-map".to_string(),
                     path: path.to_path_buf(),
@@ -270,8 +286,52 @@ fn plan_progress_event(event: PlanProgressEvent<'_>) -> TuiTaskProgressEvent {
     }
 }
 
+fn execution_progress_event(event: ExecutionProgressEvent<'_>) -> TuiTaskProgressEvent {
+    match event {
+        ExecutionProgressEvent::Started {
+            executable_targets,
+            estimated_bytes,
+            mode,
+            ..
+        } => TuiTaskProgressEvent::ExecutionStarted {
+            executable_targets,
+            estimated_bytes,
+            mode: delete_mode_label(mode).to_string(),
+        },
+        ExecutionProgressEvent::TargetStarted { target, .. } => {
+            TuiTaskProgressEvent::ExecutionTargetStarted {
+                rule_id: target.rule_id.clone(),
+                path: target.path.clone(),
+                estimated_bytes: target.estimated_bytes,
+            }
+        }
+        ExecutionProgressEvent::TargetFinished { target, .. } => {
+            TuiTaskProgressEvent::ExecutionTargetFinished {
+                rule_id: target.rule_id.clone(),
+                path: target.path.clone(),
+                status: target.status.label().to_string(),
+                freed_bytes: target.freed_bytes,
+                pending_reclaim_bytes: target.pending_reclaim_bytes,
+            }
+        }
+        ExecutionProgressEvent::Completed { summary } => TuiTaskProgressEvent::ExecutionFinished {
+            completed_targets: summary.completed_actions as u64,
+            freed_bytes: summary.confirmed_reclaimed_bytes,
+            pending_reclaim_bytes: summary.pending_reclaim_bytes,
+        },
+    }
+}
+
 fn tui_receiver_closed() -> RebeccaError {
     RebeccaError::OperationCancelled("tui task receiver was closed".to_string())
+}
+
+fn delete_mode_label(mode: rebecca_core::DeleteMode) -> &'static str {
+    match mode {
+        rebecca_core::DeleteMode::DryRun => "dry-run",
+        rebecca_core::DeleteMode::RecoverableDelete => "recoverable-delete",
+        rebecca_core::DeleteMode::PermanentDelete => "permanent-delete",
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

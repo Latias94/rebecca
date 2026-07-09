@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::disk_map::DiskMapSortField;
-use rebecca::core::history::{HistoryEntry, HistoryStore};
-use rebecca::core::scan::ScanBackendKind;
+use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
+use rebecca_core::disk_map::DiskMapSortField;
+use rebecca_core::history::{HistoryEntry, HistoryStore};
+use rebecca_core::scan::ScanBackendKind;
 
 use crate::cli::OutputMode;
 use crate::runtime::CliRuntime;
@@ -386,7 +386,7 @@ fn load_recent_history(runtime_config: &AppRuntimeConfig) -> Result<Vec<HistoryE
 
 #[cfg(test)]
 mod tests {
-    use rebecca::core::disk_map::DiskMapSortField;
+    use rebecca_core::disk_map::DiskMapSortField;
 
     use super::*;
     use crate::tui::model::TuiScreen;

@@ -30,12 +30,11 @@ Keep each family small, explicit, and easy to audit.
   Cleanup plans block warning-bearing targets with
   `warning-gate-required` until the user selects the specific gate with
   `--allow-warning <WARNING>`.
-- Targets may declare `search_kind` to make discovery semantics explicit. The
-  declared value must match the target kind: `file` for `template` or
-  `exact-path`, `glob` for `glob-template`, `steam-install` for
-  `steam-install-template`, and `steam-library` for
-  `steam-library-template`. Omitted `search_kind` values default from the target
-  kind for compatibility.
+- Search semantics are derived from the target kind. Use `template` or
+  `exact-path` for file paths, `glob-template` for bounded glob discovery,
+  `steam-install-template` for Steam install roots, and
+  `steam-library-template` for Steam library roots. Do not declare
+  `search_kind`; manifests that include it are rejected.
 - Running-process policy is expressed through warning gates today. Use
   `warnings = ["active-process"]` when a cache target belongs to software that
   may be running; the planner blocks it until `--allow-warning active-process`
@@ -102,8 +101,8 @@ Keep each family small, explicit, and easy to audit.
   profile directories or `thumbcache_*.db` files.
 - Compatible `glob-template` targets share a per-plan discovery index when they
   enumerate the same directories. Do not rely on that sharing to mix semantics:
-  file, Steam install, Steam library, and glob searches remain separate
-  `search_kind` values.
+  file, Steam install, Steam library, and glob searches are derived from their
+  target kinds and remain separate.
 - Chromium-family browser caches may use bounded `Profile *` discovery under
   `User Data`, but should keep `Default` paths explicit.
 - Electron app cache rules should keep `Cache`, `Code Cache`, and `GPUCache`

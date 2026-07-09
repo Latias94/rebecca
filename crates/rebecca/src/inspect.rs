@@ -6,27 +6,27 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use indicatif::ProgressBar;
-use rebecca::core::app_leftovers::derive_app_leftover_candidates;
-use rebecca::core::cleanup_advice::{
+use rebecca_core::app_leftovers::derive_app_leftover_candidates;
+use rebecca_core::cleanup_advice::{
     CleanupAdvice, CleanupAdviceBuildRequest, CleanupAdviceIndex, CleanupAdviceStatus,
 };
-use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::disk_map::{
-    DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics, DiskMapReport, DiskMapRequest,
-    DiskMapSortField, inspect_map_with_progress as inspect_map_core,
+use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
+use rebecca_core::disk_map::{
+    DiskMapEntry, DiskMapGroup, DiskMapGroupKind, DiskMapMetadataProfile, DiskMapMetrics,
+    DiskMapReport, DiskMapRequest, DiskMapSortField, inspect_map_with_progress as inspect_map_core,
 };
-use rebecca::core::environment::{PlatformEnvironment, SystemEnvironment};
-use rebecca::core::inspect::{
+use rebecca_core::environment::{PlatformEnvironment, SystemEnvironment};
+use rebecca_core::inspect::{
     SpaceInsightRequest, SpaceInsightScanCache, inspect_space_with_progress as inspect_space_core,
 };
-use rebecca::core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
-use rebecca::core::progress::{InspectProgressEvent, InspectProgressOptions};
-use rebecca::core::project_artifacts::{
+use rebecca_core::lint::{LintReportRequest, inspect_lint as inspect_lint_core};
+use rebecca_core::progress::{InspectProgressEvent, InspectProgressOptions};
+use rebecca_core::project_artifacts::{
     ProjectArtifactScanOptions, discover_project_artifacts_with_diagnostics,
 };
-use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
-use rebecca::core::scan_cache::ScanCacheStore;
-use rebecca::core::{
+use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken};
+use rebecca_core::scan_cache::ScanCacheStore;
+use rebecca_core::{
     CleanupWorkflow, DeleteMode, EstimateProvenance, PlanRequest, Platform, RebeccaError,
 };
 use serde::Serialize;
@@ -150,11 +150,12 @@ pub struct InspectMapOptions {
     pub no_progress: bool,
     pub progress_detail: ProgressDetail,
     pub scan_backend: ScanBackendArg,
+    pub metadata_profile: DiskMapMetadataProfile,
     pub roots: Vec<PathBuf>,
     pub top_limit: usize,
     pub sort: DiskMapSortField,
     pub min_logical_bytes: Option<u64>,
-    pub entry_kind: Option<rebecca::core::disk_map::DiskMapEntryKind>,
+    pub entry_kind: Option<rebecca_core::disk_map::DiskMapEntryKind>,
     pub path_contains: Option<String>,
     pub cleanup_advice: bool,
     pub screen_reader: bool,
@@ -245,7 +246,7 @@ impl InspectProgressReporter {
         Ok(())
     }
 
-    fn on_event(&mut self, event: InspectProgressEvent<'_>) -> rebecca::core::Result<()> {
+    fn on_event(&mut self, event: InspectProgressEvent<'_>) -> rebecca_core::Result<()> {
         let emit_progress_event = self.should_emit_progress_event(event);
         if !emit_progress_event {
             return Ok(());
@@ -597,7 +598,9 @@ pub(crate) fn map_with_runtime(options: InspectMapOptions, runtime: &CliRuntime)
         .with_group_sort(options.group_sort)
         .with_diagnostic_limit(options.diagnostic_limit)
         .with_max_depth(options.max_depth)
-        .with_scan_backend(options.scan_backend.into());
+        .with_scan_backend(options.scan_backend.into())
+        .with_progress_options(inspect_progress_options(options.progress_detail))
+        .with_metadata_profile(options.metadata_profile);
     if ntfs_volume_index_cache_enabled {
         let runtime_config = runtime_config
             .as_ref()
@@ -738,7 +741,7 @@ pub(crate) fn annotate_map_report_with_cleanup_advice(
         .filter(|root| {
             matches!(
                 root.status,
-                rebecca::core::disk_map::DiskMapRootStatus::Scanned
+                rebecca_core::disk_map::DiskMapRootStatus::Scanned
             )
         })
         .map(|root| root.path.clone())
@@ -845,7 +848,7 @@ pub(crate) fn lint_with_runtime(options: InspectLintOptions, runtime: &CliRuntim
 }
 
 fn print_project_artifact_insight_with_events(
-    plan: &rebecca::core::plan::CleanupPlan,
+    plan: &rebecca_core::plan::CleanupPlan,
     contract: WorkflowOutputContract,
     mode: OutputMode,
     human_renderer: HumanPlanRenderer,

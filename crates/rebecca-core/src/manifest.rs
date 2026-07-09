@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use crate::{
-    Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleSearchKind, RuleTargetSpec,
-    SafetyLevel,
+    Platform, RebeccaError, Result, RuleDefinition, RuleProvenance, RuleTargetSpec, SafetyLevel,
     safety_catalog::{SafetyKnowledge, default_safety_knowledge},
 };
 
@@ -65,31 +64,11 @@ enum ManifestAction {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 enum ManifestTarget {
-    Template {
-        value: String,
-        #[serde(default)]
-        search_kind: Option<RuleSearchKind>,
-    },
-    ExactPath {
-        value: PathBuf,
-        #[serde(default)]
-        search_kind: Option<RuleSearchKind>,
-    },
-    GlobTemplate {
-        value: String,
-        #[serde(default)]
-        search_kind: Option<RuleSearchKind>,
-    },
-    SteamInstallTemplate {
-        value: String,
-        #[serde(default)]
-        search_kind: Option<RuleSearchKind>,
-    },
-    SteamLibraryTemplate {
-        value: String,
-        #[serde(default)]
-        search_kind: Option<RuleSearchKind>,
-    },
+    Template { value: String },
+    ExactPath { value: PathBuf },
+    GlobTemplate { value: String },
+    SteamInstallTemplate { value: String },
+    SteamLibraryTemplate { value: String },
 }
 
 pub fn parse_cleaner_manifest_file(path: &str, raw: &str) -> Result<Vec<RuleDefinition>> {
@@ -347,49 +326,19 @@ impl ManifestAction {
 }
 
 impl ManifestTarget {
-    fn into_rule_target_spec(self, path: &str, owner: &str) -> Result<RuleTargetSpec> {
+    fn into_rule_target_spec(self, _path: &str, _owner: &str) -> Result<RuleTargetSpec> {
         match self {
-            Self::Template { value, search_kind } => {
-                validate_search_kind(path, owner, search_kind, RuleSearchKind::File)?;
-                Ok(RuleTargetSpec::template(value))
-            }
-            Self::ExactPath { value, search_kind } => {
-                validate_search_kind(path, owner, search_kind, RuleSearchKind::File)?;
-                Ok(RuleTargetSpec::ExactPath(value))
-            }
-            Self::GlobTemplate { value, search_kind } => {
-                validate_search_kind(path, owner, search_kind, RuleSearchKind::Glob)?;
-                Ok(RuleTargetSpec::glob_template(value))
-            }
-            Self::SteamInstallTemplate { value, search_kind } => {
-                validate_search_kind(path, owner, search_kind, RuleSearchKind::SteamInstall)?;
+            Self::Template { value } => Ok(RuleTargetSpec::template(value)),
+            Self::ExactPath { value } => Ok(RuleTargetSpec::ExactPath(value)),
+            Self::GlobTemplate { value } => Ok(RuleTargetSpec::glob_template(value)),
+            Self::SteamInstallTemplate { value } => {
                 Ok(RuleTargetSpec::steam_install_template(value))
             }
-            Self::SteamLibraryTemplate { value, search_kind } => {
-                validate_search_kind(path, owner, search_kind, RuleSearchKind::SteamLibrary)?;
+            Self::SteamLibraryTemplate { value } => {
                 Ok(RuleTargetSpec::steam_library_template(value))
             }
         }
     }
-}
-
-fn validate_search_kind(
-    path: &str,
-    owner: &str,
-    declared: Option<RuleSearchKind>,
-    expected: RuleSearchKind,
-) -> Result<()> {
-    if let Some(declared) = declared
-        && declared != expected
-    {
-        return Err(RebeccaError::RuleCatalogInvalid(format!(
-            "{path} cleaner {owner} declares incompatible search kind {}; expected {}",
-            declared.label(),
-            expected.label()
-        )));
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -536,37 +485,7 @@ notes = "test"
     }
 
     #[test]
-    fn manifest_parser_accepts_explicit_matching_search_kind() {
-        let rules = parse_cleaner_manifest_file(
-            "test.toml",
-            r#"
-manifest_version = 1
-id = "glob"
-category = "system"
-name = "Glob"
-safety_level = "safe"
-
-[[platforms]]
-platform = "windows"
-
-[[platforms.targets]]
-kind = "glob-template"
-value = "%TEMP%\\Profile*\\Cache"
-search_kind = "glob"
-
-[provenance]
-source = "owned"
-license = "project-owned"
-notes = "test"
-"#,
-        )
-        .expect("manifest should parse");
-
-        assert_eq!(rules[0].path_templates[0].search_kind().label(), "glob");
-    }
-
-    #[test]
-    fn manifest_parser_rejects_incompatible_search_kind() {
+    fn manifest_parser_rejects_deprecated_search_kind() {
         let err = parse_cleaner_manifest_file(
             "test.toml",
             r#"
@@ -592,7 +511,7 @@ notes = "test"
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("incompatible search kind"));
+        assert!(err.to_string().contains("unknown field `search_kind`"));
     }
 
     #[test]

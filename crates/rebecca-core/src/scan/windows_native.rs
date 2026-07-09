@@ -44,6 +44,35 @@ pub(crate) struct WindowsNativeDirectoryEntry {
     reparse_like: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct WindowsNativeDiskMapMetadataOptions {
+    include_allocated_size: bool,
+    include_modified_time: bool,
+    include_semantics: bool,
+}
+
+impl WindowsNativeDiskMapMetadataOptions {
+    pub(crate) const fn disabled() -> Self {
+        Self {
+            include_allocated_size: false,
+            include_modified_time: false,
+            include_semantics: false,
+        }
+    }
+
+    pub(crate) const fn new(
+        include_allocated_size: bool,
+        include_modified_time: bool,
+        include_semantics: bool,
+    ) -> Self {
+        Self {
+            include_allocated_size,
+            include_modified_time,
+            include_semantics,
+        }
+    }
+}
+
 impl WindowsNativeDirectoryEntry {
     pub(crate) fn path(&self) -> &Path {
         &self.path
@@ -186,18 +215,24 @@ fn enumerate_directory<F>(
 where
     F: for<'a> FnMut(ScanProgressEvent<'a>),
 {
-    for_each_directory_entry(directory, cancellation, false, |entry| {
-        record_native_entry(entry, report, stack, progress);
-        Ok(())
-    })
+    for_each_directory_entry(
+        directory,
+        cancellation,
+        WindowsNativeDiskMapMetadataOptions::disabled(),
+        |entry| {
+            record_native_entry(entry, report, stack, progress);
+            Ok(())
+        },
+    )
 }
 
 pub(crate) fn read_directory_entries(
     directory: &Path,
     cancellation: &ScanCancellationToken,
+    metadata_options: WindowsNativeDiskMapMetadataOptions,
 ) -> Result<Vec<WindowsNativeDirectoryEntry>> {
     let mut entries = Vec::new();
-    for_each_directory_entry(directory, cancellation, true, |entry| {
+    for_each_directory_entry(directory, cancellation, metadata_options, |entry| {
         entries.push(entry);
         Ok(())
     })?;
@@ -207,7 +242,7 @@ pub(crate) fn read_directory_entries(
 fn for_each_directory_entry<F>(
     directory: &Path,
     cancellation: &ScanCancellationToken,
-    include_disk_map_metadata: bool,
+    metadata_options: WindowsNativeDiskMapMetadataOptions,
     mut visitor: F,
 ) -> Result<()>
 where
@@ -220,9 +255,7 @@ where
 
     loop {
         check_not_cancelled(cancellation)?;
-        if let Some(entry) =
-            directory_entry_from_find_data(directory, &data, include_disk_map_metadata)
-        {
+        if let Some(entry) = directory_entry_from_find_data(directory, &data, metadata_options) {
             visitor(entry)?;
         }
 
@@ -292,7 +325,7 @@ fn record_native_entry<F>(
 fn directory_entry_from_find_data(
     directory: &Path,
     data: &WIN32_FIND_DATAW,
-    include_disk_map_metadata: bool,
+    metadata_options: WindowsNativeDiskMapMetadataOptions,
 ) -> Option<WindowsNativeDirectoryEntry> {
     let file_name = find_data_file_name(data)?;
     if file_name == OsStr::new(".") || file_name == OsStr::new("..") {
@@ -302,7 +335,7 @@ fn directory_entry_from_find_data(
     let path = directory.join(file_name);
     let kind = find_data_entry_kind(data);
     let reparse_like = is_reparse_entry(data);
-    let semantics = if include_disk_map_metadata {
+    let semantics = if metadata_options.include_semantics {
         WindowsNativeFileSemantics::from_path_and_attributes(
             &path,
             kind,
@@ -313,14 +346,16 @@ fn directory_entry_from_find_data(
         WindowsNativeFileSemantics::default()
     };
     Some(WindowsNativeDirectoryEntry {
-        allocated_size: include_disk_map_metadata
+        allocated_size: metadata_options
+            .include_allocated_size
             .then(|| find_data_allocated_size(&path, kind, reparse_like))
             .flatten(),
         path,
         kind,
         file_size: find_data_file_size(data),
         semantics,
-        modified_time: include_disk_map_metadata
+        modified_time: metadata_options
+            .include_modified_time
             .then(|| find_data_modified_time(data))
             .flatten(),
         reparse_like,

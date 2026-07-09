@@ -50,12 +50,15 @@ Success responses use `envelope.schema.json`:
 }
 ```
 
-Failures use `error.schema.json`. Error codes are stable kebab-case strings
-such as `invalid-rule-id`, `invalid-category`, `config-parse-failed`, and
-`platform-unavailable`. When `--format json` or `--format ndjson` is already
-discoverable in argv, command-line parse failures use `invalid-arguments` in
-the same error envelope/event. Invalid `--format` values are intentionally left
-to clap's native error output so humans can see the accepted values.
+Failures use `error.schema.json` and keep the same `command` and `payload_kind`
+contract as the command's success path. Commands without a machine-readable
+success payload use `payload_kind = "command-error"` for machine-readable
+errors. Error codes are stable kebab-case strings such as `invalid-rule-id`,
+`invalid-category`, `config-parse-failed`, and `platform-unavailable`. When
+`--format json` or `--format ndjson` is already discoverable in argv,
+command-line parse failures use `invalid-arguments` in the same error
+envelope/event. Invalid `--format` values are intentionally left to clap's
+native error output so humans can see the accepted values.
 
 NDJSON events use `event.schema.json`. Consumers should read stdout line by
 line and parse each line independently.
@@ -66,6 +69,11 @@ Cleanup workflow NDJSON defaults to target-level progress: `started`,
 default to avoid turning large scans into one JSON line per file. Ordinary
 cleanup scans can opt into file-level scan details with
 `--progress-detail file` when a debugger or GUI explicitly needs them.
+When a cleanup command actually executes with `--yes`, NDJSON continues after
+planning with `execution-started`, `execution-target-started`,
+`execution-target-finished`, and `execution-completed` events. Target execution
+events include the rule id, path, status, estimate, freed bytes, pending trash
+bytes, and stable reason code when one applies.
 
 Inspect workflow NDJSON uses the same event envelope but a different progress
 payload. `inspect space --format ndjson` and `inspect map --format ndjson`
@@ -89,6 +97,15 @@ requested `groups` item with `payload_kind = "inspect-map-group"`. The final
 `completed` event still carries the full `inspect-map` report, so consumers can
 either stream ranked rows as they arrive or keep reading the last completed
 payload as the authoritative whole-report snapshot.
+
+`inspect map --metadata-profile logical-only|allocated|unique|age-and-grouping|full-evidence`
+controls how much filesystem metadata Rebecca asks the backend to collect.
+`logical-only` is the fastest portable inventory and leaves allocated or unique
+byte fields null. `allocated` requests allocated-size accounting when the
+backend can provide it. `unique` asks for hardlink-aware identity data.
+`age-and-grouping` collects the metadata needed for age-sensitive grouping and
+cleanup advice without every backend evidence field. `full-evidence` is the
+default and keeps the richest provenance surface for humans and GUI wrappers.
 
 `inspect map --table csv|tsv` is a command-specific raw table export, not a
 JSON/NDJSON API envelope. It cannot be combined with `--format json` or
@@ -411,6 +428,7 @@ rebecca plan inspect --format json cleanup-plan.json
 rebecca plan run --format json cleanup-plan.json --yes --receipt cleanup-receipt.json
 rebecca clean --format json --yes --category system --receipt cleanup-receipt.json
 rebecca clean --format ndjson --scan-cache --category system
+rebecca clean --format ndjson --yes --category system
 rebecca clean --format ndjson --progress-detail file --rule windows.user-temp
 rebecca doctor active-processes --format json
 rebecca purge --format json --root . --min-age-days 0
@@ -425,6 +443,7 @@ rebecca rules validate --format json --dir ./rules
 rebecca skills install --format json --dry-run
 rebecca inspect space --format json --root . --diagnostic-limit 100
 rebecca inspect map --format json --root . --top 20 --max-depth 3 --sort logical --diagnostic-limit 100
+rebecca inspect map --format json --root . --top 20 --metadata-profile logical-only
 rebecca inspect map --format ndjson --root . --top 20 --group-by type --group-by extension
 rebecca inspect map --format ndjson --progress-detail file --root . --top 20
 rebecca inspect map --table csv --table-row entry --table-row group --root . --top 20 --group-by type --group-by extension

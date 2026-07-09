@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::TargetStatus;
 use crate::plan::{CleanupTarget, CleanupTargetDeletionStyle};
+use crate::{DeleteMode, TargetStatus};
 
 const EXECUTION_TARGET_SHADOWED_REASON: &str = "execution-target-shadowed";
 
@@ -179,4 +179,54 @@ impl ExecutionWarning {
 #[serde(rename_all = "kebab-case")]
 pub enum ExecutionWarningKind {
     HistoryWriteFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionProgressTarget {
+    pub rule_id: String,
+    pub path: PathBuf,
+    pub deletion_style: CleanupTargetDeletionStyle,
+    pub estimated_bytes: u64,
+    pub status: TargetStatus,
+    pub freed_bytes: u64,
+    pub pending_reclaim_bytes: u64,
+    pub reason_code: Option<String>,
+    pub reason: Option<String>,
+}
+
+impl ExecutionProgressTarget {
+    pub fn from_target(target: &CleanupTarget) -> Self {
+        Self {
+            rule_id: target.rule_id.clone(),
+            path: target.path.clone(),
+            deletion_style: target.deletion_style,
+            estimated_bytes: target.estimated_bytes,
+            status: target.status,
+            freed_bytes: target.freed_bytes,
+            pending_reclaim_bytes: target.pending_reclaim_bytes,
+            reason_code: target.reason_code.map(|reason| reason.label().to_string()),
+            reason: target.reason.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ExecutionProgressEvent<'a> {
+    Started {
+        total_targets: usize,
+        executable_targets: usize,
+        estimated_bytes: u64,
+        mode: DeleteMode,
+    },
+    TargetStarted {
+        target_index: usize,
+        target: ExecutionProgressTarget,
+    },
+    TargetFinished {
+        target_index: usize,
+        target: ExecutionProgressTarget,
+    },
+    Completed {
+        summary: &'a ExecutionSummary,
+    },
 }

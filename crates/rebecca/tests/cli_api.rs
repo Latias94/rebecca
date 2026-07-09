@@ -78,7 +78,6 @@ platform = "{platform}"
 [[platforms.targets]]
 kind = "template"
 value = "{target}"
-search_kind = "file"
 "#
     )
 }
@@ -111,6 +110,11 @@ fn assert_error_shape(value: &serde_json::Value) {
     assert_eq!(value["kind"], "error");
     assert!(
         value["command"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert!(
+        value["payload_kind"]
             .as_str()
             .is_some_and(|value| !value.is_empty())
     );
@@ -238,6 +242,7 @@ fn clean_format_json_unknown_rule_returns_error_envelope_on_stderr() {
     assert_eq!(value["api_version"], "rebecca.cli.v1");
     assert_eq!(value["kind"], "error");
     assert_eq!(value["command"], "clean");
+    assert_eq!(value["payload_kind"], "cleanup-plan");
     assert_eq!(value["error"]["code"], "invalid-rule-id");
     assert_eq!(value["error"]["exit_code"], 1);
     assert!(
@@ -446,7 +451,6 @@ platform = "macos"
 [[platforms.targets]]
 kind = "template"
 value = "MACOS_CACHE_HOME/Example"
-search_kind = "file"
 "#,
     )
     .unwrap();
@@ -549,7 +553,6 @@ platform = "macos"
 [[platforms.targets]]
 kind = "template"
 value = "MACOS_CACHE_HOME/Example"
-search_kind = "file"
 "#,
     )
     .unwrap();
@@ -919,6 +922,7 @@ fn config_show_format_json_malformed_explicit_file_returns_parse_error() {
     let envelope = parse_json(&output.stderr);
     assert_error_schema(&envelope);
     assert_eq!(envelope["command"], "config show");
+    assert_eq!(envelope["payload_kind"], "config-view");
     assert_eq!(envelope["error"]["code"], "config-parse-failed");
 }
 
@@ -949,6 +953,7 @@ fn parse_error_format_json_returns_error_envelope() {
     let value = parse_json(&output.stderr);
     assert_error_schema(&value);
     assert_eq!(value["command"], "clean");
+    assert_eq!(value["payload_kind"], "cleanup-plan");
     assert_eq!(value["error"]["code"], "invalid-arguments");
     assert_eq!(value["error"]["source"], "clap");
     assert!(
@@ -957,6 +962,64 @@ fn parse_error_format_json_returns_error_envelope() {
             .unwrap()
             .contains("unexpected argument")
     );
+}
+
+#[test]
+fn parse_error_format_json_uses_shared_command_contract_table() {
+    let cases: &[(&[&str], &str, &str)] = &[
+        (
+            &["capabilities", "--format", "json", "--bogus"],
+            "capabilities",
+            "capabilities",
+        ),
+        (
+            &["config", "show", "--format", "json", "--bogus"],
+            "config show",
+            "config-view",
+        ),
+        (
+            &["config", "validate", "--format", "json", "--bogus"],
+            "config validate",
+            "config-validation",
+        ),
+        (
+            &["schema", "export", "--format", "json", "--bogus"],
+            "schema export",
+            "cli-schema",
+        ),
+        (
+            &["skills", "delete", "--format", "json", "--bogus"],
+            "skills remove",
+            "skill-management",
+        ),
+        (
+            &["tui", "--format", "json", "--bogus"],
+            "tui",
+            "command-error",
+        ),
+        (
+            &["completion", "--format", "json", "--bogus"],
+            "completion",
+            "command-error",
+        ),
+    ];
+
+    for (args, expected_command, expected_payload_kind) in cases {
+        let output = common::command::rebecca().args(*args).output().unwrap();
+
+        assert!(!output.status.success(), "args: {args:?}");
+        assert!(output.stdout.is_empty(), "args: {args:?}");
+
+        let value = parse_json(&output.stderr);
+        assert_error_schema(&value);
+        assert_eq!(value["command"], *expected_command, "args: {args:?}");
+        assert_eq!(
+            value["payload_kind"], *expected_payload_kind,
+            "args: {args:?}"
+        );
+        assert_eq!(value["error"]["code"], "invalid-arguments");
+        assert_eq!(value["error"]["source"], "clap");
+    }
 }
 
 #[test]
@@ -977,6 +1040,30 @@ fn parse_error_format_ndjson_returns_error_event() {
     let event = events.first().unwrap();
     assert_event_schema(event);
     assert_eq!(event["command"], "inspect artifacts");
+    assert_eq!(event["payload_kind"], "inspect-artifacts");
+    assert_eq!(event["event_kind"], "error");
+    assert_eq!(event["error"]["code"], "invalid-arguments");
+}
+
+#[test]
+fn parse_error_format_ndjson_unknown_command_uses_documented_command_error_kind() {
+    let output = common::command::rebecca()
+        .args(["not-a-command", "--format", "ndjson"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let events = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 1);
+    let event = events.first().unwrap();
+    assert_event_schema(event);
+    assert_eq!(event["command"], "rebecca");
+    assert_eq!(event["payload_kind"], "command-error");
     assert_eq!(event["event_kind"], "error");
     assert_eq!(event["error"]["code"], "invalid-arguments");
 }
@@ -1187,6 +1274,73 @@ fn clean_format_ndjson_file_progress_detail_emits_file_measured_events() {
         "verbose ndjson should include file events: {stdout}"
     );
     assert!(events.last().unwrap()["event_kind"] == "completed");
+}
+
+#[test]
+fn clean_format_ndjson_yes_emits_execution_progress_events() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    std::fs::create_dir_all(&temp_cache).unwrap();
+    let cache_file = temp_cache.join("cache.tmp");
+    std::fs::write(&cache_file, b"cache").unwrap();
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
+        .args([
+            "clean",
+            "--yes",
+            "--format",
+            "ndjson",
+            "--no-scan-cache",
+            "--rule",
+            common::support::current_platform_user_temp_rule_id(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "ndjson execution progress must not use stderr"
+    );
+    assert!(!cache_file.exists(), "cleanup should execute the target");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let event_index = |event_kind: &str| {
+        events
+            .iter()
+            .position(|event| event["event_kind"] == event_kind)
+            .unwrap_or_else(|| panic!("missing {event_kind} event: {stdout}"))
+    };
+
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert!(events.iter().all(|event| {
+        assert_event_schema(event);
+        true
+    }));
+    assert!(
+        event_index("target-finished") < event_index("execution-started"),
+        "execution progress should start after planning progress: {stdout}"
+    );
+    assert!(event_index("execution-started") < event_index("execution-target-started"));
+    assert!(event_index("execution-target-started") < event_index("execution-target-finished"));
+    assert!(event_index("execution-target-finished") < event_index("execution-completed"));
+    assert!(event_index("execution-completed") < events.len() - 1);
+
+    let target_finished = &events[event_index("execution-target-finished")];
+    assert_eq!(target_finished["data"]["status"], "completed");
+    assert_eq!(target_finished["data"]["pending_reclaim_bytes"], 5);
 }
 
 #[test]
@@ -1408,6 +1562,7 @@ fn cli_api_schema_documents_are_parseable_draft_2020_12() {
         .map(|value| value.as_str().unwrap())
         .collect::<Vec<_>>();
     assert!(!payload_kinds.contains(&"project-artifact-insight"));
+    assert!(payload_kinds.contains(&"command-error"));
     assert!(payload_kinds.contains(&"active-process-diagnostic"));
     assert!(payload_kinds.contains(&"trash-report"));
     assert!(payload_kinds.contains(&"skill-management"));
@@ -1505,12 +1660,17 @@ fn cli_api_catalog_and_inspect_payloads_are_documented_in_v1() {
         error["properties"]["api_version"]["const"],
         "rebecca.cli.v1"
     );
+    assert_eq!(
+        error["properties"]["payload_kind"]["$ref"],
+        "payloads.schema.json#/$defs/payloadKind"
+    );
 }
 
 #[test]
 fn cli_api_examples_match_documented_envelope_shapes() {
     let error = read_doc_json("examples/error-invalid-rule.json");
     assert_error_schema(&error);
+    assert_eq!(error["payload_kind"], "cleanup-plan");
     assert_eq!(error["error"]["code"], "invalid-rule-id");
 
     let event = read_doc_json("examples/event-completed.json");
@@ -1548,6 +1708,7 @@ fn cli_api_catalog_error_example_matches_documented_shape() {
     let error = read_doc_json("examples/error-invalid-warning.json");
     assert_error_schema(&error);
     assert_eq!(error["command"], "catalog");
+    assert_eq!(error["payload_kind"], "catalog");
     assert_eq!(error["error"]["code"], "invalid-catalog-selector");
 }
 

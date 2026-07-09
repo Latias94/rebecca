@@ -1,7 +1,7 @@
 use std::sync::mpsc::TryRecvError;
 
 use anyhow::Result;
-use rebecca::core::config::AppRuntimeConfig;
+use rebecca_core::config::AppRuntimeConfig;
 
 use crate::runtime::CliRuntime;
 use crate::tui::app::TuiApp;
@@ -153,9 +153,9 @@ mod tests {
     use crate::tui::progress::TuiTaskId;
     use crate::tui::task_progress::{TaskSendError, send_progress_message};
     use crate::tui::task_worker::{ActiveTask, TASK_CHANNEL_CAPACITY, TaskMessage};
-    use rebecca::core::config::{AppPaths, PurgeRuntimeConfig};
-    use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
-    use rebecca::core::scan_cache::ScanCachePolicy;
+    use rebecca_core::config::{AppPaths, PurgeRuntimeConfig};
+    use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken};
+    use rebecca_core::scan_cache::ScanCachePolicy;
 
     #[test]
     fn task_manager_rejects_second_background_task() {

@@ -76,15 +76,6 @@
         "dangerous"
       ]
     },
-    "searchKind": {
-      "type": "string",
-      "enum": [
-        "file",
-        "glob",
-        "steam-install",
-        "steam-library"
-      ]
-    },
     "provenance": {
       "type": "object",
       "additionalProperties": false,
@@ -241,9 +232,6 @@
         },
         "value": {
           "$ref": "#/$defs/nonEmptyString"
-        },
-        "search_kind": {
-          "$ref": "#/$defs/searchKind"
         }
       }
     },
@@ -260,9 +248,6 @@
         },
         "value": {
           "$ref": "#/$defs/nonEmptyString"
-        },
-        "search_kind": {
-          "$ref": "#/$defs/searchKind"
         }
       }
     }

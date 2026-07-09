@@ -1971,10 +1971,12 @@ fn inspect_disk_map_inner<'a>(
     let mut visited_directories = BTreeSet::new();
     let max_depth = options.max_depth.unwrap_or(usize::MAX);
     let backend_source = mft_backend_source_label(index.source_label);
-    let entry_provenance = EstimateProvenance::from_backend_confidence_and_source(
-        ScanBackendKind::WindowsNtfsMftExperimental,
-        ScanEstimateConfidence::Exact,
-        Some(backend_source.clone()),
+    let entry_provenance = options.metadata_profile.apply_to_provenance(
+        EstimateProvenance::from_backend_confidence_and_source(
+            ScanBackendKind::WindowsNtfsMftExperimental,
+            ScanEstimateConfidence::Exact,
+            Some(backend_source.clone()),
+        ),
     );
     let aggregate = if target_entry.is_directory {
         caveats.extend(target_entry.caveats.clone());
@@ -2005,6 +2007,7 @@ fn inspect_disk_map_inner<'a>(
                 &mut top_entries,
                 &mut groups,
                 capabilities.volume_serial,
+                options.metadata_profile,
                 cancellation,
             )?;
             aggregate.absorb_child(child_aggregate);
@@ -2024,10 +2027,12 @@ fn inspect_disk_map_inner<'a>(
             &mut top_entries,
             &mut groups,
             capabilities.volume_serial,
+            options.metadata_profile,
             cancellation,
         )?
     };
-    let metrics = disk_map_metrics_from_physical(aggregate.into_metrics());
+    let metrics =
+        disk_map_metrics_from_physical(aggregate.into_metrics(), options.metadata_profile);
 
     let measured = MeasuredScan::exact(
         ScanReport {
@@ -2103,6 +2108,7 @@ fn collect_mft_disk_map_entry(
     top_entries: &mut DiskMapTopEntries,
     groups: &mut DiskMapGroupCollector,
     volume_serial_number: u64,
+    metadata_profile: crate::disk_map::DiskMapMetadataProfile,
     cancellation: &ScanCancellationToken,
 ) -> Result<PhysicalMetricsAccumulator> {
     check_not_cancelled(cancellation)?;
@@ -2131,10 +2137,12 @@ fn collect_mft_disk_map_entry(
         aggregate.record_directory();
         groups.record_directory();
     } else {
-        aggregate.record_file_path(
+        record_mft_file_path(
+            &mut aggregate,
+            metadata_profile,
             entry.reference.record_id,
             entry.logical_size,
-            entry.allocated_size,
+            || entry.allocated_size,
         );
     }
 
@@ -2168,6 +2176,7 @@ fn collect_mft_disk_map_entry(
                 top_entries,
                 groups,
                 volume_serial_number,
+                metadata_profile,
                 cancellation,
             )?;
             aggregate.absorb_child(child_aggregate);
@@ -2179,17 +2188,20 @@ fn collect_mft_disk_map_entry(
             &path,
             depth,
             entry.logical_size,
-            entry.allocated_size,
-            ntfs_filetime_to_system_time(Some(entry.modified_windows_filetime)),
-            DiskMapMetadataSemantics::with_file_identity(DiskMapFileIdentity::new(
+            metadata_profile.allocated_bytes_with(|| entry.allocated_size),
+            metadata_profile.modified_time_with(|| {
+                ntfs_filetime_to_system_time(Some(entry.modified_windows_filetime))
+            }),
+            mft_metadata_semantics(
+                metadata_profile,
                 volume_serial_number,
                 entry.reference.record_id,
-            )),
+            ),
         );
     }
 
     if depth <= max_depth {
-        let metrics = disk_map_metrics_from_physical(aggregate.metrics());
+        let metrics = disk_map_metrics_from_physical(aggregate.metrics(), metadata_profile);
         top_entries.push(DiskMapEntry {
             path,
             root: root.to_path_buf(),
@@ -2792,10 +2804,12 @@ fn build_targeted_mft_disk_map<'a>(
         cancellation,
         monitor: &monitor,
     };
-    let entry_provenance = EstimateProvenance::from_backend_confidence_and_source(
-        ScanBackendKind::WindowsNtfsMftExperimental,
-        ScanEstimateConfidence::Exact,
-        Some(mft_backend_source_label(TARGETED_MFT_SOURCE_LABEL)),
+    let entry_provenance = options.metadata_profile.apply_to_provenance(
+        EstimateProvenance::from_backend_confidence_and_source(
+            ScanBackendKind::WindowsNtfsMftExperimental,
+            ScanEstimateConfidence::Exact,
+            Some(mft_backend_source_label(TARGETED_MFT_SOURCE_LABEL)),
+        ),
     );
     let mut traversal = TargetedMftTraversal {
         resolver: &mut resolver,
@@ -3105,11 +3119,15 @@ where
             max_visible_depth: options.max_depth.unwrap_or(usize::MAX),
             volume_serial_number,
             entry_provenance,
+            metadata_profile: options.metadata_profile,
         };
         let aggregate = self.collect_disk_map_record(root_node, false, &context, &mut state)?;
 
         Ok(TargetedDiskMap {
-            metrics: disk_map_metrics_from_physical(aggregate.into_metrics()),
+            metrics: disk_map_metrics_from_physical(
+                aggregate.into_metrics(),
+                options.metadata_profile,
+            ),
             top_entries: state.top_entries.into_sorted_entries(),
             groups: state.groups,
             caveats: state.caveats,
@@ -3215,10 +3233,12 @@ where
                 &mut aggregate,
             )?;
         } else {
-            aggregate.record_file_path(
+            record_mft_file_path(
+                &mut aggregate,
+                context.metadata_profile,
                 record.reference.record_id,
                 record.cleanup_logical_size(),
-                record.cleanup_allocated_size(),
+                || record.cleanup_allocated_size(),
             );
         }
 
@@ -3227,23 +3247,29 @@ where
                 &node.path,
                 node.depth,
                 record.cleanup_logical_size(),
-                record.cleanup_allocated_size(),
-                ntfs_filetime_to_system_time(
-                    record
-                        .primary_file_name()
-                        .map(|file_name| file_name.modified_windows_filetime),
-                ),
-                DiskMapMetadataSemantics::with_file_identity(DiskMapFileIdentity::new(
+                context
+                    .metadata_profile
+                    .allocated_bytes_with(|| record.cleanup_allocated_size()),
+                context.metadata_profile.modified_time_with(|| {
+                    ntfs_filetime_to_system_time(
+                        record
+                            .primary_file_name()
+                            .map(|file_name| file_name.modified_windows_filetime),
+                    )
+                }),
+                mft_metadata_semantics(
+                    context.metadata_profile,
                     context.volume_serial_number,
                     record.reference.record_id,
-                )),
+                ),
             );
         }
 
         let should_push_entry =
             !record.is_directory || include_root_directory || node.directory_entry.is_some();
         if should_push_entry && node.depth <= context.max_visible_depth {
-            let metrics = disk_map_metrics_from_physical(aggregate.metrics());
+            let metrics =
+                disk_map_metrics_from_physical(aggregate.metrics(), context.metadata_profile);
             state.top_entries.push(DiskMapEntry {
                 path: node.path,
                 root: context.root_path.to_path_buf(),
@@ -3423,14 +3449,49 @@ struct TargetedDiskMap {
     caveats: Vec<ParseCaveat>,
 }
 
-fn disk_map_metrics_from_physical(metrics: PhysicalMetrics) -> DiskMapMetrics {
-    DiskMapMetrics {
+fn disk_map_metrics_from_physical(
+    metrics: PhysicalMetrics,
+    metadata_profile: crate::disk_map::DiskMapMetadataProfile,
+) -> DiskMapMetrics {
+    let mut metrics = DiskMapMetrics {
         logical_bytes: metrics.logical_bytes,
         allocated_bytes: metrics.allocated_bytes,
         unique_logical_bytes: (metrics.files > 0).then_some(metrics.unique_logical_bytes),
         unique_allocated_bytes: metrics.unique_allocated_bytes,
         files: metrics.files,
         directories: metrics.directories,
+    };
+    metadata_profile.apply_to_metrics(&mut metrics);
+    metrics
+}
+
+fn record_mft_file_path(
+    aggregate: &mut PhysicalMetricsAccumulator,
+    metadata_profile: crate::disk_map::DiskMapMetadataProfile,
+    record_id: u64,
+    logical_bytes: u64,
+    allocated_bytes: impl FnOnce() -> Option<u64>,
+) {
+    let allocated_bytes = metadata_profile.allocated_bytes_with(allocated_bytes);
+    if metadata_profile.collects_file_identity() {
+        aggregate.record_file_path(record_id, logical_bytes, allocated_bytes);
+    } else {
+        aggregate.record_file_path_without_identity(logical_bytes, allocated_bytes);
+    }
+}
+
+fn mft_metadata_semantics(
+    metadata_profile: crate::disk_map::DiskMapMetadataProfile,
+    volume_serial_number: u64,
+    record_id: u64,
+) -> DiskMapMetadataSemantics {
+    if metadata_profile.collects_file_identity() {
+        DiskMapMetadataSemantics::with_file_identity(DiskMapFileIdentity::new(
+            volume_serial_number,
+            record_id,
+        ))
+    } else {
+        DiskMapMetadataSemantics::default()
     }
 }
 
@@ -3440,6 +3501,7 @@ struct TargetedDiskMapContext<'a> {
     max_visible_depth: usize,
     volume_serial_number: u64,
     entry_provenance: &'a EstimateProvenance,
+    metadata_profile: crate::disk_map::DiskMapMetadataProfile,
 }
 
 #[derive(Debug)]
@@ -6278,6 +6340,7 @@ mod tests {
                 &mut top_entries,
                 &mut groups,
                 100,
+                options.metadata_profile,
                 &cancellation,
             )
             .unwrap();
@@ -7132,6 +7195,7 @@ mod tests {
             group_limit: 20,
             group_now: UNIX_EPOCH,
             group_sort: DiskMapSortField::Logical,
+            metadata_profile: crate::disk_map::DiskMapMetadataProfile::FullEvidence,
         }
     }
 

@@ -4,20 +4,22 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow};
-use rebecca::core::config::{AppRuntimeConfig, load_runtime_config};
-use rebecca::core::execution::ExecutionReport;
-use rebecca::core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
-use rebecca::core::safety::{PATH_DOES_NOT_EXIST_REASON, is_reparse_like};
-use rebecca::core::{CleanupWorkflow, DeleteMode, Platform, TargetStatus};
+use rebecca_core::config::{AppRuntimeConfig, load_runtime_config};
+use rebecca_core::execution::{ExecutionProgressEvent, ExecutionReport};
+use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetIssueReason};
+use rebecca_core::safety::{PATH_DOES_NOT_EXIST_REASON, is_reparse_like};
+use rebecca_core::{CleanupWorkflow, DeleteMode, Platform, TargetStatus};
 use serde::{Deserialize, Serialize};
 
+use crate::cleanup_receipt::{CleanupReceiptContext, CleanupReceiptRevalidationSummary};
 use crate::cli::OutputMode;
 use crate::output::{
-    CliApiContract, HumanPlanRenderer, WorkflowOutputContract, format_bytes, format_shell_command,
+    CliApiContract, HumanPlanRenderer, NdjsonEventWriter, WorkflowOutputContract, format_bytes,
+    format_shell_command,
 };
 use crate::runtime::CliRuntime;
 use crate::workflow_artifacts::WorkflowArtifacts;
-use crate::workflow_execution::execute_plan;
+use crate::workflow_execution::{ExecutionProgressReporter, execute_plan_with_progress};
 use crate::workflow_planner::WorkflowExecutionGuards;
 use crate::{output, render};
 
@@ -118,16 +120,27 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
     } else {
         DeleteMode::DryRun
     };
+
+    let saved = read_saved_plan(&options.file)?;
+    let mut plan = saved.revalidated_plan(mode)?;
+    let receipt_context = CleanupReceiptContext::capture("plan run")
+        .with_source_plan(
+            options.file.clone(),
+            saved.schema.clone(),
+            saved.generated_at_unix_seconds,
+        )
+        .with_revalidation(CleanupReceiptRevalidationSummary::from_revalidated_plan(
+            &plan,
+        ));
     let artifacts = WorkflowArtifacts::new(
         "plan run",
         options.output_mode,
         None,
         options.receipt.as_deref(),
-    );
+    )
+    .with_receipt_context(receipt_context);
     artifacts.validate_for_mode(mode)?;
 
-    let saved = read_saved_plan(&options.file)?;
-    let mut plan = saved.revalidated_plan(mode)?;
     let contract = plan_run_contract(plan.request.workflow);
     let human_renderer = human_renderer_for_workflow(plan.request.workflow);
 
@@ -161,7 +174,33 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
     }
 
     let runtime_config = load_runtime_config()?;
-    let execution_report = execute_saved_plan(&mut plan, &runtime_config, runtime, mode)?;
+    let mut event_writer = options
+        .output_mode
+        .is_ndjson()
+        .then(|| NdjsonEventWriter::with_contract(contract));
+    if let Some(writer) = &mut event_writer {
+        writer.emit_started()?;
+    }
+    let mut execution_progress =
+        ExecutionProgressReporter::new(options.output_mode.is_human(), event_writer);
+    let execution_report =
+        match execute_saved_plan(&mut plan, &runtime_config, runtime, mode, |event| {
+            execution_progress.on_event(event);
+        }) {
+            Ok(report) => report,
+            Err(err) => {
+                execution_progress.finish();
+                return finish_plan_run_stream_with_error(
+                    execution_progress.into_event_writer(),
+                    err,
+                );
+            }
+        };
+    execution_progress.finish();
+    if let Some(err) = execution_progress.take_event_error() {
+        return finish_plan_run_stream_with_error(execution_progress.into_event_writer(), err);
+    }
+    let event_writer = execution_progress.into_event_writer();
     artifacts.record_execution(
         &mut plan,
         execution_report,
@@ -173,7 +212,7 @@ pub(crate) fn run_with_runtime(options: SavedPlanRunOptions, runtime: &CliRuntim
         options.output_mode,
         human_renderer,
         None,
-        None,
+        event_writer,
     )?;
     artifacts.print_execution_guidance(&plan);
     Ok(())
@@ -191,11 +230,31 @@ fn execute_saved_plan(
     runtime_config: &AppRuntimeConfig,
     runtime: &CliRuntime,
     mode: DeleteMode,
+    progress: impl for<'event> FnMut(ExecutionProgressEvent<'event>),
 ) -> Result<ExecutionReport> {
     let guards = WorkflowExecutionGuards::for_request(&plan.request, runtime_config, &[])?;
     let execution_policy = guards.protection_policy();
 
-    execute_plan(plan, execution_policy, runtime.cancellation(), mode).map_err(Into::into)
+    execute_plan_with_progress(
+        plan,
+        execution_policy,
+        runtime.cancellation(),
+        mode,
+        progress,
+    )
+    .map_err(Into::into)
+}
+
+fn finish_plan_run_stream_with_error(
+    event_writer: Option<NdjsonEventWriter>,
+    err: anyhow::Error,
+) -> Result<()> {
+    if let Some(mut writer) = event_writer {
+        writer.emit_error(&err)?;
+        return Err(output::MachineErrorRendered.into());
+    }
+
+    Err(err)
 }
 
 impl SavedCleanupPlan {

@@ -47,18 +47,17 @@ jobs:
       - name: Show Rust toolchain
         run: rustup show
 
-      - name: Verify workspace version
+      - name: Test crates.io publish plan resolver
         shell: pwsh
-        run: |
-          $match = Select-String -LiteralPath Cargo.toml -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
-          if (-not $match) {
-            throw "Could not read workspace version from Cargo.toml"
-          }
+        run: pwsh -File scripts/release/resolve-publish-plan.ps1 -SelfTest
 
-          $workspaceVersion = $match.Matches[0].Groups[1].Value
-          if ($workspaceVersion -ne "${{ inputs.version }}") {
-            throw "Cargo workspace version '$workspaceVersion' does not match release version '${{ inputs.version }}'."
-          }
+      - name: Test crate package verifier
+        shell: pwsh
+        run: pwsh -File scripts/release/verify-package-plan.ps1 -SelfTest
+
+      - name: Resolve crates.io publish plan
+        shell: pwsh
+        run: pwsh -File scripts/release/resolve-publish-plan.ps1 -Version "${{ inputs.version }}" -OutputPath "target/release-preflight/publish-plan.json" -MarkdownPath "target/release-preflight/publish-plan-summary.md"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -75,117 +74,12 @@ jobs:
       - name: Validate built-in catalogs
         run: cargo run -p rebecca --locked -- catalog validate --format json
 
-      - name: Build package file lists
+      - name: Validate packaged skills
+        run: python skills/validate.py
+
+      - name: Verify crate package plan
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "target/package-lists" | Out-Null
-          foreach ($crate in @("rebecca-safety", "rebecca-ntfs", "rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca")) {
-            cargo package -p $crate --list > "target/package-lists/$crate.txt"
-          }
-
-          foreach ($schema in @(
-            "schemas/api/cli/v1/envelope.schema.json",
-            "schemas/api/cli/v1/error.schema.json",
-            "schemas/api/cli/v1/event.schema.json",
-            "schemas/api/cli/v1/payloads.schema.json",
-            "schemas/api/cli/v1/config.schema.json",
-            "schemas/api/cli/v1/cleaner-manifest-v1.schema.json"
-          )) {
-            if (-not (Select-String -LiteralPath "target/package-lists/rebecca.txt" -Pattern ([regex]::Escape($schema)) -Quiet)) {
-              throw "rebecca package is missing CLI schema asset: $schema"
-            }
-          }
-
-          foreach ($skillAsset in @(
-            "skills/rebecca-disk-cleaner/SKILL.md"
-          )) {
-            if (-not (Select-String -LiteralPath "target/package-lists/rebecca.txt" -Pattern ([regex]::Escape($skillAsset)) -Quiet)) {
-              throw "rebecca package is missing skill asset: $skillAsset"
-            }
-          }
-
-      - name: Verify crates.io publish dependency order
-        shell: pwsh
-        run: |
-          $publishOrder = @("rebecca-safety", "rebecca-ntfs", "rebecca-core", "rebecca-rules", "rebecca-windows", "rebecca")
-          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
-          $workspaceMemberIds = @{}
-          foreach ($memberId in $metadata.workspace_members) {
-            $workspaceMemberIds[[string]$memberId] = $true
-          }
-
-          $workspacePackages = @{}
-          foreach ($package in $metadata.packages) {
-            if ($workspaceMemberIds.ContainsKey([string]$package.id)) {
-              $workspacePackages[[string]$package.name] = $package
-            }
-          }
-
-          $orderByName = @{}
-          for ($index = 0; $index -lt $publishOrder.Count; $index++) {
-            $crate = $publishOrder[$index]
-            if (-not $workspacePackages.ContainsKey($crate)) {
-              throw "Publish order references workspace crate '$crate', but cargo metadata did not find it."
-            }
-
-            $crateVersion = [string]$workspacePackages[$crate].version
-            if ($crateVersion -ne "${{ inputs.version }}") {
-              throw "$crate version '$crateVersion' does not match release version '${{ inputs.version }}'."
-            }
-
-            $orderByName[$crate] = $index
-          }
-
-          foreach ($crate in $workspacePackages.Keys) {
-            if (-not $orderByName.ContainsKey($crate)) {
-              throw "Workspace crate '$crate' is missing from the crates.io publish order."
-            }
-          }
-
-          $violations = [System.Collections.Generic.List[string]]::new()
-          foreach ($crate in $publishOrder) {
-            $package = $workspacePackages[$crate]
-            foreach ($dependency in $package.dependencies) {
-              $dependencyName = [string]$dependency.name
-              if (-not $orderByName.ContainsKey($dependencyName)) {
-                continue
-              }
-
-              if ($orderByName[$dependencyName] -ge $orderByName[$crate]) {
-                $dependencyKind = if ($null -eq $dependency.kind) { "normal" } else { [string]$dependency.kind }
-                $violations.Add("$crate has a $dependencyKind workspace dependency on $dependencyName, but $dependencyName is not published earlier.")
-              }
-            }
-          }
-
-          if ($violations.Count -gt 0) {
-            $message = "Invalid crates.io publish order:`n" + ($violations -join "`n")
-            throw $message
-          }
-
-      - name: Verify registry-independent crate dry-runs
-        shell: pwsh
-        run: |
-          function Test-CrateVersionPublished {
-            param(
-              [Parameter(Mandatory = $true)]
-              [string]$Crate,
-              [Parameter(Mandatory = $true)]
-              [string]$Version
-            )
-
-            cargo info "$Crate@$Version" --registry crates-io *> $null
-            return $LASTEXITCODE -eq 0
-          }
-
-          foreach ($crate in @("rebecca-safety", "rebecca-ntfs")) {
-            if (Test-CrateVersionPublished -Crate $crate -Version "${{ inputs.version }}") {
-              Write-Host "Skipping dry-run for $crate ${{ inputs.version }} because it is already published."
-              continue
-            }
-
-            cargo publish -p $crate --locked --dry-run --registry crates-io
-          }
+        run: pwsh -File scripts/release/verify-package-plan.ps1 -Version "${{ inputs.version }}" -PublishPlanPath "target/release-preflight/publish-plan.json" -PackageListDir "target/package-lists" -EvidencePath "target/release-preflight/package-verification.json"
 
       - name: Build release archive
         shell: pwsh
@@ -220,7 +114,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: crate-package-lists
-          path: target/package-lists/*.txt
+          path: |
+            target/package-lists/*.txt
+            target/release-preflight/package-verification.json
+            target/release-preflight/publish-plan.json
+            target/release-preflight/publish-plan-summary.md
 
   macos-cleanup-smoke:
     name: macOS cleanup smoke

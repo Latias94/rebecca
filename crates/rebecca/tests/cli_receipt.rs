@@ -2,6 +2,20 @@ use std::fs;
 
 mod common;
 
+const API_DOCS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api/cli/v1");
+
+fn cleanup_receipt_validator() -> jsonschema::Validator {
+    let payloads_path = std::path::Path::new(API_DOCS).join("payloads.schema.json");
+    let payloads: serde_json::Value = serde_json::from_slice(&fs::read(payloads_path).unwrap())
+        .expect("payload schema should be valid JSON");
+    let schema = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": payloads["$defs"].clone(),
+        "$ref": "#/$defs/cleanupReceipt",
+    });
+    jsonschema::validator_for(&schema).expect("cleanup receipt schema should compile")
+}
+
 fn write_temp_cache_fixture(temp: &tempfile::TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
     let temp_cache = temp.path().join("temp");
     fs::create_dir_all(&temp_cache).unwrap();
@@ -79,14 +93,45 @@ fn clean_yes_receipt_reports_recoverable_trash_execution() {
 
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(&receipt_file).unwrap()).unwrap();
+    cleanup_receipt_validator().validate(&receipt).unwrap();
     assert_eq!(receipt["schema"], "rebecca.cleanup-receipt.v1");
     assert_eq!(receipt["command"], "clean");
+    assert_eq!(receipt["invocation"]["command"], "clean");
+    assert!(
+        receipt["invocation"]["argv"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|arg| arg == "clean")
+    );
+    assert_eq!(receipt["request"]["mode"], "recoverable-delete");
+    assert_eq!(receipt["request"]["workflow"], "rules");
+    assert_eq!(
+        receipt["request"]["selected_rule_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|rule_id| rule_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![common::support::current_platform_user_temp_rule_id()]
+    );
+    assert_eq!(
+        receipt["request"]["project_artifact_roots"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(receipt["selected_gates"]["allow_moderate"], false);
+    assert_eq!(receipt["selected_gates"]["allow_risky"], false);
     assert_eq!(receipt["workflow"], "rules");
     assert_eq!(receipt["mode"], "recoverable-delete");
     if cfg!(target_os = "windows") {
         assert_eq!(receipt["destination"], "windows-recycle-bin");
+        assert_eq!(receipt["destination_label"], "Windows Recycle Bin");
     } else {
         assert_eq!(receipt["destination"], "system-trash");
+        assert_eq!(receipt["destination_label"], "system trash");
     }
     assert_eq!(receipt["summary"]["completed_targets"], 1);
     assert_eq!(receipt["summary"]["pending_reclaim_bytes"], 5);
@@ -94,23 +139,43 @@ fn clean_yes_receipt_reports_recoverable_trash_execution() {
         receipt["execution_report"]["summary"]["pending_reclaim_bytes"],
         5
     );
+    assert!(receipt["targets"].as_array().unwrap().iter().any(|target| {
+        target["status"] == "completed"
+            && target["pending_reclaim_bytes"] == 5
+            && target["estimate"]["source"] == "fresh-scan"
+            && target["estimate"]["provenance"].is_object()
+    }));
     assert!(
-        receipt["targets"]
+        receipt["next_steps"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|target| target["status"] == "completed" && target["pending_reclaim_bytes"] == 5)
+            .any(|step| step["kind"] == "preview-trash"
+                && step["command"].as_str().unwrap().ends_with("trash empty"))
     );
     assert!(
         receipt["next_steps"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|step| step["kind"] == "empty-trash"
+            .any(|step| step["kind"] == "empty-trash-after-review"
                 && step["command"]
                     .as_str()
                     .unwrap()
                     .contains("trash empty --yes"))
+    );
+    let next_steps = receipt["next_steps"].as_array().unwrap();
+    let preview_step_index = next_steps
+        .iter()
+        .position(|step| step["kind"] == "preview-trash")
+        .expect("preview trash step should be present");
+    let empty_step_index = next_steps
+        .iter()
+        .position(|step| step["kind"] == "empty-trash-after-review")
+        .expect("empty trash after review step should be present");
+    assert!(
+        preview_step_index < empty_step_index,
+        "receipt should recommend previewing trash before emptying it"
     );
 }
 
@@ -149,8 +214,22 @@ fn plan_run_yes_receipt_records_revalidated_execution() {
 
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(&receipt_file).unwrap()).unwrap();
+    cleanup_receipt_validator().validate(&receipt).unwrap();
     assert_eq!(receipt["schema"], "rebecca.cleanup-receipt.v1");
     assert_eq!(receipt["command"], "plan run");
+    assert_eq!(receipt["invocation"]["command"], "plan run");
+    assert!(
+        receipt["source_plan"]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("cleanup-plan.json")
+    );
+    assert_eq!(
+        receipt["source_plan"]["schema"],
+        "rebecca.saved-cleanup-plan.v1"
+    );
+    assert_eq!(receipt["revalidation"]["changed_targets"], 0);
+    assert_eq!(receipt["revalidation"]["executable_targets"], 1);
     assert_eq!(receipt["summary"]["completed_targets"], 1);
     assert_eq!(
         receipt["execution_report"]["summary"]["completed_actions"],

@@ -182,6 +182,8 @@ function Convert-Estimate {
     $physicalDirectories = Get-ScenarioNumber -Scenario $Scenario -PropertyName "physical_directories"
     $expectedBytes = Get-ScenarioNumber -Scenario $Scenario -PropertyName "expected_bytes"
     $progressEvents = Get-ScenarioNumber -Scenario $Scenario -PropertyName "progress_events"
+    $progressDetail = Get-ScenarioText -Scenario $Scenario -PropertyName "progress_detail"
+    $metadataProfile = Get-ScenarioText -Scenario $Scenario -PropertyName "metadata_profile"
     $targetCount = Get-ScenarioNumber -Scenario $Scenario -PropertyName "target_count"
     $cacheMode = Get-ScenarioText -Scenario $Scenario -PropertyName "cache_mode"
     $deleteMode = Get-ScenarioText -Scenario $Scenario -PropertyName "delete_mode"
@@ -198,6 +200,8 @@ function Convert-Estimate {
         physical_directories = $physicalDirectories
         expected_bytes = $expectedBytes
         progress_events = $progressEvents
+        progress_detail = $progressDetail
+        metadata_profile = $metadataProfile
         target_count = $targetCount
         cache_mode = $cacheMode
         delete_mode = $deleteMode
@@ -221,6 +225,8 @@ function Convert-Estimate {
                 physical_directories = $physicalDirectories
                 expected_bytes = $expectedBytes
                 progress_events = $progressEvents
+                progress_detail = $progressDetail
+                metadata_profile = $metadataProfile
                 target_count = $targetCount
             }
             cache = [pscustomobject]@{
@@ -256,6 +262,8 @@ function Convert-ScenarioForCsv {
         physical_directories = $Scenario.physical_directories
         expected_bytes = $Scenario.expected_bytes
         progress_events = $Scenario.progress_events
+        progress_detail = $Scenario.progress_detail
+        metadata_profile = $Scenario.metadata_profile
         target_count = $Scenario.target_count
         cache_mode = $Scenario.cache_mode
         delete_mode = $Scenario.delete_mode
@@ -327,7 +335,7 @@ function Write-ReportArtifacts {
         $csvRows | Export-Csv -LiteralPath $Paths.csv -NoTypeInformation -Encoding utf8
     }
     else {
-        "scenario,operation,backend,backend_source_expectation,fixture,physical_files,physical_directories,expected_bytes,progress_events,target_count,cache_mode,delete_mode,estimate_confidence,scan_cache_miss_reason,scan_cache_write,status,status_reason,mean_ns,median_ns,mean_ci_lower_ns,mean_ci_upper_ns" |
+        "scenario,operation,backend,backend_source_expectation,fixture,physical_files,physical_directories,expected_bytes,progress_events,progress_detail,metadata_profile,target_count,cache_mode,delete_mode,estimate_confidence,scan_cache_miss_reason,scan_cache_write,status,status_reason,mean_ns,median_ns,mean_ci_lower_ns,mean_ci_upper_ns" |
             Set-Content -LiteralPath $Paths.csv -Encoding utf8
     }
 

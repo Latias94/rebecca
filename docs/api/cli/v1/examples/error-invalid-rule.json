@@ -2,6 +2,7 @@
   "api_version": "rebecca.cli.v1",
   "kind": "error",
   "command": "clean",
+  "payload_kind": "cleanup-plan",
   "generated_at_unix_seconds": 1782660000,
   "error": {
     "code": "invalid-rule-id",

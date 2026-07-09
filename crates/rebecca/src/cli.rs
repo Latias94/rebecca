@@ -143,7 +143,7 @@ pub enum ScanBackendArg {
     WindowsNtfsMftExperimental,
 }
 
-impl From<ScanBackendArg> for rebecca::core::scan::ScanBackendKind {
+impl From<ScanBackendArg> for rebecca_core::scan::ScanBackendKind {
     fn from(value: ScanBackendArg) -> Self {
         match value {
             ScanBackendArg::PortableRecursive => Self::PortableRecursive,
@@ -161,7 +161,7 @@ pub enum DiskMapGroupKindArg {
     Age,
 }
 
-impl From<DiskMapGroupKindArg> for rebecca::core::disk_map::DiskMapGroupKind {
+impl From<DiskMapGroupKindArg> for rebecca_core::disk_map::DiskMapGroupKind {
     fn from(value: DiskMapGroupKindArg) -> Self {
         match value {
             DiskMapGroupKindArg::Type => Self::Type,
@@ -179,12 +179,39 @@ pub enum DiskMapEntryKindArg {
     Other,
 }
 
-impl From<DiskMapEntryKindArg> for rebecca::core::disk_map::DiskMapEntryKind {
+impl From<DiskMapEntryKindArg> for rebecca_core::disk_map::DiskMapEntryKind {
     fn from(value: DiskMapEntryKindArg) -> Self {
         match value {
             DiskMapEntryKindArg::File => Self::File,
             DiskMapEntryKindArg::Directory => Self::Directory,
             DiskMapEntryKindArg::Other => Self::Other,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum DiskMapMetadataProfileArg {
+    /// Fastest disk map: logical bytes only, without allocated or unique-file evidence.
+    LogicalOnly,
+    /// Include allocated bytes, but skip unique-file and modified-time evidence.
+    Allocated,
+    /// Include allocated bytes and unique-file identity, but skip modified-time evidence.
+    Unique,
+    /// Include allocated bytes, unique-file identity, and modified time for grouping.
+    AgeAndGrouping,
+    /// Include all available disk-map evidence. This is the default.
+    #[default]
+    FullEvidence,
+}
+
+impl From<DiskMapMetadataProfileArg> for rebecca_core::disk_map::DiskMapMetadataProfile {
+    fn from(value: DiskMapMetadataProfileArg) -> Self {
+        match value {
+            DiskMapMetadataProfileArg::LogicalOnly => Self::LogicalOnly,
+            DiskMapMetadataProfileArg::Allocated => Self::Allocated,
+            DiskMapMetadataProfileArg::Unique => Self::Unique,
+            DiskMapMetadataProfileArg::AgeAndGrouping => Self::AgeAndGrouping,
+            DiskMapMetadataProfileArg::FullEvidence => Self::FullEvidence,
         }
     }
 }
@@ -198,7 +225,7 @@ pub enum CleanupAdviceStatusArg {
     Unknown,
 }
 
-impl From<CleanupAdviceStatusArg> for rebecca::core::cleanup_advice::CleanupAdviceStatus {
+impl From<CleanupAdviceStatusArg> for rebecca_core::cleanup_advice::CleanupAdviceStatus {
     fn from(value: CleanupAdviceStatusArg) -> Self {
         match value {
             CleanupAdviceStatusArg::Cleanable => Self::Cleanable,
@@ -219,7 +246,7 @@ pub enum DiskMapSortArg {
     Unique,
 }
 
-impl From<DiskMapSortArg> for rebecca::core::disk_map::DiskMapSortField {
+impl From<DiskMapSortArg> for rebecca_core::disk_map::DiskMapSortField {
     fn from(value: DiskMapSortArg) -> Self {
         match value {
             DiskMapSortArg::Logical => Self::Logical,
@@ -292,7 +319,7 @@ pub enum SchemaDocumentArg {
     CleanerManifestV1,
 }
 
-impl From<CatalogKindArg> for rebecca::core::catalog::CatalogItemKind {
+impl From<CatalogKindArg> for rebecca_core::catalog::CatalogItemKind {
     fn from(kind: CatalogKindArg) -> Self {
         match kind {
             CatalogKindArg::CleanupRule => Self::CleanupRule,
@@ -304,7 +331,7 @@ impl From<CatalogKindArg> for rebecca::core::catalog::CatalogItemKind {
     }
 }
 
-impl From<PlatformArg> for rebecca::core::Platform {
+impl From<PlatformArg> for rebecca_core::Platform {
     fn from(platform: PlatformArg) -> Self {
         match platform {
             PlatformArg::Windows => Self::Windows,
@@ -322,7 +349,7 @@ pub enum SafetyLevelArg {
     Dangerous,
 }
 
-impl From<SafetyLevelArg> for rebecca::core::SafetyLevel {
+impl From<SafetyLevelArg> for rebecca_core::SafetyLevel {
     fn from(level: SafetyLevelArg) -> Self {
         match level {
             SafetyLevelArg::Safe => Self::Safe,
@@ -459,7 +486,7 @@ pub struct InspectSpaceArgs {
     #[arg(long = "top", value_name = "N", default_value_t = 10)]
     pub top_limit: usize,
     /// Maximum number of raw diagnostics to include. Use 0 for summary only.
-    #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::inspect::DEFAULT_SPACE_INSIGHT_DIAGNOSTIC_LIMIT)]
+    #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca_core::inspect::DEFAULT_SPACE_INSIGHT_DIAGNOSTIC_LIMIT)]
     pub diagnostic_limit: usize,
 }
 
@@ -475,11 +502,14 @@ pub struct InspectMapArgs {
     /// Select the scan backend used for disk-map inventory.
     #[arg(long = "scan-backend", value_enum, default_value_t = ScanBackendArg::PortableRecursive)]
     pub scan_backend: ScanBackendArg,
+    /// Select how much metadata disk-map inventory collects.
+    #[arg(long = "metadata-profile", value_enum, default_value_t = DiskMapMetadataProfileArg::FullEvidence)]
+    pub metadata_profile: DiskMapMetadataProfileArg,
     /// Directory or file to inspect. Can be repeated. Defaults to the current directory.
     #[arg(long = "root", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub roots: Vec<PathBuf>,
     /// Maximum number of largest entries to include. Use 0 for totals only.
-    #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_TOP_LIMIT)]
+    #[arg(long = "top", value_name = "N", default_value_t = rebecca_core::disk_map::DEFAULT_DISK_MAP_TOP_LIMIT)]
     pub top_limit: usize,
     /// Sort top entries by logical bytes, allocated bytes, file count, or unique logical bytes.
     #[arg(long = "sort", value_enum, default_value_t = DiskMapSortArg::Logical)]
@@ -515,7 +545,7 @@ pub struct InspectMapArgs {
     #[arg(long = "group-by", value_enum)]
     pub group_kinds: Vec<DiskMapGroupKindArg>,
     /// Maximum number of groups to include across all requested group kinds.
-    #[arg(long = "group-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_GROUP_LIMIT)]
+    #[arg(long = "group-limit", value_name = "N", default_value_t = rebecca_core::disk_map::DEFAULT_DISK_MAP_GROUP_LIMIT)]
     pub group_limit: usize,
     /// Sort groups by logical bytes, allocated bytes, file count, or unique logical bytes.
     #[arg(long = "group-sort", value_enum, default_value_t = DiskMapSortArg::Logical)]
@@ -527,7 +557,7 @@ pub struct InspectMapArgs {
     #[arg(long = "table-row", value_enum, value_name = "KIND")]
     pub table_row_kinds: Vec<InspectMapTableRowKindArg>,
     /// Maximum number of raw diagnostics to include. Use 0 for summary only.
-    #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca::core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
+    #[arg(long = "diagnostic-limit", value_name = "N", default_value_t = rebecca_core::disk_map::DEFAULT_DISK_MAP_DIAGNOSTIC_LIMIT)]
     pub diagnostic_limit: usize,
     /// Maximum rendered depth below each root. Direct children are depth 1.
     #[arg(long = "max-depth", value_name = "N")]
@@ -577,10 +607,10 @@ pub struct InspectLintArgs {
     #[arg(long = "exclude", value_name = "PATH", value_hint = ValueHint::AnyPath)]
     pub exclude_paths: Vec<PathBuf>,
     /// Include files at or above this size in the large-file report.
-    #[arg(long, value_name = "BYTES", default_value_t = rebecca::core::lint::DEFAULT_LARGE_FILE_THRESHOLD_BYTES)]
+    #[arg(long, value_name = "BYTES", default_value_t = rebecca_core::lint::DEFAULT_LARGE_FILE_THRESHOLD_BYTES)]
     pub large_file_threshold_bytes: u64,
     /// Maximum number of groups or entries to include per lint report section.
-    #[arg(long = "top", value_name = "N", default_value_t = rebecca::core::lint::DEFAULT_LINT_TOP_LIMIT)]
+    #[arg(long = "top", value_name = "N", default_value_t = rebecca_core::lint::DEFAULT_LINT_TOP_LIMIT)]
     pub top_limit: usize,
 }
 
@@ -932,7 +962,7 @@ pub enum CacheNamespaceArg {
     NtfsVolumeIndex,
 }
 
-impl From<CacheNamespaceArg> for rebecca::core::cache::CacheNamespace {
+impl From<CacheNamespaceArg> for rebecca_core::cache::CacheNamespace {
     fn from(namespace: CacheNamespaceArg) -> Self {
         match namespace {
             CacheNamespaceArg::All => Self::All,

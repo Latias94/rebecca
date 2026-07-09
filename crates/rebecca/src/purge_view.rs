@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
-use rebecca::core::project_artifacts::ProjectArtifactDiscoveryDiagnostic;
-use rebecca::core::{EstimateProvenance, EstimateSource, TargetStatus};
+use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTarget, CleanupTargetIssueReason};
+use rebecca_core::project_artifacts::ProjectArtifactDiscoveryDiagnostic;
+use rebecca_core::{EstimateProvenance, EstimateSource, TargetStatus};
 use serde::Serialize;
 
 use crate::text::format_count;
@@ -439,8 +439,8 @@ fn status_order(status: TargetStatus) -> usize {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTargetIssueReason};
-    use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
+    use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTargetIssueReason};
+    use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
     use super::*;
 

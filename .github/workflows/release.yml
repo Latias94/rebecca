@@ -91,10 +91,81 @@ jobs:
           name: artifacts-plan-dist-manifest
           path: plan-dist-manifest.json
 
+  release-preflight:
+    name: release-preflight
+    needs:
+      - plan
+    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    runs-on: "ubuntu-24.04"
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt,clippy
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+      - name: Install dist
+        shell: bash
+        run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh"
+      - name: Resolve release version
+        id: release-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="${{ needs.plan.outputs.tag }}"
+          if [[ ! "$release_tag" =~ ^[vV] ]]; then
+            echo "::error::Release tag '$release_tag' must start with v or V to publish crates."
+            exit 1
+          fi
+          echo "version=${release_tag:1}" >> "$GITHUB_OUTPUT"
+      - name: Test crates.io publish plan resolver
+        shell: pwsh
+        run: pwsh -File scripts/release/resolve-publish-plan.ps1 -SelfTest
+      - name: Test crate package verifier
+        shell: pwsh
+        run: pwsh -File scripts/release/verify-package-plan.ps1 -SelfTest
+      - name: Resolve crates.io publish plan
+        shell: pwsh
+        run: pwsh -File scripts/release/resolve-publish-plan.ps1 -Version "${{ steps.release-version.outputs.version }}" -OutputPath "target/release-preflight/publish-plan.json" -MarkdownPath "target/release-preflight/publish-plan-summary.md"
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run dependency policy checks
+        run: cargo deny check
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo nextest run --workspace --locked
+      - name: Validate built-in catalogs
+        run: cargo run -p rebecca --locked -- catalog validate --format json
+      - name: Validate packaged skills
+        run: python3 skills/validate.py
+      - name: Verify crate package plan
+        shell: pwsh
+        run: pwsh -File scripts/release/verify-package-plan.ps1 -Version "${{ steps.release-version.outputs.version }}" -PublishPlanPath "target/release-preflight/publish-plan.json" -PackageListDir "target/package-lists" -EvidencePath "target/release-preflight/package-verification.json"
+      - name: Plan cargo-dist release
+        shell: bash
+        run: dist plan --output-format=json > target/release-preflight/plan-dist-manifest.json
+      - name: Upload release preflight evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-preflight
+          path: |
+            target/package-lists/*.txt
+            target/release-preflight/*
+
   publish-crates:
     name: publish-crates (crates.io)
     needs:
       - plan
+      - release-preflight
     if: ${{ needs.plan.outputs.publishing == 'true' }}
     runs-on: "ubuntu-24.04"
     environment: crates.io
@@ -128,6 +199,8 @@ jobs:
           version="${release_tag:1}"
           metadata_json="$(cargo metadata --no-deps --format-version 1)"
           echo "Publishing workspace crates for tag version: $version"
+          pwsh -File scripts/release/resolve-publish-plan.ps1 -Version "$version" -OutputPath publish-plan.json
+          mapfile -t crates < <(jq -r '.publish_order[]' publish-plan.json)
 
           crate_version_available() {
             local crate="$1"
@@ -214,15 +287,6 @@ jobs:
               sleep $((attempt * 30))
             done
           }
-
-          crates=(
-            rebecca-safety
-            rebecca-ntfs
-            rebecca-core
-            rebecca-rules
-            rebecca-windows
-            rebecca
-          )
 
           for crate in "${crates[@]}"; do
             crate_version="$(workspace_crate_version "$crate")"

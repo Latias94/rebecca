@@ -1,5 +1,5 @@
-use rebecca::core::disk_map::{DiskMapEntryKind, DiskMapGroupKind};
-use rebecca::core::disk_session::DiskMapDistributionRow;
+use rebecca_core::disk_map::{DiskMapEntryKind, DiskMapGroupKind};
+use rebecca_core::disk_session::DiskMapDistributionRow;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

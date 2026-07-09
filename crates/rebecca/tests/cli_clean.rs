@@ -1088,6 +1088,47 @@ fn clean_yes_does_not_write_scan_cache_by_default() {
     assert!(!temp.path().join("rebecca-cache").join("scan").exists());
 }
 
+#[test]
+fn clean_yes_human_output_recommends_previewing_trash_before_emptying() {
+    let temp = tempfile::tempdir().unwrap();
+    let temp_cache = temp.path().join("temp");
+    fs::create_dir_all(&temp_cache).unwrap();
+    fs::write(temp_cache.join("cache.tmp"), b"cache").unwrap();
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .env("REBECCA_STEAM_DISCOVERY", "none")
+        .env("TEMP", &temp_cache)
+        .env("TMPDIR", &temp_cache)
+        .args([
+            "clean",
+            "--yes",
+            "--no-progress",
+            "--no-scan-cache",
+            "--rule",
+            common::support::current_platform_user_temp_rule_id(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let preview_index = stdout
+        .find("Preview pending trash space: rebecca trash empty")
+        .expect("human output should recommend reviewing trash before emptying it");
+    let empty_index = stdout
+        .find("Empty after review: rebecca trash empty --yes")
+        .expect("human output should still show the confirmed empty command");
+    assert!(
+        preview_index < empty_index,
+        "preview guidance must appear before empty-after-review guidance:\n{stdout}"
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn clean_dry_run_scan_cache_flag_writes_file_target_cache() {

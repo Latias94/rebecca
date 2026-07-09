@@ -3,18 +3,16 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use indicatif::ProgressBar;
-use rebecca::core::config::{AppRuntimeConfig, AppStorageEntry};
-use rebecca::core::environment::SystemEnvironment;
-use rebecca::core::external_rules::{ExternalRuleStore, ExternalRuleStoreDiagnostic};
-use rebecca::core::plan::CleanupPlan;
-use rebecca::core::planner::{
-    PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context,
-};
-use rebecca::core::protection::ProtectionPolicy;
-use rebecca::core::safety_catalog::SafetyKnowledge;
-use rebecca::core::scan::ScanBackendKind;
-use rebecca::core::scan_cache::ScanCacheStore;
-use rebecca::core::{PlanRequest, RuleDefinition, TargetStatus};
+use rebecca_core::config::{AppRuntimeConfig, AppStorageEntry};
+use rebecca_core::environment::SystemEnvironment;
+use rebecca_core::external_rules::{ExternalRuleStore, ExternalRuleStoreDiagnostic};
+use rebecca_core::plan::CleanupPlan;
+use rebecca_core::planner::{PlanBuildContext, PlanProgressEvent, build_cleanup_plan_with_context};
+use rebecca_core::protection::ProtectionPolicy;
+use rebecca_core::safety_catalog::SafetyKnowledge;
+use rebecca_core::scan::ScanBackendKind;
+use rebecca_core::scan_cache::ScanCacheStore;
+use rebecca_core::{PlanRequest, RuleDefinition, TargetStatus};
 
 use crate::clean_view::ScanCacheProgressSummary;
 use crate::cli::{OutputMode, ProgressDetail};
@@ -110,7 +108,7 @@ impl WorkflowExecutionGuards {
         exclude_paths: &[PathBuf],
     ) -> Result<Self> {
         Ok(Self {
-            safety_knowledge: rebecca::rules::builtin_safety_knowledge_for_platform(
+            safety_knowledge: rebecca_rules::builtin_safety_knowledge_for_platform(
                 request.platform,
             )?,
             protected_storage: runtime_config.app_paths.storage_entries(),
@@ -260,7 +258,7 @@ pub(crate) fn resolve_workflow_rules(
     runtime_config: &AppRuntimeConfig,
 ) -> Result<ResolvedWorkflowRules> {
     let mut rules = match source {
-        WorkflowRuleSource::BuiltInCatalog => rebecca::rules::builtin_rules()?,
+        WorkflowRuleSource::BuiltInCatalog => rebecca_rules::builtin_rules()?,
         WorkflowRuleSource::RuleCatalog(rules) => rules.to_vec(),
         WorkflowRuleSource::NativeWorkflow => Vec::new(),
     };
@@ -282,7 +280,7 @@ pub(crate) fn merged_protected_paths(
 ) -> Result<Vec<PathBuf>> {
     let mut merged = Vec::with_capacity(config_paths.len() + cli_paths.len());
     for path in config_paths.iter().chain(cli_paths) {
-        rebecca::core::config::validate_user_protected_path(path)
+        rebecca_core::config::validate_user_protected_path(path)
             .map_err(|message| anyhow!("invalid protected path {}: {message}", path.display()))?;
         if merged.iter().all(|existing| existing != path) {
             merged.push(path.clone());
@@ -575,10 +573,10 @@ impl ProgressDetail {
 
 #[cfg(test)]
 mod tests {
-    use rebecca::core::config::{AppPaths, PurgeRuntimeConfig};
-    use rebecca::core::scan::ScanCancellationToken;
-    use rebecca::core::scan_cache::ScanCachePolicy;
-    use rebecca::core::{DeleteMode, Platform};
+    use rebecca_core::config::{AppPaths, PurgeRuntimeConfig};
+    use rebecca_core::scan::ScanCancellationToken;
+    use rebecca_core::scan_cache::ScanCachePolicy;
+    use rebecca_core::{DeleteMode, Platform};
 
     use super::*;
 
@@ -689,8 +687,8 @@ mod tests {
             protected_paths: Vec::new(),
             purge: PurgeRuntimeConfig {
                 roots: Vec::new(),
-                max_depth: rebecca::core::DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH,
-                min_age_days: rebecca::core::DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
+                max_depth: rebecca_core::DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH,
+                min_age_days: rebecca_core::DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
             },
         }
     }

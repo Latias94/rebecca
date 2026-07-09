@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use rebecca::core::history::HistoryEntry;
+use rebecca_core::history::HistoryEntry;
 
 const HISTORY_LARGEST_RUN_LIMIT: usize = 3;
 
@@ -147,8 +147,8 @@ fn history_cleanup_bytes(entry: &HistoryEntry) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rebecca::core::plan::CleanupSummary;
-    use rebecca::core::{DeleteMode, PlanRequest, Platform};
+    use rebecca_core::plan::CleanupSummary;
+    use rebecca_core::{DeleteMode, PlanRequest, Platform};
 
     fn history_entry(recorded_at_unix_seconds: u64, summary: CleanupSummary) -> HistoryEntry {
         HistoryEntry {

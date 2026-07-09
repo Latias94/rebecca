@@ -92,13 +92,13 @@ fn hit_treemap_tile(
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::disk_map::{
+    use rebecca_core::disk_map::{
         DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics,
         DiskMapReport, DiskMapRoot, DiskMapRootStatus,
     };
-    use rebecca::core::disk_session::DiskMapSession;
-    use rebecca::core::plan::{EstimateProvenance, EstimateSource};
-    use rebecca::core::scan::ScanBackendKind;
+    use rebecca_core::disk_session::DiskMapSession;
+    use rebecca_core::plan::{EstimateProvenance, EstimateSource};
+    use rebecca_core::scan::ScanBackendKind;
 
     use super::*;
     use crate::tui::input::TuiKey;

@@ -23,26 +23,10 @@ pub struct NtfsIndexRoot {
     pub entries: Vec<NtfsIndexEntry>,
 }
 
-impl NtfsIndexRoot {
-    pub fn directory_entries(&self) -> impl Iterator<Item = NtfsDirectoryEntry> + '_ {
-        self.entries
-            .iter()
-            .filter_map(|entry| entry.directory_entry.clone())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NtfsIndexAllocationRecord {
     pub vcn: u64,
     pub entries: Vec<NtfsIndexEntry>,
-}
-
-impl NtfsIndexAllocationRecord {
-    pub fn directory_entries(&self) -> impl Iterator<Item = NtfsDirectoryEntry> + '_ {
-        self.entries
-            .iter()
-            .filter_map(|entry| entry.directory_entry.clone())
-    }
 }
 
 pub fn parse_i30_index_root(value: &[u8]) -> Result<NtfsIndexRoot> {

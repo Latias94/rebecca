@@ -7,7 +7,7 @@ use rayon::prelude::*;
 
 use crate::cache::{CachePurgeBackend, CachePurgeEntryKind, CachePurgeOutcome};
 use crate::error::{RebeccaError, Result};
-use crate::execution::ExecutionReport;
+use crate::execution::{ExecutionProgressEvent, ExecutionProgressTarget, ExecutionReport};
 use crate::model::CleanupWorkflow;
 use crate::parallelism::{bounded_parallelism_budget, run_scoped_parallel_work};
 use crate::path_overlap::{PathRelation, path_relation, paths_overlap};
@@ -409,6 +409,28 @@ pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation<B: CleanupBack
     policy: ProtectionPolicy<'_>,
     cancellation: &ScanCancellationToken,
 ) -> Result<ExecutionReport> {
+    execute_cleanup_plan_parallel_with_policy_and_cancellation_and_progress(
+        plan,
+        backend,
+        policy,
+        cancellation,
+        |_| {},
+    )
+}
+
+pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation_and_progress<
+    B: CleanupBackend + Sync,
+    F,
+>(
+    plan: &mut CleanupPlan,
+    backend: &B,
+    policy: ProtectionPolicy<'_>,
+    cancellation: &ScanCancellationToken,
+    mut progress: F,
+) -> Result<ExecutionReport>
+where
+    F: for<'event> FnMut(ExecutionProgressEvent<'event>),
+{
     if plan.request.mode.is_dry_run() {
         plan.recompute_summary();
         let report = ExecutionReport::dry_run();
@@ -417,10 +439,14 @@ pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation<B: CleanupBack
     }
 
     abort_if_execution_cancelled(plan, cancellation)?;
+    emit_execution_started(plan, &mut progress);
 
     if !revalidate_executable_targets(plan, policy) {
         plan.recompute_summary();
         let report = ExecutionReport::from_targets(&plan.targets);
+        progress(ExecutionProgressEvent::Completed {
+            summary: &report.summary,
+        });
         plan.execution_report = Some(report.clone());
         return Ok(report);
     }
@@ -430,6 +456,9 @@ pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation<B: CleanupBack
     if batches.is_empty() {
         plan.recompute_summary();
         let report = ExecutionReport::from_targets(&plan.targets);
+        progress(ExecutionProgressEvent::Completed {
+            summary: &report.summary,
+        });
         plan.execution_report = Some(report.clone());
         return Ok(report);
     }
@@ -448,6 +477,13 @@ pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation<B: CleanupBack
             continue;
         }
 
+        for &index in &batch {
+            progress(ExecutionProgressEvent::TargetStarted {
+                target_index: index,
+                target: ExecutionProgressTarget::from_target(&plan.targets[index]),
+            });
+        }
+
         if batch_delete_supported {
             let outcomes = {
                 let targets = batch
@@ -457,16 +493,28 @@ pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation<B: CleanupBack
                 backend.delete_batch(&targets)
             };
             apply_batch_delete_results(&mut plan.targets, &batch, outcomes);
+            for &index in &batch {
+                progress(ExecutionProgressEvent::TargetFinished {
+                    target_index: index,
+                    target: ExecutionProgressTarget::from_target(&plan.targets[index]),
+                });
+            }
         } else {
             let outcomes = run_scoped_cleanup(|| {
                 batch
-                    .into_par_iter()
-                    .map(|index| (index, backend.delete(&plan.targets[index])))
+                    .par_iter()
+                    .map(|&index| (index, backend.delete(&plan.targets[index])))
                     .collect::<Vec<_>>()
             });
 
             for (index, outcome) in outcomes {
                 apply_delete_result(&mut plan.targets[index], outcome);
+            }
+            for &index in &batch {
+                progress(ExecutionProgressEvent::TargetFinished {
+                    target_index: index,
+                    target: ExecutionProgressTarget::from_target(&plan.targets[index]),
+                });
             }
         }
     }
@@ -474,6 +522,9 @@ pub fn execute_cleanup_plan_parallel_with_policy_and_cancellation<B: CleanupBack
     abort_if_execution_cancelled(plan, cancellation)?;
     plan.recompute_summary();
     let report = ExecutionReport::from_targets(&plan.targets);
+    progress(ExecutionProgressEvent::Completed {
+        summary: &report.summary,
+    });
     plan.execution_report = Some(report.clone());
     Ok(report)
 }
@@ -500,6 +551,25 @@ fn execute_cleanup_plan_serially_with_policy_and_cancellation<B: CleanupBackend>
     policy: ProtectionPolicy<'_>,
     cancellation: &ScanCancellationToken,
 ) -> Result<ExecutionReport> {
+    execute_cleanup_plan_serially_with_policy_and_cancellation_and_progress(
+        plan,
+        backend,
+        policy,
+        cancellation,
+        |_| {},
+    )
+}
+
+fn execute_cleanup_plan_serially_with_policy_and_cancellation_and_progress<B: CleanupBackend, F>(
+    plan: &mut CleanupPlan,
+    backend: &B,
+    policy: ProtectionPolicy<'_>,
+    cancellation: &ScanCancellationToken,
+    mut progress: F,
+) -> Result<ExecutionReport>
+where
+    F: for<'event> FnMut(ExecutionProgressEvent<'event>),
+{
     if plan.request.mode.is_dry_run() {
         plan.recompute_summary();
         let report = ExecutionReport::dry_run();
@@ -508,6 +578,7 @@ fn execute_cleanup_plan_serially_with_policy_and_cancellation<B: CleanupBackend>
     }
 
     abort_if_execution_cancelled(plan, cancellation)?;
+    emit_execution_started(plan, &mut progress);
 
     if revalidate_executable_targets(plan, policy) {
         normalize_overlapping_executable_targets(plan);
@@ -524,15 +595,50 @@ fn execute_cleanup_plan_serially_with_policy_and_cancellation<B: CleanupBackend>
             continue;
         }
 
+        progress(ExecutionProgressEvent::TargetStarted {
+            target_index: index,
+            target: ExecutionProgressTarget::from_target(target),
+        });
         let outcome = backend.delete(target);
         apply_delete_result(target, outcome);
+        progress(ExecutionProgressEvent::TargetFinished {
+            target_index: index,
+            target: ExecutionProgressTarget::from_target(target),
+        });
     }
 
     abort_if_execution_cancelled(plan, cancellation)?;
     plan.recompute_summary();
     let report = ExecutionReport::from_targets(&plan.targets);
+    progress(ExecutionProgressEvent::Completed {
+        summary: &report.summary,
+    });
     plan.execution_report = Some(report.clone());
     Ok(report)
+}
+
+fn emit_execution_started(
+    plan: &CleanupPlan,
+    progress: &mut impl for<'event> FnMut(ExecutionProgressEvent<'event>),
+) {
+    let executable_targets = plan
+        .targets
+        .iter()
+        .filter(|target| target.status.is_executable())
+        .count();
+    let estimated_bytes = plan
+        .targets
+        .iter()
+        .filter(|target| target.status.is_executable())
+        .map(|target| target.estimated_bytes)
+        .sum();
+
+    progress(ExecutionProgressEvent::Started {
+        total_targets: plan.targets.len(),
+        executable_targets,
+        estimated_bytes,
+        mode: plan.request.mode,
+    });
 }
 
 fn abort_if_execution_cancelled(

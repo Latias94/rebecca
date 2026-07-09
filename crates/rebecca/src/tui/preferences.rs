@@ -2,9 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rebecca::core::config::AppRuntimeConfig;
-use rebecca::core::disk_map::DiskMapSortField;
-use rebecca::core::scan::ScanBackendKind;
+use rebecca_core::config::AppRuntimeConfig;
+use rebecca_core::disk_map::DiskMapSortField;
+use rebecca_core::scan::ScanBackendKind;
 use serde::{Deserialize, Serialize};
 
 use crate::tui::app::TuiApp;

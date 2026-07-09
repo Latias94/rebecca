@@ -1,4 +1,4 @@
-use rebecca::core::executor::RecoverableTrashBackend;
+use rebecca_core::executor::RecoverableTrashBackend;
 
 pub(crate) fn recoverable_trash_backend() -> RecoverableTrashBackend {
     #[cfg(debug_assertions)]
@@ -18,8 +18,8 @@ struct DirectoryMoveTrashAdapter {
 }
 
 #[cfg(debug_assertions)]
-impl rebecca::core::executor::RecoverableTrashAdapter for DirectoryMoveTrashAdapter {
-    fn delete_paths(&self, paths: &[std::path::PathBuf]) -> rebecca::core::Result<()> {
+impl rebecca_core::executor::RecoverableTrashAdapter for DirectoryMoveTrashAdapter {
+    fn delete_paths(&self, paths: &[std::path::PathBuf]) -> rebecca_core::Result<()> {
         std::fs::create_dir_all(&self.trash_dir)?;
         for path in paths {
             if matches!(path.try_exists(), Ok(false)) {

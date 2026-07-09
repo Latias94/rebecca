@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use rebecca::core::disk_map::{DiskMapGroupKind, DiskMapSortField};
-use rebecca::core::disk_session::{
+use rebecca_core::disk_map::{DiskMapGroupKind, DiskMapSortField};
+use rebecca_core::disk_session::{
     DiskMapDistributionFilter, DiskMapDistributionRow, DiskMapNodeId, DiskMapSession,
     DiskMapSessionFilter, DiskMapVisibleRow,
 };
@@ -171,11 +171,11 @@ fn non_empty(value: &str) -> Option<&str> {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::disk_map::{
+    use rebecca_core::disk_map::{
         DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapMetrics, DiskMapReport, DiskMapRoot,
         DiskMapRootStatus,
     };
-    use rebecca::core::plan::{EstimateProvenance, EstimateSource};
+    use rebecca_core::plan::{EstimateProvenance, EstimateSource};
 
     use super::*;
 

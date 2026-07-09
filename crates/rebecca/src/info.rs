@@ -3,16 +3,16 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use anyhow::Result;
-use rebecca::core::RuleDefinition;
-use rebecca::core::applications::ApplicationDiscovery;
+use rebecca_core::RuleDefinition;
+use rebecca_core::applications::ApplicationDiscovery;
 #[cfg(debug_assertions)]
-use rebecca::core::applications::{
+use rebecca_core::applications::{
     InstalledApplication, NoopApplicationDiscovery, StaticApplicationDiscovery, SteamInstallation,
 };
-use rebecca::core::config::{AppPaths, load_app_paths};
-use rebecca::core::history::HistoryStore;
-use rebecca::core::plan::{CleanupIssueSummary, CleanupTarget, CleanupTargetIssueReason};
-use rebecca::core::warnings::ACTIVE_PROCESS_WARNING;
+use rebecca_core::config::{AppPaths, load_app_paths};
+use rebecca_core::history::HistoryStore;
+use rebecca_core::plan::{CleanupIssueSummary, CleanupTarget, CleanupTargetIssueReason};
+use rebecca_core::warnings::ACTIVE_PROCESS_WARNING;
 use serde::Serialize;
 
 use crate::cli::OutputMode;
@@ -364,7 +364,7 @@ pub fn print_active_processes(output_mode: OutputMode) -> Result<()> {
 }
 
 fn active_process_diagnostic() -> ActiveProcessDiagnostic {
-    let rules = match rebecca::rules::builtin_rules() {
+    let rules = match rebecca_rules::builtin_rules() {
         Ok(rules) => rules,
         Err(err) => {
             return ActiveProcessDiagnostic {
@@ -395,7 +395,7 @@ pub(crate) fn active_process_diagnostic_from_processes(
 ) -> ActiveProcessDiagnostic {
     let active_rules = rules
         .iter()
-        .filter(|rule| rule.platform == rebecca::core::Platform::current())
+        .filter(|rule| rule.platform == rebecca_core::Platform::current())
         .filter(|rule| {
             rule.warnings
                 .iter()
@@ -634,7 +634,7 @@ fn active_process_snapshots() -> Result<Vec<ProcessSnapshot>> {
 
     #[cfg(windows)]
     {
-        rebecca::windows::process::active_processes()
+        rebecca_windows::process::active_processes()
             .map(|processes| {
                 processes
                     .into_iter()
@@ -659,7 +659,7 @@ fn active_process_snapshots() -> Result<Vec<ProcessSnapshot>> {
 
     #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
-        Err(rebecca::core::RebeccaError::PlatformUnavailable(
+        Err(rebecca_core::RebeccaError::PlatformUnavailable(
             "process diagnostics are not available on this platform".to_string(),
         )
         .into())
@@ -674,7 +674,7 @@ fn linux_active_processes() -> Result<Vec<ProcessSnapshot>> {
 #[cfg(target_os = "linux")]
 fn linux_active_processes_from_proc_root(proc_root: &Path) -> Result<Vec<ProcessSnapshot>> {
     let entries = std::fs::read_dir(proc_root).map_err(|err| {
-        rebecca::core::RebeccaError::PlatformUnavailable(format!(
+        rebecca_core::RebeccaError::PlatformUnavailable(format!(
             "Linux /proc process diagnostics are unavailable: {err}"
         ))
     })?;
@@ -730,13 +730,13 @@ fn macos_active_processes() -> Result<Vec<ProcessSnapshot>> {
         .args(["-axo", "pid=,comm="])
         .output()
         .map_err(|err| {
-            rebecca::core::RebeccaError::PlatformUnavailable(format!(
+            rebecca_core::RebeccaError::PlatformUnavailable(format!(
                 "macOS ps process diagnostics are unavailable: {err}"
             ))
         })?;
 
     if !output.status.success() {
-        return Err(rebecca::core::RebeccaError::PlatformUnavailable(
+        return Err(rebecca_core::RebeccaError::PlatformUnavailable(
             "macOS ps process diagnostics exited unsuccessfully".to_string(),
         )
         .into());
@@ -877,22 +877,22 @@ pub fn application_discovery() -> Box<dyn ApplicationDiscovery> {
 
     #[cfg(windows)]
     {
-        Box::new(rebecca::windows::steam::WindowsApplicationDiscovery::new())
+        Box::new(rebecca_windows::steam::WindowsApplicationDiscovery::new())
     }
 
     #[cfg(target_os = "linux")]
     {
-        Box::new(rebecca::core::applications::LinuxApplicationDiscovery::new())
+        Box::new(rebecca_core::applications::LinuxApplicationDiscovery::new())
     }
 
     #[cfg(target_os = "macos")]
     {
-        Box::new(rebecca::core::applications::MacosApplicationDiscovery::new())
+        Box::new(rebecca_core::applications::MacosApplicationDiscovery::new())
     }
 
     #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
     {
-        Box::new(rebecca::core::applications::NoopApplicationDiscovery::new())
+        Box::new(rebecca_core::applications::NoopApplicationDiscovery::new())
     }
 }
 
@@ -965,10 +965,10 @@ fn installed_applications_override() -> Vec<InstalledApplication> {
 
 #[cfg(windows)]
 fn current_privilege_label() -> &'static str {
-    match rebecca::windows::current_privilege_level() {
-        rebecca::windows::PrivilegeLevel::StandardUser => "standard-user",
-        rebecca::windows::PrivilegeLevel::Elevated => "elevated",
-        rebecca::windows::PrivilegeLevel::Unknown => "unknown",
+    match rebecca_windows::current_privilege_level() {
+        rebecca_windows::PrivilegeLevel::StandardUser => "standard-user",
+        rebecca_windows::PrivilegeLevel::Elevated => "elevated",
+        rebecca_windows::PrivilegeLevel::Unknown => "unknown",
     }
 }
 

@@ -253,6 +253,58 @@ fn plan_run_yes_executes_still_valid_saved_targets() {
 }
 
 #[test]
+fn plan_run_yes_ndjson_emits_execution_progress_events() {
+    let temp = tempfile::tempdir().unwrap();
+    let (temp_cache, cache_file) = write_temp_cache_fixture(&temp);
+    let plan_file = temp.path().join("cleanup-plan.json");
+    save_user_temp_plan(&temp, &temp_cache, &plan_file);
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "--format",
+            "ndjson",
+            "plan",
+            "run",
+            plan_file.to_str().unwrap(),
+            "--yes",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(!cache_file.exists(), "saved plan target should execute");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let event_index = |event_kind: &str| {
+        events
+            .iter()
+            .position(|event| event["event_kind"] == event_kind)
+            .unwrap_or_else(|| panic!("missing {event_kind} event: {stdout}"))
+    };
+
+    assert_eq!(events.first().unwrap()["event_kind"], "started");
+    assert_eq!(events.last().unwrap()["event_kind"], "completed");
+    assert!(events.iter().all(|event| event["command"] == "plan run"));
+    assert!(event_index("execution-started") < event_index("execution-target-started"));
+    assert!(event_index("execution-target-started") < event_index("execution-target-finished"));
+    assert!(event_index("execution-target-finished") < event_index("execution-completed"));
+    assert!(event_index("execution-completed") < events.len() - 1);
+    assert_eq!(
+        events[event_index("execution-target-finished")]["data"]["pending_reclaim_bytes"],
+        5
+    );
+}
+
+#[test]
 fn plan_run_yes_blocks_saved_target_when_path_type_changed() {
     let temp = tempfile::tempdir().unwrap();
     let (temp_cache, cache_file) = write_temp_cache_fixture(&temp);

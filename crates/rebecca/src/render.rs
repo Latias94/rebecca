@@ -2,7 +2,7 @@ pub(crate) mod clean;
 pub(crate) mod inspect;
 pub(crate) mod purge;
 
-use rebecca::core::{EstimateProvenance, EstimateSource};
+use rebecca_core::{EstimateProvenance, EstimateSource};
 
 pub(crate) use crate::text::format_count;
 

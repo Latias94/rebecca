@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rebecca::core::cache::{CachePurgeEntry, CachePurgeMode, CachePurgeReport, CachePurgeSummary};
+use rebecca_core::cache::{CachePurgeEntry, CachePurgeMode, CachePurgeReport, CachePurgeSummary};
 
 use crate::text::format_count;
 
@@ -155,10 +155,10 @@ fn yes_no(value: bool) -> &'static str {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::cache::{
+    use rebecca_core::cache::{
         CachePurgeEntryKind, CachePurgeEntryReason, CachePurgeEntryStatus, CachePurgeIssueSummary,
     };
-    use rebecca::core::config::{AppStorageLifecycle, AppStorageRetention};
+    use rebecca_core::config::{AppStorageLifecycle, AppStorageRetention};
 
     use super::*;
 

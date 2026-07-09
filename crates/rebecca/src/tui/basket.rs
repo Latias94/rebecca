@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
-use rebecca::core::plan::CleanupPlan;
-use rebecca::core::scan::ScanBackendKind;
-use rebecca::core::warnings::normalize_warning_gate;
+use rebecca_core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
+use rebecca_core::plan::CleanupPlan;
+use rebecca_core::scan::ScanBackendKind;
+use rebecca_core::warnings::normalize_warning_gate;
 
 use crate::workbench::CleanupWorkbenchRequest;
 
@@ -156,7 +156,7 @@ fn stageable_advice(advice: &CleanupAdvice) -> bool {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::cleanup_advice::{CleanupAdviceCommand, CleanupAdviceSource};
+    use rebecca_core::cleanup_advice::{CleanupAdviceCommand, CleanupAdviceSource};
 
     use super::*;
 

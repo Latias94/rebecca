@@ -408,6 +408,19 @@ impl PhysicalMetricsAccumulator {
         }
     }
 
+    pub fn record_file_path_without_identity(
+        &mut self,
+        logical_bytes: u64,
+        allocated_bytes: Option<u64>,
+    ) {
+        let files_before = self.metrics.files;
+        self.metrics.files = self.metrics.files.saturating_add(1);
+        self.metrics.logical_bytes = self.metrics.logical_bytes.saturating_add(logical_bytes);
+        self.metrics.allocated_bytes =
+            add_file_allocated_bytes(self.metrics.allocated_bytes, files_before, allocated_bytes);
+        self.metrics.unique_allocated_bytes = None;
+    }
+
     pub fn absorb_child(&mut self, child: Self) {
         let files_before = self.metrics.files;
         self.metrics.files = self.metrics.files.saturating_add(child.metrics.files);

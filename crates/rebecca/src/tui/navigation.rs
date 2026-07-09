@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rebecca::core::disk_map::DiskMapGroupKind;
+use rebecca_core::disk_map::DiskMapGroupKind;
 
 use crate::tui::model::TuiScreen;
 

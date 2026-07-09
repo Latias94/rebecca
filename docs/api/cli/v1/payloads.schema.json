@@ -17,6 +17,7 @@
         "catalog",
         "catalog-validation",
         "cli-schema",
+        "command-error",
         "cleanup-plan",
         "cleanup-receipt",
         "saved-cleanup-plan",
@@ -957,6 +958,116 @@
         "permanent-delete"
       ]
     },
+    "cleanupReceiptInvocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "argv"
+      ],
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "working_directory": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "cleanupReceiptSelectedGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allow_moderate",
+        "allow_risky",
+        "allowed_warnings"
+      ],
+      "properties": {
+        "allow_moderate": {
+          "type": "boolean"
+        },
+        "allow_risky": {
+          "type": "boolean"
+        },
+        "allowed_warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "cleanupReceiptTargetEstimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "provenance"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance": {
+          "type": "object"
+        }
+      }
+    },
+    "cleanupReceiptSourcePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "schema",
+        "generated_at_unix_seconds"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "schema": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "generated_at_unix_seconds": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "cleanupReceiptRevalidationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_targets",
+        "executable_targets",
+        "changed_targets",
+        "skipped_targets",
+        "blocked_targets"
+      ],
+      "properties": {
+        "total_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "executable_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "changed_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "skipped_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "blocked_targets": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
     "cleanupReceiptTarget": {
       "type": "object",
       "additionalProperties": false,
@@ -966,6 +1077,7 @@
         "path",
         "status",
         "estimated_bytes",
+        "estimate",
         "freed_bytes",
         "pending_reclaim_bytes"
       ],
@@ -985,11 +1097,17 @@
         "estimated_bytes": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
+        "estimate": {
+          "$ref": "#/$defs/cleanupReceiptTargetEstimate"
+        },
         "freed_bytes": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "pending_reclaim_bytes": {
           "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "restore_hint": {
+          "type": "string"
         },
         "reason_code": {
           "$ref": "#/$defs/cleanupIssueReason"
@@ -1018,6 +1136,65 @@
         }
       }
     },
+    "cleanupReceiptRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "mode",
+        "workflow",
+        "selected_categories",
+        "selected_rule_ids",
+        "project_artifact_roots",
+        "project_artifact_max_depth",
+        "project_artifact_min_age_days",
+        "project_artifact_selectors",
+        "allowed_warnings",
+        "allow_moderate",
+        "allow_risky"
+      ],
+      "properties": {
+        "platform": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "mode": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "workflow": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "selected_categories": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "selected_rule_ids": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "project_artifact_roots": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "project_artifact_max_depth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "project_artifact_min_age_days": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "project_artifact_reclaim_limit_bytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "project_artifact_selectors": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "allowed_warnings": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "allow_moderate": {
+          "type": "boolean"
+        },
+        "allow_risky": {
+          "type": "boolean"
+        }
+      }
+    },
     "cleanupReceipt": {
       "type": "object",
       "additionalProperties": false,
@@ -1026,10 +1203,14 @@
         "generated_by",
         "generated_at_unix_seconds",
         "command",
+        "invocation",
+        "request",
+        "selected_gates",
         "platform",
         "workflow",
         "mode",
         "destination",
+        "destination_label",
         "summary",
         "execution_report",
         "targets",
@@ -1048,6 +1229,15 @@
         "command": {
           "$ref": "#/$defs/nonEmptyString"
         },
+        "invocation": {
+          "$ref": "#/$defs/cleanupReceiptInvocation"
+        },
+        "request": {
+          "$ref": "#/$defs/cleanupReceiptRequest"
+        },
+        "selected_gates": {
+          "$ref": "#/$defs/cleanupReceiptSelectedGates"
+        },
         "platform": {
           "$ref": "#/$defs/nonEmptyString"
         },
@@ -1060,11 +1250,20 @@
         "destination": {
           "$ref": "#/$defs/cleanupReceiptDestination"
         },
+        "destination_label": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
         "summary": {
           "$ref": "#/$defs/cleanupSummary"
         },
         "execution_report": {
           "type": "object"
+        },
+        "source_plan": {
+          "$ref": "#/$defs/cleanupReceiptSourcePlan"
+        },
+        "revalidation": {
+          "$ref": "#/$defs/cleanupReceiptRevalidationSummary"
         },
         "targets": {
           "type": "array",

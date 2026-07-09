@@ -1,7 +1,7 @@
 use ratatui::text::Line;
-use rebecca::core::cleanup_advice::CleanupAdviceStatus;
-use rebecca::core::disk_session::{DiskMapDistributionRow, DiskMapVisibleRow};
-use rebecca::core::plan::CleanupPlan;
+use rebecca_core::cleanup_advice::CleanupAdviceStatus;
+use rebecca_core::disk_session::{DiskMapDistributionRow, DiskMapVisibleRow};
+use rebecca_core::plan::CleanupPlan;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::output::format_bytes;
@@ -41,7 +41,8 @@ pub(crate) fn plan_lines(plan: Option<&CleanupPlan>) -> Vec<String> {
             format_bytes(plan.summary.pending_reclaim_bytes)
         ),
         "Normal execution moves targets to system trash or Recycle Bin.".to_string(),
-        "Free pending space after execution: rebecca trash empty --yes".to_string(),
+        "Preview pending trash space after execution: rebecca trash empty".to_string(),
+        "Empty after review: rebecca trash empty --yes".to_string(),
         "e execute  Esc return  q quit".to_string(),
     ]
 }
@@ -344,9 +345,37 @@ fn strings_to_lines(lines: Vec<String>) -> Vec<Line<'static>> {
 
 #[cfg(test)]
 mod tests {
+    use rebecca_core::plan::{CleanupPlan, CleanupSummary};
+    use rebecca_core::{DeleteMode, PlanRequest, Platform};
     use unicode_width::UnicodeWidthStr;
 
     use super::*;
+
+    #[test]
+    fn plan_lines_recommend_previewing_trash_before_emptying() {
+        let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+            Platform::Windows,
+            DeleteMode::RecoverableDelete,
+        ));
+        plan.summary = CleanupSummary {
+            pending_reclaim_bytes: 5,
+            ..CleanupSummary::default()
+        };
+
+        let lines = plan_lines(Some(&plan));
+        let preview_index = lines
+            .iter()
+            .position(|line| {
+                line == "Preview pending trash space after execution: rebecca trash empty"
+            })
+            .expect("TUI plan lines should recommend reviewing pending trash space");
+        let empty_index = lines
+            .iter()
+            .position(|line| line == "Empty after review: rebecca trash empty --yes")
+            .expect("TUI plan lines should still show the confirmed empty command");
+
+        assert!(preview_index < empty_index);
+    }
 
     #[test]
     fn trim_to_width_respects_display_width_for_cjk_text() {

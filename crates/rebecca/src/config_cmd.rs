@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use rebecca::core::RebeccaError;
-use rebecca::core::config::{
+use rebecca_core::RebeccaError;
+use rebecca_core::config::{
     AppPaths, CONFIG_SCHEMA_VERSION, LoadedRebeccaConfig, RebeccaConfig, load_app_paths,
     load_config_with_source, resolve_runtime_config_from_loaded,
 };

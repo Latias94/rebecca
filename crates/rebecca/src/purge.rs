@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
-use rebecca::core::config::load_runtime_config;
-use rebecca::core::scan::ScanBackendKind;
-use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
+use rebecca_core::config::load_runtime_config;
+use rebecca_core::scan::ScanBackendKind;
+use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow_with_runtime_config};
 use crate::cli::{OutputMode, ProgressDetail};
@@ -134,7 +134,7 @@ fn resolve_existing_root(root: PathBuf) -> Result<PathBuf> {
         ));
     }
 
-    if rebecca::core::safety::is_reparse_like(&metadata) {
+    if rebecca_core::safety::is_reparse_like(&metadata) {
         return Err(anyhow!(
             "purge root {} must not be a symlink or reparse point",
             absolute.display()

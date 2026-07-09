@@ -286,86 +286,153 @@ fn output_mode_from_raw(raw: &str) -> Option<OutputMode> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CommandApiSpec {
+    path: &'static [&'static str],
+    command: &'static str,
+    payload_kind: &'static str,
+}
+
+impl CommandApiSpec {
+    const fn new(
+        path: &'static [&'static str],
+        command: &'static str,
+        payload_kind: &'static str,
+    ) -> Self {
+        Self {
+            path,
+            command,
+            payload_kind,
+        }
+    }
+
+    fn contract(self) -> output::CliApiContract {
+        output::CliApiContract::v1(self.command, self.payload_kind)
+    }
+
+    fn matches_tokens(self, tokens: &[String]) -> bool {
+        tokens.len() >= self.path.len()
+            && self
+                .path
+                .iter()
+                .zip(tokens.iter())
+                .all(|(expected, actual)| actual == expected)
+    }
+
+    fn matches_path(self, path: &[&str]) -> bool {
+        self.path == path
+    }
+}
+
+const COMMAND_ERROR_PAYLOAD_KIND: &str = "command-error";
+
+const COMMAND_API_SPECS: &[CommandApiSpec] = &[
+    CommandApiSpec::new(&["capabilities"], "capabilities", "capabilities"),
+    CommandApiSpec::new(
+        &["catalog", "validate"],
+        "catalog validate",
+        "catalog-validation",
+    ),
+    CommandApiSpec::new(&["catalog"], "catalog", "catalog"),
+    CommandApiSpec::new(&["rules", "validate"], "rules validate", "rule-validation"),
+    CommandApiSpec::new(&["rules", "import"], "rules import", "rule-import"),
+    CommandApiSpec::new(&["rules", "list"], "rules list", "rule-import-list"),
+    CommandApiSpec::new(&["rules", "enable"], "rules enable", "rule-import-mutation"),
+    CommandApiSpec::new(
+        &["rules", "disable"],
+        "rules disable",
+        "rule-import-mutation",
+    ),
+    CommandApiSpec::new(&["rules", "remove"], "rules remove", "rule-import-mutation"),
+    CommandApiSpec::new(&["rules"], "rules", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["scan"], "scan", "rule-catalog"),
+    CommandApiSpec::new(&["clean"], "clean", "cleanup-plan"),
+    CommandApiSpec::new(&["plan", "inspect"], "plan inspect", "saved-cleanup-plan"),
+    CommandApiSpec::new(&["plan", "run"], "plan run", "cleanup-plan"),
+    CommandApiSpec::new(&["plan"], "plan", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["tui"], "tui", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["i"], "tui", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["inspect", "space"], "inspect space", "inspect-space"),
+    CommandApiSpec::new(&["inspect", "map"], "inspect map", "inspect-map"),
+    CommandApiSpec::new(
+        &["inspect", "artifacts"],
+        "inspect artifacts",
+        "inspect-artifacts",
+    ),
+    CommandApiSpec::new(&["inspect", "lint"], "inspect lint", "inspect-lint"),
+    CommandApiSpec::new(&["inspect"], "inspect", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["purge"], "purge", "project-artifact-cleanup-plan"),
+    CommandApiSpec::new(&["history"], "history", "history-list"),
+    CommandApiSpec::new(&["cache", "inspect"], "cache inspect", "cache-inventory"),
+    CommandApiSpec::new(&["cache", "doctor"], "cache doctor", "cache-doctor"),
+    CommandApiSpec::new(&["cache", "prune"], "cache prune", "cache-prune-report"),
+    CommandApiSpec::new(&["cache", "purge"], "cache purge", "cache-purge-report"),
+    CommandApiSpec::new(&["cache"], "cache", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["apps", "scan"], "apps scan", "app-leftovers-cleanup-plan"),
+    CommandApiSpec::new(
+        &["apps", "clean"],
+        "apps clean",
+        "app-leftovers-cleanup-plan",
+    ),
+    CommandApiSpec::new(&["apps"], "apps", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["config", "paths"], "config paths", "config-paths"),
+    CommandApiSpec::new(&["config", "show"], "config show", "config-view"),
+    CommandApiSpec::new(
+        &["config", "validate"],
+        "config validate",
+        "config-validation",
+    ),
+    CommandApiSpec::new(&["config"], "config", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(
+        &["doctor", "permissions"],
+        "doctor permissions",
+        "permissions-diagnostic",
+    ),
+    CommandApiSpec::new(
+        &["doctor", "active-processes"],
+        "doctor active-processes",
+        "active-process-diagnostic",
+    ),
+    CommandApiSpec::new(&["doctor"], "doctor", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["schema", "export"], "schema export", "cli-schema"),
+    CommandApiSpec::new(&["schema"], "schema", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["skills", "install"], "skills install", "skill-management"),
+    CommandApiSpec::new(&["skills", "remove"], "skills remove", "skill-management"),
+    CommandApiSpec::new(&["skills", "delete"], "skills remove", "skill-management"),
+    CommandApiSpec::new(
+        &["skills", "uninstall"],
+        "skills remove",
+        "skill-management",
+    ),
+    CommandApiSpec::new(&["skills", "path"], "skills path", "skill-management"),
+    CommandApiSpec::new(&["skills"], "skills", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["trash", "empty"], "trash empty", "trash-report"),
+    CommandApiSpec::new(&["trash"], "trash", COMMAND_ERROR_PAYLOAD_KIND),
+    CommandApiSpec::new(&["completion"], "completion", COMMAND_ERROR_PAYLOAD_KIND),
+];
+
 fn infer_command_api_contract_from_args() -> output::CliApiContract {
     let tokens = positional_tokens_for_command_contract();
-    let command = tokens.first().map(String::as_str);
-    match command {
-        Some("catalog") => {
-            if matches!(tokens.get(1).map(String::as_str), Some("validate")) {
-                output::CliApiContract::v1("catalog validate", "catalog-validation")
-            } else {
-                output::CliApiContract::v1("catalog", "catalog")
-            }
-        }
-        Some("rules") => match tokens.get(1).map(String::as_str) {
-            Some("validate") => output::CliApiContract::v1("rules validate", "rule-validation"),
-            Some("import") => output::CliApiContract::v1("rules import", "rule-import"),
-            Some("list") => output::CliApiContract::v1("rules list", "rule-import-list"),
-            Some("enable") => output::CliApiContract::v1("rules enable", "rule-import-mutation"),
-            Some("disable") => output::CliApiContract::v1("rules disable", "rule-import-mutation"),
-            Some("remove") => output::CliApiContract::v1("rules remove", "rule-import-mutation"),
-            _ => output::CliApiContract::v1("rules", "command-error"),
-        },
-        Some("scan") => output::CliApiContract::v1("scan", "rule-catalog"),
-        Some("clean") => output::CliApiContract::v1("clean", "cleanup-plan"),
-        Some("plan") => match tokens.get(1).map(String::as_str) {
-            Some("inspect") => output::CliApiContract::v1("plan inspect", "saved-cleanup-plan"),
-            Some("run") => output::CliApiContract::v1("plan run", "cleanup-plan"),
-            _ => output::CliApiContract::v1("plan", "command-error"),
-        },
-        Some("tui") | Some("i") => output::CliApiContract::v1("tui", "terminal-workbench"),
-        Some("inspect") => match tokens.get(1).map(String::as_str) {
-            Some("space") => output::CliApiContract::v1("inspect space", "inspect-space"),
-            Some("map") => output::CliApiContract::v1("inspect map", "inspect-map"),
-            Some("artifacts") => {
-                output::CliApiContract::v1("inspect artifacts", "inspect-artifacts")
-            }
-            Some("lint") => output::CliApiContract::v1("inspect lint", "inspect-lint"),
-            _ => output::CliApiContract::v1("inspect", "command-error"),
-        },
-        Some("purge") => output::CliApiContract::v1("purge", "project-artifact-cleanup-plan"),
-        Some("history") => output::CliApiContract::v1("history", "history-list"),
-        Some("cache") => match tokens.get(1).map(String::as_str) {
-            Some("inspect") => output::CliApiContract::v1("cache inspect", "cache-inventory"),
-            Some("doctor") => output::CliApiContract::v1("cache doctor", "cache-doctor"),
-            Some("prune") => output::CliApiContract::v1("cache prune", "cache-prune-report"),
-            Some("purge") => output::CliApiContract::v1("cache purge", "cache-purge-report"),
-            _ => output::CliApiContract::v1("cache", "command-error"),
-        },
-        Some("apps") => match tokens.get(1).map(String::as_str) {
-            Some("scan") => output::CliApiContract::v1("apps scan", "app-leftovers-cleanup-plan"),
-            Some("clean") => output::CliApiContract::v1("apps clean", "app-leftovers-cleanup-plan"),
-            _ => output::CliApiContract::v1("apps", "command-error"),
-        },
-        Some("config") => match tokens.get(1).map(String::as_str) {
-            Some("paths") => output::CliApiContract::v1("config paths", "config-paths"),
-            _ => output::CliApiContract::v1("config", "command-error"),
-        },
-        Some("doctor") => match tokens.get(1).map(String::as_str) {
-            Some("permissions") => {
-                output::CliApiContract::v1("doctor permissions", "permissions-diagnostic")
-            }
-            Some("active-processes") => {
-                output::CliApiContract::v1("doctor active-processes", "active-process-diagnostic")
-            }
-            _ => output::CliApiContract::v1("doctor", "command-error"),
-        },
-        Some("schema") => output::CliApiContract::v1("schema export", "cli-schema"),
-        Some("skills") => match tokens.get(1).map(String::as_str) {
-            Some("install") => output::CliApiContract::v1("skills install", "skill-management"),
-            Some("remove") | Some("delete") | Some("uninstall") => {
-                output::CliApiContract::v1("skills remove", "skill-management")
-            }
-            Some("path") => output::CliApiContract::v1("skills path", "skill-management"),
-            _ => output::CliApiContract::v1("skills", "command-error"),
-        },
-        Some("trash") => match tokens.get(1).map(String::as_str) {
-            Some("empty") => output::CliApiContract::v1("trash empty", "trash-report"),
-            _ => output::CliApiContract::v1("trash", "command-error"),
-        },
-        Some("completion") => output::CliApiContract::v1("completion", "completion-script"),
-        _ => output::CliApiContract::v1("rebecca", "command-error"),
-    }
+    command_api_contract_for_tokens(&tokens)
+        .unwrap_or_else(|| output::CliApiContract::v1("rebecca", COMMAND_ERROR_PAYLOAD_KIND))
+}
+
+fn command_api_contract_for_tokens(tokens: &[String]) -> Option<output::CliApiContract> {
+    COMMAND_API_SPECS
+        .iter()
+        .copied()
+        .filter(|spec| spec.matches_tokens(tokens))
+        .max_by_key(|spec| spec.path.len())
+        .map(CommandApiSpec::contract)
+}
+
+fn command_api_contract_for_path(path: &[&str]) -> output::CliApiContract {
+    COMMAND_API_SPECS
+        .iter()
+        .copied()
+        .find(|spec| spec.matches_path(path))
+        .unwrap_or_else(|| panic!("missing CLI API contract for command path: {path:?}"))
+        .contract()
 }
 
 fn positional_tokens_for_command_contract() -> Vec<String> {
@@ -445,6 +512,7 @@ fn run_inspect(
                 no_progress: args.no_progress,
                 progress_detail: args.progress_detail,
                 scan_backend: args.scan_backend,
+                metadata_profile: args.metadata_profile.into(),
                 roots: args.roots,
                 top_limit: args.top_limit,
                 sort: args.sort.into(),
@@ -667,101 +735,71 @@ fn command_output_mode(cli: &Cli) -> OutputMode {
 
 fn command_api_contract(command: &Command) -> output::CliApiContract {
     match command {
-        Command::Capabilities => output::CliApiContract::v1("capabilities", "capabilities"),
+        Command::Capabilities => command_api_contract_for_path(&["capabilities"]),
         Command::Catalog(args) => {
             if matches!(args.command.as_ref(), Some(CatalogCommand::Validate)) {
-                output::CliApiContract::v1("catalog validate", "catalog-validation")
+                command_api_contract_for_path(&["catalog", "validate"])
             } else {
-                output::CliApiContract::v1("catalog", "catalog")
+                command_api_contract_for_path(&["catalog"])
             }
         }
         Command::Rules { command } => match command {
-            RulesCommand::Validate(_) => {
-                output::CliApiContract::v1("rules validate", "rule-validation")
-            }
-            RulesCommand::Import(_) => output::CliApiContract::v1("rules import", "rule-import"),
-            RulesCommand::List => output::CliApiContract::v1("rules list", "rule-import-list"),
-            RulesCommand::Enable(_) => {
-                output::CliApiContract::v1("rules enable", "rule-import-mutation")
-            }
-            RulesCommand::Disable(_) => {
-                output::CliApiContract::v1("rules disable", "rule-import-mutation")
-            }
-            RulesCommand::Remove(_) => {
-                output::CliApiContract::v1("rules remove", "rule-import-mutation")
-            }
+            RulesCommand::Validate(_) => command_api_contract_for_path(&["rules", "validate"]),
+            RulesCommand::Import(_) => command_api_contract_for_path(&["rules", "import"]),
+            RulesCommand::List => command_api_contract_for_path(&["rules", "list"]),
+            RulesCommand::Enable(_) => command_api_contract_for_path(&["rules", "enable"]),
+            RulesCommand::Disable(_) => command_api_contract_for_path(&["rules", "disable"]),
+            RulesCommand::Remove(_) => command_api_contract_for_path(&["rules", "remove"]),
         },
-        Command::Scan(_) => output::CliApiContract::v1("scan", "rule-catalog"),
-        Command::Clean(_) => output::CliApiContract::v1("clean", "cleanup-plan"),
+        Command::Scan(_) => command_api_contract_for_path(&["scan"]),
+        Command::Clean(_) => command_api_contract_for_path(&["clean"]),
         Command::Plan { command } => match command {
-            PlanCommand::Inspect(_) => {
-                output::CliApiContract::v1("plan inspect", "saved-cleanup-plan")
-            }
-            PlanCommand::Run(_) => output::CliApiContract::v1("plan run", "cleanup-plan"),
+            PlanCommand::Inspect(_) => command_api_contract_for_path(&["plan", "inspect"]),
+            PlanCommand::Run(_) => command_api_contract_for_path(&["plan", "run"]),
         },
-        Command::Tui(_) => output::CliApiContract::v1("tui", "terminal-workbench"),
+        Command::Tui(_) => command_api_contract_for_path(&["tui"]),
         Command::Inspect { command } => match command {
-            InspectCommand::Space(_) => {
-                output::CliApiContract::v1("inspect space", "inspect-space")
-            }
-            InspectCommand::Map(_) => output::CliApiContract::v1("inspect map", "inspect-map"),
+            InspectCommand::Space(_) => command_api_contract_for_path(&["inspect", "space"]),
+            InspectCommand::Map(_) => command_api_contract_for_path(&["inspect", "map"]),
             InspectCommand::Artifacts(_) => {
-                output::CliApiContract::v1("inspect artifacts", "inspect-artifacts")
+                command_api_contract_for_path(&["inspect", "artifacts"])
             }
-            InspectCommand::Lint(_) => output::CliApiContract::v1("inspect lint", "inspect-lint"),
+            InspectCommand::Lint(_) => command_api_contract_for_path(&["inspect", "lint"]),
         },
-        Command::Purge(_) => output::CliApiContract::v1("purge", "project-artifact-cleanup-plan"),
-        Command::History(_) => output::CliApiContract::v1("history", "history-list"),
+        Command::Purge(_) => command_api_contract_for_path(&["purge"]),
+        Command::History(_) => command_api_contract_for_path(&["history"]),
         Command::Cache { command } => match command {
-            CacheCommand::Inspect { .. } => {
-                output::CliApiContract::v1("cache inspect", "cache-inventory")
-            }
-            CacheCommand::Doctor => output::CliApiContract::v1("cache doctor", "cache-doctor"),
-            CacheCommand::Prune { .. } => {
-                output::CliApiContract::v1("cache prune", "cache-prune-report")
-            }
-            CacheCommand::Purge { .. } => {
-                output::CliApiContract::v1("cache purge", "cache-purge-report")
-            }
+            CacheCommand::Inspect { .. } => command_api_contract_for_path(&["cache", "inspect"]),
+            CacheCommand::Doctor => command_api_contract_for_path(&["cache", "doctor"]),
+            CacheCommand::Prune { .. } => command_api_contract_for_path(&["cache", "prune"]),
+            CacheCommand::Purge { .. } => command_api_contract_for_path(&["cache", "purge"]),
         },
         Command::Apps { command } => match command {
-            AppsCommand::Scan { .. } => {
-                output::CliApiContract::v1("apps scan", "app-leftovers-cleanup-plan")
-            }
-            AppsCommand::Clean { .. } => {
-                output::CliApiContract::v1("apps clean", "app-leftovers-cleanup-plan")
-            }
+            AppsCommand::Scan { .. } => command_api_contract_for_path(&["apps", "scan"]),
+            AppsCommand::Clean { .. } => command_api_contract_for_path(&["apps", "clean"]),
         },
         Command::Config { command } => match command {
-            ConfigCommand::Paths => output::CliApiContract::v1("config paths", "config-paths"),
-            ConfigCommand::Show(_) => output::CliApiContract::v1("config show", "config-view"),
-            ConfigCommand::Validate(_) => {
-                output::CliApiContract::v1("config validate", "config-validation")
-            }
+            ConfigCommand::Paths => command_api_contract_for_path(&["config", "paths"]),
+            ConfigCommand::Show(_) => command_api_contract_for_path(&["config", "show"]),
+            ConfigCommand::Validate(_) => command_api_contract_for_path(&["config", "validate"]),
         },
         Command::Doctor { command } => match command {
-            DoctorCommand::Permissions => {
-                output::CliApiContract::v1("doctor permissions", "permissions-diagnostic")
-            }
+            DoctorCommand::Permissions => command_api_contract_for_path(&["doctor", "permissions"]),
             DoctorCommand::ActiveProcesses => {
-                output::CliApiContract::v1("doctor active-processes", "active-process-diagnostic")
+                command_api_contract_for_path(&["doctor", "active-processes"])
             }
         },
         Command::Schema { command } => match command {
-            SchemaCommand::Export(_) => output::CliApiContract::v1("schema export", "cli-schema"),
+            SchemaCommand::Export(_) => command_api_contract_for_path(&["schema", "export"]),
         },
         Command::Skills { command } => match command {
-            SkillsCommand::Install(_) => {
-                output::CliApiContract::v1("skills install", "skill-management")
-            }
-            SkillsCommand::Remove(_) => {
-                output::CliApiContract::v1("skills remove", "skill-management")
-            }
-            SkillsCommand::Path(_) => output::CliApiContract::v1("skills path", "skill-management"),
+            SkillsCommand::Install(_) => command_api_contract_for_path(&["skills", "install"]),
+            SkillsCommand::Remove(_) => command_api_contract_for_path(&["skills", "remove"]),
+            SkillsCommand::Path(_) => command_api_contract_for_path(&["skills", "path"]),
         },
         Command::Trash { command } => match command {
-            TrashCommand::Empty { .. } => output::CliApiContract::v1("trash empty", "trash-report"),
+            TrashCommand::Empty { .. } => command_api_contract_for_path(&["trash", "empty"]),
         },
-        Command::Completion(_) => output::CliApiContract::v1("completion", "completion-script"),
+        Command::Completion(_) => command_api_contract_for_path(&["completion"]),
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rebecca::core::Platform;
+use rebecca_core::Platform;
 use serde::Serialize;
 
 use crate::cli::OutputMode;

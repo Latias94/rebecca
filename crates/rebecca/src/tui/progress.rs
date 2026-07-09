@@ -91,6 +91,23 @@ pub(crate) enum TuiTaskProgressEvent {
         pruned: usize,
         retained: usize,
     },
+    ExecutionStarted {
+        executable_targets: usize,
+        estimated_bytes: u64,
+        mode: String,
+    },
+    ExecutionTargetStarted {
+        rule_id: String,
+        path: PathBuf,
+        estimated_bytes: u64,
+    },
+    ExecutionTargetFinished {
+        rule_id: String,
+        path: PathBuf,
+        status: String,
+        freed_bytes: u64,
+        pending_reclaim_bytes: u64,
+    },
     ExecutionFinished {
         completed_targets: u64,
         freed_bytes: u64,
@@ -344,6 +361,46 @@ impl TuiTaskStatus {
                 self.last_event =
                     format!("cache inspected {inspected}, pruned {pruned}, retained {retained}");
             }
+            TuiTaskProgressEvent::ExecutionStarted {
+                executable_targets,
+                estimated_bytes,
+                mode,
+            } => {
+                self.phase = "Executing cleanup".to_string();
+                self.targets_started = 0;
+                self.targets_finished = 0;
+                self.estimated_bytes = estimated_bytes;
+                self.last_event = format!("{executable_targets} target(s), {mode}");
+            }
+            TuiTaskProgressEvent::ExecutionTargetStarted {
+                rule_id,
+                path,
+                estimated_bytes,
+            } => {
+                self.phase = "Executing cleanup target".to_string();
+                self.current_rule_id = Some(rule_id.clone());
+                self.current_path = Some(path.clone());
+                self.targets_started = self.targets_started.saturating_add(1);
+                self.last_event =
+                    format!("{rule_id}: {} ({estimated_bytes} bytes)", path.display());
+            }
+            TuiTaskProgressEvent::ExecutionTargetFinished {
+                rule_id,
+                path,
+                status: target_status,
+                freed_bytes,
+                pending_reclaim_bytes,
+            } => {
+                self.phase = "Executed cleanup target".to_string();
+                self.current_rule_id = Some(rule_id.clone());
+                self.current_path = Some(path.clone());
+                self.targets_finished = self.targets_finished.saturating_add(1);
+                self.logical_bytes = self
+                    .logical_bytes
+                    .saturating_add(freed_bytes)
+                    .saturating_add(pending_reclaim_bytes);
+                self.last_event = format!("{rule_id} {target_status}: {}", path.display());
+            }
             TuiTaskProgressEvent::ExecutionFinished {
                 completed_targets,
                 freed_bytes,
@@ -450,6 +507,41 @@ mod tests {
     }
 
     #[test]
+    fn execution_target_events_update_structured_status() {
+        let mut status = TuiTaskStatus::started("Executing cleanup...");
+
+        status.apply_event(TuiTaskProgressEvent::ExecutionStarted {
+            executable_targets: 2,
+            estimated_bytes: 512,
+            mode: "recoverable-delete".to_string(),
+        });
+        status.apply_event(TuiTaskProgressEvent::ExecutionTargetStarted {
+            rule_id: "linux.user-cache".to_string(),
+            path: PathBuf::from("/tmp/cache"),
+            estimated_bytes: 512,
+        });
+        status.apply_event(TuiTaskProgressEvent::ExecutionTargetFinished {
+            rule_id: "linux.user-cache".to_string(),
+            path: PathBuf::from("/tmp/cache"),
+            status: "completed".to_string(),
+            freed_bytes: 0,
+            pending_reclaim_bytes: 512,
+        });
+
+        assert_eq!(status.phase, "Executed cleanup target");
+        assert_eq!(status.targets_started, 1);
+        assert_eq!(status.targets_finished, 1);
+        assert_eq!(status.estimated_bytes, 512);
+        assert_eq!(status.logical_bytes, 512);
+        assert_eq!(status.current_rule_id.as_deref(), Some("linux.user-cache"));
+        assert_eq!(
+            status.current_path.as_deref(),
+            Some(Path::new("/tmp/cache"))
+        );
+        assert_eq!(status.last_event, "linux.user-cache completed: /tmp/cache");
+    }
+
+    #[test]
     fn backend_fallback_and_cancel_request_update_status() {
         let mut status = TuiTaskStatus::started("Scanning fixture...");
 
@@ -473,7 +565,8 @@ mod tests {
 
     #[test]
     fn execution_cancel_request_reports_target_boundary() {
-        let mut status = TuiTaskStatus::started("Moving allowed targets to the system trash...");
+        let mut status =
+            TuiTaskStatus::started("Moving allowed targets to the system trash or Recycle Bin...");
 
         status.mark_cancel_requested();
 

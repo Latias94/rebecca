@@ -1,27 +1,8 @@
 //! Product-level library surface for Rebecca.
 //!
-//! This crate gives embedders one stable namespace while the implementation
-//! remains split across focused crates.
-
-pub mod core {
-    //! Core planning, safety, scanning, configuration, and history types.
-
-    pub use rebecca_core::*;
-}
-
-#[cfg(feature = "rules")]
-pub mod rules {
-    //! Built-in Rebecca cleanup rules.
-
-    pub use rebecca_rules::*;
-}
-
-#[cfg(feature = "windows")]
-pub mod windows {
-    //! Windows-specific adapters for discovery and host capabilities.
-
-    pub use rebecca_windows::*;
-}
+//! This crate gives embedders a small stable namespace while the implementation
+//! remains split across focused crates. Internal modules live in
+//! `rebecca-core`, `rebecca-rules`, and `rebecca-windows`.
 
 pub mod prelude {
     //! Common Rebecca types for library callers.

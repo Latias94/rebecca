@@ -1,13 +1,13 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use rebecca::core::disk_map::{DiskMapEntryKind, DiskMapGroupKind, DiskMapSortField};
-use rebecca::core::disk_session::{
+use rebecca_core::disk_map::{DiskMapEntryKind, DiskMapGroupKind, DiskMapSortField};
+use rebecca_core::disk_session::{
     DiskMapDistributionRow, DiskMapNodeId, DiskMapSession, DiskMapSubtreePatch, DiskMapVisibleRow,
 };
-use rebecca::core::history::HistoryEntry;
-use rebecca::core::plan::CleanupPlan;
-use rebecca::core::scan::ScanBackendKind;
+use rebecca_core::history::HistoryEntry;
+use rebecca_core::plan::CleanupPlan;
+use rebecca_core::scan::ScanBackendKind;
 
 use crate::output::format_bytes;
 use crate::tui::basket::{
@@ -660,7 +660,7 @@ impl TuiApp {
                 {
                     self.screen = TuiScreen::Confirm;
                     self.message = format!(
-                        "Type {} and press Enter to move targets to the system trash.",
+                        "Type {} and press Enter to move targets to the system trash or Recycle Bin.",
                         self.confirmation_phrase()
                     );
                 } else {
@@ -1225,16 +1225,16 @@ fn is_drillable_row(row: &DiskMapVisibleRow) -> bool {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use rebecca::core::cleanup_advice::{
+    use rebecca_core::cleanup_advice::{
         CleanupAdvice, CleanupAdviceCommand, CleanupAdviceSource, CleanupAdviceStatus,
     };
-    use rebecca::core::disk_map::{
+    use rebecca_core::disk_map::{
         DiskMapEntry, DiskMapEntryKind, DiskMapGroup, DiskMapGroupKind, DiskMapMetrics,
         DiskMapReport, DiskMapRoot, DiskMapRootStatus,
     };
-    use rebecca::core::disk_session::DiskMapSession;
-    use rebecca::core::plan::{CleanupPlan, EstimateProvenance, EstimateSource};
-    use rebecca::core::{DeleteMode, PlanRequest, Platform};
+    use rebecca_core::disk_session::DiskMapSession;
+    use rebecca_core::plan::{CleanupPlan, EstimateProvenance, EstimateSource};
+    use rebecca_core::{DeleteMode, PlanRequest, Platform};
 
     use super::*;
 

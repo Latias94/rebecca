@@ -1,7 +1,7 @@
 use anyhow::Result;
-use rebecca::core::RebeccaError;
-use rebecca::core::config::AppRuntimeConfig;
-use rebecca::core::disk_session::DiskMapSession;
+use rebecca_core::RebeccaError;
+use rebecca_core::config::AppRuntimeConfig;
+use rebecca_core::disk_session::DiskMapSession;
 
 use crate::tui::app::TuiApp;
 use crate::tui::effect::TuiEffect;
@@ -9,8 +9,8 @@ use crate::tui::effect::TuiEffect;
 pub(super) enum TaskOutcome {
     Scan(Result<DiskMapSession, TaskFailure>),
     Refresh(Result<TuiRefreshResult, TaskFailure>),
-    Preview(Result<rebecca::core::CleanupPlan, TaskFailure>),
-    Execute(Result<rebecca::core::CleanupPlan, TaskFailure>),
+    Preview(Result<rebecca_core::CleanupPlan, TaskFailure>),
+    Execute(Result<rebecca_core::CleanupPlan, TaskFailure>),
 }
 
 pub(super) struct TuiRefreshResult {

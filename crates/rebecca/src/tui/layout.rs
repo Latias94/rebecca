@@ -1,5 +1,5 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use rebecca::core::disk_session::DiskMapVisibleRow;
+use rebecca_core::disk_session::DiskMapVisibleRow;
 
 use crate::tui::model::TuiScreen;
 use crate::tui::treemap::{self, TreemapItem, TreemapTile};

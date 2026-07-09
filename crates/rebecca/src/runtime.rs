@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rebecca::core::scan::ScanCancellationToken;
+use rebecca_core::scan::ScanCancellationToken;
 
 #[derive(Debug, Clone)]
 pub(crate) struct CliRuntime {

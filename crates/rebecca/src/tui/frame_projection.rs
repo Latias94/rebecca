@@ -1,5 +1,5 @@
-use rebecca::core::disk_map::DiskMapEntryKind;
-use rebecca::core::disk_session::{DiskMapDistributionRow, DiskMapVisibleRow};
+use rebecca_core::disk_map::DiskMapEntryKind;
+use rebecca_core::disk_session::{DiskMapDistributionRow, DiskMapVisibleRow};
 
 use crate::tui::app::TuiTreemapSelectionSummary;
 

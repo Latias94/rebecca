@@ -6,7 +6,7 @@ Release handling is split across four workflows:
 
 - `ci.yml` runs formatting, linting, tests, Linux and macOS no-root cleanup smokes, cargo-dist planning, and a Windows release-packaging smoke test on pushes and pull requests;
 - `release-gates.yml` is a manual evidence gate that runs the shared release gate wrapper, uploads dogfood/performance artifacts, runs macOS cleanup smoke, and can compare full benchmark output against a prior workflow artifact;
-- `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks the crates.io publish order, checks crate package file lists, dry-runs unpublished registry-independent crate publishes, exercises the repository PowerShell release archive scripts, and runs macOS cleanup smoke;
+- `release-preflight.yml` is a manual gate that validates a chosen source ref and version, checks the crates.io publish order, builds crate package file lists, dry-runs unpublished registry-independent crate publishes, verifies dependent crates with package-context plus exact internal dependency proof, exercises the repository PowerShell release archive scripts, and runs macOS cleanup smoke;
 - `release.yml` publishes `rebecca-safety`, `rebecca-ntfs`, `rebecca-core`, `rebecca-rules`, `rebecca-windows`, and `rebecca` to crates.io in dependency order, then publishes the tag-driven ZIP, PowerShell installer, checksum files, and standalone shell completion assets to GitHub Releases.
 
 ## Artifact Names
@@ -47,7 +47,7 @@ Install from crates.io when a Rust toolchain is already available:
 cargo install rebecca --locked
 ```
 
-The release workflow dry-runs unpublished crates before publishing, skips crate versions already visible on crates.io, and waits for each dependency crate to become visible before publishing the next dependent crate. Preflight checks the publish order against normal, build, and dev workspace dependencies because Cargo verifies dev-dependencies while preparing a crate for publication. GitHub Release hosting waits for crates.io publishing to complete successfully, so a tag has one release status instead of two independent tag-triggered publishers.
+The release workflow dry-runs each unpublished crate immediately before publishing it, skips crate versions already visible on crates.io, and waits for each dependency crate to become visible before publishing the next dependent crate. Preflight checks the publish order against normal, build, and dev workspace dependencies because Cargo verifies dev-dependencies while preparing a crate for publication. Preflight can fully `cargo publish --dry-run` only registry-independent crates before anything is published; internally dependent crates instead get a package-context check plus exact `=version` internal dependency proof in `package-verification.json`, then receive the real publish dry-run after their dependencies are visible. GitHub Release hosting waits for crates.io publishing to complete successfully, so a tag has one release status instead of two independent tag-triggered publishers.
 
 ## Shell Completion Assets
 

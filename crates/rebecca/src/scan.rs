@@ -1,13 +1,13 @@
 use anyhow::Result;
-use rebecca::core::catalog::{CatalogItem, CatalogQuery, filter_catalog_items};
-use rebecca::core::{Platform, RuleSelection};
+use rebecca_core::catalog::{CatalogItem, CatalogQuery, filter_catalog_items};
+use rebecca_core::{Platform, RuleSelection};
 
 use crate::cli::OutputMode;
 
 pub fn run(output_mode: OutputMode, categories: Vec<String>, rules: Vec<String>) -> Result<()> {
-    let catalog = rebecca::rules::builtin_rules()?;
+    let catalog = rebecca_rules::builtin_rules()?;
     let item_query = CatalogQuery {
-        kind: Some(rebecca::core::catalog::CatalogItemKind::CleanupRule),
+        kind: Some(rebecca_core::catalog::CatalogItemKind::CleanupRule),
         platform: Some(Platform::current()),
         categories: categories.clone(),
         rule_ids: rules.clone(),

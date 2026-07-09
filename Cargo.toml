@@ -55,11 +55,11 @@ winreg = "0.56.0"
 
 # Workspace crates. Keeping versions explicit lets cargo publish rewrite path
 # dependencies to registry dependencies without duplicating requirements.
-rebecca-core = { path = "crates/rebecca-core", version = "0.3.0" }
-rebecca-ntfs = { path = "crates/rebecca-ntfs", version = "0.3.0" }
-rebecca-rules = { path = "crates/rebecca-rules", version = "0.3.0" }
-rebecca-safety = { path = "crates/rebecca-safety", version = "0.3.0" }
-rebecca-windows = { path = "crates/rebecca-windows", version = "0.3.0" }
+rebecca-core = { path = "crates/rebecca-core", version = "=0.3.0" }
+rebecca-ntfs = { path = "crates/rebecca-ntfs", version = "=0.3.0" }
+rebecca-rules = { path = "crates/rebecca-rules", version = "=0.3.0" }
+rebecca-safety = { path = "crates/rebecca-safety", version = "=0.3.0" }
+rebecca-windows = { path = "crates/rebecca-windows", version = "=0.3.0" }
 
 [profile.dist]
 inherits = "release"

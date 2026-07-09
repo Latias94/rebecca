@@ -3,8 +3,8 @@ use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
-use rebecca::core::disk_session::DiskMapDistributionRow;
-use rebecca::core::plan::CleanupPlan;
+use rebecca_core::disk_session::DiskMapDistributionRow;
+use rebecca_core::plan::CleanupPlan;
 
 use crate::output::format_bytes;
 use crate::text::format_count;
@@ -432,7 +432,7 @@ fn render_busy(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
 
 fn render_confirm(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     let lines = vec![
-        Line::from("Rebecca will move allowed targets to the system trash."),
+        Line::from("Rebecca will move allowed targets to the system trash or Recycle Bin."),
         Line::from(format!("Required phrase: {}", app.confirmation_phrase())),
         Line::from(format!("Input: {}", app.message)),
     ];

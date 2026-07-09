@@ -198,7 +198,7 @@ fn snapshot_distribution(
 
 fn snapshot_plan(
     title: &'static str,
-    plan: Option<&rebecca::core::plan::CleanupPlan>,
+    plan: Option<&rebecca_core::plan::CleanupPlan>,
     width: usize,
     lines: &mut Vec<String>,
 ) {

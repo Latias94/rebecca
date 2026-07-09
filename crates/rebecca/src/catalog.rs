@@ -1,11 +1,11 @@
 use anyhow::Result;
-use rebecca::core::catalog::{
+use rebecca_core::catalog::{
     ActionKindCatalogItem, CatalogItem, CatalogItemKind, CatalogQuery, CleanupRuleCatalogItem,
     ProjectArtifactCatalogItem, SafetyCategoryCatalogItem, WarningCatalogItem,
     filter_catalog_items,
 };
-use rebecca::core::project_artifacts::all_project_artifact_policies;
-use rebecca::core::{Platform, RuleDefinition, SafetyLevel};
+use rebecca_core::project_artifacts::all_project_artifact_policies;
+use rebecca_core::{Platform, RuleDefinition, SafetyLevel};
 use serde::Serialize;
 use std::collections::BTreeSet;
 
@@ -50,8 +50,8 @@ struct CatalogValidationReport {
 }
 
 pub fn run(options: CatalogOptions) -> Result<()> {
-    let rules = rebecca::rules::builtin_rules()?;
-    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let rules = rebecca_rules::builtin_rules()?;
+    let safety_knowledge = rebecca_rules::builtin_safety_knowledge()?;
     let catalog = build_catalog_items(&rules, &safety_knowledge);
     let query = catalog_query(&options);
     let filtered = filter_catalog_items(catalog, &query);
@@ -70,8 +70,8 @@ pub fn run(options: CatalogOptions) -> Result<()> {
 }
 
 pub fn validate(output_mode: OutputMode) -> Result<()> {
-    let rules = rebecca::rules::builtin_rules()?;
-    let safety_knowledge = rebecca::rules::builtin_safety_knowledge()?;
+    let rules = rebecca_rules::builtin_rules()?;
+    let safety_knowledge = rebecca_rules::builtin_safety_knowledge()?;
     let report = validation_report(&rules, &safety_knowledge);
 
     crate::output::print_command_success_with_contract(
@@ -87,7 +87,7 @@ pub fn validate(output_mode: OutputMode) -> Result<()> {
 
 fn validation_report(
     rules: &[RuleDefinition],
-    safety_knowledge: &rebecca::core::safety_catalog::SafetyKnowledge,
+    safety_knowledge: &rebecca_core::safety_catalog::SafetyKnowledge,
 ) -> CatalogValidationReport {
     let categories = rules
         .iter()
@@ -141,7 +141,7 @@ pub(crate) fn project_artifact_catalog_items() -> Vec<CatalogItem> {
 
 fn build_catalog_items(
     rules: &[RuleDefinition],
-    safety_knowledge: &rebecca::core::safety_catalog::SafetyKnowledge,
+    safety_knowledge: &rebecca_core::safety_catalog::SafetyKnowledge,
 ) -> Vec<CatalogItem> {
     let mut items = cleanup_rule_catalog_items(rules);
     items.extend(project_artifact_catalog_items());
@@ -185,7 +185,7 @@ fn validate_catalog_selection(items: &[CatalogItem], options: &CatalogOptions) -
         + usize::from(options.kind.is_some());
 
     if filters > 0 && items.is_empty() {
-        return Err(rebecca::core::RebeccaError::InvalidCatalogSelector(
+        return Err(rebecca_core::RebeccaError::InvalidCatalogSelector(
             "catalog selection did not match any items".to_string(),
         )
         .into());

@@ -3,7 +3,7 @@
 mod support;
 
 use libfuzzer_sys::fuzz_target;
-use rebecca_ntfs::attribute_list::parse_attribute_list;
+use rebecca_ntfs::fuzzing::parse_attribute_list;
 
 fuzz_target!(|data: &[u8]| {
     let bytes = support::corpus_bytes(data);

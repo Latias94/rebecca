@@ -1,8 +1,9 @@
 use anyhow::Result;
-use rebecca::core::RuleDefinition;
-use rebecca::core::plan::{CleanupIssueSummary, CleanupPlan};
-use rebecca::core::planner::PlanProgressEvent;
-use rebecca::core::progress::InspectProgressEvent;
+use rebecca_core::RuleDefinition;
+use rebecca_core::execution::ExecutionProgressEvent;
+use rebecca_core::plan::{CleanupIssueSummary, CleanupPlan};
+use rebecca_core::planner::PlanProgressEvent;
+use rebecca_core::progress::InspectProgressEvent;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::fmt;
@@ -60,6 +61,7 @@ struct ErrorEnvelope<'a> {
     api_version: &'static str,
     kind: &'static str,
     command: &'a str,
+    payload_kind: &'a str,
     generated_at_unix_seconds: u64,
     error: ApiErrorBody<'a>,
 }
@@ -79,6 +81,7 @@ struct ErrorEventEnvelope<'a> {
     api_version: &'static str,
     kind: &'static str,
     command: &'a str,
+    payload_kind: &'a str,
     sequence: u64,
     event_kind: &'static str,
     generated_at_unix_seconds: u64,
@@ -102,9 +105,9 @@ pub(crate) fn is_broken_pipe_error(err: &anyhow::Error) -> bool {
             .downcast_ref::<io::Error>()
             .is_some_and(|err| err.kind() == io::ErrorKind::BrokenPipe)
             || cause
-                .downcast_ref::<rebecca::core::RebeccaError>()
+                .downcast_ref::<rebecca_core::RebeccaError>()
                 .is_some_and(|err| {
-                    matches!(err, rebecca::core::RebeccaError::Io(io_err) if io_err.kind() == io::ErrorKind::BrokenPipe)
+                    matches!(err, rebecca_core::RebeccaError::Io(io_err) if io_err.kind() == io::ErrorKind::BrokenPipe)
                 })
     })
 }
@@ -213,6 +216,7 @@ pub(crate) fn render_error(contract: CliApiContract, mode: OutputMode, err: &any
                 api_version: contract.api_version,
                 kind: "error",
                 command: contract.command,
+                payload_kind: contract.payload_kind,
                 generated_at_unix_seconds: unix_now(),
                 error,
             };
@@ -226,6 +230,7 @@ pub(crate) fn render_error(contract: CliApiContract, mode: OutputMode, err: &any
                 api_version: contract.api_version,
                 kind: "event",
                 command: contract.command,
+                payload_kind: contract.payload_kind,
                 sequence: 0,
                 event_kind: "error",
                 generated_at_unix_seconds: unix_now(),
@@ -258,65 +263,65 @@ fn classify_error(err: &anyhow::Error) -> ApiErrorBody<'static> {
         };
     }
 
-    if let Some(core_error) = err.downcast_ref::<rebecca::core::RebeccaError>() {
+    if let Some(core_error) = err.downcast_ref::<rebecca_core::RebeccaError>() {
         let (code, title) = match core_error {
-            rebecca::core::RebeccaError::InvalidRuleId(_) => {
+            rebecca_core::RebeccaError::InvalidRuleId(_) => {
                 ("invalid-rule-id", "Invalid cleanup rule")
             }
-            rebecca::core::RebeccaError::InvalidCategory(_) => {
+            rebecca_core::RebeccaError::InvalidCategory(_) => {
                 ("invalid-category", "Invalid cleanup category")
             }
-            rebecca::core::RebeccaError::InvalidProjectArtifactSelector(_) => (
+            rebecca_core::RebeccaError::InvalidProjectArtifactSelector(_) => (
                 "invalid-project-artifact-selector",
                 "Invalid project artifact selector",
             ),
-            rebecca::core::RebeccaError::InvalidCatalogSelector(_) => {
+            rebecca_core::RebeccaError::InvalidCatalogSelector(_) => {
                 ("invalid-catalog-selector", "Invalid catalog selector")
             }
-            rebecca::core::RebeccaError::ConfigRead { .. } => {
+            rebecca_core::RebeccaError::ConfigRead { .. } => {
                 ("config-read-failed", "Configuration read failed")
             }
-            rebecca::core::RebeccaError::ConfigParse { .. } => {
+            rebecca_core::RebeccaError::ConfigParse { .. } => {
                 ("config-parse-failed", "Configuration parse failed")
             }
-            rebecca::core::RebeccaError::HistoryCorrupted(_) => {
+            rebecca_core::RebeccaError::HistoryCorrupted(_) => {
                 ("history-corrupted", "History record corrupted")
             }
-            rebecca::core::RebeccaError::HistoryUnavailable(_) => {
+            rebecca_core::RebeccaError::HistoryUnavailable(_) => {
                 ("history-unavailable", "History unavailable")
             }
-            rebecca::core::RebeccaError::PlatformUnavailable(_) => {
+            rebecca_core::RebeccaError::PlatformUnavailable(_) => {
                 ("platform-unavailable", "Platform unavailable")
             }
-            rebecca::core::RebeccaError::OperationCancelled(_) => {
+            rebecca_core::RebeccaError::OperationCancelled(_) => {
                 ("operation-cancelled", "Operation cancelled")
             }
-            rebecca::core::RebeccaError::ScanFailed(_) => ("scan-failed", "Scan failed"),
-            rebecca::core::RebeccaError::ScanCacheUnavailable(_) => {
+            rebecca_core::RebeccaError::ScanFailed(_) => ("scan-failed", "Scan failed"),
+            rebecca_core::RebeccaError::ScanCacheUnavailable(_) => {
                 ("scan-cache-unavailable", "Scan cache unavailable")
             }
-            rebecca::core::RebeccaError::SafetyBlocked(_) => {
+            rebecca_core::RebeccaError::SafetyBlocked(_) => {
                 ("safety-blocked", "Safety policy blocked cleanup")
             }
-            rebecca::core::RebeccaError::ExecutionFailed(_) => {
+            rebecca_core::RebeccaError::ExecutionFailed(_) => {
                 ("execution-failed", "Cleanup execution failed")
             }
-            rebecca::core::RebeccaError::PathExpansionFailed(_) => {
+            rebecca_core::RebeccaError::PathExpansionFailed(_) => {
                 ("path-expansion-failed", "Path expansion failed")
             }
-            rebecca::core::RebeccaError::ApplicationDiscoveryFailed(_) => (
+            rebecca_core::RebeccaError::ApplicationDiscoveryFailed(_) => (
                 "application-discovery-failed",
                 "Application discovery failed",
             ),
-            rebecca::core::RebeccaError::RuleCatalogInvalid(_) => {
+            rebecca_core::RebeccaError::RuleCatalogInvalid(_) => {
                 ("rule-catalog-invalid", "Rule catalog invalid")
             }
-            rebecca::core::RebeccaError::SafetyCatalogInvalid(_) => {
+            rebecca_core::RebeccaError::SafetyCatalogInvalid(_) => {
                 ("safety-catalog-invalid", "Safety catalog invalid")
             }
-            rebecca::core::RebeccaError::Json(_) => ("json-error", "JSON processing failed"),
-            rebecca::core::RebeccaError::Io(_) => ("io-error", "I/O failed"),
-            rebecca::core::RebeccaError::UserDirsUnavailable => {
+            rebecca_core::RebeccaError::Json(_) => ("json-error", "JSON processing failed"),
+            rebecca_core::RebeccaError::Io(_) => ("io-error", "I/O failed"),
+            rebecca_core::RebeccaError::UserDirsUnavailable => {
                 ("user-dirs-unavailable", "User directories unavailable")
             }
         };
@@ -510,6 +515,7 @@ pub(crate) fn print_success_event_with_contract<T: Serialize + ?Sized>(
 #[derive(Debug, Default)]
 pub(crate) struct NdjsonEventWriter {
     command: &'static str,
+    payload_kind: &'static str,
     api_version: &'static str,
     next_sequence: u64,
 }
@@ -522,6 +528,7 @@ impl NdjsonEventWriter {
     pub(crate) fn with_contract(contract: CliApiContract) -> Self {
         Self {
             command: contract.command,
+            payload_kind: contract.payload_kind,
             api_version: contract.api_version,
             next_sequence: 0,
         }
@@ -778,6 +785,64 @@ impl NdjsonEventWriter {
         self.emit_payload("inspect-progress", "inspect-progress", &data)
     }
 
+    pub(crate) fn emit_execution_progress(
+        &mut self,
+        event: ExecutionProgressEvent<'_>,
+    ) -> Result<()> {
+        match event {
+            ExecutionProgressEvent::Started {
+                total_targets,
+                executable_targets,
+                estimated_bytes,
+                mode,
+            } => self.emit_data(
+                "execution-started",
+                json!({
+                    "total_targets": total_targets,
+                    "executable_targets": executable_targets,
+                    "estimated_bytes": estimated_bytes,
+                    "mode": mode,
+                }),
+            ),
+            ExecutionProgressEvent::TargetStarted {
+                target_index,
+                target,
+            } => self.emit_data(
+                "execution-target-started",
+                json!({
+                    "target_index": target_index,
+                    "rule_id": &target.rule_id,
+                    "path": &target.path,
+                    "estimated_bytes": target.estimated_bytes,
+                    "deletion_style": target.deletion_style,
+                }),
+            ),
+            ExecutionProgressEvent::TargetFinished {
+                target_index,
+                target,
+            } => self.emit_data(
+                "execution-target-finished",
+                json!({
+                    "target_index": target_index,
+                    "rule_id": &target.rule_id,
+                    "path": &target.path,
+                    "status": target.status,
+                    "estimated_bytes": target.estimated_bytes,
+                    "freed_bytes": target.freed_bytes,
+                    "pending_reclaim_bytes": target.pending_reclaim_bytes,
+                    "reason_code": target.reason_code.as_deref(),
+                    "reason": target.reason.as_deref(),
+                }),
+            ),
+            ExecutionProgressEvent::Completed { summary } => self.emit_data(
+                "execution-completed",
+                json!({
+                    "summary": summary,
+                }),
+            ),
+        }
+    }
+
     pub(crate) fn emit_completed<T: Serialize + ?Sized>(
         &mut self,
         payload_kind: &str,
@@ -850,6 +915,7 @@ impl NdjsonEventWriter {
             api_version: self.api_version,
             kind: "event",
             command: self.command,
+            payload_kind: self.payload_kind,
             sequence: self.take_sequence(),
             event_kind: "error",
             generated_at_unix_seconds: unix_now(),

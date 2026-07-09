@@ -4,16 +4,24 @@ All notable changes to Rebecca will be documented in this file.
 
 ## [Unreleased]
 
+### Breaking
+- Cleaner Manifest v1 targets no longer accept `search_kind`. Rebecca now derives lookup behavior from the target kind itself, which keeps imported rules and built-in rules on the same contract.
+- The Rust API surface is narrower before the first stable release: the `rebecca` crate exposes a curated facade, while implementation crates and NTFS parser internals no longer leak broad modules for downstream use.
+
 ### Added
-- Executed `clean`, `purge`, `apps clean`, and `plan run` commands can now write a cleanup receipt with `--receipt <FILE>`. The receipt records what command ran, whether data went to trash or was permanently deleted, target outcomes, execution totals, and next steps such as `rebecca trash empty --yes`.
-- `clean`, `purge`, and `apps clean` can now save dry-run cleanup plans with `--save-plan <FILE>`. New `rebecca plan inspect` and `rebecca plan run` commands let users review a saved plan, revalidate target metadata, and execute it later with `--yes`; stale targets are skipped with `saved-plan-target-changed`.
+- Executed `clean`, `purge`, `apps clean`, and `plan run` commands can write a cleanup receipt with `--receipt <FILE>`. Receipts now include the command, request, selected gates, destination, source plan, revalidation result, target provenance, restore hints, and next steps for pending trash space.
+- `clean`, `purge`, and `apps clean` can save dry-run cleanup plans with `--save-plan <FILE>`. New `rebecca plan inspect` and `rebecca plan run` commands let users review a saved plan, revalidate target metadata, and execute it later with `--yes`; stale targets are skipped with `saved-plan-target-changed`.
 - `rebecca skills install`, `skills path`, and `skills remove` manage the packaged `rebecca-disk-cleaner` agent skill. The default install root is `~/.agents/skills`, with `--agent codex`, `--destination`, `--dry-run`, `--force`, and `delete`/`uninstall` aliases for other agent setups.
 - `rebecca trash empty` previews or empties the system trash from Rebecca. On Windows it uses the Recycle Bin and supports `--drive C` or `--drive E`; normal cleanup still moves files to trash by default, and `--permanent` bypasses trash for `clean`, `purge`, or `apps clean`.
+- `inspect map` now has `--metadata-profile` for choosing between a fast logical-byte inventory and fuller allocated-byte, unique-byte, age, grouping, and evidence collection.
+- NDJSON execution now reports `execution-started`, per-target execution start/finish events, and `execution-completed` for confirmed cleanup runs.
 
 ### Changed
 - Help, README examples, `clean`/`purge` summaries, `inspect map`, and the TUI result screen now start with the action a user can take next: preview, move to trash, permanently delete, or empty trash.
+- Cleanup summaries, receipts, and the TUI now tell users to preview the system trash or Windows Recycle Bin before running the confirmed empty command.
 - Long-running inspect and cleanup progress now shows clearer scan counters, rates, current scope, and cancellation hints; the TUI cleanup basket is now presented as a Reclaim Basket with selected-scope sizes before preview.
 - The TUI cleanup workbench, saved-plan execution, and inspect cleanup advice now share the same rule loading, protected-path checks, scan-cache wiring, and cleanup execution safeguards as the CLI. TUI rendering, snapshots, mouse hit-testing, and replay also share one frame view of the disk map, so what users see and what actions select stay aligned.
+- Built-in cleanup rules are embedded from the `rules/cleanup` directory automatically, so adding or removing a rule file no longer requires a second hand-maintained include list.
 
 ## [0.3.0] - 2026-07-08
 

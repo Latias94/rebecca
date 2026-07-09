@@ -617,6 +617,7 @@ fn resident_i30_index_root_can_supply_verified_fallback_edge() {
     );
 }
 
+#[cfg(feature = "fuzzing")]
 #[test]
 fn i30_index_allocation_record_parses_valid_indx_entries() {
     let raw = index_allocation_record(
@@ -628,8 +629,12 @@ fn i30_index_allocation_record_parses_valid_indx_entries() {
     );
 
     let record =
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&raw, SECTOR_SIZE, 0).unwrap();
-    let entries = record.directory_entries().collect::<Vec<_>>();
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&raw, SECTOR_SIZE, 0).unwrap();
+    let entries = record
+        .entries
+        .iter()
+        .filter_map(|entry| entry.directory_entry.as_ref())
+        .collect::<Vec<_>>();
 
     assert_eq!(record.vcn, 0);
     assert_eq!(entries.len(), 1);
@@ -639,6 +644,7 @@ fn i30_index_allocation_record_parses_valid_indx_entries() {
     assert_eq!(record.entries[0].child_vcn, None);
 }
 
+#[cfg(feature = "fuzzing")]
 #[test]
 fn i30_index_allocation_record_rejects_bad_fixup_signature_bounds_and_vcn() {
     let mut bad_fixup = index_allocation_record(
@@ -650,49 +656,56 @@ fn i30_index_allocation_record_rejects_bad_fixup_signature_bounds_and_vcn() {
     );
     bad_fixup[SECTOR_SIZE - 2] = 0;
     assert!(
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&bad_fixup, SECTOR_SIZE, 0)
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&bad_fixup, SECTOR_SIZE, 0)
             .is_err()
     );
 
     let mut bad_signature = index_allocation_record(0, vec![index_allocation_last_entry(false)]);
     bad_signature[0..4].copy_from_slice(b"BAD!");
     assert!(
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&bad_signature, SECTOR_SIZE, 0)
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&bad_signature, SECTOR_SIZE, 0)
             .is_err()
     );
 
     let mut bad_bounds = index_allocation_record(0, vec![index_allocation_last_entry(false)]);
     put_u32(&mut bad_bounds, 32, 8);
     assert!(
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&bad_bounds, SECTOR_SIZE, 0)
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&bad_bounds, SECTOR_SIZE, 0)
             .is_err()
     );
 
     let wrong_vcn = index_allocation_record(4, vec![index_allocation_last_entry(false)]);
     assert!(
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&wrong_vcn, SECTOR_SIZE, 0)
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&wrong_vcn, SECTOR_SIZE, 0)
             .is_err()
     );
 }
 
+#[cfg(feature = "fuzzing")]
 #[test]
 fn i30_index_allocation_record_rejects_short_entries_and_skips_last_subnode() {
     let short_entry = index_allocation_record_with_raw_entries(0, vec![0_u8; 12]);
     assert!(
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&short_entry, SECTOR_SIZE, 0)
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&short_entry, SECTOR_SIZE, 0)
             .is_err()
     );
 
     let last_subnode = index_allocation_record(8, vec![index_allocation_last_entry(true)]);
     let record =
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&last_subnode, SECTOR_SIZE, 8)
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&last_subnode, SECTOR_SIZE, 8)
             .unwrap();
-    assert_eq!(record.directory_entries().count(), 0);
+    assert!(
+        record
+            .entries
+            .iter()
+            .all(|entry| entry.directory_entry.is_none())
+    );
     assert_eq!(record.entries.len(), 1);
     assert!(record.entries[0].is_last);
     assert_eq!(record.entries[0].child_vcn, Some(16));
 }
 
+#[cfg(feature = "fuzzing")]
 #[test]
 fn i30_index_entries_preserve_child_vcns() {
     let raw = index_allocation_record(
@@ -709,7 +722,7 @@ fn i30_index_entries_preserve_child_vcns() {
         ],
     );
     let record =
-        rebecca_ntfs::dir_index::parse_i30_index_allocation_record(&raw, SECTOR_SIZE, 0).unwrap();
+        rebecca_ntfs::fuzzing::parse_i30_index_allocation_record(&raw, SECTOR_SIZE, 0).unwrap();
 
     assert_eq!(record.entries[0].child_vcn, Some(8));
     assert_eq!(

@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use ratatui::layout::Rect;
-use rebecca::core::config::AppRuntimeConfig;
+use rebecca_core::config::AppRuntimeConfig;
 
 use crate::runtime::CliRuntime;
 use crate::tui::app::TuiApp;
@@ -186,7 +186,7 @@ mod tests {
     fn tile_open_token_uses_treemap_open_action() {
         let mut app = TuiApp::root_picker(
             Vec::new(),
-            rebecca::core::scan::ScanBackendKind::PortableRecursive,
+            rebecca_core::scan::ScanBackendKind::PortableRecursive,
             10,
         );
         app.screen = TuiScreen::Treemap;

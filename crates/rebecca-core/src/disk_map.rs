@@ -20,8 +20,8 @@ pub use crate::inventory::{
 };
 use crate::plan::{EstimateProvenance, EstimateSource};
 use crate::progress::{
-    InspectProgressCounterKind, InspectProgressEvent, InspectProgressResult,
-    InspectProgressRootStatus, PowerOfTwoProgressSampler,
+    InspectProgressCounterKind, InspectProgressEvent, InspectProgressOptions,
+    InspectProgressResult, InspectProgressRootStatus, PowerOfTwoProgressSampler,
 };
 use crate::safety::is_reparse_like;
 use crate::scan::{
@@ -45,6 +45,8 @@ pub struct DiskMapRequest {
     pub max_depth: Option<usize>,
     pub scan_backend: ScanBackendKind,
     pub ntfs_mft_manifest_cache_root: Option<PathBuf>,
+    pub progress_options: InspectProgressOptions,
+    pub metadata_profile: DiskMapMetadataProfile,
 }
 
 impl DiskMapRequest {
@@ -61,6 +63,8 @@ impl DiskMapRequest {
             max_depth: None,
             scan_backend: ScanBackendKind::PortableRecursive,
             ntfs_mft_manifest_cache_root: None,
+            progress_options: InspectProgressOptions::target(),
+            metadata_profile: DiskMapMetadataProfile::default(),
         }
     }
 
@@ -124,6 +128,158 @@ impl DiskMapRequest {
     pub fn with_ntfs_mft_manifest_cache_root(mut self, cache_root: impl Into<PathBuf>) -> Self {
         self.ntfs_mft_manifest_cache_root = Some(cache_root.into());
         self
+    }
+
+    pub fn with_progress_options(mut self, progress_options: InspectProgressOptions) -> Self {
+        self.progress_options = progress_options;
+        self
+    }
+
+    pub fn with_metadata_profile(mut self, metadata_profile: DiskMapMetadataProfile) -> Self {
+        self.metadata_profile = metadata_profile;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskMapMetadataProfile {
+    LogicalOnly,
+    Allocated,
+    Unique,
+    AgeAndGrouping,
+    #[default]
+    FullEvidence,
+}
+
+impl DiskMapMetadataProfile {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::LogicalOnly => "logical-only",
+            Self::Allocated => "allocated",
+            Self::Unique => "unique",
+            Self::AgeAndGrouping => "age-and-grouping",
+            Self::FullEvidence => "full-evidence",
+        }
+    }
+
+    pub const fn collects_allocated_bytes(self) -> bool {
+        !matches!(self, Self::LogicalOnly)
+    }
+
+    pub const fn collects_file_identity(self) -> bool {
+        matches!(
+            self,
+            Self::Unique | Self::AgeAndGrouping | Self::FullEvidence
+        )
+    }
+
+    pub const fn collects_modified_time(self) -> bool {
+        matches!(self, Self::AgeAndGrouping | Self::FullEvidence)
+    }
+
+    pub const fn collects_semantic_caveats(self) -> bool {
+        matches!(self, Self::FullEvidence)
+    }
+
+    pub const fn collects_walker_semantics(self) -> bool {
+        self.collects_file_identity() || self.collects_semantic_caveats()
+    }
+
+    pub(crate) fn allocated_bytes(self, allocated_bytes: Option<u64>) -> Option<u64> {
+        self.collects_allocated_bytes()
+            .then_some(allocated_bytes)
+            .flatten()
+    }
+
+    #[cfg(all(windows, feature = "ntfs"))]
+    pub(crate) fn allocated_bytes_with(
+        self,
+        allocated_bytes: impl FnOnce() -> Option<u64>,
+    ) -> Option<u64> {
+        if self.collects_allocated_bytes() {
+            allocated_bytes()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn modified_time(self, modified_time: Option<SystemTime>) -> Option<SystemTime> {
+        self.collects_modified_time()
+            .then_some(modified_time)
+            .flatten()
+    }
+
+    #[cfg(all(windows, feature = "ntfs"))]
+    pub(crate) fn modified_time_with(
+        self,
+        modified_time: impl FnOnce() -> Option<SystemTime>,
+    ) -> Option<SystemTime> {
+        if self.collects_modified_time() {
+            modified_time()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn project_semantics(
+        self,
+        mut semantics: DiskMapMetadataSemantics,
+    ) -> DiskMapMetadataSemantics {
+        if !self.collects_file_identity() {
+            semantics.file_identity = None;
+            semantics.hardlink_count = None;
+        }
+        if !self.collects_semantic_caveats() {
+            semantics.compressed = false;
+            semantics.sparse = false;
+            if !self.collects_file_identity() {
+                semantics.hardlink_count = None;
+            }
+        }
+        semantics
+    }
+
+    pub(crate) fn apply_to_metrics(self, metrics: &mut DiskMapMetrics) {
+        if !self.collects_allocated_bytes() {
+            metrics.allocated_bytes = None;
+            metrics.unique_allocated_bytes = None;
+        }
+        if !self.collects_file_identity() {
+            metrics.unique_logical_bytes = None;
+            metrics.unique_allocated_bytes = None;
+        }
+    }
+
+    pub(crate) fn apply_to_provenance(
+        self,
+        mut provenance: EstimateProvenance,
+    ) -> EstimateProvenance {
+        if self == Self::FullEvidence {
+            return provenance;
+        }
+
+        provenance.estimate_caveats.push(disk_map_caveat(
+            "metadata-profile",
+            format!(
+                "disk-map metadata profile '{}' skipped {}",
+                self.label(),
+                self.skipped_evidence_label()
+            ),
+        ));
+        provenance
+    }
+
+    fn skipped_evidence_label(self) -> &'static str {
+        match self {
+            Self::LogicalOnly => {
+                "allocated bytes, unique-file identity, modified-time, and semantic caveat evidence"
+            }
+            Self::Allocated => "unique-file identity, modified-time, and semantic caveat evidence",
+            Self::Unique => "modified-time and semantic caveat evidence",
+            Self::AgeAndGrouping => "semantic caveat evidence",
+            Self::FullEvidence => "no metadata evidence",
+        }
     }
 }
 
@@ -314,6 +470,7 @@ struct DiskMapInspectionState {
     top_entries: DiskMapTopEntries,
     groups: DiskMapGroupCollector,
     diagnostics: DiskMapDiagnostics,
+    metadata_profile: DiskMapMetadataProfile,
 }
 
 impl DiskMapInspectionState {
@@ -332,11 +489,14 @@ impl DiskMapInspectionState {
                 request.group_sort,
             ),
             diagnostics: DiskMapDiagnostics::new(request.diagnostic_limit),
+            metadata_profile: request.metadata_profile,
         }
     }
 
     fn finish(mut self, unique_files: DiskMapUniqueFiles) -> DiskMapReport {
         unique_files.apply_to_metrics(&mut self.report.totals);
+        self.metadata_profile
+            .apply_to_metrics(&mut self.report.totals);
         self.report.top_entries = self.top_entries.into_sorted_entries();
         self.report.groups = self.groups.finish();
         self.diagnostics.finish(&mut self.report);
@@ -354,6 +514,7 @@ impl DiskMapInspectionState {
             group_limit: request.group_limit,
             group_now: self.groups.now(),
             group_sort: request.group_sort,
+            metadata_profile: request.metadata_profile,
         }
     }
 }
@@ -477,6 +638,10 @@ where
         provenance: EstimateProvenance,
         fallback_reason: Option<String>,
     ) -> Result<DiskMapUniqueFiles> {
+        let provenance = self
+            .request
+            .metadata_profile
+            .apply_to_provenance(provenance);
         if let Some(reason) = &fallback_reason {
             (self.progress)(InspectProgressEvent::BackendFallback {
                 root,
@@ -526,7 +691,8 @@ where
             }
         };
 
-        if self.walker.is_reparse_like(root, &metadata) {
+        let reparse_like = self.walker.is_reparse_like(root, &metadata);
+        if reparse_like {
             push_root_skip(
                 &mut self.state.report,
                 root,
@@ -547,29 +713,37 @@ where
         let max_depth = self.request.max_depth.unwrap_or(usize::MAX);
         let root_result = match self.walker.metadata_kind(&metadata) {
             DiskMapMetadataKind::File => {
-                let semantics = self.walker.metadata_semantics(&metadata);
+                let semantics = profiled_metadata_semantics(
+                    self.walker,
+                    &metadata,
+                    self.request.metadata_profile,
+                    reparse_like,
+                );
                 semantic_caveats.record(semantics);
                 let result = DiskMapTraversalResult::file(
                     self.walker.metadata_len(&metadata),
-                    self.walker.metadata_allocated_len(&metadata),
+                    profiled_allocated_len(self.walker, &metadata, self.request.metadata_profile),
                     semantics,
+                    self.request.metadata_profile,
                 );
                 self.state.groups.record_file(
                     root,
                     0,
                     result.metrics.logical_bytes,
                     result.metrics.allocated_bytes,
-                    self.walker.metadata_modified_time(&metadata),
+                    profiled_modified_time(self.walker, &metadata, self.request.metadata_profile),
                     semantics,
                 );
-                (self.progress)(InspectProgressEvent::FileMeasured {
-                    root,
-                    target_path: root,
-                    path: root,
-                    file_size: result.metrics.logical_bytes,
-                    files_scanned: 1,
-                    bytes_scanned: result.metrics.logical_bytes,
-                })?;
+                if self.request.progress_options.includes_file_events() {
+                    (self.progress)(InspectProgressEvent::FileMeasured {
+                        root,
+                        target_path: root,
+                        path: root,
+                        file_size: result.metrics.logical_bytes,
+                        files_scanned: 1,
+                        bytes_scanned: result.metrics.logical_bytes,
+                    })?;
+                }
                 let entry_provenance = estimate_provenance_with_entry_semantics(
                     &provenance,
                     semantics,
@@ -597,6 +771,8 @@ where
                 semantic_caveats: &mut semantic_caveats,
                 groups: &mut self.state.groups,
                 progress: self.progress,
+                progress_options: self.request.progress_options,
+                metadata_profile: self.request.metadata_profile,
                 progress_totals: DiskMapTraversalProgress::default(),
             })
             .inspect_root_directory()
@@ -799,11 +975,13 @@ impl DiskMapTraversalResult {
         logical_bytes: u64,
         allocated_bytes: Option<u64>,
         semantics: DiskMapMetadataSemantics,
+        metadata_profile: DiskMapMetadataProfile,
     ) -> Self {
         let mut unique_files = DiskMapUniqueFiles::default();
         unique_files.record_file(semantics.file_identity, logical_bytes, allocated_bytes);
         let mut metrics = file_metrics(logical_bytes, allocated_bytes);
         unique_files.apply_to_metrics(&mut metrics);
+        metadata_profile.apply_to_metrics(&mut metrics);
         Self {
             metrics,
             unique_files,
@@ -1207,6 +1385,58 @@ trait DiskMapWalker {
     ) -> Option<Result<DiskMapWalkerEntry<Self::Metadata>>>;
 }
 
+fn profiled_metadata_semantics<W>(
+    walker: &W,
+    metadata: &W::Metadata,
+    metadata_profile: DiskMapMetadataProfile,
+    reparse_like: bool,
+) -> DiskMapMetadataSemantics
+where
+    W: DiskMapWalker,
+{
+    let semantics = if metadata_profile.collects_walker_semantics() {
+        walker.metadata_semantics(metadata)
+    } else {
+        DiskMapMetadataSemantics::default()
+    };
+    let semantics = metadata_profile.project_semantics(semantics);
+    if reparse_like {
+        semantics.with_reparse_like()
+    } else {
+        semantics
+    }
+}
+
+fn profiled_allocated_len<W>(
+    walker: &W,
+    metadata: &W::Metadata,
+    metadata_profile: DiskMapMetadataProfile,
+) -> Option<u64>
+where
+    W: DiskMapWalker,
+{
+    if metadata_profile.collects_allocated_bytes() {
+        metadata_profile.allocated_bytes(walker.metadata_allocated_len(metadata))
+    } else {
+        None
+    }
+}
+
+fn profiled_modified_time<W>(
+    walker: &W,
+    metadata: &W::Metadata,
+    metadata_profile: DiskMapMetadataProfile,
+) -> Option<SystemTime>
+where
+    W: DiskMapWalker,
+{
+    if metadata_profile.collects_modified_time() {
+        metadata_profile.modified_time(walker.metadata_modified_time(metadata))
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Default)]
 struct FsPortableDiskMapWalker;
 
@@ -1321,8 +1551,10 @@ impl DiskMapWalker for FsPortableDiskMapWalker {
 }
 
 #[cfg(windows)]
-#[derive(Debug, Default)]
-struct WindowsNativeDiskMapWalker;
+#[derive(Debug)]
+struct WindowsNativeDiskMapWalker {
+    metadata_profile: DiskMapMetadataProfile,
+}
 
 #[cfg(windows)]
 #[derive(Debug, Clone)]
@@ -1337,7 +1569,11 @@ struct WindowsNativeDiskMapMetadata {
 
 #[cfg(windows)]
 impl WindowsNativeDiskMapMetadata {
-    fn from_fs_metadata(path: &Path, metadata: &std::fs::Metadata) -> Self {
+    fn from_fs_metadata(
+        path: &Path,
+        metadata: &std::fs::Metadata,
+        metadata_profile: DiskMapMetadataProfile,
+    ) -> Self {
         let kind = if metadata.is_file() {
             DiskMapMetadataKind::File
         } else if metadata.is_dir() {
@@ -1346,7 +1582,7 @@ impl WindowsNativeDiskMapMetadata {
             DiskMapMetadataKind::Other
         };
         let reparse_like = is_reparse_like(metadata);
-        let native_semantics =
+        let native_semantics = if metadata_profile.collects_walker_semantics() {
             crate::scan::windows_native::WindowsNativeFileSemantics::from_path_and_attributes(
                 path,
                 match kind {
@@ -1359,15 +1595,26 @@ impl WindowsNativeDiskMapMetadata {
                 },
                 metadata.file_attributes(),
                 reparse_like,
-            );
+            )
+        } else {
+            Default::default()
+        };
         Self {
-            allocated_len: match kind {
-                DiskMapMetadataKind::File => crate::scan::windows_native::file_allocated_size(path),
-                DiskMapMetadataKind::Directory | DiskMapMetadataKind::Other => None,
-            },
+            allocated_len: metadata_profile
+                .collects_allocated_bytes()
+                .then(|| match kind {
+                    DiskMapMetadataKind::File => {
+                        crate::scan::windows_native::file_allocated_size(path)
+                    }
+                    DiskMapMetadataKind::Directory | DiskMapMetadataKind::Other => None,
+                })
+                .flatten(),
             kind,
             len: metadata.len(),
-            modified_time: metadata.modified().ok(),
+            modified_time: metadata_profile
+                .collects_modified_time()
+                .then(|| metadata.modified().ok())
+                .flatten(),
             semantics: DiskMapMetadataSemantics::from(native_semantics),
             reparse_like,
         }
@@ -1415,7 +1662,13 @@ impl DiskMapWalker for WindowsNativeDiskMapWalker {
 
     fn symlink_metadata(&self, path: &Path) -> Result<Self::Metadata> {
         std::fs::symlink_metadata(path)
-            .map(|metadata| WindowsNativeDiskMapMetadata::from_fs_metadata(path, &metadata))
+            .map(|metadata| {
+                WindowsNativeDiskMapMetadata::from_fs_metadata(
+                    path,
+                    &metadata,
+                    self.metadata_profile,
+                )
+            })
             .map_err(|err| {
                 RebeccaError::ScanFailed(crate::error::ScanFailure::from_io(
                     path,
@@ -1454,7 +1707,16 @@ impl DiskMapWalker for WindowsNativeDiskMapWalker {
     }
 
     fn read_dir(&self, path: &Path, cancellation: &ScanCancellationToken) -> Result<Self::ReadDir> {
-        crate::scan::windows_native::read_directory_entries(path, cancellation).map(Vec::into_iter)
+        crate::scan::windows_native::read_directory_entries(
+            path,
+            cancellation,
+            crate::scan::windows_native::WindowsNativeDiskMapMetadataOptions::new(
+                self.metadata_profile.collects_allocated_bytes(),
+                self.metadata_profile.collects_modified_time(),
+                self.metadata_profile.collects_walker_semantics(),
+            ),
+        )
+        .map(Vec::into_iter)
     }
 
     fn next_entry(
@@ -1485,6 +1747,8 @@ where
     semantic_caveats: &'a mut DiskMapSemanticCaveats,
     groups: &'a mut DiskMapGroupCollector,
     progress: &'a mut F,
+    progress_options: InspectProgressOptions,
+    metadata_profile: DiskMapMetadataProfile,
     progress_totals: DiskMapTraversalProgress,
 }
 
@@ -1526,9 +1790,14 @@ where
                 }
             },
         };
-        let semantics = self.walker.metadata_semantics(&metadata);
-        if self.walker.is_reparse_like(&path, &metadata) {
-            let semantics = semantics.with_reparse_like();
+        let reparse_like = self.walker.is_reparse_like(&path, &metadata);
+        let semantics = profiled_metadata_semantics(
+            self.walker,
+            &metadata,
+            self.metadata_profile,
+            reparse_like,
+        );
+        if reparse_like {
             self.semantic_caveats.record(semantics);
             self.diagnostics.push(DiskMapDiagnostic::new(
                 DiskMapDiagnosticKind::ReparsePointSkipped,
@@ -1556,15 +1825,16 @@ where
                 self.semantic_caveats.record(semantics);
                 let result = DiskMapTraversalResult::file(
                     self.walker.metadata_len(&metadata),
-                    self.walker.metadata_allocated_len(&metadata),
+                    profiled_allocated_len(self.walker, &metadata, self.metadata_profile),
                     semantics,
+                    self.metadata_profile,
                 );
                 self.groups.record_file(
                     &path,
                     depth,
                     result.metrics.logical_bytes,
                     result.metrics.allocated_bytes,
-                    self.walker.metadata_modified_time(&metadata),
+                    profiled_modified_time(self.walker, &metadata, self.metadata_profile),
                     semantics,
                 );
                 self.record_file_progress(&path, result.metrics)?;
@@ -1657,14 +1927,16 @@ where
             .logical_bytes
             .saturating_add(metrics.logical_bytes);
 
-        (self.progress)(InspectProgressEvent::FileMeasured {
-            root: self.root,
-            target_path: self.root,
-            path,
-            file_size: metrics.logical_bytes,
-            files_scanned: self.progress_totals.metrics.files,
-            bytes_scanned: self.progress_totals.metrics.logical_bytes,
-        })?;
+        if self.progress_options.includes_file_events() {
+            (self.progress)(InspectProgressEvent::FileMeasured {
+                root: self.root,
+                target_path: self.root,
+                path,
+                file_size: metrics.logical_bytes,
+                files_scanned: self.progress_totals.metrics.files,
+                bytes_scanned: self.progress_totals.metrics.logical_bytes,
+            })?;
+        }
         self.emit_sampled_counter(InspectProgressCounterKind::Files)?;
         self.emit_sampled_counter(InspectProgressCounterKind::Bytes)
     }
@@ -1909,7 +2181,9 @@ where
         return Err(RebeccaError::PlatformUnavailable(reason));
     }
 
-    let walker = WindowsNativeDiskMapWalker;
+    let walker = WindowsNativeDiskMapWalker {
+        metadata_profile: request.metadata_profile,
+    };
     DiskMapRootInspection {
         request,
         cancellation,
@@ -2175,6 +2449,7 @@ pub(crate) struct DiskMapBackendOptions {
     pub(crate) group_limit: usize,
     pub(crate) group_now: SystemTime,
     pub(crate) group_sort: DiskMapSortField,
+    pub(crate) metadata_profile: DiskMapMetadataProfile,
 }
 
 #[cfg(all(windows, feature = "ntfs"))]
@@ -2521,7 +2796,9 @@ mod tests {
         let walker = FakeDiskMapWalker::default()
             .with_directory(&root, [FakeEntry::Path(file.clone())])
             .with_file(&file, 7);
-        let request = DiskMapRequest::new(vec![root]).with_top_limit(10);
+        let request = DiskMapRequest::new(vec![root])
+            .with_top_limit(10)
+            .with_progress_options(InspectProgressOptions::file());
         let cancellation = ScanCancellationToken::new();
         let expected = inspect_map_with_walker_for_test(&request, &cancellation, &walker).unwrap();
         let mut event_kinds = Vec::new();
@@ -2553,6 +2830,111 @@ mod tests {
         assert!(event_kinds.contains(&"traversal-progress"));
         assert!(event_kinds.contains(&"root-finished"));
         assert!(event_kinds.contains(&"finalizing"));
+    }
+
+    #[test]
+    fn disk_map_target_progress_omits_file_measured_events() {
+        let root = PathBuf::from("C:\\root");
+        let file = root.join("readable.bin");
+        let walker = FakeDiskMapWalker::default()
+            .with_directory(&root, [FakeEntry::Path(file.clone())])
+            .with_file(&file, 7);
+        let request = DiskMapRequest::new(vec![root]).with_top_limit(10);
+        let cancellation = ScanCancellationToken::new();
+        let mut event_kinds = Vec::new();
+
+        let mut progress = |event: InspectProgressEvent<'_>| -> InspectProgressResult {
+            event_kinds.push(match event {
+                InspectProgressEvent::RootStarted { .. } => "root-started",
+                InspectProgressEvent::RootFinished { .. } => "root-finished",
+                InspectProgressEvent::FileMeasured { .. } => "file-measured",
+                InspectProgressEvent::TraversalProgress { .. } => "traversal-progress",
+                InspectProgressEvent::Finalizing { .. } => "finalizing",
+                _ => "other",
+            });
+            Ok(())
+        };
+
+        inspect_map_with_walker_and_progress_for_test(
+            &request,
+            &cancellation,
+            &walker,
+            &mut progress,
+        )
+        .unwrap();
+
+        assert!(!event_kinds.contains(&"file-measured"));
+        assert!(event_kinds.contains(&"traversal-progress"));
+        assert!(event_kinds.contains(&"root-finished"));
+        assert!(event_kinds.contains(&"finalizing"));
+    }
+
+    #[test]
+    fn disk_map_logical_only_profile_omits_allocated_and_unique_claims() {
+        let root = PathBuf::from("C:\\root");
+        let left = root.join("left.bin");
+        let right = root.join("right.bin");
+        let identity = DiskMapFileIdentity {
+            volume_serial_number: 11,
+            file_index: 22,
+        };
+        let walker = FakeDiskMapWalker::default()
+            .with_directory(
+                &root,
+                [
+                    FakeEntry::Path(left.clone()),
+                    FakeEntry::Path(right.clone()),
+                ],
+            )
+            .with_identified_file(&left, 4, Some(4096), identity)
+            .with_identified_file(&right, 4, Some(4096), identity);
+        let request = DiskMapRequest::new(vec![root])
+            .with_top_limit(10)
+            .with_metadata_profile(DiskMapMetadataProfile::LogicalOnly);
+
+        let report =
+            inspect_map_with_walker_for_test(&request, &ScanCancellationToken::new(), &walker)
+                .unwrap();
+
+        assert_eq!(report.totals.logical_bytes, 8);
+        assert_eq!(report.totals.allocated_bytes, None);
+        assert_eq!(report.totals.unique_logical_bytes, None);
+        assert_eq!(report.totals.unique_allocated_bytes, None);
+        assert!(report.top_entries.iter().all(|entry| {
+            entry.allocated_bytes.is_none()
+                && entry.unique_logical_bytes.is_none()
+                && entry.unique_allocated_bytes.is_none()
+        }));
+        assert!(
+            report.roots[0]
+                .estimate_provenance
+                .estimate_caveats
+                .iter()
+                .any(|caveat| caveat.code == "metadata-profile")
+        );
+    }
+
+    #[test]
+    fn disk_map_profiles_omit_unique_totals_for_empty_trees_without_identity_collection() {
+        let root = PathBuf::from("C:\\root");
+        let walker = FakeDiskMapWalker::default().with_directory(&root, []);
+
+        for metadata_profile in [
+            DiskMapMetadataProfile::LogicalOnly,
+            DiskMapMetadataProfile::Allocated,
+        ] {
+            let request = DiskMapRequest::new(vec![root.clone()])
+                .with_top_limit(10)
+                .with_metadata_profile(metadata_profile);
+
+            let report =
+                inspect_map_with_walker_for_test(&request, &ScanCancellationToken::new(), &walker)
+                    .unwrap();
+
+            assert_eq!(report.totals.logical_bytes, 0);
+            assert_eq!(report.totals.unique_logical_bytes, None);
+            assert_eq!(report.totals.unique_allocated_bytes, None);
+        }
     }
 
     #[test]

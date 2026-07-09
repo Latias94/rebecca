@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use rebecca::core::plan::CleanupPlan;
-use rebecca::core::{
+use rebecca_core::plan::CleanupPlan;
+use rebecca_core::{
     CleanupWorkflow, DEFAULT_PROJECT_ARTIFACT_MAX_DEPTH, DEFAULT_PROJECT_ARTIFACT_MIN_AGE_DAYS,
     DeleteMode, PlanRequest, Platform,
 };
@@ -137,7 +137,8 @@ fn print_plan_decision(projection: &CleanPlanProjection<'_>) {
     if projection.mode == DeleteMode::RecoverableDelete
         && projection.summary.pending_reclaim_bytes > 0
     {
-        println!("Free that space now: rebecca trash empty --yes");
+        println!("Preview pending trash space: rebecca trash empty");
+        println!("Empty after review: rebecca trash empty --yes");
     }
 
     if !projection.warning_matrix().is_empty() {
@@ -235,7 +236,9 @@ fn execution_label(projection: &CleanPlanProjection<'_>) -> String {
         }
         DeleteMode::DryRun => "no eligible target would be deleted.".to_string(),
         DeleteMode::RecoverableDelete if projection.summary.pending_reclaim_bytes > 0 => {
-            format!("moved allowed targets to {destination}; empty it to free the pending space.")
+            format!(
+                "moved allowed targets to {destination}; preview trash before emptying pending space."
+            )
         }
         DeleteMode::RecoverableDelete if projection.summary.completed_targets > 0 => {
             format!("moved allowed targets to {destination}.")

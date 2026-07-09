@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rebecca::core::plan::CleanupPlan;
+use rebecca_core::plan::CleanupPlan;
 
 use crate::clean_view::{CleanPlanProjection, ScanCacheProgressSummary};
 use crate::output::{format_bytes, restore_hint_suffix};

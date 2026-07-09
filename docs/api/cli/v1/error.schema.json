@@ -8,6 +8,7 @@
     "api_version",
     "kind",
     "command",
+    "payload_kind",
     "generated_at_unix_seconds",
     "error"
   ],
@@ -21,6 +22,9 @@
     "command": {
       "type": "string",
       "minLength": 1
+    },
+    "payload_kind": {
+      "$ref": "payloads.schema.json#/$defs/payloadKind"
     },
     "generated_at_unix_seconds": {
       "type": "integer",

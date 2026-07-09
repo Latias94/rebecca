@@ -334,6 +334,74 @@ fn inspect_map_json_reports_ranked_entries_and_fallback_provenance() {
 }
 
 #[test]
+fn inspect_map_json_logical_only_profile_skips_allocated_and_unique_claims() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    write_fixture_file(root.join("alpha.bin"), b"abcd");
+    write_fixture_file(root.join("beta.bin"), b"xy");
+
+    let output = common::isolated::isolated_rebecca(&temp)
+        .args([
+            "inspect",
+            "map",
+            "--format",
+            "json",
+            "--scan-backend",
+            "portable-recursive",
+            "--metadata-profile",
+            "logical-only",
+            "--root",
+            root.to_str().unwrap(),
+            "--top",
+            "2",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        common::support::stderr(&output)
+    );
+
+    let envelope = common::support::api_envelope(&output.stdout);
+    let value = &envelope["data"];
+    assert_eq!(value["totals"]["logical_bytes"], 6);
+    assert_eq!(value["totals"]["allocated_bytes"], serde_json::Value::Null);
+    assert_eq!(
+        value["totals"]["unique_logical_bytes"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        value["totals"]["unique_allocated_bytes"],
+        serde_json::Value::Null
+    );
+    assert_eq!(value["roots"][0]["metrics"]["logical_bytes"], 6);
+    assert_eq!(
+        value["roots"][0]["metrics"]["allocated_bytes"],
+        serde_json::Value::Null
+    );
+    assert!(
+        value["roots"][0]["estimate_caveats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|caveat| caveat["code"] == "metadata-profile")
+    );
+    assert!(
+        value["top_entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| {
+                entry["allocated_bytes"] == serde_json::Value::Null
+                    && entry["unique_logical_bytes"] == serde_json::Value::Null
+                    && entry["unique_allocated_bytes"] == serde_json::Value::Null
+            })
+    );
+}
+
+#[test]
 fn inspect_map_json_reports_requested_groups() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");

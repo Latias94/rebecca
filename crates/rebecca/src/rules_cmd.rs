@@ -3,9 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use rebecca::core::config::load_app_paths;
-use rebecca::core::external_rules::ExternalRuleStore;
-use rebecca::core::{RebeccaError, RuleDefinition};
+use rebecca_core::config::load_app_paths;
+use rebecca_core::external_rules::ExternalRuleStore;
+use rebecca_core::{RebeccaError, RuleDefinition};
 use serde::Serialize;
 
 use crate::cli::OutputMode;
@@ -223,7 +223,7 @@ fn build_validation_report(
 ) -> Result<RuleValidationReport> {
     validate_discovery_options(discovery)?;
     let files = collect_rule_files(files, dirs, discovery)?;
-    let rules = rebecca::rules::validate_external_rule_files(&files)?;
+    let rules = rebecca_rules::validate_external_rule_files(&files)?;
     Ok(validation_report(files, discovery, &rules))
 }
 

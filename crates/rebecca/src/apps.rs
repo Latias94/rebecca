@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
-use rebecca::core::scan::ScanBackendKind;
-use rebecca::core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
+use rebecca_core::scan::ScanBackendKind;
+use rebecca_core::{CleanupWorkflow, DeleteMode, PlanRequest, Platform};
 
 use crate::clean::{ConfirmationKind, WorkflowRunOptions, run_workflow};
 use crate::cli::{OutputMode, ProgressDetail};

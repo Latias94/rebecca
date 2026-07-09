@@ -1,9 +1,9 @@
 use std::fs;
 
 mod common;
-use rebecca::core::history::HistoryStore;
-use rebecca::core::plan::{CleanupPlan, CleanupTarget};
-use rebecca::core::{DeleteMode, PlanRequest, Platform};
+use rebecca_core::history::HistoryStore;
+use rebecca_core::plan::{CleanupPlan, CleanupTarget};
+use rebecca_core::{DeleteMode, PlanRequest, Platform};
 
 #[test]
 fn config_paths_json_is_parseable() {

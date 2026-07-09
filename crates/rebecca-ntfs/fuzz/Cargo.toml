@@ -12,7 +12,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-rebecca-ntfs = { path = ".." }
+rebecca-ntfs = { path = "..", features = ["fuzzing"] }
 
 [[bin]]
 name = "mft_record"

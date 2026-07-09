@@ -1,12 +1,12 @@
 use std::fmt::Write as _;
 
 use anyhow::{Result, anyhow};
-use rebecca::core::cache::{
+use rebecca_core::cache::{
     CacheDoctorReport, CacheInventory, CacheInventoryEntryStatus, CacheNamespace, CachePruneReport,
     CachePurgeMode, CachePurgeReport, doctor_app_cache, inspect_app_cache,
     prune_app_cache_inventory, purge_app_cache, purge_app_cache_with_backend,
 };
-use rebecca::core::config::{load_app_paths, load_runtime_config};
+use rebecca_core::config::{load_app_paths, load_runtime_config};
 
 use crate::cache_view::CachePurgeProjection;
 use crate::cli::OutputMode;
@@ -141,9 +141,7 @@ pub fn purge(options: CachePurgeOptions) -> Result<()> {
     )
 }
 
-fn purge_app_cache_recoverably(
-    paths: &rebecca::core::config::AppPaths,
-) -> Result<CachePurgeReport> {
+fn purge_app_cache_recoverably(paths: &rebecca_core::config::AppPaths) -> Result<CachePurgeReport> {
     let backend = recoverable_trash_backend();
     Ok(purge_app_cache_with_backend(
         paths,
@@ -428,11 +426,11 @@ fn cache_status_label(status: CacheInventoryEntryStatus) -> &'static str {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::cache::{
+    use rebecca_core::cache::{
         CachePurgeEntry, CachePurgeEntryKind, CachePurgeEntryReason, CachePurgeEntryStatus,
         CachePurgeIssueSummary, CachePurgeSummary,
     };
-    use rebecca::core::config::{AppStorageLifecycle, AppStorageRetention};
+    use rebecca_core::config::{AppStorageLifecycle, AppStorageRetention};
 
     use super::{CachePurgeMode, CachePurgeReport, render_cache_purge_report};
 

@@ -316,7 +316,6 @@ platform = "macos"
 [[platforms.targets]]
 kind = "template"
 value = "MACOS_CACHE_HOME/Example"
-search_kind = "file"
 "#
         .to_string()
     }

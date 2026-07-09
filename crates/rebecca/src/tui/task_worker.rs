@@ -3,20 +3,22 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
 
 use anyhow::{Context, Result, bail};
-use rebecca::core::config::AppRuntimeConfig;
-use rebecca::core::disk_map::{
+use rebecca_core::config::AppRuntimeConfig;
+use rebecca_core::disk_map::{
     DiskMapGroupKind, DiskMapRequest, DiskMapSortField,
     inspect_map_with_progress as inspect_map_core,
 };
-use rebecca::core::disk_session::DiskMapSession;
-use rebecca::core::scan::{ScanBackendKind, ScanCancellationToken};
+use rebecca_core::disk_session::DiskMapSession;
+use rebecca_core::scan::{ScanBackendKind, ScanCancellationToken};
 
 use crate::runtime::CliRuntime;
 use crate::tui::app::TuiApp;
 use crate::tui::effect::TuiEffect;
 use crate::tui::progress::{TuiTaskId, TuiTaskProgressEvent};
 use crate::tui::task_outcome::{TaskOutcome, TuiRefreshResult, task_failure};
-use crate::tui::task_progress::{inspect_progress_event, plan_progress_sender, progress_sender};
+use crate::tui::task_progress::{
+    execution_progress_sender, inspect_progress_event, plan_progress_sender, progress_sender,
+};
 
 pub(super) const TASK_CHANNEL_CAPACITY: usize = 256;
 
@@ -142,27 +144,18 @@ pub(super) fn spawn_task(
             )
         }
         TuiEffect::Execute(request) => {
-            app.apply_task_started("Moving allowed targets to the system trash...");
+            app.apply_task_started("Moving allowed targets to the system trash or Recycle Bin...");
             (
                 "execute",
                 thread::spawn(move || {
-                    let result = crate::workbench::execute_recoverable_cleanup_with_progress(
+                    let result = crate::workbench::execute_recoverable_cleanup_with_progresses(
                         &request,
                         &runtime_config,
                         &task_runtime,
                         plan_progress_sender(task_id, sender.clone()),
+                        execution_progress_sender(task_id, sender.clone()),
                     )
                     .map_err(task_failure);
-                    if let Ok(plan) = &result {
-                        let _ = sender.send(TaskMessage::Progress {
-                            task_id,
-                            event: TuiTaskProgressEvent::ExecutionFinished {
-                                completed_targets: plan.summary.completed_targets as u64,
-                                freed_bytes: plan.summary.freed_bytes,
-                                pending_reclaim_bytes: plan.summary.pending_reclaim_bytes,
-                            },
-                        });
-                    }
                     let _ = sender.send(TaskMessage::Finished {
                         task_id,
                         outcome: Box::new(TaskOutcome::Execute(result)),
@@ -208,7 +201,7 @@ fn scan_session_with_progress<F>(
     mut progress: F,
 ) -> Result<DiskMapSession>
 where
-    F: FnMut(TuiTaskProgressEvent) -> rebecca::core::Result<()>,
+    F: FnMut(TuiTaskProgressEvent) -> rebecca_core::Result<()>,
 {
     let roots = resolve_roots(roots)?;
     let request = DiskMapRequest::new(roots)

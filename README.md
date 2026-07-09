@@ -97,7 +97,7 @@ rebecca clean --yes --permanent --category browser
 rebecca purge --yes --permanent --root . --artifact target
 ```
 
-Preview and empty trash from Rebecca:
+Preview trash from Rebecca, then empty it only after review:
 
 ```powershell
 rebecca trash empty
@@ -143,12 +143,15 @@ Rule authoring and external cleaner manifests are documented in [docs/rule-autho
 
 ```powershell
 rebecca inspect map --root . --top 20
+rebecca inspect map --root . --top 20 --metadata-profile logical-only
 rebecca inspect map --root . --top 20 --group-by extension
 rebecca inspect map --root . --top 20 --cleanup-advice
 rebecca inspect map --root . --table csv --table-row entry --group-by extension
 ```
 
 Human output is compact by default. Use `--full-path` for exact paths, `--no-bars` for plain logs, `--bar-width <COLUMNS>` for narrow or wide terminals, and `--screen-reader` for semicolon-separated lines without visual bars.
+
+The default metadata profile is `full-evidence`, which asks the backend for the richest accounting it can provide. Use `--metadata-profile logical-only` for the quickest "what is big?" pass, `allocated` when physical disk usage matters, `unique` when hardlink deduplication matters, and `age-and-grouping` when you need grouping and cleanup-advice context without every backend evidence field.
 
 On Windows, `--scan-backend windows-native` can use native directory enumeration and allocation metadata. Builds compiled with the `ntfs` Cargo feature also expose the experimental `windows-ntfs-mft-experimental` backend for read-only NTFS/MFT inventory. Unsupported or ambiguous cases fall back to the portable scanner with provenance.
 
@@ -194,8 +197,11 @@ Use NDJSON for long-running work that needs progress events:
 
 ```powershell
 rebecca clean --dry-run --format ndjson
+rebecca clean --yes --format ndjson --category browser
 rebecca inspect map --root . --format ndjson --top 20
 ```
+
+Dry-run NDJSON reports planning progress. Confirmed cleanup NDJSON also reports execution events for each target, including whether bytes were freed immediately or are pending in trash.
 
 Use table export when the next tool is Excel, PowerShell, DuckDB, or a shell pipeline:
 

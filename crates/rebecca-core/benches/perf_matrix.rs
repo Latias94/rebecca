@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use rebecca_core::disk_map::{DiskMapMetadataProfile, DiskMapRequest, inspect_map_with_progress};
 use rebecca_core::executor::{
     CleanupBackend, ExecutionOutcome, execute_cleanup_plan_parallel_with_policy,
     execute_cleanup_plan_with_policy,
@@ -12,6 +13,7 @@ use rebecca_core::plan::{CleanupPlan, CleanupTarget, CleanupTargetDeletionStyle}
 use rebecca_core::planner::{
     PlanProgressEvent, build_cleanup_plan, build_cleanup_plan_with_progress,
 };
+use rebecca_core::progress::{InspectProgressEvent, InspectProgressOptions};
 use rebecca_core::protection::ProtectionPolicy;
 use rebecca_core::scan::{
     MeasuredScan, ScanBackendKind, ScanCancellationToken, ScanEngine, ScanProgressEvent,
@@ -70,6 +72,22 @@ fn scenario_metadata() -> Vec<ScenarioMetadata> {
             33,
             131_072,
             1024,
+        ),
+        ScenarioMetadata::disk_map(
+            "disk_map_logical_only_target_progress_1024_files",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            DiskMapScenarioOptions::new("target", "logical-only", 0),
+        ),
+        ScenarioMetadata::disk_map(
+            "disk_map_full_evidence_file_progress_1024_files",
+            "many-small",
+            1024,
+            33,
+            131_072,
+            DiskMapScenarioOptions::new("file", "full-evidence", 1024),
         ),
         ScenarioMetadata::scan(
             "large_single_directory_cold_scan_1024_files",
@@ -329,6 +347,78 @@ fn perf_matrix(criterion: &mut Criterion) {
             black_box((report, progress_events));
         });
     });
+
+    group.bench_function(
+        "disk_map_logical_only_target_progress_1024_files",
+        |bencher| {
+            let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
+            let expected = create_many_small_fixture(fixture.path());
+
+            bencher.iter(|| {
+                let mut file_events = 0u64;
+                let mut traversal_events = 0u64;
+                let cancellation = ScanCancellationToken::new();
+                let request = DiskMapRequest::new(vec![fixture.path().to_path_buf()])
+                    .with_scan_backend(ScanBackendKind::PortableRecursive)
+                    .with_top_limit(0)
+                    .with_progress_options(InspectProgressOptions::target())
+                    .with_metadata_profile(DiskMapMetadataProfile::LogicalOnly);
+                let report = inspect_map_with_progress(&request, &cancellation, |event| {
+                    match event {
+                        InspectProgressEvent::FileMeasured { .. } => {
+                            file_events = file_events.saturating_add(1);
+                        }
+                        InspectProgressEvent::TraversalProgress { .. } => {
+                            traversal_events = traversal_events.saturating_add(1);
+                        }
+                        _ => {}
+                    }
+                    Ok(())
+                })
+                .expect("disk map should succeed");
+
+                assert_eq!(report.totals.logical_bytes, expected.bytes);
+                assert_eq!(report.totals.files, expected.files);
+                assert_eq!(report.totals.directories, expected.directories - 1);
+                assert_eq!(report.totals.allocated_bytes, None);
+                assert_eq!(report.totals.unique_logical_bytes, None);
+                assert_eq!(file_events, 0);
+                assert!(traversal_events > 0);
+                black_box((report, file_events, traversal_events));
+            });
+        },
+    );
+
+    group.bench_function(
+        "disk_map_full_evidence_file_progress_1024_files",
+        |bencher| {
+            let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
+            let expected = create_many_small_fixture(fixture.path());
+
+            bencher.iter(|| {
+                let mut file_events = 0u64;
+                let cancellation = ScanCancellationToken::new();
+                let request = DiskMapRequest::new(vec![fixture.path().to_path_buf()])
+                    .with_scan_backend(ScanBackendKind::PortableRecursive)
+                    .with_top_limit(0)
+                    .with_progress_options(InspectProgressOptions::file())
+                    .with_metadata_profile(DiskMapMetadataProfile::FullEvidence);
+                let report = inspect_map_with_progress(&request, &cancellation, |event| {
+                    if let InspectProgressEvent::FileMeasured { .. } = event {
+                        file_events = file_events.saturating_add(1);
+                    }
+                    Ok(())
+                })
+                .expect("disk map should succeed");
+
+                assert_eq!(report.totals.logical_bytes, expected.bytes);
+                assert_eq!(report.totals.files, expected.files);
+                assert_eq!(report.totals.directories, expected.directories - 1);
+                assert_eq!(file_events, expected.files);
+                black_box((report, file_events));
+            });
+        },
+    );
 
     group.bench_function("large_single_directory_cold_scan_1024_files", |bencher| {
         let fixture = tempfile::tempdir().expect("benchmark fixture should be created");
@@ -687,9 +777,32 @@ struct ScenarioMetadata {
     physical_directories: u64,
     expected_bytes: u64,
     progress_events: u64,
+    progress_detail: &'static str,
+    metadata_profile: &'static str,
     target_count: u64,
     cache_mode: &'static str,
     delete_mode: &'static str,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DiskMapScenarioOptions {
+    progress_detail: &'static str,
+    metadata_profile: &'static str,
+    progress_events: u64,
+}
+
+impl DiskMapScenarioOptions {
+    const fn new(
+        progress_detail: &'static str,
+        metadata_profile: &'static str,
+        progress_events: u64,
+    ) -> Self {
+        Self {
+            progress_detail,
+            metadata_profile,
+            progress_events,
+        }
+    }
 }
 
 impl ScenarioMetadata {
@@ -701,6 +814,33 @@ impl ScenarioMetadata {
         self
     }
 
+    const fn base(
+        scenario: &'static str,
+        operation: &'static str,
+        backend: &'static str,
+        fixture: &'static str,
+        physical_files: u64,
+        physical_directories: u64,
+        expected_bytes: u64,
+    ) -> Self {
+        Self {
+            scenario,
+            operation,
+            backend,
+            backend_source_expectation: "none",
+            fixture,
+            physical_files,
+            physical_directories,
+            expected_bytes,
+            progress_events: 0,
+            progress_detail: "none",
+            metadata_profile: "default",
+            target_count: 1,
+            cache_mode: "disabled",
+            delete_mode: "none",
+        }
+    }
+
     const fn scan(
         scenario: &'static str,
         fixture: &'static str,
@@ -709,20 +849,18 @@ impl ScenarioMetadata {
         expected_bytes: u64,
         progress_events: u64,
     ) -> Self {
-        Self {
+        let mut metadata = Self::base(
             scenario,
-            operation: "scan",
-            backend: "portable-recursive",
-            backend_source_expectation: "none",
+            "scan",
+            "portable-recursive",
             fixture,
             physical_files,
             physical_directories,
             expected_bytes,
-            progress_events,
-            target_count: 1,
-            cache_mode: "disabled",
-            delete_mode: "none",
-        }
+        );
+        metadata.progress_events = progress_events;
+        metadata.progress_detail = if progress_events == 0 { "none" } else { "file" };
+        metadata
     }
 
     const fn scan_backend(
@@ -734,20 +872,41 @@ impl ScenarioMetadata {
         expected_bytes: u64,
         progress_events: u64,
     ) -> Self {
-        Self {
+        let mut metadata = Self::base(
             scenario,
-            operation: "scan",
+            "scan",
             backend,
-            backend_source_expectation: "none",
             fixture,
             physical_files,
             physical_directories,
             expected_bytes,
-            progress_events,
-            target_count: 1,
-            cache_mode: "disabled",
-            delete_mode: "none",
-        }
+        );
+        metadata.progress_events = progress_events;
+        metadata.progress_detail = if progress_events == 0 { "none" } else { "file" };
+        metadata
+    }
+
+    const fn disk_map(
+        scenario: &'static str,
+        fixture: &'static str,
+        physical_files: u64,
+        physical_directories: u64,
+        expected_bytes: u64,
+        options: DiskMapScenarioOptions,
+    ) -> Self {
+        let mut metadata = Self::base(
+            scenario,
+            "disk-map",
+            "portable-recursive",
+            fixture,
+            physical_files,
+            physical_directories,
+            expected_bytes,
+        );
+        metadata.progress_events = options.progress_events;
+        metadata.progress_detail = options.progress_detail;
+        metadata.metadata_profile = options.metadata_profile;
+        metadata
     }
 
     const fn targets(
@@ -758,20 +917,17 @@ impl ScenarioMetadata {
         expected_bytes: u64,
         target_count: u64,
     ) -> Self {
-        Self {
+        let mut metadata = Self::base(
             scenario,
-            operation: "target-scan",
-            backend: "portable-recursive",
-            backend_source_expectation: "none",
+            "target-scan",
+            "portable-recursive",
             fixture,
             physical_files,
             physical_directories,
             expected_bytes,
-            progress_events: 0,
-            target_count,
-            cache_mode: "disabled",
-            delete_mode: "none",
-        }
+        );
+        metadata.target_count = target_count;
+        metadata
     }
 
     const fn rule_plan(
@@ -782,20 +938,18 @@ impl ScenarioMetadata {
         expected_bytes: u64,
         target_count: u64,
     ) -> Self {
-        Self {
+        let mut metadata = Self::base(
             scenario,
-            operation: "rule-plan",
-            backend: "portable-recursive",
-            backend_source_expectation: "none",
+            "rule-plan",
+            "portable-recursive",
             fixture,
             physical_files,
             physical_directories,
             expected_bytes,
-            progress_events: 0,
-            target_count,
-            cache_mode: "disabled",
-            delete_mode: "dry-run",
-        }
+        );
+        metadata.target_count = target_count;
+        metadata.delete_mode = "dry-run";
+        metadata
     }
 
     const fn rule_plan_progress(
@@ -807,20 +961,20 @@ impl ScenarioMetadata {
         target_count: u64,
         progress_events: u64,
     ) -> Self {
-        Self {
+        let mut metadata = Self::base(
             scenario,
-            operation: "rule-plan-progress",
-            backend: "portable-recursive",
-            backend_source_expectation: "none",
+            "rule-plan-progress",
+            "portable-recursive",
             fixture,
             physical_files,
             physical_directories,
             expected_bytes,
-            progress_events,
-            target_count,
-            cache_mode: "disabled",
-            delete_mode: "dry-run",
-        }
+        );
+        metadata.progress_events = progress_events;
+        metadata.progress_detail = "target";
+        metadata.target_count = target_count;
+        metadata.delete_mode = "dry-run";
+        metadata
     }
 
     const fn cache(
@@ -831,20 +985,17 @@ impl ScenarioMetadata {
         expected_bytes: u64,
         cache_mode: &'static str,
     ) -> Self {
-        Self {
+        let mut metadata = Self::base(
             scenario,
-            operation: "scan-cache",
-            backend: "portable-recursive",
-            backend_source_expectation: "none",
+            "scan-cache",
+            "portable-recursive",
             fixture,
             physical_files,
             physical_directories,
             expected_bytes,
-            progress_events: 0,
-            target_count: 1,
-            cache_mode,
-            delete_mode: "none",
-        }
+        );
+        metadata.cache_mode = cache_mode;
+        metadata
     }
 
     const fn delete(
@@ -856,20 +1007,18 @@ impl ScenarioMetadata {
         delete_mode: &'static str,
         target_count: u64,
     ) -> Self {
-        Self {
+        let mut metadata = Self::base(
             scenario,
-            operation: "delete",
-            backend: "fixture-delete",
-            backend_source_expectation: "none",
+            "delete",
+            "fixture-delete",
             fixture,
             physical_files,
             physical_directories,
             expected_bytes,
-            progress_events: 0,
-            target_count,
-            cache_mode: "disabled",
-            delete_mode,
-        }
+        );
+        metadata.target_count = target_count;
+        metadata.delete_mode = delete_mode;
+        metadata
     }
 }
 

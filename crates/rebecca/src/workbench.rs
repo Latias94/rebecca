@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use rebecca::core::config::AppRuntimeConfig;
-use rebecca::core::planner::PlanProgressEvent;
-use rebecca::core::scan::ScanBackendKind;
-use rebecca::core::{CleanupPlan, DeleteMode, PlanRequest, Platform};
+use rebecca_core::config::AppRuntimeConfig;
+use rebecca_core::execution::ExecutionProgressEvent;
+use rebecca_core::planner::PlanProgressEvent;
+use rebecca_core::scan::ScanBackendKind;
+use rebecca_core::{CleanupPlan, DeleteMode, PlanRequest, Platform};
 
 use crate::runtime::CliRuntime;
-use crate::workflow_execution::{execute_plan, record_execution_report};
+use crate::workflow_execution::{execute_plan_with_progress, record_execution_report};
 use crate::workflow_planner::{
     WorkflowPlanCoreBuild, WorkflowPlanCoreOptions, WorkflowRuleSource, build_workflow_plan_core,
 };
@@ -88,12 +89,26 @@ pub(crate) fn execute_recoverable_cleanup_with_progress<F>(
 where
     F: for<'a> FnMut(PlanProgressEvent<'a>),
 {
+    execute_recoverable_cleanup_with_progresses(request, runtime_config, runtime, progress, |_| {})
+}
+
+pub(crate) fn execute_recoverable_cleanup_with_progresses<P, E>(
+    request: &CleanupWorkbenchRequest,
+    runtime_config: &AppRuntimeConfig,
+    runtime: &CliRuntime,
+    plan_progress: P,
+    execution_progress: E,
+) -> Result<CleanupPlan>
+where
+    P: for<'a> FnMut(PlanProgressEvent<'a>),
+    E: for<'a> FnMut(ExecutionProgressEvent<'a>),
+{
     let build = build_plan(
         request.recoverable_delete_plan_request(),
         request,
         runtime_config,
         runtime,
-        progress,
+        plan_progress,
     )?;
     let mut plan = build.plan;
     if plan.summary.allowed_targets == 0 {
@@ -101,11 +116,12 @@ where
     }
 
     let execution_policy = build.execution_guards.protection_policy();
-    let mut execution_report = execute_plan(
+    let mut execution_report = execute_plan_with_progress(
         &mut plan,
         execution_policy,
         runtime.cancellation(),
         DeleteMode::RecoverableDelete,
+        execution_progress,
     )?;
     record_execution_report(
         &mut plan,

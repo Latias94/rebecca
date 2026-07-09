@@ -105,5 +105,36 @@ fn trash_empty_json_reports_unsupported_platform() {
     assert!(!output.status.success());
     let stderr = common::support::stderr(&output);
     assert!(stderr.contains("system trash listing is not supported on this platform yet"));
-    assert!(stderr.contains("\"code\": \"internal-error\""));
+    assert!(stderr.contains("\"code\": \"platform-unavailable\""));
+}
+
+#[cfg(not(any(
+    windows,
+    all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "ios"),
+        not(target_os = "android")
+    )
+)))]
+#[test]
+fn trash_empty_yes_json_reports_unsupported_platform() {
+    let output = common::command::rebecca()
+        .args(["trash", "empty", "--yes", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&output.stderr).expect("stderr should be a JSON error envelope");
+    assert_eq!(envelope["command"], "trash empty");
+    assert_eq!(envelope["payload_kind"], "trash-report");
+    assert_eq!(envelope["error"]["code"], "platform-unavailable");
+    assert!(
+        envelope["error"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("system trash emptying is not supported on this platform yet")
+    );
 }

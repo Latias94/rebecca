@@ -3,19 +3,27 @@
 //! This crate intentionally parses exported record bytes and in-memory fixtures.
 //! It does not open volumes, require elevation, or provide deletion authority.
 
-pub mod adapter;
-pub mod attribute_list;
-pub mod attrs;
-pub mod dir_index;
-pub mod fixup;
-pub mod index;
-pub mod reader;
-pub mod record;
-pub mod record_set;
-pub mod runlist;
-pub mod stream;
+mod adapter;
+mod attribute_list;
+mod attrs;
+mod dir_index;
+mod fixup;
+mod index;
+mod reader;
+mod record;
+mod record_set;
+mod runlist;
+mod stream;
 
 mod parse;
+
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing {
+    pub use crate::attribute_list::parse_attribute_list;
+    pub use crate::dir_index::{parse_i30_index_allocation_record, parse_i30_index_root};
+    pub use crate::runlist::parse_data_runs;
+}
 
 pub use adapter::{
     NtfsAttributeListEntry, NtfsAttributeStream, NtfsDataRun, NtfsDirectoryEntry,

@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use rebecca::core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
-use rebecca::core::disk_map::{DiskMapEntry, DiskMapMetrics, DiskMapReport};
-use rebecca::core::inspect::SpaceInsightReport;
-use rebecca::core::lint::LintReport;
+use rebecca_core::cleanup_advice::{CleanupAdvice, CleanupAdviceStatus};
+use rebecca_core::disk_map::{DiskMapEntry, DiskMapMetrics, DiskMapReport};
+use rebecca_core::inspect::SpaceInsightReport;
+use rebecca_core::lint::LintReport;
 
 use crate::output::{format_bytes, format_shell_command};
 use crate::render::{estimate_provenance_suffix, format_count};

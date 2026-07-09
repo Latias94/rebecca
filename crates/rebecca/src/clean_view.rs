@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use rebecca::core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
-use rebecca::core::{DeleteMode, EstimateProvenance, EstimateSource, PlanRequest, TargetStatus};
+use rebecca_core::plan::{CleanupPlan, CleanupSummary, CleanupTarget};
+use rebecca_core::{DeleteMode, EstimateProvenance, EstimateSource, PlanRequest, TargetStatus};
 
 use crate::text::format_count;
 
@@ -261,8 +261,8 @@ fn cleanup_mode_label(mode: DeleteMode) -> &'static str {
 mod tests {
     use std::path::PathBuf;
 
-    use rebecca::core::plan::{CleanupTarget, CleanupTargetIssueReason};
-    use rebecca::core::{PlanRequest, Platform};
+    use rebecca_core::plan::{CleanupTarget, CleanupTargetIssueReason};
+    use rebecca_core::{PlanRequest, Platform};
 
     use super::*;
 
