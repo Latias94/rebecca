@@ -52,6 +52,7 @@ pub(crate) struct TuiApp {
     pub(crate) executed: Option<CleanupPlan>,
     pub(crate) history: Vec<HistoryEntry>,
     pub(crate) message: String,
+    pub(crate) confirmation_input: String,
     pub(crate) task_status: Option<TuiTaskStatus>,
     pub(crate) scan_backend: ScanBackendKind,
     pub(crate) entry_limit: usize,
@@ -101,6 +102,7 @@ impl TuiApp {
             executed: None,
             history: Vec::new(),
             message: "Choose a root and press Enter to scan.".to_string(),
+            confirmation_input: String::new(),
             task_status: None,
             scan_backend,
             entry_limit,
@@ -144,6 +146,7 @@ impl TuiApp {
             message:
                 "Space adds a cleanup rule to the Reclaim Basket; c previews concrete targets."
                     .to_string(),
+            confirmation_input: String::new(),
             task_status: None,
             scan_backend,
             entry_limit,
@@ -491,6 +494,7 @@ impl TuiApp {
         let allowed = plan.summary.allowed_targets;
         let bytes = plan.summary.estimated_bytes;
         self.preview = Some(plan);
+        self.confirmation_input.clear();
         self.screen = TuiScreen::Preview;
         self.selected = 0;
         self.message = format!(
@@ -506,6 +510,7 @@ impl TuiApp {
         self.screen = TuiScreen::Executed;
         self.basket.clear();
         self.preview = None;
+        self.confirmation_input.clear();
         self.message = "Cleanup finished and history was updated.".to_string();
         self.task_status = None;
         self.failed_effect = None;
@@ -676,8 +681,9 @@ impl TuiApp {
                     .is_some_and(|plan| plan.summary.allowed_targets > 0)
                 {
                     self.screen = TuiScreen::Confirm;
+                    self.confirmation_input.clear();
                     self.message = format!(
-                        "Type {} and press Enter to move targets to the system trash or Recycle Bin.",
+                        "Review the cleanup summary, type {}, then press Enter.",
                         self.confirmation_phrase()
                     );
                 } else {
@@ -713,33 +719,28 @@ impl TuiApp {
         match key {
             TuiKey::Enter => {
                 let expected = self.confirmation_phrase();
-                if self.message == expected {
+                if self.confirmation_input == expected {
                     return TuiEffect::Execute(self.workbench_request());
                 }
                 self.message = format!("Confirmation must exactly match: {expected}");
                 TuiEffect::None
             }
             TuiKey::Backspace => {
-                self.message.pop();
+                self.confirmation_input.pop();
                 TuiEffect::None
             }
             TuiKey::Space => {
-                if self.message.starts_with("Type ") {
-                    self.message.clear();
-                }
-                self.message.push(' ');
+                self.confirmation_input.push(' ');
                 TuiEffect::None
             }
             TuiKey::Esc => {
                 self.screen = TuiScreen::Preview;
+                self.confirmation_input.clear();
                 self.message = "Execution cancelled.".to_string();
                 TuiEffect::None
             }
             TuiKey::Char(ch) => {
-                if self.message.starts_with("Type ") {
-                    self.message.clear();
-                }
-                self.message.push(ch);
+                self.confirmation_input.push(ch);
                 TuiEffect::None
             }
             _ => TuiEffect::None,
@@ -1314,10 +1315,13 @@ mod tests {
             DeleteMode::DryRun,
         ));
         plan.summary.allowed_targets = 1;
+        plan.summary.total_targets = 1;
         plan.summary.estimated_bytes = 42;
         app.apply_preview(plan);
 
         app.handle_key(TuiKey::Char('e'));
+        assert_eq!(app.screen, TuiScreen::Confirm);
+        assert!(app.message.starts_with("Review the cleanup summary"));
         for key in [
             TuiKey::Char('C'),
             TuiKey::Char('L'),
@@ -1330,7 +1334,41 @@ mod tests {
         ] {
             app.handle_key(key);
         }
+        assert_eq!(app.confirmation_input, "CLEAN 42");
+        assert!(app.message.starts_with("Review the cleanup summary"));
 
+        assert!(matches!(
+            app.handle_key(TuiKey::Enter),
+            TuiEffect::Execute(_)
+        ));
+    }
+
+    #[test]
+    fn confirmation_error_does_not_replace_typed_input() {
+        let mut app = test_app();
+        app.handle_key(TuiKey::Space);
+        let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+            Platform::current(),
+            DeleteMode::DryRun,
+        ));
+        plan.summary.allowed_targets = 1;
+        plan.summary.total_targets = 1;
+        plan.summary.estimated_bytes = 42;
+        app.apply_preview(plan);
+
+        app.handle_key(TuiKey::Char('e'));
+        for ch in "CLEAN 41".chars() {
+            app.handle_key(TuiKey::Char(ch));
+        }
+
+        assert_eq!(app.handle_key(TuiKey::Enter), TuiEffect::None);
+        assert_eq!(app.confirmation_input, "CLEAN 41");
+        assert_eq!(app.message, "Confirmation must exactly match: CLEAN 42");
+
+        app.handle_key(TuiKey::Backspace);
+        app.handle_key(TuiKey::Char('2'));
+
+        assert_eq!(app.confirmation_input, "CLEAN 42");
         assert!(matches!(
             app.handle_key(TuiKey::Enter),
             TuiEffect::Execute(_)

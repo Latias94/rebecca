@@ -14,10 +14,11 @@ use crate::tui::frame_projection::TuiFrameProjection;
 use crate::tui::layout;
 use crate::tui::model::TuiScreen;
 use crate::tui::presentation::{
-    BAR_WIDTH, active_group_filter_status, advice_label, byte_bar, distribution_count_label,
-    distribution_share_label, distribution_title, group_filter_suffix, help_ratatui_lines,
-    history_ratatui_lines, map_title, max_distribution_logical, max_logical, plan_ratatui_lines,
-    task_status_ratatui_lines, treemap_context_ratatui_lines, treemap_empty_message, trim_to_width,
+    BAR_WIDTH, active_group_filter_status, advice_label, byte_bar, confirm_ratatui_lines,
+    distribution_count_label, distribution_share_label, distribution_title, group_filter_suffix,
+    help_ratatui_lines, history_ratatui_lines, map_title, max_distribution_logical, max_logical,
+    plan_ratatui_lines, task_status_ratatui_lines, treemap_context_ratatui_lines,
+    treemap_empty_message, trim_to_width,
 };
 use crate::tui::treemap::TreemapTile;
 
@@ -496,17 +497,14 @@ fn render_busy(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
 }
 
 fn render_confirm(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
-    let lines = vec![
-        Line::from("Rebecca will move allowed targets to the system trash or Recycle Bin."),
-        Line::from(format!("Required phrase: {}", app.confirmation_phrase())),
-        Line::from(format!("Input: {}", app.message)),
-    ];
     frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Confirm cleanup"),
-        ),
+        Paragraph::new(confirm_ratatui_lines(app))
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Confirm cleanup"),
+            ),
         area,
     );
 }

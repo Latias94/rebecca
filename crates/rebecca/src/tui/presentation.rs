@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use ratatui::text::Line;
 use rebecca_core::cleanup_advice::CleanupAdviceStatus;
 use rebecca_core::disk_session::{DiskMapDistributionRow, DiskMapVisibleRow};
@@ -11,6 +13,8 @@ use crate::tui::model::TuiScreen;
 use crate::tui::progress::TuiTaskStatus;
 
 pub(crate) const BAR_WIDTH: usize = 12;
+
+const CONFIRM_RULE_PREVIEW_LIMIT: usize = 4;
 
 pub(crate) fn plan_lines(plan: Option<&CleanupPlan>) -> Vec<String> {
     let Some(plan) = plan else {
@@ -45,6 +49,47 @@ pub(crate) fn plan_lines(plan: Option<&CleanupPlan>) -> Vec<String> {
         "Empty after review: rebecca trash empty --yes".to_string(),
         "e execute  Esc return  q quit".to_string(),
     ]
+}
+
+pub(crate) fn confirm_lines(app: &TuiApp) -> Vec<String> {
+    let Some(plan) = app.preview.as_ref() else {
+        return vec![
+            "No cleanup preview is available.".to_string(),
+            "Esc returns to the previous screen.".to_string(),
+        ];
+    };
+
+    let mut lines = vec![
+        "Execution: move allowed targets to the system trash or Recycle Bin.".to_string(),
+        format!(
+            "Allowed: {} of {} | Estimated: {} ({})",
+            format_count(plan.summary.allowed_targets as u64, "target", "targets"),
+            format_count(
+                plan.summary.total_targets as u64,
+                "total target",
+                "total targets"
+            ),
+            plan.summary.estimated_bytes,
+            format_bytes(plan.summary.estimated_bytes)
+        ),
+        format!(
+            "Not moving now: {}, {}, {}",
+            format_count(plan.summary.blocked_targets as u64, "blocked target", "blocked targets"),
+            format_count(plan.summary.skipped_targets as u64, "skipped target", "skipped targets"),
+            format_count(plan.summary.failed_targets as u64, "failed target", "failed targets")
+        ),
+        format!("Basket rules: {}", selected_rules_summary(app)),
+        format!("Safety gates: {}", safety_gate_summary(app)),
+        "After execution: preview trash with `rebecca trash empty`; empty reviewed trash with `rebecca trash empty --yes`.".to_string(),
+        "Permanent delete is CLI-only: rerun the previewed rule with `rebecca clean --yes --permanent`.".to_string(),
+        format!("Required phrase: {}", app.confirmation_phrase()),
+        format!("Input: {}", app.confirmation_input),
+    ];
+    if app.message.starts_with("Confirmation must") {
+        lines.push(app.message.clone());
+    }
+    lines.push("Enter executes; Esc returns to preview.".to_string());
+    lines
 }
 
 pub(crate) fn help_lines() -> Vec<String> {
@@ -198,6 +243,10 @@ pub(crate) fn plan_ratatui_lines(plan: Option<&CleanupPlan>) -> Vec<Line<'static
     strings_to_lines(plan_lines(plan))
 }
 
+pub(crate) fn confirm_ratatui_lines(app: &TuiApp) -> Vec<Line<'static>> {
+    strings_to_lines(confirm_lines(app))
+}
+
 pub(crate) fn help_ratatui_lines() -> Vec<Line<'static>> {
     strings_to_lines(help_lines())
 }
@@ -343,11 +392,64 @@ fn strings_to_lines(lines: Vec<String>) -> Vec<Line<'static>> {
     lines.into_iter().map(Line::from).collect()
 }
 
+fn selected_rules_summary(app: &TuiApp) -> String {
+    if app.basket.is_empty() {
+        return "none".to_string();
+    }
+
+    let rules: Vec<&str> = app
+        .basket
+        .keys()
+        .take(CONFIRM_RULE_PREVIEW_LIMIT)
+        .map(String::as_str)
+        .collect();
+    let omitted = app.basket.len().saturating_sub(rules.len());
+    let mut summary = rules.join(", ");
+    if omitted > 0 {
+        summary.push_str(&format!(", +{omitted} more"));
+    }
+    summary
+}
+
+fn safety_gate_summary(app: &TuiApp) -> String {
+    let mut flags = BTreeSet::new();
+    let mut warnings = BTreeSet::new();
+    for item in app.basket.values() {
+        flags.extend(item.required_flags.iter().cloned());
+        warnings.extend(item.required_warnings.iter().cloned());
+    }
+
+    let mut parts = Vec::new();
+    if !flags.is_empty() {
+        parts.push(format!(
+            "flags {}",
+            flags.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if !warnings.is_empty() {
+        parts.push(format!(
+            "warnings {}",
+            warnings.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join("; ")
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use rebecca_core::cleanup_advice::CleanupAdviceStatus;
     use rebecca_core::plan::{CleanupPlan, CleanupSummary};
+    use rebecca_core::scan::ScanBackendKind;
     use rebecca_core::{DeleteMode, PlanRequest, Platform};
     use unicode_width::UnicodeWidthStr;
+
+    use crate::tui::basket::CleanupBasketItem;
 
     use super::*;
 
@@ -375,6 +477,58 @@ mod tests {
             .expect("TUI plan lines should still show the confirmed empty command");
 
         assert!(preview_index < empty_index);
+    }
+
+    #[test]
+    fn confirm_lines_show_execution_decision_context() {
+        let mut plan = CleanupPlan::empty(PlanRequest::for_platform(
+            Platform::Linux,
+            DeleteMode::DryRun,
+        ));
+        plan.summary = CleanupSummary {
+            total_targets: 4,
+            allowed_targets: 2,
+            blocked_targets: 1,
+            skipped_targets: 1,
+            estimated_bytes: 4096,
+            ..CleanupSummary::default()
+        };
+        let mut app = TuiApp::root_picker(Vec::new(), ScanBackendKind::PortableRecursive, 100);
+        app.preview = Some(plan);
+        app.confirmation_input = "CLEAN 4096".to_string();
+        app.basket.insert(
+            "linux.browser-cache".to_string(),
+            CleanupBasketItem {
+                rule_id: "linux.browser-cache".to_string(),
+                status: CleanupAdviceStatus::MaybeCleanable,
+                reason: "browser cache".to_string(),
+                required_flags: vec!["--allow-moderate".to_string()],
+                required_warnings: vec!["active-process".to_string()],
+                source_path: PathBuf::from("/home/user/.cache/browser"),
+                source_logical_bytes: 4096,
+                source_files: 0,
+                source_directories: 0,
+                covered_path_count: 2,
+            },
+        );
+
+        let text = confirm_lines(&app).join("\n");
+
+        assert!(
+            text.contains("Execution: move allowed targets to the system trash or Recycle Bin.")
+        );
+        assert!(
+            text.contains("Allowed: 2 targets of 4 total targets | Estimated: 4096 (4.00 KiB)")
+        );
+        assert!(
+            text.contains("Not moving now: 1 blocked target, 1 skipped target, 0 failed targets")
+        );
+        assert!(text.contains("Basket rules: linux.browser-cache"));
+        assert!(text.contains("Safety gates: flags --allow-moderate; warnings active-process"));
+        assert!(text.contains("Required phrase: CLEAN 4096"));
+        assert!(text.contains("Input: CLEAN 4096"));
+        assert!(text.contains("rebecca trash empty --yes"));
+        assert!(text.contains("rebecca clean --yes --permanent"));
     }
 
     #[test]

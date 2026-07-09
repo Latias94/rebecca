@@ -4,10 +4,10 @@ use crate::tui::frame_projection::TuiFrameProjection;
 use crate::tui::model::TuiScreen;
 use crate::tui::navigation::RootChoice;
 use crate::tui::presentation::{
-    BAR_WIDTH, advice_label, byte_bar, distribution_count_label, distribution_empty_label,
-    distribution_share_label, distribution_title, group_filter_suffix, help_lines, history_lines,
-    map_title, max_distribution_logical, max_logical, plan_lines, screen_label, task_status_lines,
-    treemap_context_lines, treemap_empty_message, trim_to_width,
+    BAR_WIDTH, advice_label, byte_bar, confirm_lines, distribution_count_label,
+    distribution_empty_label, distribution_share_label, distribution_title, group_filter_suffix,
+    help_lines, history_lines, map_title, max_distribution_logical, max_logical, plan_lines,
+    screen_label, task_status_lines, treemap_context_lines, treemap_empty_message, trim_to_width,
 };
 use crate::tui::view::ViewOptions;
 
@@ -42,11 +42,9 @@ pub(crate) fn snapshot(app: &TuiApp, options: ViewOptions) -> String {
             snapshot_plan("Cleanup preview", app.preview.as_ref(), width, &mut lines)
         }
         TuiScreen::Confirm => {
-            lines.push(trim_to_width(
-                format!("Type {} to execute", app.confirmation_phrase()),
-                width,
-            ));
-            lines.push(trim_to_width(format!("Input: {}", app.message), width));
+            for line in confirm_lines(app) {
+                lines.push(trim_to_width(line, width));
+            }
         }
         TuiScreen::Executed => {
             snapshot_plan("Cleanup result", app.executed.as_ref(), width, &mut lines)
