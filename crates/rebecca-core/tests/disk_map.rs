@@ -470,6 +470,13 @@ fn disk_map_reports_missing_root_without_failing() {
 #[test]
 fn disk_map_experimental_backend_records_portable_fallback() {
     let _env = EnvVarGuard::set(TEST_DISABLE_LIVE_NTFS_MFT_ENV, "1");
+    let expected_reason_code = if cfg!(all(windows, feature = "ntfs")) {
+        "disabled-by-environment"
+    } else if cfg!(windows) {
+        "feature-disabled"
+    } else {
+        "unsupported-platform"
+    };
 
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("workspace");
@@ -496,11 +503,7 @@ fn disk_map_experimental_backend_records_portable_fallback() {
             .estimate_provenance
             .estimate_fallback_kind
             .map(|kind| kind.label()),
-        Some(if cfg!(all(windows, feature = "ntfs")) {
-            "disabled-by-environment"
-        } else {
-            "feature-disabled"
-        })
+        Some(expected_reason_code)
     );
     assert!(
         report.roots[0]
@@ -512,11 +515,7 @@ fn disk_map_experimental_backend_records_portable_fallback() {
     assert_eq!(report.diagnostics[0].kind, DiskMapDiagnosticKind::Fallback);
     assert_eq!(
         report.diagnostics[0].reason_code.as_deref(),
-        Some(if cfg!(all(windows, feature = "ntfs")) {
-            "disabled-by-environment"
-        } else {
-            "feature-disabled"
-        })
+        Some(expected_reason_code)
     );
     assert!(
         report.diagnostics[0]
